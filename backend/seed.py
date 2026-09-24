@@ -13,11 +13,17 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.security import hash_password
+from app.db.schema_check import check_schema, is_alembic_managed
 from app.db.session import Base, SessionLocal, engine
 from app.models import (Asset, AssetStatus, Device, DeviceType, Lab,
                         RfidCredential, Role, RoleRow, User)
 
-Base.metadata.create_all(engine)
+# Seeding a migrated database that is behind the code would write into an
+# old schema; stop and say so instead.
+if is_alembic_managed(engine):
+    check_schema(engine)
+else:
+    Base.metadata.create_all(engine)
 db = SessionLocal()
 
 

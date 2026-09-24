@@ -19,6 +19,7 @@ from app.api.routes import (access, admin, auth, bookings, issues, labs,
                             notifications, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
+from app.db.schema_check import check_schema, is_alembic_managed
 from app.db.session import Base, SessionLocal, engine, get_db
 from app.models import Role, User
 from app.ws.manager import Client, manager
@@ -33,9 +34,13 @@ async def lifespan(_: FastAPI):
             raise RuntimeError("SECRET_KEY must be set in production")
         if settings.DEVICE_API_KEY == "dev-device-key-change-me":
             raise RuntimeError("DEVICE_API_KEY must be set in production")
-    # Tables are managed by Alembic; create_all is a convenience for the
-    # no-Docker quickstart path and is a no-op once migrations have run.
-    Base.metadata.create_all(engine)
+    # A migrated database must be up to date - create_all on an old schema
+    # would add new tables but not new columns, then break the migration.
+    # Only an unmanaged database (tests, throwaway quickstart) gets create_all.
+    if is_alembic_managed(engine):
+        check_schema(engine)
+    else:
+        Base.metadata.create_all(engine)
     # Sync endpoints run in worker threads; the live stream publishes through
     # this loop from there.
     manager.bind_loop(asyncio.get_running_loop())
