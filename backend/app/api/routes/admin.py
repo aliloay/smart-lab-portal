@@ -1,4 +1,5 @@
-"""Admin surface: events, users, devices, assets, alerts, summary, reports."""
+"""Admin surface: events, sessions, users, devices, assets, alerts, summary, reports."""
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -7,15 +8,28 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin, require_staff
-from app.api.routes.labs import DEVICE_STALE_AFTER
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AccessSession, Alert, Asset,
-                        AssetTransaction, AuthMethod, Booking, BookingStatus,
-                        Device, EventType, Lab, RfidCredential, Role, User)
-from app.schemas import (AdminSummary, AlertOut, AssetCreate, AssetOut,
-                         DeviceCreate, DeviceOut, EventOut, UserOut, UserUpdate)
+                        AssetStatus, AssetTransaction, AuditLog, AuthMethod,
+                        Booking,
+                        BookingStatus, Device, EventType, Issue, IssueSeverity,
+                        Lab, RfidCredential, Role, User)
+from app.schemas import (AdminSummary, AlertOut, AssetCreate, AssetDetail,
+                         AssetMaintenanceRow, AssetOut, AssetTransactionOut,
+                         AssetUpdate, DeviceCreate, DeviceOut, EventOut, LabOut,
+                         SessionOut, UserOut, UserUpdate)
+from app.services.devices import device_out, is_fresh, refresh_liveness
+from app.services.events import log_event
+from app.services.issues import ACTIVE as ISSUE_ACTIVE, is_overdue
+from app.services.sessions import close_expired, duration_minutes
 
 router = APIRouter(tags=["admin"])
+
+# Event types that represent a security-relevant refusal or anomaly.
+SECURITY_EVENTS = (EventType.ACCESS_DENIED, EventType.QR_REJECTED,
+                   EventType.RFID_REJECTED, EventType.IDENTITY_MISMATCH,
+                   EventType.FACE_REJECTED, EventType.FINGERPRINT_REJECTED,
+                   EventType.ALARM)
 
 
 def _utc(dt: datetime) -> datetime:
@@ -23,15 +37,23 @@ def _utc(dt: datetime) -> datetime:
         else dt.astimezone(timezone.utc)
 
 
+def _staff(u: User) -> bool:
+    return u.role in (Role.ADMIN, Role.LAB_STAFF)
+
+
 # ---------------------------------------------------------------- events ---
 @router.get("/access-events", response_model=list[EventOut])
 def access_events(
     lab_id: Optional[int] = None,
     user_id: Optional[int] = None,
-    event_type: Optional[EventType] = None,
+    booking_id: Optional[int] = None,
+    event_type: Optional[list[EventType]] = Query(None),
     method: Optional[AuthMethod] = None,
     result: Optional[AccessResult] = None,
+    reason: Optional[str] = Query(None, max_length=48),
+    security_only: bool = False,
     since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
     limit: int = Query(200, le=1000),
     db: Session = Depends(get_db),
     caller: User = Depends(get_current_user),
@@ -48,8 +70,7 @@ def access_events(
     narrowed back to themselves instead of being refused, because refusing
     would leak whether that other user has any events.
     """
-    is_staff = caller.role in (Role.ADMIN, Role.LAB_STAFF)
-    if not is_staff:
+    if not _staff(caller):
         user_id = caller.id
 
     stmt = select(AccessEvent).order_by(desc(AccessEvent.created_at)).limit(limit)
@@ -57,24 +78,66 @@ def access_events(
         stmt = stmt.where(AccessEvent.lab_id == lab_id)
     if user_id is not None:
         stmt = stmt.where(AccessEvent.user_id == user_id)
-    if event_type is not None:
-        stmt = stmt.where(AccessEvent.event_type == event_type)
+    if booking_id is not None:
+        stmt = stmt.where(AccessEvent.booking_id == booking_id)
+    if event_type:
+        stmt = stmt.where(AccessEvent.event_type.in_(event_type))
+    if security_only:
+        stmt = stmt.where(AccessEvent.event_type.in_(SECURITY_EVENTS))
     if method is not None:
         stmt = stmt.where(AccessEvent.method == method)
     if result is not None:
         stmt = stmt.where(AccessEvent.result == result)
+    if reason:
+        stmt = stmt.where(AccessEvent.reason == reason)
     if since is not None:
         stmt = stmt.where(AccessEvent.created_at >= since)
+    if until is not None:
+        stmt = stmt.where(AccessEvent.created_at < until)
 
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    users: dict[int, Optional[str]] = {}
+    devices: dict[int, Optional[str]] = {}
     out = []
     for e in db.scalars(stmt).all():
         item = EventOut.model_validate(e)
         if e.user_id:
-            u = db.get(User, e.user_id)
-            item.user_name = u.full_name if u else None
-        if e.lab_id:
-            lab = db.get(Lab, e.lab_id)
-            item.lab_code = lab.code if lab else None
+            if e.user_id not in users:
+                u = db.get(User, e.user_id)
+                users[e.user_id] = u.full_name if u else None
+            item.user_name = users[e.user_id]
+        if e.device_id:
+            if e.device_id not in devices:
+                d = db.get(Device, e.device_id)
+                devices[e.device_id] = d.name if d else None
+            item.device_name = devices[e.device_id]
+        item.lab_code = labs.get(e.lab_id) if e.lab_id else None
+        out.append(item)
+    return out
+
+
+# -------------------------------------------------------------- sessions ---
+@router.get("/access-sessions", response_model=list[SessionOut])
+def access_sessions(lab_id: Optional[int] = None,
+                    open_only: bool = False,
+                    limit: int = Query(200, le=1000),
+                    db: Session = Depends(get_db),
+                    _: User = Depends(require_staff)):
+    """Every occupancy session - entry, door cycle, and how it ended."""
+    close_expired(db)
+    stmt = select(AccessSession).order_by(desc(AccessSession.started_at))
+    if lab_id is not None:
+        stmt = stmt.where(AccessSession.lab_id == lab_id)
+    if open_only:
+        stmt = stmt.where(AccessSession.ended_at.is_(None))
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    out = []
+    for s in db.scalars(stmt.limit(limit)).all():
+        item = SessionOut.model_validate(s)
+        u = db.get(User, s.user_id)
+        item.user_name = u.full_name if u else None
+        item.lab_code = labs.get(s.lab_id)
+        item.duration_minutes = duration_minutes(s)
         out.append(item)
     return out
 
@@ -82,8 +145,11 @@ def access_events(
 # --------------------------------------------------------------- summary ---
 @router.get("/summary", response_model=AdminSummary)
 def summary(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    close_expired(db)
+    devices = refresh_liveness(db)
     now = datetime.now(timezone.utc)
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow = midnight + timedelta(days=1)
 
     labs = db.scalars(select(Lab)).all()
     confirmed = db.scalars(select(Booking).where(
@@ -92,32 +158,57 @@ def summary(db: Session = Depends(get_db), _: User = Depends(require_staff)):
     active = [b for b in confirmed
               if _utc(b.start_time) <= now <= _utc(b.end_time)]
     upcoming = [b for b in confirmed if _utc(b.start_time) > now]
+    today = [b for b in confirmed
+             if _utc(b.start_time) < tomorrow and _utc(b.end_time) > midnight]
 
-    occupied_lab_ids = {b.lab_id for b in active}
-    occupied_lab_ids |= {
-        s.lab_id for s in db.scalars(
-            select(AccessSession).where(AccessSession.ended_at.is_(None))).all()}
+    open_sessions = db.scalars(
+        select(AccessSession).where(AccessSession.ended_at.is_(None))).all()
+    occupied_lab_ids = {b.lab_id for b in active} | {s.lab_id for s in open_sessions}
 
-    granted = db.scalar(select(func.count()).select_from(AccessEvent).where(
-        AccessEvent.event_type == EventType.ACCESS_GRANTED,
-        AccessEvent.created_at >= midnight)) or 0
-    denied = db.scalar(select(func.count()).select_from(AccessEvent).where(
-        AccessEvent.event_type == EventType.ACCESS_DENIED,
-        AccessEvent.created_at >= midnight)) or 0
+    def count(*where) -> int:
+        return db.scalar(select(func.count()).select_from(AccessEvent)
+                         .where(*where)) or 0
 
-    devices = db.scalars(select(Device)).all()
-    online = sum(1 for d in devices if d.last_seen_at is not None
-                 and (now - _utc(d.last_seen_at)) < DEVICE_STALE_AFTER)
+    granted = count(AccessEvent.event_type == EventType.ACCESS_GRANTED,
+                    AccessEvent.created_at >= midnight)
+    denied = count(AccessEvent.event_type == EventType.ACCESS_DENIED,
+                   AccessEvent.created_at >= midnight)
+    security = count(AccessEvent.event_type.in_(SECURITY_EVENTS),
+                     AccessEvent.created_at >= midnight)
 
     open_alerts = db.scalar(select(func.count()).select_from(Alert).where(
         Alert.is_resolved.is_(False))) or 0
+
+    assets = db.scalars(select(Asset)).all()
+    issues = db.scalars(select(Issue).where(Issue.status.in_(ISSUE_ACTIVE))).all()
 
     return AdminSummary(
         total_labs=len(labs), occupied_labs=len(occupied_lab_ids),
         active_bookings=len(active), upcoming_bookings=len(upcoming),
         granted_today=granted, denied_today=denied,
-        devices_online=online, devices_total=len(devices),
+        devices_online=sum(1 for d in devices if is_fresh(d, now)),
+        devices_total=len(devices),
         open_alerts=open_alerts,
+        labs_with_hardware=sum(1 for l in labs if l.has_controller),
+        active_users=db.scalar(select(func.count()).select_from(User).where(
+            User.is_active.is_(True))) or 0,
+        bookings_today=len(today),
+        pending_bookings=db.scalar(select(func.count()).select_from(Booking).where(
+            Booking.status == BookingStatus.PENDING,
+            Booking.end_time > now)) or 0,
+        people_inside=len(open_sessions),
+        security_events_today=security,
+        assets_total=len(assets),
+        assets_in_maintenance=sum(1 for a in assets
+                                  if a.status == AssetStatus.MAINTENANCE),
+        assets_checked_out=sum(1 for a in assets
+                               if a.status == AssetStatus.CHECKED_OUT),
+        open_issues=len(issues),
+        critical_issues=sum(1 for i in issues
+                            if i.severity == IssueSeverity.CRITICAL),
+        high_issues=sum(1 for i in issues if i.severity == IssueSeverity.HIGH),
+        unassigned_issues=sum(1 for i in issues if i.assigned_to_id is None),
+        overdue_issues=sum(1 for i in issues if is_overdue(i, now)),
     )
 
 
@@ -129,12 +220,31 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_staff)):
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
-                _: User = Depends(require_admin)):
+                admin: User = Depends(require_admin)):
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-    for k, v in req.model_dump(exclude_unset=True).items():
+    changes = req.model_dump(exclude_unset=True)
+
+    # An administrator cannot lock the system out of administration.
+    if u.id == admin.id and (changes.get("is_active") is False or
+                             changes.get("role") not in (None, Role.ADMIN)):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "You cannot demote or disable your own account")
+    if "auth_subject" in changes:
+        subj = (changes["auth_subject"] or "").strip() or None
+        if subj and db.scalar(select(User).where(User.auth_subject == subj,
+                                                 User.id != u.id)):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "auth_subject already assigned")
+        changes["auth_subject"] = subj
+
+    for k, v in changes.items():
         setattr(u, k, v)
+    db.add(AuditLog(actor_user_id=admin.id, action="USER_UPDATED",
+                    entity_type="user", entity_id=str(u.id),
+                    detail={k: (v.value if hasattr(v, "value") else v)
+                            for k, v in changes.items()}))
     db.commit()
     db.refresh(u)
     return u
@@ -157,16 +267,18 @@ def add_rfid(user_id: int, uid_hex: str, label: str = "",
 
 # --------------------------------------------------------------- devices ---
 @router.get("/devices", response_model=list[DeviceOut])
-def list_devices(db: Session = Depends(get_db),
-                 _: User = Depends(get_current_user)):
+def list_devices(lab_id: Optional[int] = None, db: Session = Depends(get_db),
+                 _: User = Depends(require_staff)):
+    """
+    Liveness is recomputed on read: a device that stops sending heartbeats
+    never gets a chance to mark itself offline. Staff only - the list
+    includes network addresses.
+    """
     now = datetime.now(timezone.utc)
-    devices = db.scalars(select(Device).order_by(Device.name)).all()
-    # Recompute liveness on read: a device that stops sending heartbeats never
-    # gets a chance to mark itself offline.
-    for d in devices:
-        d.is_online = (d.last_seen_at is not None
-                       and (now - _utc(d.last_seen_at)) < DEVICE_STALE_AFTER)
-    return devices
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    return [device_out(d, labs.get(d.lab_id), now)
+            for d in refresh_liveness(db)
+            if lab_id is None or d.lab_id == lab_id]
 
 
 @router.post("/devices", response_model=DeviceOut,
@@ -175,21 +287,75 @@ def create_device(req: DeviceCreate, db: Session = Depends(get_db),
                   _: User = Depends(require_admin)):
     if db.scalar(select(Device).where(Device.device_uid == req.device_uid)):
         raise HTTPException(status.HTTP_409_CONFLICT, "device_uid exists")
+    if db.get(Lab, req.lab_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     d = Device(**req.model_dump())
     db.add(d)
     db.commit()
     db.refresh(d)
-    return d
+    return device_out(d)
 
 
 # ---------------------------------------------------------------- assets ---
+def _asset_out(db: Session, a: Asset, labs: dict[int, Lab],
+               open_counts: Counter) -> AssetOut:
+    out = AssetOut.model_validate(a)
+    lab = labs.get(a.lab_id)
+    out.lab_code = lab.code if lab else None
+    out.lab_name = lab.name if lab else None
+    out.open_issues = open_counts.get(a.id, 0)
+    return out
+
+
 @router.get("/assets", response_model=list[AssetOut])
 def list_assets(lab_id: Optional[int] = None, db: Session = Depends(get_db),
                 _: User = Depends(get_current_user)):
     stmt = select(Asset).order_by(Asset.name)
     if lab_id is not None:
         stmt = stmt.where(Asset.lab_id == lab_id)
-    return db.scalars(stmt).all()
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
+        Issue.asset_id.is_not(None), Issue.status.in_(ISSUE_ACTIVE))).all())
+    return [_asset_out(db, a, labs, open_counts)
+            for a in db.scalars(stmt).all()]
+
+
+@router.get("/assets/{asset_id}", response_model=AssetDetail)
+def asset_detail(asset_id: int, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """The equipment's record: where it is, who used it, what went wrong."""
+    a = db.get(Asset, asset_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
+        Issue.asset_id == a.id, Issue.status.in_(ISSUE_ACTIVE))).all())
+
+    tx = []
+    if _staff(user):
+        for t in db.scalars(select(AssetTransaction).where(
+                AssetTransaction.asset_id == a.id)
+                .order_by(desc(AssetTransaction.created_at)).limit(50)).all():
+            item = AssetTransactionOut.model_validate(t)
+            u = db.get(User, t.user_id)
+            item.user_name = u.full_name if u else None
+            tx.append(item)
+
+    history = []
+    for i in db.scalars(select(Issue).where(Issue.asset_id == a.id)
+                        .order_by(desc(Issue.created_at))).all():
+        tech = db.get(User, i.assigned_to_id) if i.assigned_to_id else None
+        history.append(AssetMaintenanceRow(
+            id=i.id, ticket_number=i.ticket_number, title=i.title,
+            category=i.category, severity=i.severity, status=i.status,
+            created_at=i.created_at, resolved_at=i.resolved_at,
+            technician=tech.full_name if tech else None,
+            resolution_notes=i.resolution_notes or "",
+            is_mine=i.reporter_id == user.id))
+
+    return AssetDetail(asset=_asset_out(db, a, labs, open_counts),
+                       lab=LabOut.model_validate(labs[a.lab_id]),
+                       transactions=tx, maintenance=history)
 
 
 @router.post("/assets", response_model=AssetOut,
@@ -198,19 +364,40 @@ def create_asset(req: AssetCreate, db: Session = Depends(get_db),
                  _: User = Depends(require_staff)):
     if db.scalar(select(Asset).where(Asset.asset_tag == req.asset_tag)):
         raise HTTPException(status.HTTP_409_CONFLICT, "asset_tag exists")
+    if db.get(Lab, req.lab_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     a = Asset(**req.model_dump())
     db.add(a)
     db.commit()
     db.refresh(a)
-    return a
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    return _asset_out(db, a, labs, Counter())
+
+
+@router.patch("/assets/{asset_id}", response_model=AssetOut)
+def update_asset(asset_id: int, req: AssetUpdate, db: Session = Depends(get_db),
+                 user: User = Depends(require_staff)):
+    a = db.get(Asset, asset_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    changes = req.model_dump(exclude_unset=True)
+    if "status" in changes and changes["status"] != a.status:
+        db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
+                                action=f"STATUS_{changes['status'].value}",
+                                note=f"{a.status.value} → {changes['status'].value}"))
+    for k, v in changes.items():
+        setattr(a, k, v)
+    db.commit()
+    db.refresh(a)
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
+        Issue.asset_id == a.id, Issue.status.in_(ISSUE_ACTIVE))).all())
+    return _asset_out(db, a, labs, open_counts)
 
 
 @router.post("/assets/{asset_id}/checkout", response_model=AssetOut)
 def checkout_asset(asset_id: int, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):
-    from app.models import AssetStatus
-    from app.services.events import log_event
-
     a = db.get(Asset, asset_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
@@ -224,18 +411,19 @@ def checkout_asset(asset_id: int, db: Session = Depends(get_db),
               message=f"{user.full_name} checked out {a.name}")
     db.commit()
     db.refresh(a)
-    return a
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    return _asset_out(db, a, labs, Counter())
 
 
 @router.post("/assets/{asset_id}/return", response_model=AssetOut)
 def return_asset(asset_id: int, db: Session = Depends(get_db),
                  user: User = Depends(get_current_user)):
-    from app.models import AssetStatus
-    from app.services.events import log_event
-
     a = db.get(Asset, asset_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    if a.status != AssetStatus.CHECKED_OUT:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"Asset is {a.status.value}, not checked out")
     a.status = AssetStatus.AVAILABLE
     db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
                             action="RETURN"))
@@ -243,14 +431,26 @@ def return_asset(asset_id: int, db: Session = Depends(get_db),
               message=f"{user.full_name} returned {a.name}")
     db.commit()
     db.refresh(a)
-    return a
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+    return _asset_out(db, a, labs, Counter())
 
 
 # ---------------------------------------------------------------- alerts ---
+def _alert_out(a: Alert, labs: dict[int, str]) -> AlertOut:
+    out = AlertOut.model_validate(a)
+    out.lab_code = labs.get(a.lab_id) if a.lab_id else None
+    return out
+
+
 @router.get("/alerts", response_model=list[AlertOut])
-def list_alerts(db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    return db.scalars(select(Alert).order_by(desc(Alert.created_at))
-                      .limit(200)).all()
+def list_alerts(open_only: bool = False, db: Session = Depends(get_db),
+                _: User = Depends(require_staff)):
+    refresh_liveness(db)
+    stmt = select(Alert).order_by(desc(Alert.created_at)).limit(200)
+    if open_only:
+        stmt = stmt.where(Alert.is_resolved.is_(False))
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    return [_alert_out(a, labs) for a in db.scalars(stmt).all()]
 
 
 @router.post("/alerts/{alert_id}/resolve", response_model=AlertOut)
@@ -263,7 +463,8 @@ def resolve_alert(alert_id: int, db: Session = Depends(get_db),
     a.resolved_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(a)
-    return a
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    return _alert_out(a, labs)
 
 
 @router.get("/access-events/export")
@@ -292,7 +493,7 @@ def export_events(lab_id: Optional[int] = None,
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["timestamp", "lab", "event_type", "person", "method",
-                "result", "reason", "message"])
+                "result", "reason", "booking_id", "message"])
     for e in db.scalars(stmt).all():
         w.writerow([
             e.created_at.isoformat() if e.created_at else "",
@@ -302,6 +503,7 @@ def export_events(lab_id: Optional[int] = None,
             e.method.value if e.method else "",
             e.result.value if e.result else "",
             e.reason or "",
+            e.booking_id or "",
             e.message or "",
         ])
     buf.seek(0)
@@ -337,3 +539,120 @@ def access_report(days: int = Query(7, le=90), db: Session = Depends(get_db),
              "event": r.event_type.value if hasattr(r.event_type, "value")
              else str(r.event_type),
              "count": r.n} for r in rows]
+
+
+@router.get("/reports/overview")
+def reports_overview(days: int = Query(30, ge=1, le=365),
+                     db: Session = Depends(get_db),
+                     _: User = Depends(require_staff)):
+    """
+    Every aggregate the reports page draws, from real rows only. A section
+    with nothing behind it comes back empty and the page says "not enough
+    data yet" - nothing is interpolated, smoothed or sampled.
+
+    Hours are returned in UTC; the browser shifts them to local time.
+    """
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
+
+    bookings = db.scalars(select(Booking).where(
+        Booking.start_time >= since, Booking.start_time <= now + timedelta(days=60))
+    ).all()
+    live = [b for b in bookings
+            if b.status in (BookingStatus.CONFIRMED, BookingStatus.COMPLETED)]
+
+    by_lab: dict[int, dict] = defaultdict(lambda: {"count": 0, "hours": 0.0,
+                                                   "used": 0})
+    for b in live:
+        r = by_lab[b.lab_id]
+        r["count"] += 1
+        r["hours"] += (_utc(b.end_time) - _utc(b.start_time)).total_seconds() / 3600
+        if b.first_entry_at is not None:
+            r["used"] += 1
+
+    volume = Counter(_utc(b.start_time).date().isoformat() for b in live
+                     if _utc(b.start_time) <= now)
+    hours = Counter(_utc(b.start_time).hour for b in live)
+
+    past = [b for b in live if _utc(b.end_time) < now]
+    used = [b for b in past if b.first_entry_at is not None]
+
+    buckets = {"early": 0, "on_time": 0, "late_5_15": 0, "late_15_30": 0,
+               "late_30_plus": 0}
+    for b in live:
+        if b.first_entry_at is None:
+            continue
+        d = (_utc(b.first_entry_at) - _utc(b.start_time)).total_seconds() / 60
+        if d < -5:
+            buckets["early"] += 1
+        elif d <= 5:
+            buckets["on_time"] += 1
+        elif d <= 15:
+            buckets["late_5_15"] += 1
+        elif d <= 30:
+            buckets["late_15_30"] += 1
+        else:
+            buckets["late_30_plus"] += 1
+
+    events = db.execute(
+        select(func.date(AccessEvent.created_at).label("day"),
+               AccessEvent.event_type, func.count().label("n"))
+        .where(AccessEvent.created_at >= since,
+               AccessEvent.event_type.in_([EventType.ACCESS_GRANTED,
+                                           EventType.ACCESS_DENIED]))
+        .group_by("day", AccessEvent.event_type).order_by("day")).all()
+    outcomes: dict[str, dict] = {}
+    for r in events:
+        row = outcomes.setdefault(str(r.day), {"day": str(r.day), "granted": 0,
+                                               "denied": 0})
+        key = "granted" if r.event_type == EventType.ACCESS_GRANTED else "denied"
+        row[key] += r.n
+
+    reasons = db.execute(
+        select(AccessEvent.reason, func.count().label("n"))
+        .where(AccessEvent.created_at >= since,
+               AccessEvent.event_type.in_(SECURITY_EVENTS),
+               AccessEvent.reason.is_not(None))
+        .group_by(AccessEvent.reason).order_by(desc("n"))).all()
+
+    checkouts = db.execute(
+        select(AssetTransaction.asset_id, func.count().label("n"))
+        .where(AssetTransaction.created_at >= since,
+               AssetTransaction.action == "CHECKOUT")
+        .group_by(AssetTransaction.asset_id).order_by(desc("n")).limit(10)).all()
+    assets = {a.id: a for a in db.scalars(select(Asset)).all()}
+
+    sessions = db.scalars(select(AccessSession).where(
+        AccessSession.started_at >= since)).all()
+    entries_by_hour = Counter(_utc(s.started_at).hour for s in sessions)
+
+    return {
+        "period_days": days,
+        "generated_at": now.isoformat(),
+        "bookings_by_lab": sorted(
+            [{"label": labs[k].code if k in labs else str(k),
+              "name": labs[k].name if k in labs else "",
+              "count": v["count"], "hours": round(v["hours"], 1),
+              "used": v["used"]} for k, v in by_lab.items()],
+            key=lambda r: -r["count"]),
+        "booking_volume": [{"day": d, "count": n}
+                           for d, n in sorted(volume.items())],
+        "booking_hours_utc": [{"hour": h, "count": n}
+                              for h, n in sorted(hours.items())],
+        "entry_hours_utc": [{"hour": h, "count": n}
+                            for h, n in sorted(entries_by_hour.items())],
+        "utilisation": {
+            "bookings": len(live),
+            "finished": len(past),
+            "used": len(used),
+            "no_show": len(past) - len(used),
+            "used_rate": round(len(used) / len(past), 3) if past else None,
+        },
+        "entry_delays": buckets if any(buckets.values()) else {},
+        "access_outcomes": list(outcomes.values()),
+        "denial_reasons": [{"reason": r.reason, "count": r.n} for r in reasons],
+        "asset_checkouts": [{"label": assets[r.asset_id].name
+                             if r.asset_id in assets else str(r.asset_id),
+                             "count": r.n} for r in checkouts],
+    }

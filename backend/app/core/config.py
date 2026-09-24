@@ -60,6 +60,31 @@ class Settings(BaseSettings):
     # Booking policy
     MAX_BOOKING_HOURS: int = 8
     BOOKING_AUTO_APPROVE: bool = True
+    # A booking reminder is raised this many minutes before the window opens.
+    BOOKING_REMINDER_MINUTES: int = 15
+
+    # A device that has not sent a heartbeat for this long is offline.
+    DEVICE_STALE_SECONDS: int = 90
+
+    # --- issue photos ---------------------------------------------------------
+    # Local filesystem storage for the first deployment. The storage service
+    # hides the backend, so this can become S3/MinIO without touching issues.
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_MB: int = 12
+    MAX_PHOTOS_PER_ISSUE: int = 12
+    MAX_PHOTOS_PER_REQUEST: int = 6
+    # Larger photos are scaled down to this longest side - still enough to
+    # read a serial plate or a burnt trace, a fraction of a raw phone photo.
+    IMAGE_MAX_DIMENSION: int = 2560
+    THUMBNAIL_DIMENSION: int = 480
+
+    # Hours before an unresolved issue counts as overdue, by severity. A
+    # published service level, not a hidden constant, so a report can say
+    # what "overdue" means.
+    ISSUE_SLA_HOURS_CRITICAL: int = 24
+    ISSUE_SLA_HOURS_HIGH: int = 72
+    ISSUE_SLA_HOURS_MEDIUM: int = 168
+    ISSUE_SLA_HOURS_LOW: int = 336
 
     @property
     def cors_list(self) -> List[str]:

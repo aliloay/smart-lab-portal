@@ -4,16 +4,22 @@
 
 :root { color-scheme: dark; }
 
-html, body, #root { height: 100%; }
+html, body, #root { min-height: 100%; }
 
 body {
-  @apply bg-ink-950 text-slate-300 antialiased;
-  font-feature-settings: 'cv02','cv03','cv04','ss01';
+  @apply bg-ink-900 text-slate-300 antialiased;
+  font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
+  /* A soft light from the upper left gives the page depth without any
+     element having to glow. */
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(14,165,233,.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(45,212,191,.06), transparent 55%),
+    linear-gradient(180deg, #0c1526 0%, #0b1322 40%, #0a1120 100%);
+  background-attachment: fixed;
 }
 
-/* Everything below respects a person's motion preference. Animation here is
-   used to communicate state, so when it is switched off the state must still
-   be legible from colour and text alone - never from movement only. */
+/* Motion communicates state here, so with motion reduced the state must still
+   read from colour and text alone - never from movement only. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
@@ -36,77 +42,106 @@ body {
 :focus-visible {
   outline: 2px solid theme('colors.accent.400');
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 @layer components {
-  .surface {
-    @apply bg-ink-800/80 border border-ink-600/70 rounded-xl shadow-card
-           backdrop-blur-[2px];
+  /* --- surfaces ----------------------------------------------------------- */
+  .card {
+    @apply relative rounded-2xl border border-ink-600/70 shadow-card;
+    background: linear-gradient(180deg, rgba(23,39,65,.92) 0%, rgba(19,32,54,.92) 100%);
   }
-  .surface-pad { @apply surface p-5; }
-
-  .surface-hover {
+  .card-pad { @apply card p-5; }
+  .card-hover {
     @apply transition-[transform,box-shadow,border-color] duration-200
            hover:-translate-y-0.5 hover:shadow-lift hover:border-ink-500;
   }
+  /* Nested panel inside a card. */
+  .well {
+    @apply rounded-xl border border-ink-600/60 bg-ink-900/55;
+  }
+  /* Legacy names, kept so older markup still renders as a card. */
+  .surface { @apply card; }
+  .surface-pad { @apply card p-5; }
+  .surface-hover { @apply card-hover; }
 
+  /* --- type ---------------------------------------------------------------- */
+  .page-title {
+    @apply font-display text-[26px] sm:text-[28px] leading-tight font-semibold
+           text-white tracking-tight;
+  }
+  .page-sub { @apply mt-1.5 text-sm text-slate-400 max-w-2xl leading-relaxed; }
+  .eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-technical text-accent-300;
+  }
   .label {
-    @apply text-[10.5px] uppercase tracking-technical text-slate-500
-           font-semibold;
+    @apply text-[11px] uppercase tracking-technical text-slate-400 font-semibold;
   }
-
   .mono { @apply font-mono text-[12px] tracking-tight; }
+  .tnum { font-variant-numeric: tabular-nums; }
 
+  /* --- controls ------------------------------------------------------------ */
   .input {
-    @apply w-full bg-ink-900/80 border border-ink-500 rounded-lg px-3.5 py-2.5
-           text-sm text-slate-100 placeholder-slate-600 transition-colors
-           focus:outline-none focus:ring-2 focus:ring-accent-500/50
-           focus:border-accent-500;
+    @apply w-full bg-ink-950/60 border border-ink-500/80 rounded-xl px-3.5 py-2.5
+           text-sm text-slate-100 placeholder-slate-500 transition-colors
+           focus:outline-none focus:ring-2 focus:ring-accent-500/40
+           focus:border-accent-400;
   }
-
+  select.input { @apply pr-8; }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5
            text-sm font-medium transition-all duration-150 select-none
            active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed
-           disabled:active:scale-100;
+           disabled:active:scale-100 whitespace-nowrap;
   }
   .btn-primary {
-    @apply btn bg-accent-600 text-white hover:bg-accent-500
-           shadow-[0_6px_20px_-8px_rgba(14,165,233,.9)];
+    @apply btn text-white;
+    background: linear-gradient(180deg, #0ea5e9 0%, #0284c7 100%);
+    box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 8px 22px -10px rgba(14,165,233,.9);
   }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
   .btn-ghost {
-    @apply btn border border-ink-500 text-slate-300
-           hover:border-ink-400 hover:text-white hover:bg-ink-700/60;
+    @apply btn border border-ink-500 text-slate-200 bg-ink-800/40
+           hover:border-ink-400 hover:text-white hover:bg-ink-700/70;
   }
-  .btn-quiet { @apply btn text-slate-400 hover:text-white hover:bg-ink-700/60; }
+  .btn-quiet { @apply btn text-slate-300 hover:text-white hover:bg-ink-700/70; }
   .btn-danger {
-    @apply btn border border-bad/40 text-bad hover:bg-bad/10 hover:border-bad/60;
+    @apply btn border border-bad/45 text-bad-soft hover:bg-bad/10 hover:border-bad/70;
   }
+  .btn-sm { @apply px-3 py-1.5 text-[13px] rounded-lg; }
 
   .chip {
     @apply inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md
-           text-[10.5px] font-semibold tracking-technical uppercase
+           text-[10.5px] font-semibold tracking-[0.08em] uppercase
            whitespace-nowrap;
   }
 
+  /* --- tables -------------------------------------------------------------- */
   .th {
     @apply text-left px-4 py-3 label border-b border-ink-600
-           bg-ink-900/40 sticky top-0 backdrop-blur-sm;
+           bg-ink-850/95 sticky top-0 backdrop-blur-sm z-[1];
   }
-  .td { @apply px-4 py-3 text-sm border-b border-ink-700/50; }
+  .td { @apply px-4 py-3 text-sm border-b border-ink-700/60 align-middle; }
+  .tr { @apply transition-colors hover:bg-ink-700/35; }
 
-  /* The technical grid that sits behind full-page surfaces. Deliberately
-     faint: it should register as texture, not as a pattern to look at. */
-  .backdrop-grid {
-    @apply bg-grid-fine bg-grid-fine;
+  /* --- misc ---------------------------------------------------------------- */
+  .skeleton { @apply relative overflow-hidden rounded-xl bg-ink-800/70; }
+  .skeleton::after {
+    content: ''; @apply absolute inset-0 -translate-x-full animate-sweep;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.04), transparent);
   }
+  .divider { @apply border-t border-ink-600/60; }
+  .link { @apply text-accent-300 hover:text-accent-200 transition-colors; }
 }
+
+/* Grid items default to min-width: auto, so one long truncated line (an event
+   message, a lab name) can widen a column past a phone screen. Every grid
+   child may shrink; truncation then works as intended. */
+.grid > * { min-width: 0; }
 
 @layer utilities {
   .text-balance { text-wrap: balance; }
-  /* Masks a decorative layer so it fades out instead of ending on a hard
-     edge, which is what makes background art read as atmosphere. */
+  /* Fade decorative layers out instead of ending them on a hard edge. */
   .fade-b {
     -webkit-mask-image: linear-gradient(180deg, #000 30%, transparent 100%);
             mask-image: linear-gradient(180deg, #000 30%, transparent 100%);
@@ -115,4 +150,39 @@ body {
     -webkit-mask-image: linear-gradient(90deg, #000 45%, transparent 100%);
             mask-image: linear-gradient(90deg, #000 45%, transparent 100%);
   }
+  .fade-l {
+    -webkit-mask-image: linear-gradient(270deg, #000 45%, transparent 100%);
+            mask-image: linear-gradient(270deg, #000 45%, transparent 100%);
+  }
+  .fade-radial {
+    -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent 100%);
+            mask-image: radial-gradient(closest-side, #000 55%, transparent 100%);
+  }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
 }
+
+/* SVG art motion. Plain CSS so it never depends on a JavaScript animation
+   finishing, and switched off with reduced motion by the rule above. */
+.art-flow { stroke-dasharray: 6 8; animation: dash 1.6s linear infinite; }
+.art-flow-slow { stroke-dasharray: 4 10; animation: dash 3.2s linear infinite; }
+.art-spin { transform-box: fill-box; transform-origin: center; animation: spinSlow 18s linear infinite; }
+.art-spin-fast { transform-box: fill-box; transform-origin: center; animation: spinSlow 6s linear infinite; }
+.art-blink { animation: pulseDot 2.4s ease-in-out infinite; }
+@keyframes dash { to { stroke-dashoffset: -40; } }
+@keyframes spinSlow { to { transform: rotate(360deg); } }
+@keyframes pulseDot {
+  0%,100% { opacity: 1; }
+  50% { opacity: .35; }
+}
+
+/* Robotic arm: each joint turns about its own axis at its own pace, so the
+   motion reads as a manipulator working through a task. */
+.arm-shoulder, .arm-elbow, .arm-wrist { transform-box: view-box; }
+.arm-shoulder { animation: armShoulder 11s ease-in-out infinite; }
+.arm-elbow    { animation: armElbow 8s ease-in-out infinite; }
+.arm-wrist    { animation: armWrist 5.5s ease-in-out infinite; }
+.arm-shoulder.paused, .arm-elbow.paused, .arm-wrist.paused { animation-play-state: paused; }
+@keyframes armShoulder { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(5deg); } }
+@keyframes armElbow    { 0%,100% { transform: rotate(7deg); }  50% { transform: rotate(-9deg); } }
+@keyframes armWrist    { 0%,100% { transform: rotate(-12deg); } 50% { transform: rotate(14deg); } }

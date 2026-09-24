@@ -1,71 +1,83 @@
-import { useEffect, useState, ReactNode } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import ErrorBoundary from './ErrorBoundary'
 import {
-  Activity, Boxes, Building2, CalendarPlus, CalendarRange, Cpu, Gauge,
-  LayoutDashboard, LogOut, Menu, ShieldAlert, TriangleAlert, Users, X,
+  Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
+  Gauge, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, TriangleAlert,
+  UserRound, Users, Wrench, X,
 } from 'lucide-react'
-import { useAuth } from '../lib/auth'
+import ErrorBoundary from './ErrorBoundary'
+import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
+import NotificationBell from './NotificationBell'
+import SystemHealth from './SystemHealth'
+import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
+import { Summary, api } from '../lib/api'
+import { isStaff, roleLabel, useAuth } from '../lib/auth'
+import { useLive, useLiveMessages } from '../lib/live'
 
-interface Item { to: string; label: string; icon: ReactNode }
+type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
+interface Item { to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean }
 interface Section { title: string; items: Item[] }
 
 /**
- * Navigation is built per ROLE, not filtered per permission.
+ * Navigation is composed per ROLE, not filtered per permission.
  *
- * An administrator seeing "New booking" and "My bookings" as primary
- * navigation is a student workflow wearing an admin's badge. Staff and
- * admins do not reserve laboratories as their main job; they run them. So
- * each role gets a sidebar composed for what that person actually does,
- * rather than one list with rows hidden.
- *
- * The routes still exist for every role - an admin CAN open /book - they are
- * simply not the front door of an operational interface.
+ * A student reserves laboratories and reports problems. Staff run the
+ * laboratories day to day. An administrator oversees the whole platform. An
+ * administrator seeing "New booking" and "My bookings" as primary navigation
+ * would be a student workflow wearing an admin's badge - so each role gets a
+ * sidebar for what that person actually does. The server enforces the real
+ * permissions either way.
  */
 const STUDENT_NAV: Section[] = [
   { title: 'Laboratory', items: [
-    { to: '/',         label: 'Dashboard',    icon: <LayoutDashboard size={16} /> },
-    { to: '/labs',     label: 'Laboratories', icon: <Building2 size={16} /> },
-    { to: '/book',     label: 'New booking',  icon: <CalendarPlus size={16} /> },
-    { to: '/bookings', label: 'My bookings',  icon: <CalendarRange size={16} /> },
+    { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={17} />, end: true },
+    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
+    { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
+    { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
+  ]},
+  { title: 'Support', items: [
+    { to: '/issues', label: 'My reports', icon: <Wrench size={17} /> },
+    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
+    { to: '/profile', label: 'Profile', icon: <UserRound size={17} /> },
   ]},
 ]
 
 const STAFF_NAV: Section[] = [
   { title: 'Operations', items: [
-    { to: '/',                   label: 'Dashboard',     icon: <Gauge size={16} /> },
-    { to: '/labs',               label: 'Laboratories',  icon: <Building2 size={16} /> },
-    { to: '/admin/bookings',     label: 'Reservations',  icon: <CalendarRange size={16} /> },
-    { to: '/admin/access-events',label: 'Access monitor',icon: <ShieldAlert size={16} /> },
+    { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
+    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
+    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
+    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
   ]},
   { title: 'Facility', items: [
-    { to: '/admin/devices', label: 'Devices',   icon: <Cpu size={16} /> },
-    { to: '/admin/assets',  label: 'Equipment', icon: <Boxes size={16} /> },
-    { to: '/admin/alerts',  label: 'Alerts',    icon: <TriangleAlert size={16} /> },
-  ]},
-  { title: 'Personal', items: [
-    { to: '/book',     label: 'New booking', icon: <CalendarPlus size={16} /> },
-    { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={16} /> },
+    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
+    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
+    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
   ]},
 ]
 
 const ADMIN_NAV: Section[] = [
   { title: 'Operations', items: [
-    { to: '/',      label: 'Overview',     icon: <Gauge size={16} /> },
-    { to: '/labs',  label: 'Laboratories', icon: <Building2 size={16} /> },
+    { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
+    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
   ]},
   { title: 'Access & audit', items: [
-    { to: '/admin/bookings',      label: 'Bookings',      icon: <CalendarRange size={16} /> },
-    { to: '/admin/access-events', label: 'Access events', icon: <ShieldAlert size={16} /> },
-    { to: '/admin/reports',       label: 'Reports',       icon: <Activity size={16} /> },
+    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
+    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
+  ]},
+  { title: 'Facility', items: [
+    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
+    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
+    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
   ]},
   { title: 'Administration', items: [
-    { to: '/admin/users',   label: 'Users & roles', icon: <Users size={16} /> },
-    { to: '/admin/devices', label: 'Devices',       icon: <Cpu size={16} /> },
-    { to: '/admin/assets',  label: 'Equipment',     icon: <Boxes size={16} /> },
-    { to: '/admin/alerts',  label: 'Alerts',        icon: <TriangleAlert size={16} /> },
+    { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
+    { to: '/admin/settings', label: 'Settings', icon: <Settings size={17} /> },
   ]},
 ]
 
@@ -75,187 +87,260 @@ function navFor(role: string | undefined): Section[] {
   return STUDENT_NAV
 }
 
-function NavItem({ item, onNavigate }: { item: Item; onNavigate: () => void }) {
+function NavItem({ item, badge, onNavigate }: {
+  item: Item; badge?: number; onNavigate: () => void
+}) {
   return (
-    <NavLink
-      to={item.to}
-      end={item.to === '/' || item.to === '/admin'}
-      onClick={onNavigate}
+    <NavLink to={item.to} end={item.end} onClick={onNavigate}
       className={({ isActive }) =>
-        `group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
-         transition-colors ${
-          isActive
-            ? 'text-accent-300 bg-accent-500/[0.09]'
-            : 'text-slate-400 hover:text-slate-100 hover:bg-ink-700/60'}`
-      }
-    >
+        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+         transition-colors ${isActive
+          ? 'text-white bg-gradient-to-r from-accent-500/20 to-accent-500/[0.04]'
+          : 'text-slate-300 hover:text-white hover:bg-ink-700/55'}`}>
       {({ isActive }) => (
         <>
-          {/* The active marker is a shared layout element, so it slides
-              between items instead of blinking out and back in. */}
           {isActive && (
-            <motion.span
-              layoutId="nav-active"
-              className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full
-                         bg-accent-400"
-              transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-            />
+            <motion.span layoutId="nav-active"
+              className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
+                         shadow-[0_0_12px_rgba(56,189,248,.8)]"
+              transition={{ type: 'spring', stiffness: 500, damping: 40 }} />
           )}
-          <span className={isActive
-            ? 'text-accent-400'
-            : 'text-slate-500 group-hover:text-slate-300'}>
-            {item.icon}
-          </span>
-          {item.label}
+          <span className={isActive ? 'text-accent-300'
+            : 'text-slate-400 group-hover:text-slate-200'}>{item.icon}</span>
+          <span className="flex-1">{item.label}</span>
+          {!!badge && (
+            <span className="min-w-[20px] h-5 px-1.5 rounded-md grid place-items-center
+                             text-[11px] font-semibold tnum bg-ink-600 text-slate-100">
+              {badge > 99 ? '99+' : badge}
+            </span>
+          )}
         </>
       )}
     </NavLink>
   )
 }
 
+function UserMenu() {
+  const { user, logout } = useAuth()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open])
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open}
+        className="flex items-center gap-2.5 h-9 pl-1 pr-2.5 rounded-xl border border-ink-600
+                   bg-ink-800/70 hover:border-ink-500">
+        <Avatar name={user?.full_name} size={28} />
+        <span className="hidden xl:block text-left leading-tight">
+          <span className="block text-[12.5px] text-white max-w-[140px] truncate">
+            {user?.full_name}</span>
+          <span className="block text-[10.5px] text-slate-400">{roleLabel(user?.role)}</span>
+        </span>
+        <ChevronDown size={14} className="text-slate-400" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }} transition={{ duration: .14 }}
+            className="absolute right-0 mt-2 w-60 card p-2 z-40">
+            <div className="px-3 py-2">
+              <div className="text-sm text-white truncate">{user?.full_name}</div>
+              <div className="text-xs text-slate-400 truncate">{user?.email}</div>
+            </div>
+            <div className="divider my-1" />
+            <Link to="/profile" onClick={() => setOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+                             text-slate-200 hover:bg-ink-700/60">
+              <UserRound size={15} /> Profile
+            </Link>
+            <button onClick={logout}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm
+                               text-slate-200 hover:bg-ink-700/60">
+              <LogOut size={15} /> Sign out
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
+  const { unread } = useLive()
   const loc = useLocation()
+  const staff = isStaff(user)
 
-  // A permanent column on a desktop, an off-canvas drawer on a phone.
-  // Not merely narrower on mobile: a fixed sidebar on a 390px screen would
-  // squeeze the entry QR down to an unscannable thumbnail, and holding that
-  // QR up to the door camera is the most important thing this app does.
+  // A permanent column on a desktop, an off-canvas drawer on a phone - a fixed
+  // sidebar on a 390px screen would squeeze the entry QR to an unscannable
+  // thumbnail.
   const [open, setOpen] = useState(false)
   useEffect(() => { setOpen(false) }, [loc.pathname])
 
-  const close = () => setOpen(false)
+  // Workload badges for staff, recounted from the database, refreshed live.
+  const [summary, setSummary] = useState<Summary | null>(null)
+  useEffect(() => {
+    if (!staff) return
+    const load = () => api.summary().then(setSummary).catch(() => {})
+    load()
+    const t = window.setInterval(load, 60000)
+    return () => window.clearInterval(t)
+  }, [staff])
+  useLiveMessages(m => {
+    if (staff && m.type === 'staff') api.summary().then(setSummary).catch(() => {})
+  })
+
+  const badges: Record<BadgeKey, number> = {
+    issues: summary?.open_issues ?? 0,
+    alerts: summary?.open_alerts ?? 0,
+    pending: summary?.pending_bookings ?? 0,
+    unread,
+  }
+
+  // Never float anything over the entry QR - it must stay fully scannable.
+  const onQrPage = /^\/bookings\/\d+\/qr/.test(loc.pathname)
+  const showFab = !onQrPage && !loc.pathname.startsWith('/issues/new')
 
   const sidebar = (
     <>
-      <div className="px-5 py-5 border-b border-ink-600/60 flex items-center
-                      justify-between">
-        <div className="flex items-center gap-3">
-          <div className="relative w-9 h-9 rounded-lg bg-gradient-to-br
-                          from-accent-500 to-accent-700 grid place-items-center
-                          text-white font-bold text-[11px]
-                          shadow-[0_0_20px_-4px_rgba(14,165,233,.7)]">
-            SL
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-slate-50 leading-tight">
-              Smart Lab
-            </div>
-            <div className="text-[9.5px] uppercase tracking-technical text-slate-500">
-              Access Portal
-            </div>
-          </div>
-        </div>
-        <button onClick={close} aria-label="Close navigation"
-                className="lg:hidden text-slate-500 hover:text-white p-1">
-          <X size={16} />
+      <div className="relative px-5 pt-5 pb-4">
+        <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab home">
+          <SmartLabMark size={38} animated />
+          <Wordmark tight />
+        </Link>
+        {/* Pinned inside the drawer: in the brand row it overflowed the
+            264px column and showed through while the drawer was closed. */}
+        <button onClick={() => setOpen(false)} aria-label="Close navigation"
+                className="lg:hidden absolute top-2 right-2 text-slate-400 hover:text-white p-1.5">
+          <X size={18} />
         </button>
       </div>
+      <div className="mx-5 mb-2 pb-3 border-b border-ink-600/60">
+        <InstitutionLogo className="!h-7" textClass="!text-[9.5px] !tracking-[0.12em] whitespace-nowrap" />
+      </div>
 
-      <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+      <nav className="flex-1 px-3 pb-3 overflow-y-auto" aria-label="Main">
         {navFor(user?.role).map((section, i) => (
           <div key={section.title}>
-            <div className={`label px-3 pb-1.5 ${i === 0 ? 'pt-2' : 'pt-5'}`}>
-              {section.title}
+            <div className={`label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5
+                             ${i === 0 ? 'pt-2' : 'pt-5'}`}>{section.title}</div>
+            <div className="space-y-0.5">
+              {section.items.map(item => (
+                <NavItem key={item.to} item={item}
+                         badge={item.badge ? badges[item.badge] : undefined}
+                         onNavigate={() => setOpen(false)} />
+              ))}
             </div>
-            {section.items.map(item => (
-              <NavItem key={item.to} item={item} onNavigate={close} />
-            ))}
           </div>
         ))}
       </nav>
 
       <div className="p-3 border-t border-ink-600/60">
-        <div className="px-3 py-2">
-          <div className="text-sm text-slate-200 truncate">{user?.full_name}</div>
-          <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
-            {user?.role === 'LAB_STAFF' ? 'Lab staff'
-              : user?.role === 'ADMIN' ? 'Administrator' : 'Student'}
-            {user?.auth_subject && (
-              <span className="mono text-slate-600">· {user.auth_subject}</span>
-            )}
+        <div className="flex items-center gap-3 px-2 py-2">
+          <Avatar name={user?.full_name} size={34} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] text-white truncate">{user?.full_name}</div>
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              {roleLabel(user?.role)}
+              {user?.auth_subject && (
+                <span className="mono !text-[10.5px] text-accent-300">· {user.auth_subject}</span>
+              )}
+            </div>
           </div>
+          <button onClick={logout} title="Sign out" aria-label="Sign out"
+                  className="btn-quiet !p-2"><LogOut size={16} /></button>
         </div>
-        <button onClick={logout}
-                className="w-full mt-1 flex items-center gap-2.5 px-3 py-2
-                           rounded-lg text-sm text-slate-400 hover:text-white
-                           hover:bg-ink-700/60 transition-colors">
-          <LogOut size={15} className="text-slate-500" />
-          Sign out
-        </button>
       </div>
     </>
   )
 
   return (
-    <div className="min-h-full lg:flex relative">
+    <div className="min-h-screen lg:flex relative">
       <GridBackdrop className="fixed inset-0 z-0" />
 
-      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4
-                         h-14 bg-ink-900/90 backdrop-blur border-b
-                         border-ink-600/60">
-        <button onClick={() => setOpen(v => !v)} aria-label="Toggle navigation"
-                className="p-2 -ml-2 text-slate-400 hover:text-white">
-          <Menu size={19} />
+      {/* phone header */}
+      <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14
+                         bg-ink-900/90 backdrop-blur border-b border-ink-600/60">
+        <button onClick={() => setOpen(v => !v)} aria-label="Open navigation"
+                className="p-2 -ml-2 text-slate-300 hover:text-white">
+          <Menu size={20} />
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-accent-600 grid place-items-center
-                          text-white font-bold text-[9px]">SL</div>
-          <span className="text-sm font-semibold text-slate-100">Smart Lab</span>
-        </div>
+        <Link to="/" className="flex items-center gap-2 flex-1 min-w-0">
+          <SmartLabMark size={28} />
+          <Wordmark compact />
+        </Link>
+        <SystemHealth />
+        <NotificationBell />
       </header>
 
       <AnimatePresence>
         {open && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={close}
-            className="lg:hidden fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
-          />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setOpen(false)}
+            className="lg:hidden fixed inset-0 z-40 bg-ink-950/75 backdrop-blur-sm" />
         )}
       </AnimatePresence>
 
-      <aside className={`
-        bg-ink-900/95 lg:bg-ink-900/70 backdrop-blur-md border-r
-        border-ink-600/60 flex flex-col
-        fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[248px] shrink-0
-        transition-transform duration-200 ease-out
-        ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
-      `}>
+      <aside className={`fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[264px]
+                         shrink-0 flex flex-col border-r border-ink-600/60 overflow-hidden
+                         bg-ink-900/95 lg:bg-ink-900/75 backdrop-blur-md
+                         transition-transform duration-200 ease-out
+                         ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         {sidebar}
       </aside>
 
-      <main className="flex-1 min-w-0 relative z-10">
-        <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8
-                        py-5 lg:py-8">
-          {/*
-            Keyed fade-IN only. No exit animation, and deliberately NOT
-            wrapped in <AnimatePresence mode="wait">.
-
-            That combination gates MOUNTING of the next page on the previous
-            page's exit animation reporting completion. If that callback is
-            ever missed - an interrupted transition, a dropped frame, a Fast
-            Refresh landing mid-animation - the old element has left and the
-            new one never mounts, so <main> renders empty until a full reload
-            rebuilds the tree. That is the "blank page, fixed by refresh"
-            failure, and the only robust cure is to stop making a mount
-            depend on an animation finishing.
-
-            React Router swaps `children` synchronously; the key restarts the
-            fade. Nothing here can strand the page.
-          */}
-          <ErrorBoundary resetKey={loc.pathname}>
-            <motion.div
-              key={loc.pathname}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {children}
-            </motion.div>
-          </ErrorBoundary>
+      <div className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {/* desktop top bar */}
+        <div className="hidden lg:flex sticky top-0 z-30 items-center justify-end gap-2.5
+                        h-16 px-8 bg-ink-900/70 backdrop-blur border-b border-ink-600/50">
+          <Link to="/issues/new" className="btn-ghost btn-sm !h-9">
+            <Wrench size={15} /> Report an issue
+          </Link>
+          <SystemHealth />
+          <NotificationBell />
+          <UserMenu />
         </div>
-      </main>
+
+        <main className="flex-1">
+          {/* Bottom padding on phones keeps the last content clear of the
+              floating Report button. */}
+          <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 lg:py-8">
+            {/*
+              The page is keyed on the path and fades in with a CSS keyframe.
+
+              Nothing gates MOUNTING on an animation. The earlier blank-page
+              bug came from <AnimatePresence mode="wait">, which only mounted
+              the next page after the previous page's exit animation reported
+              completion; a missed callback left <main> empty until a reload.
+              A CSS animation is driven by the clock alone - there is no
+              completion callback to miss - so it cannot strand a page, and
+              with reduced motion it finishes instantly.
+            */}
+            <ErrorBoundary resetKey={loc.pathname}>
+              <div key={loc.pathname} className="animate-page-in">
+                {children}
+              </div>
+            </ErrorBoundary>
+          </div>
+        </main>
+      </div>
+
+      {/* phone quick action - hidden where it could cover the entry QR */}
+      {showFab && (
+        <Link to="/issues/new" aria-label="Report an issue"
+          className="lg:hidden fixed bottom-5 right-5 z-30 flex items-center gap-2 h-12 pl-4
+                     pr-5 rounded-full text-white text-sm font-medium shadow-lift
+                     bg-gradient-to-b from-accent-500 to-accent-600">
+          <Wrench size={17} /> Report
+        </Link>
+      )}
     </div>
   )
 }

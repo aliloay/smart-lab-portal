@@ -31,6 +31,9 @@ services:
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Issue photos. A named volume so they survive rebuilding the container.
+    volumes:
+      - uploads:/app/uploads
     # Port published so the ESP32 master can reach it directly on the LAN.
     ports: ["8000:8000"]
 
@@ -41,3 +44,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

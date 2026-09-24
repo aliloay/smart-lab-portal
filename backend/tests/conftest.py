@@ -144,3 +144,37 @@ def now():
 @pytest.fixture
 def hour():
     return timedelta(hours=1)
+
+
+@pytest.fixture
+def staff(db) -> User:
+    u = User(email="staff@test.edu", full_name="Lab Technician",
+             hashed_password=hash_password("Password123"),
+             role=Role.LAB_STAFF, auth_subject="STAFF1")
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@pytest.fixture(autouse=True)
+def _tmp_storage(tmp_path):
+    """Issue photos go to a per-test directory, never the real upload dir."""
+    from app.services.storage import LocalStorage, set_storage
+    store = LocalStorage(str(tmp_path / "uploads"))
+    set_storage(store)
+    yield store
+    set_storage(None)
+
+
+def image_bytes(fmt: str = "JPEG", size=(640, 480), color=(40, 90, 160),
+                exif: bytes | None = None) -> bytes:
+    """A real, decodable image in the given format."""
+    import io
+
+    from PIL import Image
+    img = Image.new("RGB", size, color)
+    buf = io.BytesIO()
+    kwargs = {"exif": exif} if exif else {}
+    img.save(buf, fmt, **kwargs)
+    return buf.getvalue()

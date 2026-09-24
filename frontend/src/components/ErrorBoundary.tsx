@@ -52,7 +52,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         <h2 className="text-base font-semibold text-slate-100">
           This section could not be displayed
         </h2>
-        <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+        <p className="mt-2 text-sm text-slate-400 leading-relaxed">
           Something went wrong while rendering this page. The rest of the
           portal is unaffected — you can move to another section or try again.
         </p>
