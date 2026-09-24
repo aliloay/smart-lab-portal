@@ -1,11 +1,12 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 import { api, getToken, setToken, User } from './api'
 
 interface AuthCtx {
   user: User | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<User>
   logout: () => void
+  refresh: () => Promise<void>
 }
 
 const Ctx = createContext<AuthCtx>(null!)
@@ -28,7 +29,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function login(email: string, password: string) {
     const r = await api.login(email, password)
     setToken(r.access_token)
-    setUser(await api.me())
+    const me = await api.me()
+    setUser(me)
+    return me
   }
 
   function logout() {
@@ -37,10 +40,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     location.href = '/login'
   }
 
-  return <Ctx.Provider value={{ user, loading, login, logout }}>{children}</Ctx.Provider>
+  const refresh = useCallback(async () => { setUser(await api.me()) }, [])
+
+  return (
+    <Ctx.Provider value={{ user, loading, login, logout, refresh }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export const useAuth = () => useContext(Ctx)
 
 export const isStaff = (u: User | null) =>
   u?.role === 'ADMIN' || u?.role === 'LAB_STAFF'
+
+export const isAdmin = (u: User | null) => u?.role === 'ADMIN'
+
+export const roleLabel = (r?: string) =>
+  r === 'ADMIN' ? 'Administrator' : r === 'LAB_STAFF' ? 'Laboratory staff' : 'Student'
+
+/** "Dr. Ramy Amir ..." -> "Ramy": the name to greet someone by. */
+export function firstName(full?: string | null): string {
+  const words = (full ?? '').split(/\s+/).filter(Boolean)
+  const TITLES = /^(dr|prof|eng|mr|mrs|ms|miss)\.?$/i
+  return words.find(w => !TITLES.test(w)) ?? words[0] ?? ''
+}

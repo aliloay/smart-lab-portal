@@ -1,105 +1,146 @@
 /**
- * Guided booking.
+ * Guided booking: laboratory, date, time, purpose, review, confirmed.
  *
- * Four steps rather than one form, because the choices are dependent: which
- * hours are free depends on the laboratory and the date, so asking for them
- * all at once means showing availability for something the person has not
- * chosen yet.
- *
- * The availability shown here is a CONVENIENCE. The backend re-validates
- * every booking against the live database — a browser can be stale, edited,
- * or simply lying.
+ * Availability comes from /labs/{id}/availability, which returns every
+ * reserved interval - everyone's, without identities - so a taken hour looks
+ * taken before anyone tries to book it. It refreshes while the page is open
+ * and after any conflict. The server still re-validates every booking: the
+ * picker is a convenience, not the authority.
  */
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft, ArrowRight, Calendar, Check, CircuitBoard, Clock, FlaskConical,
-  MapPin, QrCode,
+  ArrowLeft, ArrowRight, Calendar, Check, CircuitBoard, Clock, FileText, FlaskConical,
+  MapPin, QrCode, Search, ShieldCheck, UserRound,
 } from 'lucide-react'
-import { Booking, Lab, api } from '../lib/api'
-import { localToUtcIso } from '../lib/time'
-import { Chip, ErrorBanner, SuccessMark } from '../components/ui'
+import { Booking, BookingSlot, Lab, User, api } from '../lib/api'
+import { isStaff, useAuth } from '../lib/auth'
+import { useLiveMessages } from '../lib/live'
+import { dateStr, localDayBounds, localToUtcIso, pad2, todayStr } from '../lib/time'
+import { Chip, ErrorBanner, Notice, PageHeader, Skeleton, SuccessMark } from '../components/ui'
+import { LabArt, categoryMeta } from '../components/labArt'
 
-const STEPS = ['Laboratory', 'Date', 'Time', 'Confirm'] as const
-
-/** The day the facility is open. Slots outside this are not offered at all. */
+const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Review', 'Confirmed'] as const
 const DAY_START = 8
 const DAY_END = 22
+const MAX_HOURS = 8
+const PURPOSES = ['Thesis experiment', 'Course lab session', 'Project prototyping',
+                  'Equipment training', 'Measurement / testing']
 
 export default function Book() {
+  const { user } = useAuth()
+  const staff = isStaff(user)
   const nav = useNavigate()
-  const [labs, setLabs] = useState<Lab[]>([])
-  const [existing, setExisting] = useState<Booking[]>([])
-  const [loading, setLoading] = useState(true)
+  const [params] = useSearchParams()
 
+  const [labs, setLabs] = useState<Lab[] | null>(null)
+  const [people, setPeople] = useState<User[]>([])
   const [step, setStep] = useState(0)
   const [labId, setLabId] = useState<number | null>(null)
-  const [date, setDate] = useState(todayStr())
+  const [date, setDate] = useState(params.get('date') ?? todayStr())
   const [startHour, setStartHour] = useState<number | null>(null)
   const [endHour, setEndHour] = useState<number | null>(null)
   const [reason, setReason] = useState('')
-
+  const [forUser, setForUser] = useState<string>('')
+  const [slots, setSlots] = useState<BookingSlot[] | null>(null)
+  const [fortnight, setFortnight] = useState<BookingSlot[]>([])
+  const [q, setQ] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<Booking | null>(null)
 
   useEffect(() => {
-    Promise.all([api.labs(), api.bookings()])
-      .then(([l, b]) => { setLabs(l.filter(x => x.is_active)); setExisting(b) })
-      .finally(() => setLoading(false))
-  }, [])
+    api.labs().then(l => {
+      const active = l.filter(x => x.is_active)
+      setLabs(active)
+      const pre = Number(params.get('lab'))
+      if (pre && active.some(x => x.id === pre)) {
+        setLabId(pre)
+        setStep(params.get('date') ? 2 : 1)
+      }
+    }).catch(e => { setError(e.message); setLabs([]) })
+    if (staff) api.users().then(u => setPeople(u.filter(x => x.is_active))).catch(() => {})
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const lab = labs.find(l => l.id === labId) ?? null
+  const lab = labs?.find(l => l.id === labId) ?? null
 
-  /** Hours already taken in this lab on this date. */
-  const takenHours = useMemo(() => {
-    if (!labId) return new Set<number>()
-    const taken = new Set<number>()
-    for (const b of existing) {
-      if (b.lab_id !== labId) continue
-      if (b.status !== 'CONFIRMED' && b.status !== 'PENDING') continue
-      const s = new Date(b.start_time)
-      const e = new Date(b.end_time)
-      if (dateStr(s) !== date) continue
-      for (let h = s.getHours(); h < e.getHours() + (e.getMinutes() ? 1 : 0); h++) {
-        taken.add(h)
+  // --- availability -------------------------------------------------------
+  const loadDay = useCallback(() => {
+    if (!labId) return
+    const [s, e] = localDayBounds(date)
+    api.availability(labId, s, e).then(setSlots).catch(() => setSlots([]))
+  }, [labId, date])
+
+  useEffect(() => { setSlots(null); loadDay() }, [loadDay])
+  useEffect(() => {
+    if (!labId) return
+    const [s] = localDayBounds(todayStr())
+    const e = new Date(s); e.setDate(e.getDate() + 14)
+    api.availability(labId, s, e.toISOString()).then(setFortnight).catch(() => setFortnight([]))
+  }, [labId])
+  // Fresh without a manual refresh: poll while picking, and on any booking event.
+  useEffect(() => {
+    if (step !== 2) return
+    const t = window.setInterval(loadDay, 30000)
+    return () => window.clearInterval(t)
+  }, [step, loadDay])
+  useLiveMessages(m => {
+    if (m.type === 'access_event' && m.event.event_type.startsWith('BOOKING')) loadDay()
+  })
+
+  /** hour -> 'taken' | 'mine' */
+  const hourState = useMemo(() => {
+    const m = new Map<number, 'taken' | 'mine'>()
+    for (const s of slots ?? []) {
+      const a = new Date(s.start_time), b = new Date(s.end_time)
+      for (let h = DAY_START; h < DAY_END; h++) {
+        const hs = new Date(`${date}T${pad2(h)}:00`), he = new Date(hs.getTime() + 3600e3)
+        if (hs < b && he > a) m.set(h, s.is_mine ? 'mine' : 'taken')
       }
     }
-    return taken
-  }, [existing, labId, date])
+    return m
+  }, [slots, date])
 
-  /** Hours in the past today cannot be booked. */
   const pastHours = useMemo(() => {
     const p = new Set<number>()
     if (date === todayStr()) {
       const nowH = new Date().getHours()
+      // The current hour stays bookable: the server only requires the
+      // window to end in the future, and "book it now" is a real need.
       for (let h = DAY_START; h < nowH; h++) p.add(h)
     }
     return p
-  }, [date])
+  }, [date, step])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A selection that has since become taken is dropped, not silently kept.
+  useEffect(() => {
+    if (startHour === null) return
+    const end = endHour ?? startHour + 1
+    for (let h = startHour; h < end; h++) {
+      if (hourState.has(h) || pastHours.has(h)) { setStartHour(null); setEndHour(null); return }
+    }
+  }, [hourState, pastHours])   // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickHour(h: number) {
-    if (startHour === null || endHour !== null) {
-      setStartHour(h); setEndHour(null); return
-    }
-    if (h === startHour) { setStartHour(null); return }
+    setError('')
+    if (startHour === null || endHour !== null) { setStartHour(h); setEndHour(null); return }
+    if (h === startHour) { setEndHour(h + 1); return }
     if (h < startHour) { setStartHour(h); return }
-    // Reject a range that jumps over an already-booked hour.
     for (let x = startHour; x <= h; x++) {
-      if (takenHours.has(x)) { setStartHour(h); setEndHour(null); return }
+      if (hourState.has(x)) { setStartHour(h); setEndHour(null); return }
+    }
+    if (h + 1 - startHour > MAX_HOURS) {
+      setError(`A booking can be at most ${MAX_HOURS} hours.`); return
     }
     setEndHour(h + 1)
   }
 
-  const inRange = (h: number) =>
-    startHour !== null && endHour !== null && h >= startHour && h < endHour
+  const inRange = (h: number) => startHour !== null && (
+    endHour === null ? h === startHour : h >= startHour && h < endHour)
 
-  const canNext =
-    (step === 0 && labId !== null) ||
-    (step === 1 && !!date) ||
-    (step === 2 && startHour !== null && endHour !== null) ||
-    step === 3
+  const canNext = [labId !== null, !!date, startHour !== null && endHour !== null,
+                   true, true][step] ?? false
 
   async function submit() {
     if (startHour === null || endHour === null || !labId) return
@@ -107,276 +148,245 @@ export default function Book() {
     try {
       const b = await api.createBooking({
         lab_id: labId,
-        start_time: localToUtcIso(date, `${pad(startHour)}:00`),
-        end_time: localToUtcIso(date, `${pad(endHour)}:00`),
-        reason,
+        start_time: localToUtcIso(date, `${pad2(startHour)}:00`),
+        end_time: localToUtcIso(date, `${pad2(endHour)}:00`),
+        reason: reason.trim(),
+        user_id: forUser ? Number(forUser) : undefined,
       })
       setDone(b)
+      setStep(5)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Booking failed')
+      // Most likely someone else just took the slot: show the fresh picture.
+      loadDay()
+      setStep(2)
     } finally {
       setBusy(false)
     }
   }
 
-  /* ------------------------------------------------------- confirmation */
-  if (done) {
-    return (
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                  className="max-w-lg mx-auto text-center">
-        <div className="card p-8">
-          <SuccessMark />
-          <h1 className="mt-5 text-xl font-semibold text-white">Booking confirmed</h1>
-          <p className="text-sm text-slate-400 mt-1.5">
-            A time-bound access credential has been issued for this laboratory.
-          </p>
-
-          <div className="mt-7 text-left space-y-3 rounded-lg bg-ink-900/60
-                          border border-ink-700 p-4">
-            <Line label="Laboratory" value={done.lab_name ?? ''} />
-            <Line label="Code" value={<span className="mono">{done.lab_code}</span>} />
-            <Line label="Date" value={new Date(done.start_time)
-              .toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })} />
-            <Line label="Time" value={
-              `${new Date(done.start_time).toLocaleTimeString([], {
-                hour: '2-digit', minute: '2-digit' })} – ${
-                new Date(done.end_time).toLocaleTimeString([], {
-                hour: '2-digit', minute: '2-digit' })}`} />
-            {done.reason && <Line label="Purpose" value={done.reason} />}
-            <Line label="Access" value={<Chip tone="ok">QR credential ready</Chip>} />
-          </div>
-
-          <div className="mt-7 flex flex-col sm:flex-row gap-2.5 justify-center">
-            <button onClick={() => nav(`/bookings/${done.id}/qr`)}
-                    className="btn-primary"><QrCode size={15} />Show access code</button>
-            <button onClick={() => nav('/bookings')} className="btn-ghost">
-              My bookings
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    )
-  }
-
-  if (loading) {
-    return <div className="max-w-3xl mx-auto card-pad h-72 skeleton" />
-  }
+  // ------------------------------------------------------------ confirmed
+  if (done) return <Confirmed b={done} onAnother={() => {
+    setDone(null); setStep(0); setStartHour(null); setEndHour(null); setReason('')
+  }} onQr={() => nav(`/bookings/${done.id}/qr`)} />
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <h1 className="page-title">Book a laboratory</h1>
-      <p className="page-sub">
-        A confirmed booking issues an access code valid only for that
-        laboratory, only during your window.
-      </p>
+    <div className="max-w-5xl mx-auto">
+      <PageHeader eyebrow="Reservation" title={staff && forUser ? 'Create booking for user' : 'Book a laboratory'}
+        sub="A confirmed booking issues an access credential that is valid only for that laboratory, only inside your window." />
 
-      {/* stepper */}
-      <ol className="mt-6 flex items-center gap-2">
-        {STEPS.map((s, i) => (
-          <li key={s} className="flex items-center gap-2 flex-1 last:flex-none">
-            <div className={`flex items-center gap-2 ${i > step ? 'opacity-45' : ''}`}>
-              <span className={`w-6 h-6 rounded-full grid place-items-center
-                text-[11px] font-semibold transition-colors ${
-                i < step ? 'bg-ok/20 text-ok border border-ok/40'
-                : i === step ? 'bg-accent-500/20 text-accent-300 border border-accent-500/50'
-                : 'bg-ink-800 text-slate-500 border border-ink-600'}`}>
-                {i < step ? <Check size={12} strokeWidth={3} /> : i + 1}
-              </span>
-              <span className={`hidden sm:block text-xs ${
-                i === step ? 'text-slate-200 font-medium' : 'text-slate-500'}`}>
-                {s}
-              </span>
-            </div>
-            {i < STEPS.length - 1 && (
-              <span className={`flex-1 h-px ${i < step ? 'bg-ok/40' : 'bg-ink-600'}`} />
-            )}
-          </li>
-        ))}
-      </ol>
+      <Stepper step={step} />
 
-      <div className="card-pad mt-5 min-h-[340px]">
-        {error && <div className="mb-4"><ErrorBanner message={error}
-                       onDismiss={() => setError('')} /></div>}
+      <div className="mt-5 grid lg:grid-cols-[1fr_300px] gap-5">
+        <div className="card p-5 sm:p-6 min-h-[380px]">
+          {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div key={step} initial={{ opacity: 0, x: 14 }} animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -14 }} transition={{ duration: .16 }}>
 
-        <AnimatePresence mode="wait">
-          <motion.div key={step}
-            initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -12 }} transition={{ duration: .18 }}>
-
-            {/* ------------------------------------------------ step 1 */}
-            {step === 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-slate-200 mb-3">
-                  Which laboratory?
-                </h2>
-                <div className="grid sm:grid-cols-2 gap-2.5 max-h-[380px] overflow-y-auto pr-1">
-                  {labs.map(l => (
-                    <button key={l.id} onClick={() => setLabId(l.id)}
-                      className={`text-left p-3.5 rounded-lg border transition-all ${
-                        labId === l.id
-                          ? 'border-accent-500/60 bg-accent-500/10'
-                          : 'border-ink-600 bg-ink-900/40 hover:border-ink-400'}`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="mono text-accent-400">{l.code}</span>
-                        {l.has_controller
-                          ? <Chip tone="ok">Door</Chip>
-                          : <Chip tone="idle">No door HW</Chip>}
-                      </div>
-                      <div className="mt-1.5 text-[13px] text-slate-200 leading-snug">
-                        {l.name}
-                      </div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
-                        <MapPin size={11} />{l.location || '—'}
-                      </div>
-                    </button>
-                  ))}
+              {step === 0 && (
+                <div>
+                  <StepTitle icon={<FlaskConical size={16} />} title="Which laboratory?" />
+                  <div className="relative mb-3">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input className="input pl-9" placeholder="Filter laboratories" value={q}
+                           onChange={e => setQ(e.target.value)} aria-label="Filter laboratories" />
+                  </div>
+                  {labs === null ? <Skeleton className="h-72" /> : (
+                    <div className="grid sm:grid-cols-2 gap-2.5 max-h-[440px] overflow-y-auto pr-1">
+                      {labs.filter(l => !q || `${l.code} ${l.name} ${l.category}`.toLowerCase()
+                        .includes(q.toLowerCase())).map(l => {
+                        const m = categoryMeta(l.category)
+                        const sel = labId === l.id
+                        return (
+                          <button key={l.id} onClick={() => { setLabId(l.id); setStartHour(null); setEndHour(null) }}
+                            aria-pressed={sel}
+                            className={`text-left rounded-xl border overflow-hidden transition-all ${sel
+                              ? 'border-accent-400 ring-2 ring-accent-500/30 bg-accent-500/10'
+                              : 'border-ink-600 bg-ink-900/40 hover:border-ink-400'}`}>
+                            <div className="relative h-16">
+                              <LabArt category={l.category} className="absolute inset-0 w-full h-full" />
+                              <span className="absolute bottom-1.5 left-2.5 mono text-accent-100 drop-shadow">{l.code}</span>
+                              {sel && <span className="absolute top-2 right-2 grid place-items-center w-6 h-6 rounded-full bg-accent-500 text-white"><Check size={14} /></span>}
+                            </div>
+                            <div className="p-3">
+                              <div className="text-[13.5px] text-white leading-snug">{l.name}</div>
+                              <div className="mt-1 flex items-center gap-2 text-[11.5px] text-slate-400">
+                                <span style={{ color: m.hue }}>{m.icon}</span>{l.category}
+                                <span className="text-slate-600">·</span>
+                                {l.has_controller ? <span className="text-ok-soft">Door access</span>
+                                  : <span>No door hardware</span>}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ------------------------------------------------ step 2 */}
-            {step === 1 && (
-              <div>
-                <h2 className="text-sm font-semibold text-slate-200 mb-3">
-                  Which day?
-                </h2>
-                <div className="flex gap-2 flex-wrap mb-4">
-                  {nextDays(7).map(d => (
-                    <button key={d.value} onClick={() => setDate(d.value)}
-                      className={`px-3.5 py-2.5 rounded-lg border text-center transition-all ${
-                        date === d.value
-                          ? 'border-accent-500/60 bg-accent-500/10 text-accent-300'
-                          : 'border-ink-600 bg-ink-900/40 text-slate-400 hover:border-ink-400'}`}>
-                      <div className="text-[10px] uppercase tracking-wide opacity-70">
-                        {d.weekday}
-                      </div>
-                      <div className="text-sm font-semibold mt-0.5">{d.day}</div>
-                      <div className="text-[10px] opacity-70">{d.month}</div>
-                    </button>
-                  ))}
-                </div>
-                <label className="label block mb-1.5">Or pick a date</label>
-                <input className="input max-w-xs" type="date" value={date}
-                       min={todayStr()} onChange={e => setDate(e.target.value)} />
-              </div>
-            )}
-
-            {/* ------------------------------------------------ step 3 */}
-            {step === 2 && (
-              <div>
-                <h2 className="text-sm font-semibold text-slate-200">
-                  Which hours?
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 mb-4">
-                  Click a start hour, then an end hour. Unavailable hours are
-                  already reserved by someone else.
-                </p>
-
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-                  {Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i)
-                    .map(h => {
-                      const taken = takenHours.has(h)
-                      const past = pastHours.has(h)
-                      const disabled = taken || past
-                      const selected = inRange(h) || startHour === h
+              {step === 1 && (
+                <div>
+                  <StepTitle icon={<Calendar size={16} />} title="Which day?"
+                    sub="The bar under each day shows how much of it is already reserved." />
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-5">
+                    {nextDays(14).map(d => {
+                      const load = dayLoad(fortnight, d.value)
                       return (
-                        <button key={h} disabled={disabled}
-                          onClick={() => pickHour(h)}
-                          title={taken ? 'Already reserved'
-                                : past ? 'In the past' : undefined}
-                          className={`py-2.5 rounded-lg text-[13px] border transition-all tnum ${
-                            selected
-                              ? 'border-accent-500/60 bg-accent-500/20 text-accent-200 font-medium'
-                            : disabled
-                              ? 'border-ink-700 bg-ink-900/60 text-slate-700 cursor-not-allowed line-through'
-                              : 'border-ink-600 bg-ink-900/40 text-slate-400 hover:border-ink-400 hover:text-slate-200'}`}>
-                          {pad(h)}:00
+                        <button key={d.value} onClick={() => setDate(d.value)} aria-pressed={date === d.value}
+                          className={`rounded-xl border px-2 py-2.5 text-center transition-all ${date === d.value
+                            ? 'border-accent-400 bg-accent-500/15 text-white'
+                            : 'border-ink-600 bg-ink-900/40 text-slate-300 hover:border-ink-400'}`}>
+                          <div className="text-[10.5px] uppercase tracking-wide text-slate-400">{d.weekday}</div>
+                          <div className="font-display text-lg font-semibold">{d.day}</div>
+                          <div className="text-[10.5px] text-slate-400">{d.month}</div>
+                          <div className="mt-1.5 h-1 rounded-full bg-ink-700 overflow-hidden">
+                            <div className={`h-full ${load > .75 ? 'bg-warn' : 'bg-accent-400'}`}
+                                 style={{ width: `${load * 100}%` }} />
+                          </div>
                         </button>
                       )
                     })}
-                </div>
-
-                {startHour !== null && (
-                  <div className="mt-4 flex items-center gap-2 text-sm text-slate-300">
-                    <Clock size={14} className="text-accent-400" />
-                    {endHour === null
-                      ? <>Starting {pad(startHour)}:00 — now pick an end hour</>
-                      : <>{pad(startHour)}:00 – {pad(endHour)}:00
-                          <span className="text-slate-500">
-                            ({endHour - startHour}h)
-                          </span></>}
                   </div>
-                )}
-
-                <div className="mt-5">
-                  <label className="label block mb-1.5">Purpose</label>
-                  <textarea className="input min-h-[80px] resize-y" value={reason}
-                            placeholder="Thesis experiment — manipulator calibration"
-                            onChange={e => setReason(e.target.value)} />
+                  <label className="label block mb-1.5" htmlFor="date">Or pick a date</label>
+                  <input id="date" className="input max-w-xs" type="date" value={date} min={todayStr()}
+                         onChange={e => { setDate(e.target.value); setStartHour(null); setEndHour(null) }} />
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* ------------------------------------------------ step 4 */}
-            {step === 3 && lab && startHour !== null && endHour !== null && (
-              <div>
-                <h2 className="text-sm font-semibold text-slate-200 mb-4">
-                  Review and confirm
-                </h2>
-                <div className="rounded-lg bg-ink-900/60 border border-ink-700 p-4 space-y-3">
-                  <Line label="Laboratory" value={
-                    <span className="flex items-center gap-2">
-                      <FlaskConical size={13} className="text-accent-400" />
-                      {lab.name}
-                    </span>} />
-                  <Line label="Code" value={<span className="mono">{lab.code}</span>} />
-                  <Line label="Location" value={lab.location || '—'} />
-                  <Line label="Date" value={
-                    new Date(`${date}T00:00`).toLocaleDateString([], {
+              {step === 2 && (
+                <div>
+                  <StepTitle icon={<Clock size={16} />} title="Which hours?"
+                    sub="Tap a start hour, then an end hour. Availability updates live." />
+                  <Legend />
+                  {slots === null ? <Skeleton className="h-40 mt-4" /> : (
+                    <div className="mt-4 grid grid-cols-4 sm:grid-cols-7 gap-2">
+                      {Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i).map(h => {
+                        const st = hourState.get(h)
+                        const past = pastHours.has(h)
+                        const disabled = !!st || past
+                        const sel = inRange(h)
+                        return (
+                          <button key={h} disabled={disabled} onClick={() => pickHour(h)}
+                            aria-pressed={sel}
+                            title={st === 'mine' ? 'Your existing booking' : st ? 'Already reserved'
+                              : past ? 'In the past' : `${pad2(h)}:00 – ${pad2(h + 1)}:00`}
+                            className={`relative py-3 rounded-xl text-[13px] border transition-all tnum ${
+                              sel ? 'border-accent-400 bg-accent-500/25 text-white font-semibold shadow-glow'
+                              : st === 'mine' ? 'border-accent-600/50 bg-accent-700/15 text-accent-300 cursor-not-allowed'
+                              : st ? 'border-ink-600 text-slate-500 cursor-not-allowed bg-[repeating-linear-gradient(135deg,rgba(148,163,184,.08)_0_6px,transparent_6px_12px)]'
+                              : past ? 'border-ink-700 text-slate-600 cursor-not-allowed bg-ink-900/60'
+                              : 'border-ink-500 bg-ink-800/60 text-slate-100 hover:border-accent-400/70 hover:bg-ink-700'}`}>
+                            {pad2(h)}:00
+                            {st === 'taken' && <span className="block text-[9.5px] text-slate-500">reserved</span>}
+                            {st === 'mine' && <span className="block text-[9.5px]">yours</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div className="mt-4 min-h-[24px] flex items-center gap-2 text-sm text-slate-200">
+                    {startHour !== null && (
+                      <>
+                        <Clock size={14} className="text-accent-300" />
+                        {endHour === null
+                          ? <>Starting {pad2(startHour)}:00 · now choose an end hour (or tap it again for one hour)</>
+                          : <><b className="tnum">{pad2(startHour)}:00 → {pad2(endHour)}:00</b>
+                              <span className="text-slate-400">({endHour - startHour} h)</span></>}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div>
+                  <StepTitle icon={<FileText size={16} />} title="What is it for?"
+                    sub="Optional, but it helps staff plan the laboratory." />
+                  <div className="flex gap-2 flex-wrap mb-3">
+                    {PURPOSES.map(p => (
+                      <button key={p} onClick={() => setReason(p)}
+                        className={`btn btn-sm border ${reason === p
+                          ? 'border-accent-400 bg-accent-500/15 text-accent-100'
+                          : 'border-ink-500 text-slate-300 hover:text-white'}`}>{p}</button>
+                    ))}
+                  </div>
+                  <textarea className="input min-h-[120px] resize-y" value={reason} maxLength={500}
+                            placeholder="e.g. Thesis experiment - manipulator calibration"
+                            onChange={e => setReason(e.target.value)} aria-label="Purpose" />
+                  <div className="mt-1 text-right text-[11px] text-slate-500">{reason.length}/500</div>
+                  {staff && (
+                    <div className="mt-4">
+                      <label className="label block mb-1.5" htmlFor="for">
+                        <UserRound size={12} className="inline mr-1" />Book on behalf of
+                      </label>
+                      <select id="for" className="input" value={forUser} onChange={e => setForUser(e.target.value)}>
+                        <option value="">Myself ({user?.full_name})</option>
+                        {people.filter(p => p.id !== user?.id).map(p => (
+                          <option key={p.id} value={p.id}>{p.full_name} · {p.email}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 4 && lab && startHour !== null && endHour !== null && (
+                <div>
+                  <StepTitle icon={<ShieldCheck size={16} />} title="Review and confirm" />
+                  <dl className="well p-4 space-y-3 text-[13.5px]">
+                    <Row k="Laboratory" v={<>{lab.name} <span className="mono text-slate-400">· {lab.code}</span></>} />
+                    <Row k="Location" v={lab.location || '—'} />
+                    <Row k="Date" v={new Date(`${date}T00:00`).toLocaleDateString([], {
                       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} />
-                  <Line label="Time" value={
-                    <span className="tnum">{pad(startHour)}:00 – {pad(endHour)}:00</span>} />
-                  <Line label="Purpose" value={reason || '—'} />
-                  <Line label="Access method" value={
-                    <span className="flex items-center gap-2">
-                      <QrCode size={13} className="text-accent-400" />
-                      QR code, then fingerprint or face
-                    </span>} />
+                    <Row k="Time" v={<span className="tnum">{pad2(startHour)}:00 → {pad2(endHour)}:00 ({endHour - startHour} h)</span>} />
+                    <Row k="Purpose" v={reason || '—'} />
+                    {forUser && <Row k="Booked for" v={people.find(p => String(p.id) === forUser)?.full_name} />}
+                    <Row k="Door access" v={<span className="inline-flex items-center gap-2">
+                      <QrCode size={14} className="text-accent-300" />QR code, then fingerprint or face</span>} />
+                  </dl>
+                  {!lab.has_controller && (
+                    <div className="mt-4"><Notice tone="warn" icon={<CircuitBoard size={15} />}>
+                      This laboratory has no access-control hardware yet. The booking and its
+                      credential are recorded normally, but no door will respond to it.
+                    </Notice></div>
+                  )}
                 </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
 
-                {!lab.has_controller && (
-                  <div className="mt-4 flex items-start gap-2.5 rounded-lg border
-                                  border-warn/35 bg-warn/10 px-4 py-3 text-xs text-warn">
-                    <CircuitBoard size={14} className="mt-0.5 shrink-0" />
-                    <span>
-                      This laboratory has no access-control hardware installed
-                      yet. The booking and its credential are recorded normally,
-                      but no door will respond to it.
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </motion.div>
-        </AnimatePresence>
+        {/* summary rail */}
+        <aside className="card overflow-hidden h-fit">
+          <div className="relative h-28">
+            {lab ? <LabArt category={lab.category} className="absolute inset-0 w-full h-full" />
+                 : <div className="absolute inset-0 bg-ink-800" />}
+            <div className="absolute inset-0 bg-gradient-to-t from-ink-800 to-transparent" />
+          </div>
+          <div className="p-4 space-y-3 text-[13px]">
+            <SumRow icon={<FlaskConical size={14} />} label="Laboratory" value={lab ? `${lab.code} · ${lab.name}` : 'Not chosen'} />
+            <SumRow icon={<MapPin size={14} />} label="Location" value={lab?.location || '—'} />
+            <SumRow icon={<Calendar size={14} />} label="Date" value={new Date(`${date}T00:00`)
+              .toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} />
+            <SumRow icon={<Clock size={14} />} label="Time" value={startHour !== null && endHour !== null
+              ? `${pad2(startHour)}:00 → ${pad2(endHour)}:00` : 'Not chosen'} />
+          </div>
+        </aside>
       </div>
 
-      {/* navigation */}
       <div className="mt-5 flex items-center justify-between">
-        <button className="btn-quiet" disabled={step === 0}
-                onClick={() => setStep(s => Math.max(0, s - 1))}>
+        <button className="btn-quiet" disabled={step === 0} onClick={() => { setError(''); setStep(s => Math.max(0, s - 1)) }}>
           <ArrowLeft size={15} />Back
         </button>
-
-        {step < STEPS.length - 1 ? (
-          <button className="btn-primary" disabled={!canNext}
-                  onClick={() => setStep(s => s + 1)}>
+        {step < 4 ? (
+          <button className="btn-primary" disabled={!canNext} onClick={() => { setError(''); setStep(s => s + 1) }}>
             Continue<ArrowRight size={15} />
           </button>
         ) : (
-          <button className="btn-primary" disabled={busy} onClick={submit}>
-            {busy ? 'Confirming…' : 'Confirm booking'}
-            {!busy && <Check size={15} />}
+          <button className="btn-primary !px-6" disabled={busy} onClick={submit}>
+            {busy ? 'Confirming…' : 'Confirm booking'}{!busy && <Check size={16} />}
           </button>
         )}
       </div>
@@ -384,21 +394,112 @@ export default function Book() {
   )
 }
 
-function Line({ label, value }: { label: string; value: React.ReactNode }) {
+function Stepper({ step }: { step: number }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="label pt-0.5">{label}</span>
-      <span className="text-[13px] text-slate-200 text-right">{value}</span>
+    <ol className="flex items-center gap-2" aria-label="Booking steps">
+      {STEPS.map((s, i) => (
+        <li key={s} className="flex items-center gap-2 flex-1 last:flex-none"
+            aria-current={i === step ? 'step' : undefined}>
+          <div className={`flex items-center gap-2 ${i > step ? 'opacity-50' : ''}`}>
+            <span className={`w-7 h-7 rounded-full grid place-items-center text-[12px] font-semibold
+              transition-colors ${i < step ? 'bg-ok/20 text-ok-soft border border-ok/45'
+                : i === step ? 'bg-accent-500/25 text-accent-100 border border-accent-400 shadow-glow'
+                : 'bg-ink-800 text-slate-400 border border-ink-500'}`}>
+              {i < step ? <Check size={13} strokeWidth={3} /> : i + 1}
+            </span>
+            <span className={`hidden md:block text-[12.5px] ${i === step ? 'text-white font-medium' : 'text-slate-400'}`}>{s}</span>
+          </div>
+          {i < STEPS.length - 1 && (
+            <span className={`flex-1 h-px ${i < step ? 'bg-ok/50' : 'bg-ink-600'}`} />
+          )}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function StepTitle({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="flex items-center gap-2 text-[16px] font-semibold text-white">
+        <span className="text-accent-300">{icon}</span>{title}
+      </h2>
+      {sub && <p className="text-[13px] text-slate-400 mt-1">{sub}</p>}
     </div>
   )
 }
 
-const pad = (n: number) => String(n).padStart(2, '0')
+function Legend() {
+  return (
+    <div className="flex flex-wrap gap-4 text-[11.5px] text-slate-400">
+      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-ink-500 bg-ink-800" />Free</span>
+      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-accent-400 bg-accent-500/30" />Selected</span>
+      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-ink-600 bg-[repeating-linear-gradient(135deg,rgba(148,163,184,.25)_0_2px,transparent_2px_4px)]" />Reserved</span>
+      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-accent-600/50 bg-accent-700/20" />Your booking</span>
+    </div>
+  )
+}
 
-function todayStr() { return dateStr(new Date()) }
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return <div className="flex items-start justify-between gap-4"><dt className="label pt-0.5">{k}</dt>
+    <dd className="text-slate-100 text-right">{v}</dd></div>
+}
 
-function dateStr(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+function SumRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="text-accent-300 mt-0.5">{icon}</span>
+      <div className="min-w-0"><div className="text-[11px] text-slate-400">{label}</div>
+        <div className="text-slate-100 leading-snug">{value}</div></div>
+    </div>
+  )
+}
+
+function Confirmed({ b, onAnother, onQr }: { b: Booking; onAnother: () => void; onQr: () => void }) {
+  const pending = b.status === 'PENDING'
+  return (
+    <div className="max-w-xl mx-auto">
+      <Stepper step={5} />
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 card overflow-hidden text-center">
+        <div className="relative h-28">
+          <LabArt category={b.lab_category} className="absolute inset-0 w-full h-full" />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-800 to-ink-800/30" />
+        </div>
+        <div className="px-7 pb-7 -mt-8 relative">
+          <div className="inline-grid place-items-center w-16 h-16 rounded-full bg-ink-800 border border-ok/40">
+            <SuccessMark size={48} />
+          </div>
+          <div className="mt-3 eyebrow !text-ok-soft">{pending ? 'Request submitted' : 'Booking confirmed'}</div>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-white">{b.lab_name}</h1>
+          <div className="mt-6 well p-4 text-left space-y-2.5 text-[13.5px]">
+            <Row k="Laboratory" v={<span className="mono">{b.lab_code}</span>} />
+            <Row k="Date" v={new Date(b.start_time).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })} />
+            <Row k="Time" v={<span className="tnum">{new Date(b.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {' → '}{new Date(b.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>} />
+            {b.reason && <Row k="Purpose" v={b.reason} />}
+            {b.user_name && <Row k="Booked for" v={b.user_name} />}
+          </div>
+          <div className={`mt-4 rounded-xl border px-4 py-3 flex items-center gap-3 text-left ${pending
+            ? 'border-warn/35 bg-warn/[0.07]' : 'border-ok/35 bg-ok/[0.08]'}`}>
+            <QrCode size={20} className={pending ? 'text-warn-soft' : 'text-ok-soft'} />
+            <div>
+              <div className={`text-[13px] font-semibold ${pending ? 'text-warn-soft' : 'text-ok-soft'}`}>
+                {pending ? 'Awaiting approval' : 'Access credential ready'}</div>
+              <div className="text-[12px] text-slate-300">
+                {pending ? 'Staff will review the request; you will be notified.'
+                  : 'Valid only for this laboratory, only during this window.'}</div>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-col sm:flex-row gap-2.5 justify-center">
+            {!pending && <button onClick={onQr} className="btn-primary"><QrCode size={16} />Open QR</button>}
+            <Link to={`/bookings/${b.id}`} className="btn-ghost">View booking</Link>
+            <button onClick={onAnother} className="btn-quiet">Book another</button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
 }
 
 function nextDays(n: number) {
@@ -407,9 +508,22 @@ function nextDays(n: number) {
     d.setDate(d.getDate() + i)
     return {
       value: dateStr(d),
-      weekday: d.toLocaleDateString([], { weekday: 'short' }),
+      weekday: i === 0 ? 'Today' : d.toLocaleDateString([], { weekday: 'short' }),
       day: d.getDate(),
       month: d.toLocaleDateString([], { month: 'short' }),
     }
   })
+}
+
+/** Fraction of the bookable day already reserved, from real slots. */
+function dayLoad(slots: BookingSlot[], date: string): number {
+  const ds = new Date(`${date}T${pad2(DAY_START)}:00`).getTime()
+  const de = new Date(`${date}T${pad2(DAY_END)}:00`).getTime()
+  let busy = 0
+  for (const s of slots) {
+    const a = Math.max(ds, new Date(s.start_time).getTime())
+    const b = Math.min(de, new Date(s.end_time).getTime())
+    if (b > a) busy += b - a
+  }
+  return Math.min(1, busy / (de - ds))
 }
