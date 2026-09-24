@@ -8,6 +8,34 @@ two-factor access-control system.
 Bachelor thesis — *Design and Development of an Intelligent IoT-Based Smart
 Research Laboratory Management System*, German International University, Cairo.
 
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![React](https://img.shields.io/badge/React_18-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![ESP32](https://img.shields.io/badge/ESP32-E7352C?logo=espressif&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white)
+
+## Features
+
+- **Laboratory booking** with conflict detection across 11 laboratories
+- **Time-bound QR credentials**, valid only for one lab and only inside the booking window
+- **Two-factor door access**: QR code or RFID card, then fingerprint or face recognition
+- **Live admin dashboard** with a WebSocket access timeline, device health and alerts
+- **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV
+- **Equipment checkout** and role-based access for students, lab staff and administrators
+- **Fails closed**: if the backend is down, a booking QR opens nothing
+
+## Screenshots
+
+| Sign in | Student dashboard |
+|---|---|
+| ![Sign in](docs/screenshots/login.png) | ![Student dashboard](docs/screenshots/student-dashboard.png) |
+| **Book a laboratory** | **Time-bound access QR** |
+| ![Booking wizard](docs/screenshots/book.png) | ![Booking QR credential](docs/screenshots/booking-qr.png) |
+| **Admin overview (live)** | **Access audit trail** |
+| ![Admin overview](docs/screenshots/admin-overview.png) | ![Access events](docs/screenshots/admin-access-events.png) |
+
 ---
 
 ## The one thing to understand first
@@ -182,10 +210,16 @@ Every one of these has a test. See below.
 
 ```bash
 cd backend
-python -m pytest tests/ -q
+pip install -r requirements-dev.txt     # adds OpenCV for the QR decoding tests
+createdb smartlab_test                  # the suite drops and recreates every table in it
+DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_test \
+  python -m pytest tests/ -q
 ```
 
-**54 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
+Use a dedicated test database, never your real one. GitHub Actions runs the
+same suite against a PostgreSQL service container on every push.
+
+**61 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
 comparison is precisely what must not be tested on a different engine than
 production runs.
 
@@ -248,14 +282,22 @@ seven distances × four degradation settings.
 `firmware/SmartLab_Master_Portal/` is the master with portal integration.
 The pre-portal sketch is untouched and remains the fallback.
 
-Set these near the top:
+Credentials are kept out of the repository. In each sketch folder, copy
+`secrets.example.h` to `secrets.h` (gitignored) and fill it in:
+
+```cpp
+const char *WIFI_SSID  = "your-2.4GHz-network";
+const char *WIFI_PASS  = "your-wifi-password";
+const char *DEVICE_KEY = "...";          // master only; must match DEVICE_API_KEY
+```
+
+Then set these near the top of the master sketch:
 
 ```cpp
 constexpr bool BACKEND_ENABLED = true;   // false = exactly the old behaviour
 const char *BACKEND_IP   = "192.168.1.8";
 const char *LAB_ID       = "LAB_01";     // must match labs.code
 const char *DEVICE_ID    = "MASTER_LAB01";
-const char *DEVICE_KEY   = "...";        // must match DEVICE_API_KEY
 ```
 
 What changed, and nothing else:
@@ -306,9 +348,17 @@ smart-lab-portal/
 │   │   ├── services/      access, booking, events  ← the security lives here
 │   │   └── ws/            live activity broadcast
 │   ├── alembic/      migrations
-│   └── tests/        54 unit + 30 end-to-end assertions
+│   └── tests/        61 unit + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
 ├── firmware/         master (portal), camera, face server
-├── docs/             door subsystem reference
+├── docs/             door subsystem reference, screenshots
+├── .github/workflows CI: backend tests + frontend build
 └── docker-compose.yml
 ```
+
+---
+
+## Author
+
+**Ali Loay** — [@aliloay](https://github.com/aliloay)
+Bachelor thesis, German International University, Cairo.
