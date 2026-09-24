@@ -6,10 +6,10 @@
  * deliberately not styled after the university's logo.
  *
  * The official GIU logo is used as supplied, never redrawn: InstitutionLogo
- * shows public/brand/giu-logo.png (the university's logo with the white
- * background removed and the black artwork reversed to white for dark
- * surfaces; red and gold unchanged). If the file cannot be loaded it falls
- * back to the university's name as text.
+ * shows public/brand/giu-logo.png: the university's logo with the white
+ * background removed and only the lettering set white for dark surfaces.
+ * The black G, the black flag stripe, the red and the gold are unchanged.
+ * If the file cannot be loaded it falls back to the university's name.
  */
 import { useId, useState } from 'react'
 
@@ -87,8 +87,12 @@ export function InstitutionLogo({ className = '', textClass = '' }: {
   const [failed, setFailed] = useState(false)
   if (LOGO_URL && !failed) {
     return (
+      // The G and the first flag stripe are black, as in the official logo.
+      // On a dark page a thin, soft light outline keeps their shape legible
+      // without recolouring them - a display effect, the file is unchanged.
       <img src={LOGO_URL} alt="German International University"
            className={`h-8 w-auto object-contain ${className}`}
+           style={{ filter: 'drop-shadow(0 0 0.6px rgba(241,245,249,.95)) drop-shadow(0 0 2px rgba(241,245,249,.18))' }}
            onError={() => setFailed(true)} />
     )
   }

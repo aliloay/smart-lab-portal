@@ -92,8 +92,8 @@ export default function Settings() {
               <SectionTitle icon={<Wrench size={15} />}>Branding</SectionTitle>
               <div className="card p-4 text-[13px] text-slate-300">
                 The GIU logo is served from
-                <span className="mono"> frontend/public/brand/giu-logo.png</span> (transparent,
-                reversed for dark backgrounds). To use another file set
+                <span className="mono"> frontend/public/brand/giu-logo.png</span> (transparent
+                background, official colours, lettering set white for the dark theme). To use another file set
                 <span className="mono"> VITE_INSTITUTION_LOGO</span> - see
                 <span className="mono"> public/brand/README.md</span>.
               </div>

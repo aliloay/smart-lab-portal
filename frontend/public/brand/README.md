@@ -4,9 +4,14 @@
 portal's dark interface:
 
 - the white background removed (transparent PNG),
-- the black artwork (the "G", the lettering, the Arabic name and the black
-  flag segment) reversed to white so it stays visible on dark navy,
-- the red and gold kept at the official values (210, 17, 25) and (218, 156, 4).
+- only the lettering (the English and Arabic names) set white so it can be
+  read on dark navy,
+- the black "G" and the black stripe of the German-flag bar kept black, and
+  the red and gold kept at the official values (210, 17, 25) and (218, 156, 4).
+
+On screen the logo gets a thin, soft light outline (a CSS drop-shadow in
+`Brand.tsx`) so the black G and stripe stay legible on the dark background.
+That is a display effect only; the file keeps the official colours.
 
 It is shown on the sign-in page and at the top of the sidebar. The Smart Lab
 mark next to it is the portal's own, original design.
