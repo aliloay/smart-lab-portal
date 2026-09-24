@@ -1,0 +1,5 @@
+# Test-only dependencies. The QR tests decode the rendered credential with the
+# same cv2.QRCodeDetector that firmware/face_server/face_server.py uses.
+-r requirements.txt
+opencv-python-headless==4.10.0.84
+numpy==2.1.3

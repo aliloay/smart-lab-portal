@@ -1,5 +1,7 @@
 # Smart Laboratory Management Portal
 
+[![CI](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml)
+
 Booking, time-bound QR credentials, and the audit trail for the physical
 two-factor access-control system.
 
