@@ -18,23 +18,38 @@ Research Laboratory Management System*, German International University, Cairo.
 
 ## Features
 
-- **Laboratory booking** with conflict detection across 11 laboratories
+- **Laboratory booking** across 11 laboratories, with live availability and conflict detection
 - **Time-bound QR credentials**, valid only for one lab and only inside the booking window
 - **Two-factor door access**: QR code or RFID card, then fingerprint or face recognition
-- **Live admin dashboard** with a WebSocket access timeline, device health and alerts
+- **Session traceability**: every booking reconstructs to the second — credential, both
+  factors and their identities, result, entry, door cycle — and an exit only when one is observed
+- **Maintenance workflow**: anyone can report a broken, missing or unsafe item with photos in
+  about a minute; staff triage, assign, fix and record it, with a full audit timeline
+- **Role-specific experiences** for students, laboratory staff and administrators
+- **Live operations**: authenticated WebSocket stream, device heartbeats with automatic
+  offline alerts, and in-portal notifications
 - **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV
-- **Equipment checkout** and role-based access for students, lab staff and administrators
 - **Fails closed**: if the backend is down, a booking QR opens nothing
 
 ## Screenshots
 
+Demo data. The door events are simulated through the same device API the ESP32
+master uses. Laboratory images are illustrations of each discipline, not
+photographs of the rooms.
+
 | Sign in | Student dashboard |
 |---|---|
 | ![Sign in](docs/screenshots/login.png) | ![Student dashboard](docs/screenshots/student-dashboard.png) |
-| **Book a laboratory** | **Time-bound access QR** |
-| ![Booking wizard](docs/screenshots/book.png) | ![Booking QR credential](docs/screenshots/booking-qr.png) |
-| **Admin overview (live)** | **Access audit trail** |
-| ![Admin overview](docs/screenshots/admin-overview.png) | ![Access events](docs/screenshots/admin-access-events.png) |
+| **Laboratory network** | **A laboratory's control panel** |
+| ![Laboratories](docs/screenshots/laboratories.png) | ![Lab control panel](docs/screenshots/lab-control-panel.png) |
+| **Booking traced end to end** | **Time-bound access QR** |
+| ![Booking trace](docs/screenshots/booking-trace.png) | ![Access QR](docs/screenshots/access-qr.png) |
+| **Report an issue** | **Maintenance queue** |
+| ![Report an issue](docs/screenshots/report-issue.png) | ![Maintenance queue](docs/screenshots/maintenance-queue.png) |
+| **Issue workflow** | **Access monitor** |
+| ![Issue detail](docs/screenshots/issue-detail.png) | ![Access monitor](docs/screenshots/access-monitor.png) |
+| **System overview (admin)** | |
+| ![Admin overview](docs/screenshots/admin-overview.png) | |
 
 ---
 
@@ -136,6 +151,11 @@ npm run dev
 
 Open <http://localhost:5173>.
 
+**Upgrading an existing database:** always run `alembic upgrade head` after
+pulling. The API and `seed.py` refuse to start against a migrated database
+that is behind the code, and print that command, rather than half-creating
+new tables.
+
 ### Sign in
 
 | Email | Password | Role |
@@ -188,6 +208,54 @@ check this first if a valid booking is being denied.
 
 ---
 
+## Traceability: entry is not exit
+
+Opening a booking in the portal shows the whole session, reconstructed from
+the door's own events: the credential and how often it was accepted, step 1
+(QR or RFID) and the identity it resolved to, step 2 (face or fingerprint)
+and its identity, the result with the refusal reason if any, the first entry
+compared with the booked start, and the door opening and closing - every
+step timestamped to the second.
+
+**The door has no exit reader**, so the portal does not pretend to know when
+someone left. The door closing a few seconds after entry is recorded as part
+of the entry, *not* as an exit (earlier versions ended the session there,
+which made every visit look seconds long). A session ends with an observed
+exit (`EXIT_RECORDED`, which the device API already accepts), with the
+booking window closing, or with the door never being opened, and the portal
+states which. Duration inside is shown only when an exit was actually
+recorded.
+
+## Maintenance and issue reporting
+
+Anyone can report a laboratory problem - damaged, missing, malfunctioning,
+unsafe, software, network or access-control hardware - with photos, in about
+a minute. Reports arrive pre-filled from wherever the person started (a lab,
+an equipment item, a door device, a refused access event).
+
+- **Tickets** are numbered `ISS-YYYY-NNNNNN` and linked to the laboratory and,
+  where relevant, the equipment item, device or access event - each link
+  validated to belong to that laboratory.
+- **Workflow:** open -> acknowledged -> in progress <-> waiting for parts ->
+  resolved (notes required) -> closed (administrators), with rejection and
+  reopening. Every change writes a history row: the reporter's timeline and
+  the audit trail are the same records.
+- **Photos** are validated by decoding them (not by extension), rotated
+  upright, stripped of metadata including GPS position, scaled and
+  thumbnailed, and served only to people allowed to see the issue.
+  Maintenance photos are stored as *before*/*after* next to, never over, the
+  reporter's photos. Storage sits behind an interface: local disk now,
+  S3/MinIO later without schema changes.
+- **Permissions are enforced by the API:** students see only their own
+  reports (others are a 404), cannot move them through the workflow, and
+  never see staff-internal notes.
+- **Service levels** make "overdue" a published rule (critical 24 h, high 72 h,
+  medium 7 days, low 14 days, configurable).
+- **Notifications** in the portal for new and critical reports, assignment,
+  escalation, and every status change the reporter should know about.
+
+---
+
 ## Security properties, and how each is enforced
 
 | Property | Where it is enforced |
@@ -201,6 +269,9 @@ check this first if a valid booking is being denied.
 | Students cannot see each other's bookings | ownership check returns **404**, not 403 — existence is private |
 | Passwords are never stored | bcrypt via passlib |
 | No biometric material in the database | templates stay in the AS608; face images stay in `dataset/` |
+| Students cannot read other people's activity | lab activity, the live WebSocket stream and issue lists are scoped server-side |
+| The live stream is not a side door | the WebSocket requires the same JWT as the REST API |
+| Issue photos are not public files | served only through authenticated routes; EXIF/GPS stripped on upload |
 
 Every one of these has a test. See below.
 
@@ -219,16 +290,34 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_te
 Use a dedicated test database, never your real one. GitHub Actions runs the
 same suite against a PostgreSQL service container on every push.
 
-**61 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
+**134 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
 comparison is precisely what must not be tested on a different engine than
 production runs.
-
-Two suites:
 
 - `test_authorization.py` — every non-negotiable rule: QR before / during /
   after its window, wrong lab, cancelled, unknown, revoked, inactive user,
   identity mismatch, booking conflicts, and role isolation between students.
 - `test_qr_pipeline.py` — the hard requirement, below.
+- `test_issues.py` — the maintenance workflow: scoping, validation,
+  asset/lab consistency, photo validation and privacy, transitions, the
+  ordered audit trail, internal notes, links to equipment and labs.
+- `test_traceability.py` — the door closing is never an exit, full booking
+  traces, supersession and booking-end handling.
+- `test_portal.py` — availability without identities, role scoping,
+  notifications, device offline detection, and WebSocket authentication and
+  cross-thread delivery.
+
+### Navigation in a real browser
+
+```bash
+cd frontend
+npm run test:e2e            # E2E_CPU_THROTTLE=6 to emulate a slow machine
+```
+
+Signs in as each role and walks every route - sidebar clicks, the student
+journey from laboratory to QR, rapid clicking, back/forward, direct URLs,
+reloads and an expired session - failing on any blank or invisible page,
+error screen or console error. CI runs it against the production build.
 
 ### End-to-end
 
@@ -309,6 +398,15 @@ What changed, and nothing else:
   payloads; legacy still works locally so the bench demo survives the portal
   being off
 
+The device API also accepts, without firmware changes being required:
+
+- an `EXIT_RECORDED` event (for a future exit button or reader), which is
+  the only thing that gives a session an exit time;
+- optional `components` in the heartbeat, e.g.
+  `{"rfid": true, "fingerprint": true, "relay_locked": true}`. Until the
+  firmware sends them, the portal labels those states "not reported" instead
+  of inferring them.
+
 What did **not** change, verified by diff: all 26 safety-critical constants
 (pins, `RELAY_LOCKED_LEVEL = HIGH`, `DENY_ALERT_ENABLED = false`, freshness
 windows, timeouts), and the relay write sites — still exactly two, both in the
@@ -326,11 +424,20 @@ state machine, neither reachable from network code.
    run face recognition at usable speed.
 3. **Sensor data is structure only.** `sensor_readings` exists and the lab page
    renders it, but nothing writes to it until a real sensor node is deployed.
-   The UI shows "No data available" rather than inventing values.
-4. **Denial buzzer disabled in firmware.** Energizing it sags the 12V rail
+   The UI shows "No live sensor data" rather than inventing values.
+4. **No exit detection.** The door reports entries, not exits, so time spent
+   inside is only measured once an exit reader or button reports
+   `EXIT_RECORDED`. Until then the portal says an exit was not recorded.
+5. **Photos on local disk.** Issue photos live in `backend/uploads` (a Docker
+   volume in compose). Back it up with the database, or move to object
+   storage via the storage interface.
+6. **Device history.** The portal keeps each device's latest heartbeat and
+   its online/offline events, not a heartbeat time series, so uptime is not
+   charted.
+7. **Denial buzzer disabled in firmware.** Energizing it sags the 12V rail
    enough to drop the relay. Fix is a 470–1000 µF capacitor across the rail;
    see `docs/DOOR_SYSTEM.md`.
-5. **Development server.** `uvicorn` directly and Flask's dev server are fine
+8. **Development server.** `uvicorn` directly and Flask's dev server are fine
    for a laboratory on a private LAN. A public deployment wants a proper WSGI
    or ASGI server behind TLS.
 
@@ -342,17 +449,20 @@ state machine, neither reachable from network code.
 smart-lab-portal/
 ├── backend/          FastAPI, SQLAlchemy, Alembic, tests
 │   ├── app/
-│   │   ├── api/routes/    auth, labs, bookings, access (device), admin
+│   │   ├── api/routes/    auth, labs, bookings, access (device), admin,
+│   │   │                  issues, notifications, system
 │   │   ├── core/          config, security
-│   │   ├── models/        16 tables
-│   │   ├── services/      access, booking, events  ← the security lives here
-│   │   └── ws/            live activity broadcast
-│   ├── alembic/      migrations
-│   └── tests/        61 unit + 30 end-to-end assertions
+│   │   ├── models/        21 tables
+│   │   ├── services/      access, booking, sessions, issues, storage,
+│   │   │                  notifications, devices  ← the rules live here
+│   │   └── ws/            authenticated live stream
+│   ├── alembic/      migrations (checked against the models in CI)
+│   └── tests/        134 tests + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
+│   └── e2e/          real-browser navigation test
 ├── firmware/         master (portal), camera, face server
 ├── docs/             door subsystem reference, screenshots
-├── .github/workflows CI: backend tests + frontend build
+├── .github/workflows CI: backend tests, migrations, build, browser test
 └── docker-compose.yml
 ```
 
