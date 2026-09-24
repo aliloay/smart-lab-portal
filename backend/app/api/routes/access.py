@@ -5,7 +5,7 @@ Note what is absent: there is no endpoint that opens a door. /grant and /deny
 RECORD an outcome the master has already decided. The relay is driven by one
 line of firmware and no HTTP request can reach it.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -13,15 +13,29 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_device
 from app.db.session import get_db
-from app.models import (AccessResult, AccessSession, AuthMethod, Booking,
-                        Device, EventType, Lab, User)
+from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
+                        DeviceType, EventType, Notification, User)
 from app.schemas import (DeviceEventRequest, HeartbeatRequest,
                          ValidateQrRequest, ValidateResponse,
                          ValidateRfidRequest)
+from app.services import sessions
 from app.services.access import get_device, get_lab_by_code, validate_qr, validate_rfid
+from app.services.devices import resolve_offline_alerts
 from app.services.events import log_event
+from app.services.notifications import notify
+from app.ui_text import denial_sentence
 
 router = APIRouter(prefix="/access", tags=["access (device)"])
+
+# Biometric outcomes that complete step 2 on the master.
+_SECOND_FACTOR = {EventType.FACE_ACCEPTED: AuthMethod.FACE,
+                  EventType.FINGERPRINT_ACCEPTED: AuthMethod.FINGERPRINT}
+
+
+def _user_by_subject(db: Session, subject: str | None) -> User | None:
+    if not subject:
+        return None
+    return db.scalar(select(User).where(User.auth_subject == subject))
 
 
 @router.post("/validate-qr", response_model=ValidateResponse)
@@ -75,14 +89,12 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
                _: str = Depends(require_device)):
     """
     Generic event sink for the master: biometric attempts, door transitions,
-    identity mismatches. The master fires these and does not wait on them, so
-    a slow or absent portal never delays the door.
+    identity mismatches, exits. The master fires these and does not wait on
+    them, so a slow or absent portal never delays the door.
     """
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
-    user = None
-    if req.auth_subject:
-        user = db.scalar(select(User).where(User.auth_subject == req.auth_subject))
+    user = _user_by_subject(db, req.auth_subject)
 
     log_event(db, req.event_type,
               lab_id=lab.id if lab else None,
@@ -93,15 +105,17 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
               message=req.message or req.event_type.value,
               metadata=req.metadata)
 
-    # Door transitions also close the occupancy session.
-    if req.event_type == EventType.DOOR_CLOSED and lab is not None:
-        open_session = db.scalar(
-            select(AccessSession)
-            .where(AccessSession.lab_id == lab.id,
-                   AccessSession.ended_at.is_(None))
-            .order_by(AccessSession.started_at.desc()))
-        if open_session is not None:
-            open_session.ended_at = datetime.now(timezone.utc)
+    if lab is not None:
+        # The door cycle is recorded on the session; it does not end it.
+        if req.event_type == EventType.DOOR_OPENED:
+            sessions.record_door_opened(db, lab.id, user)
+        elif req.event_type == EventType.DOOR_CLOSED:
+            sessions.record_door_closed(db, lab.id, user)
+        elif req.event_type == EventType.EXIT_RECORDED:
+            sessions.record_exit(db, lab.id, user)
+        elif req.event_type in _SECOND_FACTOR:
+            sessions.second_factor_seen(db, lab.id, user,
+                                        _SECOND_FACTOR[req.event_type])
 
     db.commit()
     return {"status": "recorded"}
@@ -116,8 +130,7 @@ def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
     """
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
-    user = db.scalar(select(User).where(User.auth_subject == req.auth_subject)) \
-        if req.auth_subject else None
+    user = _user_by_subject(db, req.auth_subject)
 
     log_event(db, EventType.ACCESS_GRANTED,
               lab_id=lab.id if lab else None,
@@ -128,10 +141,22 @@ def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
               message=req.message or "Access granted at door")
 
     if lab is not None and user is not None:
-        db.add(AccessSession(lab_id=lab.id, user_id=user.id,
-                             booking_id=req.booking_id,
-                             device_id=device.id if device else None,
-                             entry_method=req.method or AuthMethod.RFID))
+        s = sessions.open_session(db, lab_id=lab.id, user_id=user.id,
+                                  booking_id=req.booking_id,
+                                  device_id=device.id if device else None,
+                                  method=req.method or AuthMethod.RFID)
+        # The biometric that completed step 2 was reported just before the
+        # grant; carry it onto the session that the grant opens.
+        recent = datetime.now(timezone.utc) - timedelta(minutes=2)
+        bio = db.scalar(
+            select(AccessEvent)
+            .where(AccessEvent.lab_id == lab.id,
+                   AccessEvent.user_id == user.id,
+                   AccessEvent.event_type.in_(list(_SECOND_FACTOR)),
+                   AccessEvent.created_at >= recent)
+            .order_by(AccessEvent.created_at.desc()))
+        if bio is not None:
+            s.second_factor = _SECOND_FACTOR[bio.event_type]
 
     # Stamp the REAL entry time on the booking. first_entry_at is written
     # once and never overwritten - it is the answer to "when did they
@@ -155,8 +180,7 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
                 _: str = Depends(require_device)):
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
-    user = db.scalar(select(User).where(User.auth_subject == req.auth_subject)) \
-        if req.auth_subject else None
+    user = _user_by_subject(db, req.auth_subject)
 
     log_event(db, EventType.ACCESS_DENIED,
               lab_id=lab.id if lab else None,
@@ -166,6 +190,23 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
               method=req.method, result=AccessResult.DENIED,
               reason=req.reason,
               message=req.message or f"Access denied: {req.reason}")
+
+    # Tell the person, once. The master can report the same refusal from two
+    # places in quick succession; a minute of de-duplication keeps that to a
+    # single notification.
+    if user is not None:
+        recent = datetime.now(timezone.utc) - timedelta(minutes=1)
+        already = db.scalar(select(Notification.id).where(
+            Notification.user_id == user.id,
+            Notification.kind == "ACCESS_DENIED",
+            Notification.created_at >= recent))
+        if not already:
+            where = lab.code if lab else req.lab_id
+            notify(db, [user.id], "ACCESS_DENIED",
+                   f"Access denied at {where}",
+                   body=denial_sentence(req.reason) or "Entry was refused.",
+                   link=f"/bookings/{req.booking_id}" if req.booking_id else "/bookings",
+                   severity="warning", booking_id=req.booking_id)
     db.commit()
     return {"status": "recorded"}
 
@@ -186,9 +227,9 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
     was_online = device.is_online if device else False
 
     if device is None:
-        from app.models import DeviceType
         device = Device(device_uid=req.device_uid, name=req.device_uid,
-                        device_type=DeviceType.MASTER_CONTROLLER, lab_id=lab.id)
+                        device_type=req.device_type or DeviceType.MASTER_CONTROLLER,
+                        lab_id=lab.id)
         db.add(device)
         db.flush()
 
@@ -198,9 +239,12 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
     device.is_online = True
     if req.door_closed is not None:
         device.door_closed = req.door_closed
+    if req.components is not None:
+        device.component_state = req.components
 
     if not was_online:
         log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,
                   device_id=device.id, message=f"{device.name} online")
+        resolve_offline_alerts(db, device)
     db.commit()
     return {"status": "ok", "lab": lab.code, "device_id": device.id}

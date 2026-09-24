@@ -13,3 +13,5 @@ lbph_model.yml
 labels.txt
 recognition_log.csv
 *.tsbuildinfo
+# issue photos uploaded through the portal (local storage backend)
+backend/uploads/

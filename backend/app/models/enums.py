@@ -80,6 +80,11 @@ class EventType(str, enum.Enum):
     ACCESS_DENIED = "ACCESS_DENIED"
     DOOR_OPENED = "DOOR_OPENED"
     DOOR_CLOSED = "DOOR_CLOSED"
+    # The person has left. Nothing on the current door reports this - it has
+    # no exit reader - but the event exists so an exit button or reader can be
+    # added later without a schema change, and so a session is only ever
+    # given an exit time by something that actually observed an exit.
+    EXIT_RECORDED = "EXIT_RECORDED"
     DEVICE_ONLINE = "DEVICE_ONLINE"
     DEVICE_OFFLINE = "DEVICE_OFFLINE"
     ALARM = "ALARM"
@@ -105,3 +110,70 @@ class AlertSeverity(str, enum.Enum):
     INFO = "INFO"
     WARNING = "WARNING"
     CRITICAL = "CRITICAL"
+
+
+class SessionEndReason(str, enum.Enum):
+    """
+    Why an occupancy session stopped counting. Only EXIT_RECORDED means an
+    exit was actually observed; every other value is the system admitting it
+    does not know when the person left, and the UI must say so.
+    """
+    EXIT_RECORDED = "EXIT_RECORDED"      # an exit event was reported
+    BOOKING_ENDED = "BOOKING_ENDED"      # the booking window closed
+    DOOR_NOT_OPENED = "DOOR_NOT_OPENED"  # unlocked, relocked, never opened
+    SUPERSEDED = "SUPERSEDED"            # a newer entry by the same person
+    # No booking window to close it and no exit observed: the session stops
+    # counting towards occupancy after MAX_BOOKING_HOURS. ended_at is that
+    # cut-off, NOT an exit time.
+    NO_EXIT_TIMEOUT = "NO_EXIT_TIMEOUT"
+
+
+# --- maintenance -------------------------------------------------------------
+class IssueCategory(str, enum.Enum):
+    DAMAGED = "DAMAGED"
+    MISSING = "MISSING"
+    MALFUNCTION = "MALFUNCTION"
+    MAINTENANCE = "MAINTENANCE"
+    SAFETY = "SAFETY"
+    SOFTWARE = "SOFTWARE"
+    NETWORK = "NETWORK"
+    ACCESS_CONTROL = "ACCESS_CONTROL"
+    OTHER = "OTHER"
+
+
+class IssueSeverity(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class IssueStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    ACKNOWLEDGED = "ACKNOWLEDGED"
+    IN_PROGRESS = "IN_PROGRESS"
+    WAITING_FOR_PARTS = "WAITING_FOR_PARTS"
+    RESOLVED = "RESOLVED"
+    CLOSED = "CLOSED"
+    REJECTED = "REJECTED"
+
+
+class IssuePhotoStage(str, enum.Enum):
+    """When a photo was taken. Maintenance photos never replace report ones."""
+    REPORT = "REPORT"
+    BEFORE = "BEFORE"
+    AFTER = "AFTER"
+
+
+class IssueEventType(str, enum.Enum):
+    ISSUE_CREATED = "ISSUE_CREATED"
+    ISSUE_ACKNOWLEDGED = "ISSUE_ACKNOWLEDGED"
+    ISSUE_ASSIGNED = "ISSUE_ASSIGNED"
+    ISSUE_STATUS_CHANGED = "ISSUE_STATUS_CHANGED"
+    ISSUE_SEVERITY_CHANGED = "ISSUE_SEVERITY_CHANGED"
+    ISSUE_UPDATED = "ISSUE_UPDATED"
+    ISSUE_COMMENT_ADDED = "ISSUE_COMMENT_ADDED"
+    ISSUE_PHOTO_ADDED = "ISSUE_PHOTO_ADDED"
+    ISSUE_RESOLVED = "ISSUE_RESOLVED"
+    ISSUE_CLOSED = "ISSUE_CLOSED"
+    ISSUE_REOPENED = "ISSUE_REOPENED"

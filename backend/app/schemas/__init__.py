@@ -2,11 +2,13 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
                               AuthMethod, BookingStatus, DeviceType, EventType,
-                              Role)
+                              IssueCategory, IssueEventType, IssuePhotoStage,
+                              IssueSeverity, IssueStatus, Role,
+                              SessionEndReason)
 
 
 class ORM(BaseModel):
@@ -36,14 +38,15 @@ class UserOut(ORM):
     auth_subject: Optional[str] = None
     student_id: Optional[str] = None
     department: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    full_name: str
+    full_name: str = Field(min_length=2, max_length=255)
     password: str = Field(min_length=8)
     role: Role = Role.STUDENT
-    auth_subject: Optional[str] = None
+    auth_subject: Optional[str] = Field(default=None, max_length=32)
     student_id: Optional[str] = None
     department: Optional[str] = None
 
@@ -52,8 +55,16 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[Role] = None
     is_active: Optional[bool] = None
-    auth_subject: Optional[str] = None
+    auth_subject: Optional[str] = Field(default=None, max_length=32)
     department: Optional[str] = None
+    student_id: Optional[str] = None
+
+
+class UserBrief(BaseModel):
+    id: int
+    full_name: str
+    role: Role
+    auth_subject: Optional[str] = None
 
 
 # --- labs ------------------------------------------------------------------
@@ -83,16 +94,79 @@ class LabCreate(BaseModel):
     require_booking_for_rfid: bool = False
 
 
+class BookingSlot(BaseModel):
+    """A reserved interval. Identity only for staff or for the booking's owner."""
+    booking_id: Optional[int] = None
+    start_time: datetime
+    end_time: datetime
+    status: BookingStatus
+    is_mine: bool = False
+    user_name: Optional[str] = None
+
+
+class LabOverview(BaseModel):
+    """One row per lab for the catalogue: everything a card shows, one query."""
+    lab: LabOut
+    occupied: bool
+    occupants: int
+    available_now: bool
+    controller_online: Optional[bool] = None
+    door_closed: Optional[bool] = None
+    next_booking_at: Optional[datetime] = None
+    bookings_today: int = 0
+    open_issues: int = 0
+    high_priority_issues: int = 0
+
+
+class DeviceOut(ORM):
+    id: int
+    device_uid: str
+    name: str
+    device_type: DeviceType
+    lab_id: int
+    ip_address: Optional[str]
+    firmware_version: Optional[str]
+    last_seen_at: Optional[datetime]
+    is_online: bool
+    door_closed: Optional[bool]
+    component_state: Optional[dict[str, Any]] = None
+    lab_code: Optional[str] = None
+    # ONLINE / OFFLINE / NO_DATA - NO_DATA means it has never reported.
+    state: str = "NO_DATA"
+    seconds_since_seen: Optional[int] = None
+
+
+class LabIssueBrief(BaseModel):
+    """What anyone may see about a lab's open problems: no reporter, no text."""
+    id: int
+    ticket_number: Optional[str]
+    title: str
+    category: IssueCategory
+    severity: IssueSeverity
+    status: IssueStatus
+    asset_name: Optional[str] = None
+    created_at: datetime
+    is_mine: bool = False
+
+
 class LabStatus(BaseModel):
     lab: LabOut
     occupied: bool
+    occupants: int = 0
     current_booking_id: Optional[int] = None
+    # Names only for staff; everyone else sees a count.
     current_users: list[str] = []
     # None everywhere means "no data reported", never a fabricated value.
     door_closed: Optional[bool] = None
     controller_online: Optional[bool] = None
     camera_online: Optional[bool] = None
     next_booking_at: Optional[datetime] = None
+    current_booking: Optional[BookingSlot] = None
+    upcoming: list[BookingSlot] = []
+    devices: list[DeviceOut] = []
+    open_issues: int = 0
+    high_priority_issues: int = 0
+    recent_issues: list[LabIssueBrief] = []
 
 
 # --- bookings --------------------------------------------------------------
@@ -100,7 +174,9 @@ class BookingCreate(BaseModel):
     lab_id: int
     start_time: datetime
     end_time: datetime
-    reason: str = ""
+    reason: str = Field(default="", max_length=500)
+    # Staff only: book on behalf of someone else.
+    user_id: Optional[int] = None
 
 
 class BookingOut(ORM):
@@ -112,6 +188,7 @@ class BookingOut(ORM):
     reason: str
     status: BookingStatus
     created_at: datetime
+    cancelled_at: Optional[datetime] = None
 
     # Actual use, not just the reservation.
     first_entry_at: Optional[datetime] = None
@@ -129,6 +206,11 @@ class BookingOut(ORM):
     entry_delay_minutes: Optional[int] = None
     # An occupancy session for this booking that has not been closed yet.
     currently_inside: bool = False
+    # Only set when an exit was actually observed.
+    last_exit_at: Optional[datetime] = None
+    time_inside_minutes: Optional[int] = None
+    # Whether a live (unrevoked) credential exists.
+    qr_active: bool = False
 
 
 class SessionOut(ORM):
@@ -142,10 +224,15 @@ class SessionOut(ORM):
     user_id: int
     booking_id: Optional[int]
     entry_method: AuthMethod
+    second_factor: Optional[AuthMethod] = None
     started_at: datetime
+    door_opened_at: Optional[datetime] = None
+    door_closed_at: Optional[datetime] = None
     ended_at: Optional[datetime]
+    end_reason: Optional[SessionEndReason] = None
     user_name: Optional[str] = None
     lab_code: Optional[str] = None
+    # Only when an exit was observed; never derived from the door closing.
     duration_minutes: Optional[int] = None
 
 
@@ -159,6 +246,64 @@ class QrOut(BaseModel):
     lab_code: str
     lab_name: str
     is_currently_valid: bool
+
+
+class TokenInfo(BaseModel):
+    issued_at: datetime
+    valid_from: datetime
+    valid_until: datetime
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    use_count: int = 0
+    # ISSUED (not yet valid) / VALID / EXPIRED / REVOKED
+    state: str
+
+
+class TraceSummary(BaseModel):
+    """The one-screen answer to 'what happened with this booking at the door'."""
+    first_factor: Optional[AuthMethod] = None
+    first_factor_identity: Optional[str] = None
+    qr_result: Optional[str] = None
+    second_factor: Optional[AuthMethod] = None
+    second_factor_identity: Optional[str] = None
+    result: Optional[str] = None          # GRANTED / DENIED / None (no attempt)
+    denial_reason: Optional[str] = None
+    entry_at: Optional[datetime] = None
+    door_opened_at: Optional[datetime] = None
+    door_closed_at: Optional[datetime] = None
+    exit_at: Optional[datetime] = None
+    exit_recorded: bool = False
+    session_end_reason: Optional[SessionEndReason] = None
+    duration_minutes: Optional[int] = None
+    attempts: int = 0
+    denials: int = 0
+
+
+class EventOut(ORM):
+    id: int
+    event_type: EventType
+    lab_id: Optional[int]
+    user_id: Optional[int]
+    booking_id: Optional[int]
+    device_id: Optional[int]
+    method: Optional[AuthMethod]
+    result: Optional[AccessResult]
+    reason: Optional[str]
+    message: str
+    created_at: datetime
+    user_name: Optional[str] = None
+    lab_code: Optional[str] = None
+    device_name: Optional[str] = None
+
+
+class BookingTrace(BaseModel):
+    booking: BookingOut
+    user: UserBrief
+    lab: LabOut
+    token: Optional[TokenInfo] = None
+    summary: TraceSummary
+    sessions: list[SessionOut] = []
+    events: list[EventOut] = []
 
 
 # --- access (device-facing) ------------------------------------------------
@@ -205,39 +350,14 @@ class HeartbeatRequest(BaseModel):
     ip_address: Optional[str] = None
     firmware_version: Optional[str] = None
     door_closed: Optional[bool] = None
-
-
-# --- events ----------------------------------------------------------------
-class EventOut(ORM):
-    id: int
-    event_type: EventType
-    lab_id: Optional[int]
-    user_id: Optional[int]
-    booking_id: Optional[int]
-    device_id: Optional[int]
-    method: Optional[AuthMethod]
-    result: Optional[AccessResult]
-    reason: Optional[str]
-    message: str
-    created_at: datetime
-    user_name: Optional[str] = None
-    lab_code: Optional[str] = None
+    # Used only when the device is auto-registered by its first heartbeat.
+    device_type: Optional[DeviceType] = None
+    # Optional per-component health, e.g. {"rfid": true, "relay_locked": true}.
+    # Current firmware does not send it; the field is here so it can.
+    components: Optional[dict[str, Any]] = None
 
 
 # --- devices / assets / alerts ---------------------------------------------
-class DeviceOut(ORM):
-    id: int
-    device_uid: str
-    name: str
-    device_type: DeviceType
-    lab_id: int
-    ip_address: Optional[str]
-    firmware_version: Optional[str]
-    last_seen_at: Optional[datetime]
-    is_online: bool
-    door_closed: Optional[bool]
-
-
 class DeviceCreate(BaseModel):
     device_uid: str
     name: str
@@ -254,6 +374,9 @@ class AssetOut(ORM):
     lab_id: int
     status: AssetStatus
     notes: str
+    lab_code: Optional[str] = None
+    lab_name: Optional[str] = None
+    open_issues: int = 0
 
 
 class AssetCreate(BaseModel):
@@ -264,14 +387,52 @@ class AssetCreate(BaseModel):
     notes: str = ""
 
 
+class AssetUpdate(BaseModel):
+    status: Optional[AssetStatus] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AssetTransactionOut(ORM):
+    id: int
+    action: str
+    note: str
+    created_at: datetime
+    user_name: Optional[str] = None
+
+
+class AssetMaintenanceRow(BaseModel):
+    """One line of an equipment's maintenance history. No reporter identity."""
+    id: int
+    ticket_number: Optional[str]
+    title: str
+    category: IssueCategory
+    severity: IssueSeverity
+    status: IssueStatus
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    technician: Optional[str] = None
+    resolution_notes: str = ""
+    is_mine: bool = False
+
+
+class AssetDetail(BaseModel):
+    asset: "AssetOut"
+    lab: "LabOut"
+    transactions: list[AssetTransactionOut] = []
+    maintenance: list[AssetMaintenanceRow] = []
+
+
 class AlertOut(ORM):
     id: int
     lab_id: Optional[int]
+    device_id: Optional[int] = None
     severity: AlertSeverity
     title: str
     detail: str
     is_resolved: bool
     created_at: datetime
+    resolved_at: Optional[datetime] = None
+    lab_code: Optional[str] = None
 
 
 class SensorReadingOut(ORM):
@@ -293,3 +454,259 @@ class AdminSummary(BaseModel):
     devices_online: int
     devices_total: int
     open_alerts: int
+    # Additions for the role dashboards. Every one is a count of real rows.
+    labs_with_hardware: int = 0
+    active_users: int = 0
+    bookings_today: int = 0
+    pending_bookings: int = 0
+    people_inside: int = 0
+    security_events_today: int = 0
+    assets_total: int = 0
+    assets_in_maintenance: int = 0
+    assets_checked_out: int = 0
+    open_issues: int = 0
+    critical_issues: int = 0
+    high_issues: int = 0
+    unassigned_issues: int = 0
+    overdue_issues: int = 0
+
+
+# --- issues ----------------------------------------------------------------
+def _clean(v: str) -> str:
+    return (v or "").strip()
+
+
+class IssueCreate(BaseModel):
+    lab_id: int
+    asset_id: Optional[int] = None
+    device_id: Optional[int] = None
+    access_event_id: Optional[int] = None
+    category: IssueCategory
+    severity: IssueSeverity
+    title: str = Field(max_length=140)
+    description: str = Field(max_length=4000)
+    additional_comments: str = Field(default="", max_length=2000)
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: str) -> str:
+        v = _clean(v)
+        if len(v) < 5:
+            raise ValueError("Title must be at least 5 characters.")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def _description(cls, v: str) -> str:
+        v = _clean(v)
+        if len(v) < 10:
+            raise ValueError("Describe the problem in at least 10 characters.")
+        return v
+
+    @field_validator("additional_comments")
+    @classmethod
+    def _comments(cls, v: str) -> str:
+        return _clean(v)
+
+
+class IssueUpdate(BaseModel):
+    """Staff edits. Status changes go through the status endpoint."""
+    severity: Optional[IssueSeverity] = None
+    category: Optional[IssueCategory] = None
+    asset_id: Optional[int] = None
+    device_id: Optional[int] = None
+    title: Optional[str] = Field(default=None, max_length=140)
+    resolution_notes: Optional[str] = Field(default=None, max_length=4000)
+
+
+class IssueAssign(BaseModel):
+    assignee_id: Optional[int] = None   # None unassigns
+
+
+class IssueStatusChange(BaseModel):
+    status: IssueStatus
+    note: str = Field(default="", max_length=2000)
+
+
+class NoteBody(BaseModel):
+    note: str = Field(default="", max_length=2000)
+
+
+class IssueResolve(BaseModel):
+    resolution_notes: str = Field(max_length=4000)
+
+    @field_validator("resolution_notes")
+    @classmethod
+    def _notes(cls, v: str) -> str:
+        v = _clean(v)
+        if len(v) < 5:
+            raise ValueError("Describe what was done to resolve the issue.")
+        return v
+
+
+class CommentCreate(BaseModel):
+    body: str = Field(max_length=2000)
+    is_internal: bool = False
+
+    @field_validator("body")
+    @classmethod
+    def _body(cls, v: str) -> str:
+        v = _clean(v)
+        if not v:
+            raise ValueError("A comment cannot be empty.")
+        return v
+
+
+class IssuePhotoOut(ORM):
+    id: int
+    stage: IssuePhotoStage
+    original_filename: str
+    content_type: str
+    size_bytes: int
+    width: int
+    height: int
+    created_at: datetime
+    uploaded_by_name: Optional[str] = None
+
+
+class IssueCommentOut(ORM):
+    id: int
+    body: str
+    is_internal: bool
+    created_at: datetime
+    author_id: int
+    author_name: Optional[str] = None
+    author_role: Optional[Role] = None
+
+
+class IssueHistoryOut(ORM):
+    id: int
+    event_type: IssueEventType
+    old_status: Optional[IssueStatus] = None
+    new_status: Optional[IssueStatus] = None
+    message: str
+    created_at: datetime
+    actor_name: Optional[str] = None
+    actor_role: Optional[Role] = None
+
+
+class IssueOut(ORM):
+    id: int
+    ticket_number: Optional[str]
+    lab_id: int
+    asset_id: Optional[int] = None
+    device_id: Optional[int] = None
+    access_event_id: Optional[int] = None
+    category: IssueCategory
+    severity: IssueSeverity
+    status: IssueStatus
+    title: str
+    description: str
+    additional_comments: str = ""
+    resolution_notes: str = ""
+    reporter_id: int
+    assigned_to_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    acknowledged_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    closed_at: Optional[datetime] = None
+
+    lab_code: Optional[str] = None
+    lab_name: Optional[str] = None
+    asset_tag: Optional[str] = None
+    asset_name: Optional[str] = None
+    device_name: Optional[str] = None
+    reporter_name: Optional[str] = None
+    assignee_name: Optional[str] = None
+    photo_count: int = 0
+    is_overdue: bool = False
+
+
+class IssueDetail(IssueOut):
+    photos: list[IssuePhotoOut] = []
+    comments: list[IssueCommentOut] = []
+    history: list[IssueHistoryOut] = []
+    # What the caller may do, computed from the same rules the server
+    # enforces - so the UI never offers an action the API would refuse.
+    can_manage: bool = False
+    can_close: bool = False
+    can_comment: bool = False
+    can_add_photos: bool = False
+    allowed_statuses: list[IssueStatus] = []
+
+
+class CountRow(BaseModel):
+    key: str
+    label: str
+    count: int
+
+
+class TrendPoint(BaseModel):
+    day: str
+    created: int
+    resolved: int
+
+
+class IssueSummary(BaseModel):
+    open: int
+    critical: int
+    high: int
+    in_progress: int
+    waiting_for_parts: int
+    unassigned: int
+    overdue: int
+    resolved_this_month: int
+    total: int
+    avg_resolution_hours: Optional[float] = None
+    by_lab: list[CountRow] = []
+    by_category: list[CountRow] = []
+    by_asset: list[CountRow] = []
+    by_status: list[CountRow] = []
+    trend: list[TrendPoint] = []
+    sla_hours: dict[str, int] = {}
+
+
+# --- notifications ---------------------------------------------------------
+class NotificationOut(ORM):
+    id: int
+    kind: str
+    severity: str
+    title: str
+    body: str
+    link: Optional[str] = None
+    issue_id: Optional[int] = None
+    booking_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+
+
+# --- system ----------------------------------------------------------------
+class SystemStatus(BaseModel):
+    status: str                # HEALTHY / DEGRADED
+    api: bool = True
+    database: bool
+    websocket_clients: int
+    devices_online: int
+    devices_total: int
+    devices_reporting: int     # have ever sent a heartbeat
+    controllers_online: int
+    controllers_total: int
+    last_heartbeat_at: Optional[datetime] = None
+    time: datetime
+
+
+class SystemConfig(BaseModel):
+    environment: str
+    booking_auto_approve: bool
+    max_booking_hours: int
+    booking_grace_minutes: int
+    booking_reminder_minutes: int
+    qr_token_bytes: int
+    access_token_expire_minutes: int
+    device_stale_seconds: int
+    max_upload_mb: int
+    max_photos_per_issue: int
+    image_max_dimension: int
+    issue_sla_hours: dict[str, int]
+    storage_backend: str

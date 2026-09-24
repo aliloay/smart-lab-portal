@@ -188,6 +188,16 @@ ASSETS = [
     ("PW-001", "Three-Phase Induction Motor Rig", "Machine",    "LAB_08"),
     ("DS-001", "CO2 Laser Cutter",              "Fabrication",  "LAB_10"),
     ("TX-001", "Industrial Overlock Machine",   "Textile",      "LAB_11"),
+    # The door's own hardware, as wired in firmware/SmartLab_Master_Portal.
+    # Registered as equipment so a failing reader can be reported against
+    # the actual part rather than as a vague "door problem".
+    ("AC-001", "MFRC522 RFID Reader",           "Access control", "LAB_01"),
+    ("AC-002", "AS608 Fingerprint Sensor",      "Access control", "LAB_01"),
+    ("AC-003", "ESP32-CAM Entry Camera",        "Access control", "LAB_01"),
+    ("AC-004", "12V Solenoid Door Lock",        "Access control", "LAB_01"),
+    ("AC-005", "MC-38 Door Reed Sensor",        "Access control", "LAB_01"),
+    ("AC-006", "Door Relay Module",             "Access control", "LAB_01"),
+    ("AC-007", "ESP32 Master Controller",       "Access control", "LAB_01"),
 ]
 for tag, name, cat, lab_code in ASSETS:
     target = labs.get(lab_code)

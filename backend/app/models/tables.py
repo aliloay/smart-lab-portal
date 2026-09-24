@@ -23,7 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
                               AuthMethod, BookingStatus, DenialReason,
-                              DeviceType, EventType, Role)
+                              DeviceType, EventType, IssueCategory,
+                              IssueEventType, IssuePhotoStage, IssueSeverity,
+                              IssueStatus, Role, SessionEndReason)
 
 
 def utcnow() -> datetime:
@@ -156,6 +158,11 @@ class Device(Base):
     # Latest reported door state, or NULL when the device has never reported.
     # NULL means "no data", never a fabricated default.
     door_closed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Per-component health as the device itself reported it in its last
+    # heartbeat, e.g. {"rfid": true, "fingerprint": true, "relay_locked": true}.
+    # NULL until firmware sends it; the UI then labels reader states as
+    # inferred from the heartbeat rather than presenting them as measured.
+    component_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     lab: Mapped[Lab] = relationship(back_populates="devices")
 
@@ -306,9 +313,14 @@ class AccessEvent(Base):
 
 class AccessSession(Base):
     """
-    An occupancy span: opened when access is granted, closed when the door
-    closes behind the person or the booking ends. This is what 'who is
-    currently in the lab' is derived from.
+    An occupancy span, opened when access is granted.
+
+    The door cycle (opened, closed behind the person) is recorded on the
+    session but does NOT end it: the door closing a few seconds after entry is
+    not the person leaving. The session ends when an exit is actually
+    reported, or - because the current door has no exit reader - when the
+    booking window closes, and end_reason says which. An exit time is only
+    ever presented as an exit when end_reason is EXIT_RECORDED.
     """
     __tablename__ = "access_sessions"
 
@@ -321,8 +333,15 @@ class AccessSession(Base):
                                                   nullable=True)
     entry_method: Mapped[AuthMethod] = mapped_column(
         _enum(AuthMethod, "auth_method_enum3"))
+    # The biometric that completed step 2, when the device reported it.
+    second_factor: Mapped[AuthMethod | None] = mapped_column(
+        _enum(AuthMethod, "auth_method_enum4"), nullable=True)
     started_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    door_opened_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    door_closed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(TS, nullable=True, index=True)
+    end_reason: Mapped[SessionEndReason | None] = mapped_column(
+        _enum(SessionEndReason, "session_end_reason_enum"), nullable=True)
 
 
 # ===========================================================================
@@ -408,3 +427,171 @@ class AuditLog(Base):
     detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+
+
+# ===========================================================================
+# Maintenance: issue reports
+# ===========================================================================
+class Issue(Base):
+    """
+    A problem reported in a laboratory - broken equipment, a missing tool, a
+    reader that stopped detecting cards.
+
+    Always attributable to a laboratory and a reporter. The asset, device and
+    access event links are optional and are validated to belong to that same
+    laboratory, so an issue can never claim a relationship that is not real.
+    """
+    __tablename__ = "issues"
+    __table_args__ = (
+        Index("ix_issue_status_severity", "status", "severity"),
+        Index("ix_issue_lab_status", "lab_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Human-readable, e.g. ISS-2026-000142. Derived from the row id at insert,
+    # so it is unique without a second sequence to keep in step.
+    ticket_number: Mapped[str | None] = mapped_column(String(32), unique=True,
+                                                      index=True, nullable=True)
+    reporter_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    asset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_id: Mapped[int | None] = mapped_column(
+        ForeignKey("devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    access_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("access_events.id", ondelete="SET NULL"), nullable=True)
+
+    category: Mapped[IssueCategory] = mapped_column(
+        _enum(IssueCategory, "issue_category_enum"), index=True)
+    severity: Mapped[IssueSeverity] = mapped_column(
+        _enum(IssueSeverity, "issue_severity_enum"), index=True)
+    status: Mapped[IssueStatus] = mapped_column(
+        _enum(IssueStatus, "issue_status_enum"), default=IssueStatus.OPEN,
+        index=True)
+
+    title: Mapped[str] = mapped_column(String(140))
+    description: Mapped[str] = mapped_column(Text)
+    additional_comments: Mapped[str] = mapped_column(Text, default="")
+
+    assigned_to_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True)
+    resolution_notes: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow,
+                                                 onupdate=utcnow)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+    photos: Mapped[list["IssuePhoto"]] = relationship(
+        back_populates="issue", cascade="all, delete-orphan",
+        order_by="IssuePhoto.created_at")
+    comments: Mapped[list["IssueComment"]] = relationship(
+        back_populates="issue", cascade="all, delete-orphan",
+        order_by="IssueComment.created_at")
+    history: Mapped[list["IssueHistory"]] = relationship(
+        back_populates="issue", cascade="all, delete-orphan",
+        order_by="IssueHistory.created_at")
+
+
+class IssuePhoto(Base):
+    """
+    Metadata only. The image bytes live in object storage (the local
+    filesystem for now) under storage_key; a database row stays small and the
+    storage backend can change without touching this table.
+    """
+    __tablename__ = "issue_photos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    issue_id: Mapped[int] = mapped_column(
+        ForeignKey("issues.id", ondelete="CASCADE"), index=True)
+    uploaded_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    stage: Mapped[IssuePhotoStage] = mapped_column(
+        _enum(IssuePhotoStage, "issue_photo_stage_enum"),
+        default=IssuePhotoStage.REPORT)
+    storage_key: Mapped[str] = mapped_column(String(255), unique=True)
+    thumb_key: Mapped[str] = mapped_column(String(255), unique=True)
+    original_filename: Mapped[str] = mapped_column(String(255), default="")
+    content_type: Mapped[str] = mapped_column(String(32))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+    issue: Mapped[Issue] = relationship(back_populates="photos")
+
+
+class IssueComment(Base):
+    __tablename__ = "issue_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    issue_id: Mapped[int] = mapped_column(
+        ForeignKey("issues.id", ondelete="CASCADE"), index=True)
+    author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    body: Mapped[str] = mapped_column(Text)
+    # Staff working notes. Never returned to a student.
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+    issue: Mapped[Issue] = relationship(back_populates="comments")
+
+
+class IssueHistory(Base):
+    """
+    The issue's audit trail and timeline in one: every change is a row with
+    who, when, old and new status. Nothing about an issue changes without
+    one of these being written in the same transaction.
+    """
+    __tablename__ = "issue_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    issue_id: Mapped[int] = mapped_column(
+        ForeignKey("issues.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),
+                                                 nullable=True)
+    event_type: Mapped[IssueEventType] = mapped_column(
+        _enum(IssueEventType, "issue_event_type_enum"), index=True)
+    old_status: Mapped[IssueStatus | None] = mapped_column(
+        _enum(IssueStatus, "issue_status_enum2"), nullable=True)
+    new_status: Mapped[IssueStatus | None] = mapped_column(
+        _enum(IssueStatus, "issue_status_enum3"), nullable=True)
+    message: Mapped[str] = mapped_column(String(500), default="")
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Mirrors IssueComment.is_internal for history rows about internal notes.
+    is_internal: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+
+    issue: Mapped[Issue] = relationship(back_populates="history")
+
+
+# ===========================================================================
+# In-portal notifications
+# ===========================================================================
+class Notification(Base):
+    """
+    A message for one person, raised by something that actually happened -
+    a booking confirmed, an issue acknowledged, a device going silent. There
+    is no email or SMS provider; the portal is the delivery channel.
+    """
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notification_user_unread", "user_id", "is_read", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(48), index=True)
+    severity: Mapped[str] = mapped_column(String(16), default="info")
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(String(500), default="")
+    # A portal route, e.g. /issues/12 - never an external URL.
+    link: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    issue_id: Mapped[int | None] = mapped_column(
+        ForeignKey("issues.id", ondelete="CASCADE"), nullable=True, index=True)
+    booking_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bookings.id", ondelete="CASCADE"), nullable=True, index=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)

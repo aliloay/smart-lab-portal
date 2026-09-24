@@ -17,6 +17,7 @@ from app.core.security import generate_qr_token
 from app.models import (Booking, BookingStatus, EventType, Lab, QrToken, User,
                         AuthMethod)
 from app.services.events import log_event
+from app.services.notifications import notify
 
 
 class BookingError(Exception):
@@ -49,7 +50,8 @@ def find_conflicts(db: Session, lab_id: int, start: datetime, end: datetime,
 
 
 def create_booking(db: Session, user: User, lab: Lab, start: datetime,
-                   end: datetime, reason: str) -> Booking:
+                   end: datetime, reason: str,
+                   actor: Optional[User] = None) -> Booking:
     start, end = _as_utc(start), _as_utc(end)
 
     if start >= end:
@@ -83,9 +85,11 @@ def create_booking(db: Session, user: User, lab: Lab, start: datetime,
     db.add(booking)
     db.flush()
 
+    on_behalf = actor is not None and actor.id != user.id
     log_event(db, EventType.BOOKING_CREATED, lab_id=lab.id, user_id=user.id,
               booking_id=booking.id, method=AuthMethod.PORTAL,
-              message=f"{user.full_name} requested {lab.name}")
+              message=(f"{actor.full_name} booked {lab.name} for {user.full_name}"
+                       if on_behalf else f"{user.full_name} requested {lab.name}"))
 
     if settings.BOOKING_AUTO_APPROVE:
         confirm_booking(db, booking, issue_token=True)
@@ -102,8 +106,38 @@ def confirm_booking(db: Session, booking: Booking,
               user_id=booking.user_id, booking_id=booking.id,
               method=AuthMethod.PORTAL, message="Booking confirmed")
     token = issue_token_for(db, booking) if issue_token else None
+    lab = db.get(Lab, booking.lab_id)
+    start = _as_utc(booking.start_time)
+    notify(db, [booking.user_id], "BOOKING_CONFIRMED",
+           f"Booking confirmed - {lab.code if lab else 'laboratory'}",
+           body=f"{lab.name if lab else ''}, {start:%d %b %Y}. Your access "
+                f"credential is ready.",
+           link=f"/bookings/{booking.id}", booking_id=booking.id)
     db.flush()
     return token
+
+
+def reject_booking(db: Session, booking: Booking, actor: User,
+                   reason: str = "") -> None:
+    """A pending request refused by staff. Any credential dies with it."""
+    now = datetime.now(timezone.utc)
+    booking.status = BookingStatus.REJECTED
+    for t in db.scalars(select(QrToken).where(
+            QrToken.booking_id == booking.id,
+            QrToken.revoked_at.is_(None))).all():
+        t.revoked_at = now
+    log_event(db, EventType.BOOKING_CANCELLED, lab_id=booking.lab_id,
+              user_id=booking.user_id, booking_id=booking.id,
+              method=AuthMethod.PORTAL,
+              message=f"Rejected by {actor.full_name}"
+                      + (f": {reason}" if reason else ""))
+    lab = db.get(Lab, booking.lab_id)
+    notify(db, [booking.user_id], "BOOKING_REJECTED",
+           f"Booking request declined - {lab.code if lab else ''}",
+           body=reason or "Laboratory staff declined this booking request.",
+           link=f"/bookings/{booking.id}", booking_id=booking.id,
+           severity="warning", exclude=actor.id)
+    db.commit()
 
 
 def issue_token_for(db: Session, booking: Booking) -> QrToken:
@@ -159,6 +193,15 @@ def cancel_booking(db: Session, booking: Booking, actor: User) -> None:
               user_id=booking.user_id, booking_id=booking.id,
               method=AuthMethod.PORTAL,
               message=f"Cancelled by {actor.full_name}")
+    # Somebody else cancelling your booking is news; cancelling your own
+    # is not.
+    lab = db.get(Lab, booking.lab_id)
+    notify(db, [booking.user_id], "BOOKING_CANCELLED",
+           f"Booking cancelled - {lab.code if lab else ''}",
+           body=f"Cancelled by {actor.full_name}. The access credential has "
+                f"been revoked.",
+           link=f"/bookings/{booking.id}", booking_id=booking.id,
+           severity="warning", exclude=actor.id)
     db.commit()
 
 
