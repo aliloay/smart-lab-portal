@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.env
+node_modules/
+dist/
+.venv/
+*.db
+.pytest_cache/
+firmware/**/secrets.h
+# face_server.py output: face photos and logs of real people
+dataset/
+lbph_model.yml
+labels.txt
+recognition_log.csv
+*.tsbuildinfo

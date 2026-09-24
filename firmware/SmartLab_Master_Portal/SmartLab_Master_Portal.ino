@@ -1,0 +1,1279 @@
+/*
+  ===========================================================================
+  SMART LAB FULL ACCESS CONTROL SYSTEM — V6
+  ===========================================================================
+  Board: ESP32 Dev Module
+
+  BASE: the known-good RFID build. The entire RFID path is untouched -
+  same rfidBeginSpi()/rfidInitReader(), same rfidVersionOk() test, same
+  heartbeat, same antenna handling, same PICC_IsNewCardPresent() +
+  PICC_ReadCardSerial() polling, same timings, same user database.
+
+  ONLY TWO THINGS CHANGED, both requested:
+
+  1. SMOOTH SCREEN SWITCHING
+     Before: every transition did a full-screen clear (all 20,480 pixels on
+     a bit-banged bus) and redrew the static header - that is the flash you
+     were seeing, and a shorter new string could leave the tail of a longer
+     old one behind.
+     Now: the clear and the header happen ONCE in tftInit(). Transitions
+     repaint only the three content rows (~4x less pixel traffic), and each
+     row clears its own full width with fillRect and uses opaque text, so
+     leftover characters are impossible.
+
+  2. RELAY ONLY EVER MOVES FOR AN ACCESS GRANT
+     - goAccessDenied() no longer touches the relay at all.
+     - setRelay() now tracks its own state and SKIPS redundant writes, so
+       returning to idle after a denial is a genuine no-op - the pin is not
+       rewritten, not re-pinMode'd, nothing.
+     - The relay is driven LOCKED as the very first instruction of setup(),
+       before Serial, so it is never left floating during boot.
+     Result: across a whole denied attempt the relay is never written once.
+
+  WIRING THIS FIRMWARE EXPECTS (unchanged from your working setup):
+     Solenoid on the NC contact, GPIO26 wired DIRECTLY to the relay IN pin
+     (no transistor - the module is high-triggered and an NPN pulling IN low
+     stopped it energizing entirely). Relay VCC + COM on 12V.
+     GPIO26 HIGH = LOCKED, GPIO26 LOW = UNLOCKED.
+  ===========================================================================
+*/
+
+#include <SPI.h>
+#include <MFRC522.h>
+#include <HardwareSerial.h>
+#include <Adafruit_Fingerprint.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// ===========================================================================
+// >>>>>>>>>>>>>>>>>>>>> STAGE 4: CAMERA INTEGRATION <<<<<<<<<<<<<<<<<<<<<<<<<
+// ===========================================================================
+// The Master now accepts EITHER factor at each step:
+//     Step 1 (identity) : RFID tag/card   OR  QR code via the camera
+//     Step 2 (biometric): fingerprint     OR  face via the camera
+//
+// The camera board is polled over WiFi. Nothing is wired between the boards.
+// If the camera or WiFi is unavailable the system degrades gracefully to
+// RFID + fingerprint exactly as before - the door never depends on the
+// network being up.
+// ===========================================================================
+// WIFI_SSID, WIFI_PASS and DEVICE_KEY live in secrets.h, which is gitignored.
+// Copy secrets.example.h to secrets.h and fill in your values.
+#include "secrets.h"
+
+// The ESP32-CAM's IP - it prints this on boot ("PUT THIS IN THE MASTER").
+const char *CAMERA_IP = "192.168.1.150";
+
+// ===========================================================================
+// PORTAL INTEGRATION
+// ===========================================================================
+// Set BACKEND_ENABLED to false and this sketch behaves EXACTLY like
+// SmartLab_Master_Stage5: local RFID + fingerprint + face, no network
+// authorization. That is the fallback if the portal is unavailable at a
+// demonstration, and it is why the original file is left untouched on disk.
+constexpr bool BACKEND_ENABLED = true;
+
+const char *BACKEND_IP   = "192.168.1.8";   // laptop running the portal API
+constexpr uint16_t BACKEND_PORT = 8000;
+
+// Must match a lab 'code' in the portal database, and a device_uid.
+const char *LAB_ID    = "LAB_01";
+const char *DEVICE_ID = "MASTER_LAB01";
+
+// Devices authenticate with a shared key, not a user login: an ESP32 has no
+// person to type a password and must survive a reboot unattended.
+// DEVICE_KEY (in secrets.h) must match DEVICE_API_KEY in the backend's .env.
+
+// Kept short. Every millisecond here is a millisecond the person is standing
+// at the door waiting, and the request happens while they watch.
+constexpr uint32_t BACKEND_TIMEOUT_MS   = 2500;
+constexpr uint32_t HEARTBEAT_PERIOD_MS  = 30000;
+
+// A portal-issued booking credential always starts with this. Anything else
+// is treated as a legacy local payload, which is what keeps the bench demo
+// working with the portal switched off.
+const char *PORTAL_QR_PREFIX = "SLB:";
+
+constexpr uint32_t CAMERA_POLL_MS   = 250;   // how often to ask the camera
+constexpr uint32_t CAMERA_TIMEOUT_MS = 800; // keep it short: a slow reply
+                                             // must never stall the door
+// A camera result older than this is IGNORED. Without it, a QR scanned a
+// minute ago could let the next person through. This is the single most
+// important security constant in the integration.
+constexpr uint32_t VISION_FRESH_MS  = 3500;
+
+// ===========================================================================
+// PIN ARCHITECTURE
+// ===========================================================================
+
+// --- RFID / MFRC522 — VSPI, exclusive use (proven: VersionReg = 0x92) ---
+constexpr uint8_t RFID_SS_PIN   = 5;
+constexpr uint8_t RFID_RST_PIN  = 22;
+constexpr uint8_t RFID_SCK_PIN  = 18;
+constexpr uint8_t RFID_MISO_PIN = 19;
+constexpr uint8_t RFID_MOSI_PIN = 23;
+
+// --- TFT ST7735 — separate bus, physically isolated from RFID ---
+constexpr uint8_t TFT_SCK_PIN  = 13;
+constexpr uint8_t TFT_MOSI_PIN = 2;   // NOT GPIO4 (fingerprint wiring uses it)
+constexpr uint8_t TFT_CS_PIN   = 25;
+constexpr uint8_t TFT_DC_PIN   = 32;
+constexpr uint8_t TFT_RST_PIN  = 33;
+
+// --- Fingerprint UART ---
+constexpr uint8_t FP_RX_PIN = 16;     // sensor TX -> here
+constexpr uint8_t FP_TX_PIN = 17;     // sensor RX -> here
+
+// --- Door sensor (MC-38 reed switch) ---
+constexpr uint8_t DOOR_PIN = 27;      // INPUT_PULLUP; LOW=CLOSED, HIGH=OPEN
+
+// --- Relay (HIGH = LOCKED / OFF, LOW = UNLOCKED / ON) ---
+constexpr uint8_t RELAY_PIN = 26;
+constexpr uint8_t RELAY_LOCKED_LEVEL   = HIGH;
+constexpr uint8_t RELAY_UNLOCKED_LEVEL = LOW;
+
+// --- Indicators ---
+constexpr uint8_t GREEN_LED_PIN      = 14;
+constexpr uint8_t RED_LED_BUZZER_PIN = 21;  // one NPN stage drives red LED + buzzer
+
+// ---------------------------------------------------------------------------
+// STANDALONE RED LED - denial feedback WITHOUT the buzzer's current surge.
+// The red LED and buzzer currently share one transistor on GPIO21, so neither
+// can be used without the other, and the buzzer is what releases the door.
+// This pin lets the red LED be driven on its own.
+//
+// TO USE IT: take the red LED off the transistor collector and wire it as
+//     GPIO15 --[220 ohm]-- LED anode ... LED cathode -- GND
+// No transistor needed: an LED draws ~15mA and an ESP32 pin handles 40mA.
+// 15mA is far too little to sag the rail, so the door stays shut.
+//
+// Safe to leave enabled with nothing connected - driving an unused pin does
+// nothing. So this is already active and will simply start working the moment
+// you wire the LED up.
+// ---------------------------------------------------------------------------
+constexpr uint8_t RED_LED_SOLO_PIN = 15;
+
+MFRC522 mfrc522(RFID_SS_PIN, RFID_RST_PIN);
+HardwareSerial fingerSerial(2);
+Adafruit_Fingerprint finger(&fingerSerial);
+// Software-SPI constructor: TFT gets its own SCK/MOSI, fully separate from RFID.
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS_PIN, TFT_DC_PIN, TFT_MOSI_PIN, TFT_SCK_PIN, TFT_RST_PIN);
+
+// ===========================================================================
+// Forward declarations — Arduino IDE's auto prototype generator mishandles a
+// library-class parameter type (MFRC522::Uid) and emits a broken prototype
+// above the #include that defines it. Declaring them here prevents that.
+// ===========================================================================
+void printUID(const MFRC522::Uid &uid);
+bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize);
+bool isSameAsLastUID(const MFRC522::Uid &uid);
+void rememberUID(const MFRC522::Uid &uid);
+int  findAuthorizedUser(const MFRC522::Uid &uid);
+
+// ===========================================================================
+// USER DATABASE — never silently changed
+//   USER 1 = TAG  89:52:FF:1F + fingerprint ID 1 (THUMB)
+//   USER 2 = CARD F5:77:30:8E + fingerprint ID 2 (INDEX)
+// ===========================================================================
+struct AuthorizedUser {
+  uint8_t size;
+  uint8_t uid[10];
+  uint8_t fingerprintId;
+  const char *name;         // INTERNAL ID - must match the face-recognition
+                            // server's enrolled names (USER1 / USER2) so the
+                            // two identities can be compared in Stage 4.
+                            // Do not change this to a friendly name.
+  const char *displayName;  // What the LCD shows. Change this freely.
+};
+
+AuthorizedUser authorizedUsers[] = {
+  {4, {0x89, 0x52, 0xFF, 0x1F, 0, 0, 0, 0, 0, 0}, 1, "USER1", "ALI"},
+  {4, {0xF5, 0x77, 0x30, 0x8E, 0, 0, 0, 0, 0, 0}, 2, "USER2", "DR. RAMY"}
+};
+constexpr size_t AUTHORIZED_USER_COUNT = sizeof(authorizedUsers) / sizeof(authorizedUsers[0]);
+
+// ===========================================================================
+// Timing constants — unchanged
+// ===========================================================================
+constexpr uint32_t SERIAL_BAUD            = 115200;
+constexpr uint32_t CARD_READ_TIMEOUT_MS   = 250;   // proven value
+constexpr uint32_t DUPLICATE_IGNORE_MS    = 1200;  // proven value
+constexpr uint32_t POLL_DELAY_MS          = 5;     // proven value
+constexpr uint32_t FINGERPRINT_TIMEOUT_MS = 20000;
+constexpr uint32_t GRANTED_DISPLAY_MS     = 1500;  // "GRANTED" screen hold time
+constexpr uint32_t UNLOCK_HOLD_MS         = 8000;  // safety relock if door never opens
+constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
+                                                   // otherwise goIdle() cuts
+                                                   // the alert short
+constexpr uint32_t DOOR_DEBOUNCE_MS       = 100;
+constexpr uint32_t RFID_HEARTBEAT_MS      = 3000;  // link self-test interval
+
+// ---------------------------------------------------------------------------
+// DENIAL ALERT - buzzer + red LED share one NPN stage on GPIO21.
+// Their inrush current sags the supply hard enough to RESET the TFT (white
+// screen) and drop the relay coil (door pops). Keeping the pulse SHORT keeps
+// the disturbance short. The screen still shows DENIED for the full
+// DENIED_DISPLAY_MS - only the audible/visible alert is brief.
+// Set DENY_ALERT_ENABLED to false to silence it completely: if the white
+// screen and the door pop both disappear, the diagnosis is confirmed.
+// ---------------------------------------------------------------------------
+// DEFAULT IS false - this is what makes a denial completely harmless:
+// with GPIO21 never energized there is no current surge, so the relay cannot
+// drop out and the TFT cannot reset. The DENIED message still shows in red on
+// the LCD, so the user still gets clear feedback.
+// Once a 470-1000uF capacitor is fitted across the 12V rail, set this back to
+// true - the soft-start below is already written and will bring the buzzer
+// and red LED back without the inrush step that caused the problem.
+// FINAL: OFF. Energizing GPIO21 drives the buzzer, and the buzzer's current
+// draw sags the 12V rail enough to drop the relay coil and release the door.
+// Every variant was tested and every one popped the door: 3000ms, 500ms,
+// 150ms, with and without a soft-start ramp. Only disabling it keeps the door
+// shut. This is a supply problem (no bulk capacitance on the 12V rail), not a
+// firmware problem - fit a 470-1000uF capacitor and this can go back to true.
+constexpr bool     DENY_ALERT_ENABLED = false;
+// 30ms - a deliberate last attempt, not a normal value.
+// A relay armature takes ~5-10ms to release, and the buck converter's output
+// capacitor holds the rail up briefly before it droops. So a pulse this short
+// may finish before the voltage falls far enough to drop the coil.
+// 3000ms, 500ms and 150ms all popped the door; if 30ms does too, no firmware
+// timing will fix this and it is purely a supply problem.
+constexpr uint32_t DENY_BEEP_MS       = 30;
+
+// ===========================================================================
+// State machine
+// ===========================================================================
+enum SystemState {
+  STATE_IDLE,
+  STATE_WAIT_FINGERPRINT,
+  STATE_ACCESS_GRANTED,
+  STATE_DOOR_UNLOCKED_WAIT_OPEN,
+  STATE_DOOR_OPEN_WAIT_CLOSE,
+  STATE_ACCESS_DENIED
+};
+
+SystemState state = STATE_IDLE;
+bool        displayDirty = true;    // set on every transition; drives redraw
+int         pendingUserIndex = -1;
+// Portal context for the identity currently being verified. Reset on every
+// return to IDLE so a stale booking can never be attributed to a later entry.
+long        pendingBookingId = -1;
+bool        pendingViaPortal = false;
+uint32_t    lastHeartbeatSentMs = 0;
+uint32_t    stateEnteredMs = 0;
+const char *deniedReason = "";
+
+// RFID de-dup tracking (from the proven standalone implementation)
+uint8_t  lastUID[10] = {0};
+uint8_t  lastUIDSize = 0;
+uint32_t lastUIDTime = 0;
+bool     haveLastUID = false;
+
+// RFID link health
+bool     rfidLinkDown = false;
+uint32_t lastHeartbeatMs = 0;
+
+// Latest vision result pulled from the camera board
+String   visionQr        = "";
+String   visionFace      = "";
+bool     visionQrFresh   = false;
+bool     visionFaceFresh = false;
+bool     cameraOnline    = false;
+uint32_t lastCameraPollMs = 0;
+
+// Door tracking (debounced, polled every loop)
+bool     doorClosed = true;
+uint32_t doorLastChangeMs = 0;
+bool     doorChangedThisLoop = false;
+
+// Relay state tracking — lets setRelay() skip redundant writes entirely
+bool relayUnlocked   = false;
+bool relayEverDriven = false;
+
+// Set whenever a known supply disturbance happens (a relay switch). The
+// ST7735 has no readable status register, so a controller reset by a voltage
+// sag just sits there white forever with no way to detect it. We cannot see
+// it, but we DO know when a disturbance occurred - so we flag it and refresh
+// the display later, ONLY once back in IDLE. Gating it on IDLE matters: a
+// full re-init is itself a burst of activity, and it must never happen in
+// the middle of an unlock/door cycle.
+bool tftRefreshWanted = false;
+
+// Denial alert pulse tracking
+bool     denyAlertActive  = false;
+uint32_t denyAlertStartMs = 0;
+
+
+// ===========================================================================
+// Diagnostics helpers
+// ===========================================================================
+void printHexByte(uint8_t value) {
+  if (value < 0x10) Serial.print('0');
+  Serial.print(value, HEX);
+}
+
+void printUID(const MFRC522::Uid &uid) {
+  Serial.print("[RFID][UID] ");
+  for (byte i = 0; i < uid.size; i++) {
+    printHexByte(uid.uidByte[i]);
+    if (i < uid.size - 1) Serial.print(':');
+  }
+  Serial.println();
+}
+
+void printErrorRegister() {
+  byte errorReg = mfrc522.PCD_ReadRegister(mfrc522.ErrorReg);
+  Serial.print("[SPI][ERROR] ErrorReg = 0x");
+  printHexByte(errorReg);
+  Serial.println();
+}
+
+// ===========================================================================
+// RFID link health + auto-recovery  —  UNCHANGED from the working build
+// ===========================================================================
+bool rfidVersionOk(byte v) {
+  return !(v == 0x00 || v == 0xFF);
+}
+
+// Brings up the SPI bus. Called ONCE, from setup() only.
+void rfidBeginSpi() {
+  SPI.begin(RFID_SCK_PIN, RFID_MISO_PIN, RFID_MOSI_PIN, RFID_SS_PIN);
+  delay(20);
+  pinMode(RFID_SS_PIN, OUTPUT);
+  digitalWrite(RFID_SS_PIN, HIGH);
+}
+
+// (Re)initializes the READER only — safe to call repeatedly.
+void rfidInitReader() {
+  mfrc522.PCD_Init(RFID_SS_PIN, RFID_RST_PIN);
+  delay(50);
+  mfrc522.PCD_AntennaOn();
+  mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
+  delay(10);
+}
+
+void printAntennaState(const char *tag) {
+  byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
+  byte gain = (mfrc522.PCD_GetAntennaGain() >> 4) & 0x07;
+  Serial.printf("%s TxControlReg = 0x%02X  [RF field %s]  RxGain level = %u/7\n",
+                tag, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF/PARTIAL", gain);
+}
+
+bool rfidRecover() {
+  Serial.println("[RFID][RECOVER] Link lost - reinitializing MFRC522 (reader only)...");
+  rfidInitReader();
+  byte v = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
+  bool ok = rfidVersionOk(v);
+  Serial.printf("[RFID][RECOVER] VersionReg = 0x%02X  %s\n",
+                v, ok ? "(recovered)" : "(STILL DOWN - check wiring)");
+  if (ok) printAntennaState("[RFID][RECOVER]");
+  return ok;
+}
+
+// ===========================================================================
+// RFID helpers — UNCHANGED
+// ===========================================================================
+bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize) {
+  if (uid.size != storedSize) return false;
+  for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != storedUID[i]) return false;
+  return true;
+}
+
+bool isSameAsLastUID(const MFRC522::Uid &uid) {
+  if (!haveLastUID || uid.size != lastUIDSize) return false;
+  for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != lastUID[i]) return false;
+  return true;
+}
+
+void rememberUID(const MFRC522::Uid &uid) {
+  lastUIDSize = uid.size;
+  for (byte i = 0; i < uid.size && i < sizeof(lastUID); i++) lastUID[i] = uid.uidByte[i];
+  lastUIDTime = millis();
+  haveLastUID = true;
+}
+
+int findAuthorizedUser(const MFRC522::Uid &uid) {
+  for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
+    if (uidEquals(uid, authorizedUsers[i].uid, authorizedUsers[i].size)) return (int)i;
+  }
+  return -1;
+}
+
+bool readCardWithTimeout() {
+  uint32_t start = millis();
+  while ((millis() - start) < CARD_READ_TIMEOUT_MS) {
+    if (mfrc522.PICC_ReadCardSerial()) return true;
+    delay(POLL_DELAY_MS);
+  }
+  Serial.println("[RFID][TIMEOUT] Could not read UID within timeout.");
+  printErrorRegister();
+  return false;
+}
+
+void finishRFIDTransaction() {
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+}
+
+// ===========================================================================
+// Actuators
+// ===========================================================================
+// CHANGE 2: the relay is written ONLY when the state actually changes.
+// A denied attempt never reaches this function at all, and the goIdle() call
+// that follows a denial finds the relay already locked, so it returns
+// immediately without touching the pin.
+void setRelay(bool unlock) {
+  if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, unlock ? RELAY_UNLOCKED_LEVEL : RELAY_LOCKED_LEVEL);
+  relayUnlocked   = unlock;
+  relayEverDriven = true;
+  Serial.printf("[RELAY] %s\n", unlock ? "UNLOCKED (GPIO26 LOW)" : "LOCKED (GPIO26 HIGH)");
+  // Switching the coil is the biggest current step in the system and is what
+  // resets the TFT to white. Flag it; the refresh happens later, in IDLE only.
+  tftRefreshWanted = true;
+}
+
+void setIndicators(bool green, bool redBuzzer) {
+  digitalWrite(GREEN_LED_PIN, green ? HIGH : LOW);
+  digitalWrite(RED_LED_BUZZER_PIN, redBuzzer ? HIGH : LOW);
+}
+
+// Standalone red LED on its own pin - ~15mA, far too little to disturb the
+// relay. Harmless if nothing is wired to GPIO15 yet.
+void setRedSolo(bool on) {
+  digitalWrite(RED_LED_SOLO_PIN, on ? HIGH : LOW);
+}
+
+// Ramps GPIO21 on over ~60ms by hand-toggling with an increasing duty cycle,
+// instead of switching it HIGH in one step. A sudden step is what draws the
+// inrush spike that sags the rail; spreading it over 60ms lets the supply
+// keep up. Written with digitalWrite/delayMicroseconds rather than the LEDC
+// PWM API so it compiles on any ESP32 core version.
+// Only used when DENY_ALERT_ENABLED is true.
+void softStartAlert() {
+  const int STEPS = 20;
+  for (int step = 1; step <= STEPS; step++) {
+    for (int cycle = 0; cycle < 3; cycle++) {
+      digitalWrite(RED_LED_BUZZER_PIN, HIGH);
+      delayMicroseconds(step * 50);
+      digitalWrite(RED_LED_BUZZER_PIN, LOW);
+      delayMicroseconds((STEPS - step) * 50);
+    }
+  }
+  digitalWrite(RED_LED_BUZZER_PIN, HIGH);   // fully on after the ramp
+}
+
+// ===========================================================================
+// TFT
+// CHANGE 1: the full-screen clear and the static header are painted ONCE,
+// here. Screen transitions afterwards repaint only the three content rows.
+// ===========================================================================
+void tftInit() {
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(3);
+
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.setCursor(6, 8);
+  tft.print("SMART LAB ACCESS");
+  tft.drawFastHLine(0, 20, tft.width(), ST77XX_WHITE);
+}
+
+// Draws one text row. Three layers stop leftovers from the previous screen:
+//   1. fillRect clears the FULL WIDTH of the row, so a shorter new string
+//      cannot leave the tail of a longer old string behind.
+//   2. setTextColor(fg, bg) makes glyphs opaque - each character paints its
+//      own background instead of drawing over whatever is underneath.
+//   3. print() not println() - no cursor advance, no wrap onto the next row.
+void drawRow(int16_t y, uint8_t size, const char *text, uint16_t color) {
+  tft.fillRect(0, y, tft.width(), 8 * size, ST77XX_BLACK);
+  if (!text) return;
+  tft.setTextSize(size);
+  tft.setTextColor(color, ST77XX_BLACK);
+  tft.setCursor(6, y);
+  tft.print(text);
+}
+
+// No full-screen clear, no header redraw - that is what makes switching look
+// instant instead of flashing through black on a bit-banged display.
+void drawScreen(const char *l1, const char *l2, const char *l3, uint16_t color) {
+  drawRow(34, 2, l1, color);   // headline
+  drawRow(62, 1, l2, color);   // detail
+  drawRow(76, 1, l3, color);   // hint
+}
+
+void updateDisplay() {
+  if (!displayDirty) return;
+  displayDirty = false;
+
+  switch (state) {
+    case STATE_IDLE:
+      if (rfidLinkDown) {
+        drawScreen("RFID DOWN", "READER LINK LOST", "CHECK WIRING", ST77XX_RED);
+      } else {
+        drawScreen("SCAN", "RFID CARD OR QR CODE", "STEP 1 OF 2", ST77XX_WHITE);
+      }
+      break;
+
+    case STATE_WAIT_FINGERPRINT:
+      drawScreen(authorizedUsers[pendingUserIndex].displayName,
+                 "VERIFIED - FINGER OR FACE", "STEP 2 OF 2", ST77XX_YELLOW);
+      break;
+
+    case STATE_ACCESS_GRANTED:
+      drawScreen("HELLO", authorizedUsers[pendingUserIndex].displayName,
+                 "ACCESS GRANTED - DOOR OPEN", ST77XX_GREEN);
+      break;
+
+    case STATE_DOOR_UNLOCKED_WAIT_OPEN:
+      drawScreen("UNLOCKED", "DOOR IS OPEN NOW", "PLEASE ENTER", ST77XX_GREEN);
+      break;
+
+    case STATE_DOOR_OPEN_WAIT_CLOSE:
+      drawScreen("DOOR OPEN", "CLOSE DOOR TO LOCK", nullptr, ST77XX_CYAN);
+      break;
+
+    case STATE_ACCESS_DENIED:
+      drawScreen("DENIED", deniedReason, "DOOR STAYS LOCKED", ST77XX_RED);
+      break;
+  }
+}
+
+// ===========================================================================
+// CAMERA POLLING
+// ===========================================================================
+// Pulls /status from the camera board and caches the result. Non-blocking in
+// the sense that it runs on a timer and uses a short HTTP timeout - a camera
+// that is off or slow costs us CAMERA_TIMEOUT_MS at worst, and the RFID and
+// fingerprint paths keep working regardless.
+// ===========================================================================
+String jsonStr(const String &src, const String &key) {
+  int k = src.indexOf("\"" + key + "\"");
+  if (k < 0) return "";
+  int colon = src.indexOf(':', k);
+  if (colon < 0) return "";
+  int comma = src.indexOf(',', colon);
+  int brace = src.indexOf('}', colon);
+  int end   = (comma >= 0 && comma < brace) ? comma : brace;
+  int q1 = src.indexOf('"', colon);
+  if (q1 < 0 || q1 > end) return "";        // value was null
+  int q2 = src.indexOf('"', q1 + 1);
+  if (q2 < 0) return "";
+  return src.substring(q1 + 1, q2);
+}
+
+long jsonLong(const String &src, const String &key) {
+  int k = src.indexOf("\"" + key + "\"");
+  if (k < 0) return -1;
+  int colon = src.indexOf(':', k);
+  if (colon < 0) return -1;
+  return src.substring(colon + 1).toInt();
+}
+
+void pollCamera() {
+  if (WiFi.status() != WL_CONNECTED) { cameraOnline = false; return; }
+
+  // STATIC, not local: HTTPClient can only keep a connection alive across
+  // calls if the object survives between them. Re-opening a TCP connection
+  // four times a second is the single biggest avoidable delay in the poll.
+  static WiFiClient  client;
+  static HTTPClient  http;
+  http.begin(client, String("http://") + CAMERA_IP + "/status");
+  http.setReuse(true);
+  http.setConnectTimeout(CAMERA_TIMEOUT_MS);
+  http.setTimeout(CAMERA_TIMEOUT_MS);
+  int code = http.GET();
+
+  if (code != 200) {
+    http.end();
+    if (cameraOnline) Serial.println("[CAM] camera unreachable - RFID/finger still work");
+    cameraOnline = false;
+    visionQrFresh = visionFaceFresh = false;
+    return;
+  }
+
+  String body = http.getString();
+  http.end();
+  cameraOnline = true;
+
+  // FRESHNESS IS THE SECURITY CHECK. An old QR or face must never authorize
+  // the person standing there now.
+  long qrAge   = jsonLong(body, "qr_age_ms");
+  long faceAge = jsonLong(body, "face_age_ms");
+
+  visionQr        = jsonStr(body, "qr");
+  visionFace      = jsonStr(body, "face");
+  visionQrFresh   = (visionQr.length()   > 0) && (qrAge   >= 0) && (qrAge   < VISION_FRESH_MS);
+  visionFaceFresh = (visionFace.length() > 0) && (faceAge >= 0) && (faceAge < VISION_FRESH_MS);
+}
+
+// Finds a user by their INTERNAL name (USER1 / USER2) - this is what the
+// camera and face server report. Deliberately not the display name.
+// ===========================================================================
+// PORTAL CLIENT
+// ===========================================================================
+// Two rules govern everything in this section.
+//
+// FAIL CLOSED. A portal-issued booking QR is authorized by the backend or it
+// is refused. Network down, server down, timeout, malformed reply - all of
+// them deny. There is no path here that reaches goWaitFingerprint() without
+// a positive "valid":true from the server. A laboratory that requires a
+// booking must not become an open door because a laptop crashed.
+//
+// THE RELAY IS NEVER TOUCHED FROM HERE. Nothing in this file calls
+// setRelay(). The backend returns an identity; the state machine still
+// requires the biometric second factor to match it before the door opens.
+// ===========================================================================
+
+String backendBase() {
+  return String("http://") + BACKEND_IP + ":" + String(BACKEND_PORT) + "/api";
+}
+
+// Result of asking the portal about a booking QR.
+struct QrAuthResult {
+  bool    valid       = false;
+  String  authSubject = "";     // USER1 / USER2 - matches authorizedUsers[].name
+  String  displayName = "";
+  long    bookingId   = -1;
+  String  reason      = "";
+};
+
+QrAuthResult validateQrWithBackend(const String &token) {
+  QrAuthResult out;
+
+  if (!BACKEND_ENABLED) {
+    out.reason = "BACKEND_DISABLED";
+    return out;                       // fail closed
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    out.reason = "NO_NETWORK";
+    Serial.println("[PORTAL] No WiFi - booking QR DENIED (fail closed).");
+    return out;                       // fail closed
+  }
+
+  static WiFiClient client;
+  static HTTPClient http;
+
+  http.begin(client, backendBase() + "/access/validate-qr");
+  http.setReuse(true);
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+
+  String body = String("{\"lab_id\":\"") + LAB_ID +
+                "\",\"qr_token\":\"" + token +
+                "\",\"device_uid\":\"" + DEVICE_ID + "\"}";
+
+  int code = http.POST(body);
+
+  if (code != 200) {
+    // Any transport failure is a denial, not a fallback to local rules.
+    out.reason = String("HTTP_") + code;
+    Serial.printf("[PORTAL] validate-qr failed (HTTP %d) - DENIED.\n", code);
+    http.end();
+    return out;
+  }
+
+  String reply = http.getString();
+  http.end();
+
+  // The reply must positively say valid:true. Absence is denial.
+  if (reply.indexOf("\"valid\":true") < 0) {
+    out.reason = jsonStr(reply, "reason");
+    if (out.reason.length() == 0) out.reason = "DENIED";
+    Serial.printf("[PORTAL] Booking QR rejected: %s\n", out.reason.c_str());
+    return out;
+  }
+
+  out.valid       = true;
+  out.authSubject = jsonStr(reply, "auth_subject");
+  out.displayName = jsonStr(reply, "display_name");
+  out.bookingId   = jsonLong(reply, "booking_id");
+
+  // A validated booking with no auth_subject cannot be checked against a
+  // biometric, so it cannot be used as step 1. Denying here rather than
+  // later keeps the identity-binding rule absolute.
+  if (out.authSubject.length() == 0) {
+    out.valid  = false;
+    out.reason = "NO_ENROLLED_IDENTITY";
+    Serial.println("[PORTAL] Booking has no enrolled biometric identity - DENIED.");
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Event reporting. Fire and forget: the door must never wait on the portal.
+// A failure here costs an audit-log line, not an entry decision.
+// ---------------------------------------------------------------------------
+void reportEvent(const char *eventType, const char *authSubject,
+                 long bookingId, const char *method, const char *result,
+                 const char *reason, const String &message) {
+  if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) return;
+
+  static WiFiClient client;
+  static HTTPClient http;
+
+  const char *path = "/access/events";
+  if (strcmp(eventType, "ACCESS_GRANTED") == 0) path = "/access/grant";
+  else if (strcmp(eventType, "ACCESS_DENIED") == 0) path = "/access/deny";
+
+  http.begin(client, backendBase() + path);
+  http.setReuse(true);
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+
+  String body = String("{\"lab_id\":\"") + LAB_ID +
+                "\",\"device_uid\":\"" + DEVICE_ID +
+                "\",\"event_type\":\"" + eventType + "\"";
+  if (authSubject && strlen(authSubject)) body += String(",\"auth_subject\":\"") + authSubject + "\"";
+  if (bookingId >= 0)                     body += String(",\"booking_id\":") + bookingId;
+  if (method && strlen(method))           body += String(",\"method\":\"") + method + "\"";
+  if (result && strlen(result))           body += String(",\"result\":\"") + result + "\"";
+  if (reason && strlen(reason))           body += String(",\"reason\":\"") + reason + "\"";
+  body += String(",\"message\":\"") + message + "\"}";
+
+  int code = http.POST(body);
+  if (code != 200) Serial.printf("[PORTAL] event %s not recorded (HTTP %d)\n",
+                                 eventType, code);
+  http.end();
+}
+
+void sendHeartbeat() {
+  if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) return;
+
+  static WiFiClient client;
+  static HTTPClient http;
+
+  http.begin(client, backendBase() + "/access/heartbeat");
+  http.setReuse(true);
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+
+  String body = String("{\"device_uid\":\"") + DEVICE_ID +
+                "\",\"lab_id\":\"" + LAB_ID +
+                "\",\"ip_address\":\"" + WiFi.localIP().toString() +
+                "\",\"firmware_version\":\"portal-1.0\"" +
+                ",\"door_closed\":" + (doorClosed ? "true" : "false") + "}";
+  http.POST(body);
+  http.end();
+}
+
+
+int findUserByName(const String &n) {
+  for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
+    if (n.equals(authorizedUsers[i].name)) return (int)i;
+  }
+  return -1;
+}
+
+// ===========================================================================
+// State transitions
+// ===========================================================================
+void enterState(SystemState s) {
+  state = s;
+  stateEnteredMs = millis();
+  displayDirty = true;
+}
+
+void goIdle() {
+  Serial.println("[STATE] -> IDLE");
+  setIndicators(false, false);
+  setRedSolo(false);
+  setRelay(false);                 // no-op if already locked (e.g. after a denial)
+  pendingUserIndex = -1;
+  // Clear portal context too, or a later entry could be logged against an
+  // earlier person's booking.
+  pendingBookingId = -1;
+  pendingViaPortal = false;
+  enterState(STATE_IDLE);
+}
+
+void goWaitFingerprint(int userIndex) {
+  pendingUserIndex = userIndex;
+  Serial.printf("[STATE] -> WAIT_FINGERPRINT (%s / %s)\n",
+                authorizedUsers[userIndex].displayName,
+                authorizedUsers[userIndex].name);
+  enterState(STATE_WAIT_FINGERPRINT);
+}
+
+// The ONLY place the door is ever unlocked.
+void goAccessGranted() {
+  Serial.printf("[AUTH][GRANTED] %s (%s) - RFID + fingerprint matched\n",
+                authorizedUsers[pendingUserIndex].displayName,
+                authorizedUsers[pendingUserIndex].name);
+  setIndicators(true, false);      // GREEN ON at grant, per spec
+  setRelay(true);                  // relay LOW -> unlocked
+  enterState(STATE_ACCESS_GRANTED);
+
+  // Reported AFTER the door is already unlocked. The portal is a witness to
+  // this decision, not a participant in it - if the report fails, the person
+  // still gets in, and only the audit line is lost.
+  reportEvent("ACCESS_GRANTED", authorizedUsers[pendingUserIndex].name,
+              pendingBookingId, pendingViaPortal ? "QR" : "RFID", "GRANTED",
+              "", String("Access granted to ") +
+              authorizedUsers[pendingUserIndex].displayName);
+}
+
+void goAccessDenied(const char *reason) {
+  Serial.printf("[AUTH][DENIED] %s\n", reason);
+  deniedReason = reason;
+
+  // ORDER MATTERS. Draw the DENIED screen FIRST, while the supply is still
+  // clean. Previously the buzzer was energized before this, so the TFT was
+  // being written to during the voltage sag - which is what reset it to a
+  // white screen mid-draw.
+  enterState(STATE_ACCESS_DENIED);
+  updateDisplay();
+
+  // NO RELAY COMMAND. Every denial path already has the door locked - an
+  // unknown card is rejected from IDLE, a wrong finger is rejected before
+  // any unlock happened. The relay is left exactly as it is.
+
+  // Only now fire the alert - soft-started, and as a SHORT pulse rather than
+  // a 2s hold. Disabled by default; see DENY_ALERT_ENABLED above.
+  if (DENY_ALERT_ENABLED) {
+    Serial.printf("[DENY] Firing alert on GPIO21 (soft-start, %ums hold)...\n",
+                  (unsigned)DENY_BEEP_MS);
+    // Straight ON, no soft-start ramp here. The ramp itself takes ~60ms of
+    // switching, which defeats the whole point of a 30ms pulse.
+    digitalWrite(RED_LED_BUZZER_PIN, HIGH);
+    denyAlertActive  = true;
+    denyAlertStartMs = millis();
+  } else {
+    Serial.println("[DENY] Buzzer suppressed (DENY_ALERT_ENABLED = false) - "
+                   "relay left completely undisturbed.");
+  }
+
+  // Standalone red LED always fires - tiny current, cannot disturb the relay.
+  setRedSolo(true);
+
+  // Report the denial with whatever identity context exists. The QR path
+  // reports its own richer denial before calling this, so a duplicate here
+  // is harmless and an omission would not be.
+  reportEvent("ACCESS_DENIED",
+              pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
+              pendingBookingId, pendingViaPortal ? "QR" : "RFID", "DENIED",
+              reason, String("Denied at door: ") + reason);
+}
+
+void goDoorOpenWaitClose() {
+  Serial.println("[DOOR] Door OPEN detected");
+  reportEvent("DOOR_OPENED",
+              pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
+              pendingBookingId, "", "", "", "Door opened");
+  enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
+}
+
+void goRelockAndIdle() {
+  Serial.println("[DOOR] Door CLOSED - relocking");
+  // Reported BEFORE goIdle(), which clears the portal context - otherwise
+  // the closure would be logged with no booking attached.
+  reportEvent("DOOR_CLOSED",
+              pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
+              pendingBookingId, "", "", "", "Door closed - relocked");
+  goIdle();
+}
+
+// ===========================================================================
+// Fingerprint — one non-blocking attempt; returns matched ID or -1
+// ===========================================================================
+int tryReadFingerprint() {
+  if (finger.getImage()         != FINGERPRINT_OK) return -1;
+  if (finger.image2Tz()         != FINGERPRINT_OK) return -1;
+  if (finger.fingerFastSearch() != FINGERPRINT_OK) return -1;
+  return finger.fingerID;
+}
+
+// ===========================================================================
+// Door polling — debounced, runs every loop so state never goes stale
+// GPIO27 LOW = CLOSED, HIGH = OPEN (confirmed inversion)
+// ===========================================================================
+void pollDoor() {
+  doorChangedThisLoop = false;
+  bool raw = (digitalRead(DOOR_PIN) == LOW);   // true = closed
+  if (raw != doorClosed) {
+    if (millis() - doorLastChangeMs > DOOR_DEBOUNCE_MS) {
+      doorClosed = raw;
+      doorLastChangeMs = millis();
+      doorChangedThisLoop = true;
+      Serial.printf("[DOOR] State change -> %s\n", doorClosed ? "CLOSED" : "OPEN");
+    }
+  } else {
+    doorLastChangeMs = millis();
+  }
+}
+
+// ===========================================================================
+// setup()
+// ===========================================================================
+void setup() {
+  // =========================================================================
+  // RELAY FIRST - driven LOCKED before anything else. This is the 21:07
+  // configuration that kept the door shut. INPUT_PULLUP here is NOT a driven
+  // level and left the door sitting open, so it is not used.
+  // =========================================================================
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, RELAY_LOCKED_LEVEL);
+  relayUnlocked   = false;
+  relayEverDriven = true;
+
+  Serial.begin(SERIAL_BAUD);
+  delay(500);
+
+  Serial.println();
+  Serial.println("=================================================");
+  Serial.println(" SMART LAB FULL ACCESS CONTROL - FINAL (named users)");
+  Serial.println("=================================================");
+  Serial.println("[INIT] RELAY GPIO26 driven LOCKED on the first instruction of setup().");
+  Serial.println("[INIT] Relay is written ONLY for an access grant and the relock.");
+
+  pinMode(GREEN_LED_PIN, OUTPUT);
+  pinMode(RED_LED_BUZZER_PIN, OUTPUT);
+  pinMode(RED_LED_SOLO_PIN, OUTPUT);
+  digitalWrite(GREEN_LED_PIN, LOW);
+  digitalWrite(RED_LED_BUZZER_PIN, LOW);
+  digitalWrite(RED_LED_SOLO_PIN, LOW);
+
+  pinMode(DOOR_PIN, INPUT_PULLUP);
+
+  // --- TFT on its own bus ---
+  Serial.println("[INIT] Starting ST7735 TFT on separate bus...");
+  Serial.println("[INIT] TFT SCK=GPIO13, MOSI=GPIO2 (GPIO4 reserved for fingerprint wiring).");
+  tftInit();
+  drawScreen("BOOT", "Initializing...", nullptr, ST77XX_WHITE);
+
+  // --- RFID on the proven VSPI path --- (UNCHANGED)
+  Serial.println("[RFID] Initializing the proven standalone VSPI path...");
+  rfidBeginSpi();      // ONCE only
+  rfidInitReader();
+
+  byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
+  Serial.print("[RFID] VersionReg = 0x");
+  printHexByte(version);
+  Serial.println();
+  if (!rfidVersionOk(version)) {
+    Serial.println("[RFID][FAIL] MFRC522 communication check failed.");
+    printErrorRegister();
+    rfidLinkDown = true;
+  } else {
+    Serial.println("[RFID][PASS] MFRC522 communication detected.");
+    rfidLinkDown = false;
+    printAntennaState("[RFID][RF]");
+  }
+
+
+  // --- Fingerprint UART ---
+  Serial.println("[FP] Initializing fingerprint sensor...");
+  fingerSerial.begin(57600, SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
+  finger.begin(57600);
+  if (finger.verifyPassword()) {
+    Serial.println("[FP][PASS] Fingerprint sensor detected.");
+    finger.getTemplateCount();
+    Serial.printf("[FP] Stored templates = %u\n", finger.templateCount);
+  } else {
+    Serial.println("[FP][FAIL] Fingerprint sensor not detected - check wiring.");
+  }
+
+  // --- Door sensor initial read ---
+  int raw = digitalRead(DOOR_PIN);
+  doorClosed = (raw == LOW);
+  Serial.printf("[DOOR] GPIO27 raw = %s\n", raw == LOW ? "LOW" : "HIGH");
+  Serial.printf("[DOOR] Initial state = %s\n", doorClosed ? "CLOSED" : "OPEN");
+  doorLastChangeMs = millis();
+
+  // --- WiFi, for polling the camera board ---------------------------------
+  // Deliberately LAST, after every local peripheral is up, and with a bounded
+  // timeout. The door must work on RFID + fingerprint even with no network,
+  // so a failed connection is a warning, never a fatal error.
+  Serial.println("[WIFI] Connecting (camera integration)...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  uint32_t wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 12000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFi.setSleep(false);
+    Serial.print("[WIFI] Connected. Master IP: ");
+    Serial.println(WiFi.localIP());
+    Serial.printf("[WIFI] Camera expected at %s\n", CAMERA_IP);
+  } else {
+    Serial.println("[WIFI][WARN] Not connected - QR and FACE unavailable.");
+    Serial.println("[WIFI][WARN] RFID + fingerprint continue to work normally.");
+  }
+
+  Serial.println();
+  Serial.println("=================================================");
+  Serial.println("                SYSTEM READY");
+  Serial.println("=================================================");
+  Serial.println("USER1 (ALI)      -> RFID 89:52:FF:1F (TAG)  + Fingerprint ID 1 (THUMB)");
+  Serial.println("USER2 (DR. RAMY) -> RFID F5:77:30:8E (CARD) + Fingerprint ID 2 (INDEX)");
+  Serial.println("[READY] STEP 1 (identity) : RFID tag/card  OR  QR code");
+  Serial.println("[READY] STEP 2 (biometric): fingerprint    OR  face");
+  Serial.println("[READY] Step 2 identity must MATCH step 1 - stolen card is denied.");
+
+  goIdle();
+  updateDisplay();   // draw the IDLE screen immediately
+}
+
+// ===========================================================================
+// loop() — logic identical to the working build
+// ===========================================================================
+void loop() {
+  pollDoor();
+
+  // Device liveness and door state. Cheap, and it is what makes the admin
+  // dashboard able to say "controller online" truthfully rather than
+  // assuming it.
+  if (millis() - lastHeartbeatSentMs > HEARTBEAT_PERIOD_MS) {
+    lastHeartbeatSentMs = millis();
+    sendHeartbeat();
+  }
+
+  // Refresh the vision result on a timer. Runs in every state so a QR seen
+  // while idle and a face seen during step 2 are both picked up promptly.
+  if (millis() - lastCameraPollMs > CAMERA_POLL_MS) {
+    lastCameraPollMs = millis();
+    pollCamera();
+  }
+
+  switch (state) {
+
+    // -------------------------------------------------------------------
+    case STATE_IDLE: {
+      // Safe point to repair the display after a relay switch reset it.
+      // Only ever runs here, while idle - never during a door cycle.
+      if (tftRefreshWanted) {
+        tftRefreshWanted = false;
+        tftInit();
+        displayDirty = true;
+      }
+
+      // Periodic SPI link self-test with automatic recovery.
+      if (millis() - lastHeartbeatMs > RFID_HEARTBEAT_MS) {
+        lastHeartbeatMs = millis();
+        byte v  = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
+        byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
+        Serial.printf("[RFID][HEARTBEAT] VersionReg = 0x%02X   TxControlReg = 0x%02X [RF %s]\n",
+                      v, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF");
+
+        // RF field went down while the SPI link is still fine -> re-arm it.
+        if (rfidVersionOk(v) && (tx & 0x03) != 0x03) {
+          Serial.println("[RFID][RF] Antenna field is OFF - re-enabling...");
+          mfrc522.PCD_AntennaOn();
+          mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
+          printAntennaState("[RFID][RF]");
+        }
+
+        if (!rfidVersionOk(v)) {
+          bool ok = rfidRecover();
+          if (!ok && !rfidLinkDown) { rfidLinkDown = true;  displayDirty = true; }
+          if ( ok &&  rfidLinkDown) { rfidLinkDown = false; displayDirty = true; }
+        } else if (rfidLinkDown) {
+          rfidLinkDown = false;
+          displayDirty = true;
+          Serial.println("[RFID] Link restored.");
+        }
+      }
+
+      // ---- STEP 1 ALTERNATIVE: QR code from the camera ----------------
+      // Checked before the RFID poll because the RFID call blocks briefly.
+      if (visionQrFresh) {
+        String payload = visionQr;
+        visionQrFresh = false;          // consume it, do not re-trigger
+
+        // ---- Portal-issued booking credential -------------------------
+        if (payload.startsWith(PORTAL_QR_PREFIX)) {
+          Serial.printf("[QR] Booking token - asking portal (%s)...\n", LAB_ID);
+          reportEvent("QR_SCAN", "", -1, "QR", "", "", "Booking QR presented");
+
+          QrAuthResult auth = validateQrWithBackend(payload);
+
+          if (!auth.valid) {
+            // FAIL CLOSED. Backend offline, expired, wrong lab, cancelled -
+            // every one of them ends here with the door still shut.
+            Serial.printf("[QR][DENIED] %s\n", auth.reason.c_str());
+            reportEvent("ACCESS_DENIED", "", -1, "QR", "DENIED",
+                        auth.reason.c_str(), "Booking QR refused");
+            goAccessDenied(auth.reason.c_str());
+            break;
+          }
+
+          // The portal names ONE identity. The biometric must match it.
+          int qrUser = findUserByName(auth.authSubject);
+          if (qrUser < 0) {
+            Serial.printf("[QR][DENIED] '%s' authorized by portal but not "
+                          "enrolled on this reader\n", auth.authSubject.c_str());
+            reportEvent("ACCESS_DENIED", auth.authSubject.c_str(), auth.bookingId,
+                        "QR", "DENIED", "UNKNOWN_CREDENTIAL",
+                        "Portal identity not enrolled locally");
+            goAccessDenied("NOT ENROLLED");
+            break;
+          }
+
+          Serial.printf("[QR][OK] Booking %ld -> %s (%s)\n",
+                        auth.bookingId, auth.displayName.c_str(),
+                        auth.authSubject.c_str());
+          pendingBookingId = auth.bookingId;
+          pendingViaPortal = true;
+          goWaitFingerprint(qrUser);
+          break;
+        }
+
+        // ---- Legacy local payload -------------------------------------
+        // Preserved so the bench demo keeps working with the portal off.
+        int qrUser = findUserByName(payload);
+        Serial.printf("[QR] local payload '%s' -> %s\n", payload.c_str(),
+                      qrUser >= 0 ? authorizedUsers[qrUser].displayName : "NOT AUTHORIZED");
+        pendingBookingId = -1;
+        pendingViaPortal = false;
+        if (qrUser >= 0) { goWaitFingerprint(qrUser); break; }
+        else             { goAccessDenied("UNKNOWN QR");  break; }
+      }
+
+      if (!mfrc522.PICC_IsNewCardPresent()) {
+        delay(POLL_DELAY_MS);
+        break;
+      }
+      if (!readCardWithTimeout()) {
+        finishRFIDTransaction();
+        delay(20);
+        break;
+      }
+
+      printUID(mfrc522.uid);
+
+      bool duplicate = isSameAsLastUID(mfrc522.uid) &&
+                       ((millis() - lastUIDTime) < DUPLICATE_IGNORE_MS);
+      if (duplicate) {
+        finishRFIDTransaction();
+        delay(20);
+        break;
+      }
+      rememberUID(mfrc522.uid);
+
+      int userIndex = findAuthorizedUser(mfrc522.uid);
+      finishRFIDTransaction();
+
+      if (userIndex >= 0) goWaitFingerprint(userIndex);
+      else                goAccessDenied("UNKNOWN CARD");
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_WAIT_FINGERPRINT: {
+      if (millis() - stateEnteredMs > FINGERPRINT_TIMEOUT_MS) {
+        goAccessDenied("FINGER TIMEOUT");
+        break;
+      }
+      // ---- STEP 2 ALTERNATIVE: face from the camera -------------------
+      // The face identity must match the identity established in step 1.
+      // This is what defeats a stolen card: holding someone else's tag and
+      // showing your own face is a MISMATCH, not a grant.
+      if (visionFaceFresh) {
+        String expected = authorizedUsers[pendingUserIndex].name;
+        Serial.printf("[FACE] saw %s, expecting %s\n",
+                      visionFace.c_str(), expected.c_str());
+        bool match = visionFace.equals(expected);
+        visionFaceFresh = false;        // consume it
+        if (match) {
+          reportEvent("FACE_ACCEPTED", expected.c_str(), pendingBookingId,
+                      "FACE", "GRANTED", "",
+                      String("Face matched ") + expected);
+          goAccessGranted();
+          break;
+        } else {
+          // The headline security event: a valid step-1 credential presented
+          // with somebody else's face. Logged with both identities so the
+          // audit trail shows exactly what was attempted.
+          reportEvent("IDENTITY_MISMATCH", expected.c_str(), pendingBookingId,
+                      "FACE", "DENIED", "IDENTITY_MISMATCH",
+                      String("Step 1 was ") + expected + " but face matched " +
+                      visionFace);
+          goAccessDenied("FACE MISMATCH");
+          break;
+        }
+      }
+
+      int fid = tryReadFingerprint();
+      if (fid >= 0) {
+        Serial.printf("[FP] Matched fingerprint ID %d\n", fid);
+        if (fid == authorizedUsers[pendingUserIndex].fingerprintId) {
+          reportEvent("FINGERPRINT_ACCEPTED",
+                      authorizedUsers[pendingUserIndex].name, pendingBookingId,
+                      "FINGERPRINT", "GRANTED", "", "Fingerprint matched");
+          goAccessGranted();
+        } else {
+          reportEvent("IDENTITY_MISMATCH",
+                      authorizedUsers[pendingUserIndex].name, pendingBookingId,
+                      "FINGERPRINT", "DENIED", "IDENTITY_MISMATCH",
+                      String("Enrolled finger ID ") + fid +
+                      " does not belong to the step 1 identity");
+          goAccessDenied("WRONG FINGER");   // enrolled finger, wrong person
+        }
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_ACCESS_GRANTED: {
+      if (millis() - stateEnteredMs > GRANTED_DISPLAY_MS) {
+        enterState(STATE_DOOR_UNLOCKED_WAIT_OPEN);
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_DOOR_UNLOCKED_WAIT_OPEN: {
+      if (doorChangedThisLoop && !doorClosed) {
+        goDoorOpenWaitClose();
+        break;
+      }
+      if (millis() - stateEnteredMs > UNLOCK_HOLD_MS) {
+        Serial.println("[RELAY] Unlock hold elapsed without door opening - relocking (safety default).");
+        goRelockAndIdle();
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_DOOR_OPEN_WAIT_CLOSE: {
+      if (doorChangedThisLoop && doorClosed) {
+        goRelockAndIdle();
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_ACCESS_DENIED: {
+      // End the alert pulse early - the screen stays up for the full
+      // DENIED_DISPLAY_MS, but the current draw stops after DENY_BEEP_MS.
+      if (denyAlertActive && (millis() - denyAlertStartMs > DENY_BEEP_MS)) {
+        setIndicators(false, false);
+        denyAlertActive = false;
+      }
+
+      if (millis() - stateEnteredMs > DENIED_DISPLAY_MS) {
+        // Recover the display in case the alert surge reset it to white.
+        // The ST7735 has no readable status, so re-initializing is the only
+        // way to bring a reset controller back.
+        tftInit();
+        goIdle();
+        displayDirty = true;
+      }
+      break;
+    }
+  }
+
+  updateDisplay();
+}

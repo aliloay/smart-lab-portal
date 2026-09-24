@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smartlab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartlab}
+      POSTGRES_DB: smartlab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartlab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Exposed so the face server and any local tooling on the same machine can
+    # reach it. Remove this line to keep the database strictly internal.
+    ports: ["5432:5432"]
+
+  backend:
+    build: ./backend
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql+psycopg://smartlab:${POSTGRES_PASSWORD:-smartlab}@db:5432/smartlab
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      DEVICE_API_KEY: ${DEVICE_API_KEY:-dev-device-key-change-me}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost}
+    # Migrations run before the API accepts traffic, so a fresh volume comes
+    # up with the right schema without a manual step.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Port published so the ESP32 master can reach it directly on the LAN.
+    ports: ["8000:8000"]
+
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports: ["80:80"]
+
+volumes:
+  pgdata:
