@@ -72,7 +72,7 @@ export default function Login() {
             <SmartLabMark size={46} animated />
             <Wordmark />
           </div>
-          <InstitutionLogo />
+          <InstitutionLogo className="!h-12 xl:!h-14" />
         </div>
 
         <div className="relative max-w-lg">
@@ -113,9 +113,12 @@ export default function Login() {
         <GridField className="lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: .35 }} className="relative w-full max-w-[400px]">
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <SmartLabMark size={40} animated />
-            <Wordmark />
+          <div className="lg:hidden mb-8 space-y-6">
+            <InstitutionLogo className="!h-11" />
+            <div className="flex items-center gap-3">
+              <SmartLabMark size={40} animated />
+              <Wordmark />
+            </div>
           </div>
 
           <div className="card p-7 sm:p-8">

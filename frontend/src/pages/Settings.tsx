@@ -91,8 +91,9 @@ export default function Settings() {
             <section className="md:col-span-2">
               <SectionTitle icon={<Wrench size={15} />}>Branding</SectionTitle>
               <div className="card p-4 text-[13px] text-slate-300">
-                The official GIU logo is not bundled. To show it, place the file in
-                <span className="mono"> frontend/public/brand/</span> and set
+                The GIU logo is served from
+                <span className="mono"> frontend/public/brand/giu-logo.png</span> (transparent,
+                reversed for dark backgrounds). To use another file set
                 <span className="mono"> VITE_INSTITUTION_LOGO</span> - see
                 <span className="mono"> public/brand/README.md</span>.
               </div>

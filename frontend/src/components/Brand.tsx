@@ -5,9 +5,11 @@
  * arm whose joints are network nodes - robotics and IoT in one glyph. It is
  * deliberately not styled after the university's logo.
  *
- * The official GIU logo is never redrawn here. InstitutionLogo shows the
- * real file when VITE_INSTITUTION_LOGO points at it (see
- * public/brand/README.md), and a plain text label otherwise.
+ * The official GIU logo is used as supplied, never redrawn: InstitutionLogo
+ * shows public/brand/giu-logo.png (the university's logo with the white
+ * background removed and the black artwork reversed to white for dark
+ * surfaces; red and gold unchanged). If the file cannot be loaded it falls
+ * back to the university's name as text.
  */
 import { useId, useState } from 'react'
 
@@ -74,13 +76,11 @@ export function Wordmark({ compact = false, tight = false }: { compact?: boolean
   )
 }
 
-/** Set VITE_INSTITUTION_LOGO to the official file (see public/brand/README). */
-const LOGO_URL = (import.meta.env.VITE_INSTITUTION_LOGO as string | undefined) || ''
+/** VITE_INSTITUTION_LOGO can point at a different file (see public/brand/README). */
+const LOGO_URL = (import.meta.env.VITE_INSTITUTION_LOGO as string | undefined)
+  || '/brand/giu-logo.png'
 
-/**
- * The official university logo when one has been configured, the
- * university's name as text otherwise. Never a lookalike.
- */
+/** The official university logo; its name as text if the file is missing. */
 export function InstitutionLogo({ className = '', textClass = '' }: {
   className?: string; textClass?: string
 }) {
