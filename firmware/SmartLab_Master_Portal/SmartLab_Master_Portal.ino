@@ -1100,6 +1100,9 @@ void loop() {
         // ---- Portal-issued booking credential -------------------------
         if (payload.startsWith(PORTAL_QR_PREFIX)) {
           Serial.printf("[QR] Booking token - asking portal (%s)...\n", LAB_ID);
+          // Instant feedback: the two portal round trips below take a moment,
+          // and without this the screen sits on "SCAN" as if nothing happened.
+          drawScreen("CHECKING", "BOOKING QR FOUND", "ONE MOMENT...", ST77XX_YELLOW);
           reportEvent("QR_SCAN", "", -1, "QR", "", "", "Booking QR presented");
 
           QrAuthResult auth = validateQrWithBackend(payload);

@@ -67,6 +67,17 @@ const int   SERVER_PORT = 5000;
 // loads the WiFi and the laptop; 1200ms is a reasonable balance.
 constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 
+// JPEG quality, 0-63, LOWER = better quality and a BIGGER file. Every frame
+// is uploaded over WiFi, so file size is frame rate: at a weak signal the
+// upload, not the laptop, is what limits speed. 12 made ~20 KB frames;
+// 18 roughly halves that, and on simulated door frames the QR still decoded
+// every time. If face distances rise noticeably, go back towards 14.
+constexpr int JPEG_QUALITY = 18;
+
+// Print a [PERF] line this often: frames/s actually sent and where the time
+// goes (capture vs upload+reply). Set to 0 to silence it.
+constexpr uint32_t PERF_EVERY_MS = 10000;
+
 // ===========================================================================
 // AI-THINKER ESP32-CAM PIN MAP
 // ===========================================================================
@@ -114,6 +125,28 @@ constexpr uint32_t ANALYZE_BACKOFF_MAX_MS  = 1500;
 uint32_t analyzeFails   = 0;
 uint32_t analyzeDelayMs = 0;     // extra delay before the next frame
 uint32_t lastFailLogMs  = 0;
+
+// [PERF] accumulators
+uint32_t perfStartMs = 0, perfFrames = 0, perfFails = 0;
+uint32_t perfCaptureMs = 0, perfPostMs = 0, perfBytes = 0;
+
+void perfReport() {
+  if (PERF_EVERY_MS == 0) return;
+  uint32_t now = millis();
+  if (perfStartMs == 0) { perfStartMs = now; return; }
+  uint32_t elapsed = now - perfStartMs;
+  if (elapsed < PERF_EVERY_MS) return;
+  uint32_t n = perfFrames + perfFails;
+  if (n > 0) {
+    Serial.printf("[PERF] %.1f frames/s ok, %u failed | capture %u ms, upload+reply %u ms,"
+                  " %u KB/frame | WiFi %d dBm\n",
+                  perfFrames * 1000.0f / elapsed, (unsigned)perfFails,
+                  (unsigned)(perfCaptureMs / n), (unsigned)(perfPostMs / n),
+                  (unsigned)(perfBytes / n / 1024), WiFi.RSSI());
+  }
+  perfStartMs = now;
+  perfFrames = perfFails = perfCaptureMs = perfPostMs = perfBytes = 0;
+}
 
 // ===========================================================================
 // Camera capture with retry - the ESP32-CAM often fails the first capture
@@ -167,8 +200,11 @@ float jsonNumber(const String &src, const String &key) {
 void analyzeFrame() {
   if (WiFi.status() != WL_CONNECTED) return;
 
+  uint32_t tCap = millis();
   camera_fb_t *fb = captureWithRetry();
   if (!fb) return;
+  perfCaptureMs += millis() - tCap;
+  perfBytes     += fb->len;
 
   // STATIC so the TCP connection survives between frames. At a weak signal
   // the handshake alone can cost more than the image transfer, and we now do
@@ -182,8 +218,10 @@ void analyzeFrame() {
   http.setConnectTimeout(1500);
   http.setTimeout(2000);
 
+  uint32_t tPost = millis();
   int code = http.POST(fb->buf, fb->len);
   if (code == 200) {
+    perfFrames++;
     if (analyzeFails > 0) {
       Serial.printf("[ANALYZE] laptop reachable again (after %u failed frames)\n",
                     (unsigned)analyzeFails);
@@ -218,6 +256,7 @@ void analyzeFrame() {
     // the NEXT frame fail too, which is how one hiccup became a long run of
     // -1 / -11 errors.
     client.stop();
+    perfFails++;
     analyzeFails++;
     analyzeDelayMs = std::min<uint32_t>(analyzeFails * ANALYZE_BACKOFF_STEP_MS,
                                    ANALYZE_BACKOFF_MAX_MS);
@@ -236,7 +275,9 @@ void analyzeFrame() {
   }
 
   http.end();
+  perfPostMs += millis() - tPost;
   esp_camera_fb_return(fb);
+  perfReport();
 }
 
 // ===========================================================================
@@ -378,7 +419,7 @@ void setup() {
   // detail, and QR codes decode more reliably at higher resolution too.
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size   = FRAMESIZE_VGA;    // 640x480
-  config.jpeg_quality = 12;
+  config.jpeg_quality = JPEG_QUALITY;
   config.grab_mode    = CAMERA_GRAB_LATEST;
 
   if (psramFound()) {
