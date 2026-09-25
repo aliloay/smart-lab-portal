@@ -20,6 +20,7 @@ import { useLiveMessages } from '../lib/live'
 import { dateStr, localDayBounds, localToUtcIso, pad2, todayStr } from '../lib/time'
 import { Chip, ErrorBanner, Notice, PageHeader, Skeleton, SuccessMark } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
+import { GridField } from '../components/visual'
 
 const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Review', 'Confirmed'] as const
 const DAY_START = 8
@@ -362,7 +363,10 @@ export default function Book() {
         <aside className="card overflow-hidden h-fit">
           <div className="relative h-28">
             {lab ? <LabArt category={lab.category} className="absolute inset-0 w-full h-full" />
-                 : <div className="absolute inset-0 bg-ink-800" />}
+                 : <div className="absolute inset-0 grid place-items-center bg-ink-900/40">
+                     <GridField />
+                     <span className="relative text-[12px] text-slate-500">Choose a laboratory</span>
+                   </div>}
             <div className="absolute inset-0 bg-gradient-to-t from-ink-800 to-transparent" />
           </div>
           <div className="p-4 space-y-3 text-[13px]">

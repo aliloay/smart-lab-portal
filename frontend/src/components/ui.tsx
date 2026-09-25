@@ -147,8 +147,9 @@ export function MetricCard({ label, value, hint, tone = 'idle', icon, suffix,
   const valueTone = tone === 'idle' ? 'text-white' : TONE_TEXT[tone]
   const body = (
     <>
+      {/* the one accent on a card: a hairline, cyan fading into violet */}
       <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r
-                      from-transparent via-accent-400/45 to-transparent" />
+                      from-transparent via-accent-400/40 to-violet-400/25" />
       <div className="flex items-start justify-between gap-3">
         <span className="label flex items-center gap-1">
           {label}{info && <InfoTip text={info} />}

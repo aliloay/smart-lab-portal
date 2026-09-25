@@ -64,8 +64,7 @@ export default function SystemHealth() {
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen(o => !o)} aria-expanded={open}
-        className="flex items-center gap-2 h-9 px-3 rounded-xl border border-ink-600
-                   bg-ink-800/70 hover:border-ink-500 text-[12.5px] text-slate-200">
+        className="glass-control flex items-center gap-2 px-3 text-[12.5px]">
         <Dot tone={tone} live={healthy} />
         <span className="hidden md:inline">{label}</span>
         <Activity size={14} className="md:hidden text-slate-300" />
