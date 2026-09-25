@@ -7,7 +7,7 @@ import { BarChart3 } from 'lucide-react'
 import { EmptyState } from './ui'
 
 export const C = {
-  grid: '#253a5a',
+  grid: '#33507a',
   axis: '#94a3b8',
   ok: '#10b981',
   bad: '#ef4444',
@@ -24,7 +24,7 @@ export const axisProps = {
 } as const
 
 export const tooltipProps = {
-  contentStyle: { background: '#0f1a2c', border: '1px solid #314a70', borderRadius: 10,
+  contentStyle: { background: '#172841', border: '1px solid #41618f', borderRadius: 10,
                   fontSize: 12, color: '#e2e8f0' },
   labelStyle: { color: '#cbd5e1' },
   cursor: { fill: 'rgba(56,189,248,0.06)' },

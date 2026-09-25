@@ -159,7 +159,7 @@ export default function Reports() {
                   <PieChart>
                     <Pie data={r.denial_reasons.map(d => ({ name: denialShort(d.reason), value: d.count }))}
                          dataKey="value" nameKey="name" innerRadius={60} outerRadius={95} paddingAngle={2}
-                         stroke="#0f1a2c">
+                         stroke="#172841">
                       {r.denial_reasons.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                     </Pie>
                     <Tooltip {...tooltipProps} />

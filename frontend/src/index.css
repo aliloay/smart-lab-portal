@@ -14,7 +14,7 @@ body {
   background-image:
     radial-gradient(1200px 600px at 12% -10%, rgba(14,165,233,.10), transparent 60%),
     radial-gradient(900px 500px at 100% 0%, rgba(45,212,191,.06), transparent 55%),
-    linear-gradient(180deg, #0c1526 0%, #0b1322 40%, #0a1120 100%);
+    linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
   background-attachment: fixed;
 }
 
@@ -49,7 +49,7 @@ body {
   /* --- surfaces ----------------------------------------------------------- */
   .card {
     @apply relative rounded-2xl border border-ink-600/70 shadow-card;
-    background: linear-gradient(180deg, rgba(23,39,65,.92) 0%, rgba(19,32,54,.92) 100%);
+    background: linear-gradient(180deg, rgba(33,54,86,.92) 0%, rgba(27,46,75,.92) 100%);
   }
   .card-pad { @apply card p-5; }
   .card-hover {
