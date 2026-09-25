@@ -194,6 +194,18 @@ AuthorizedUser authorizedUsers[] = {
 };
 constexpr size_t AUTHORIZED_USER_COUNT = sizeof(authorizedUsers) / sizeof(authorizedUsers[0]);
 
+// Result of asking the portal about a booking QR.
+// Defined up here (not next to validateQrWithBackend) because the Arduino IDE
+// auto-generates function prototypes above the first function in the file;
+// the type must already exist at that point or compilation fails.
+struct QrAuthResult {
+  bool    valid       = false;
+  String  authSubject = "";     // USER1 / USER2 - matches authorizedUsers[].name
+  String  displayName = "";
+  long    bookingId   = -1;
+  String  reason      = "";
+};
+
 // ===========================================================================
 // Timing constants — unchanged
 // ===========================================================================
@@ -631,15 +643,6 @@ void pollCamera() {
 String backendBase() {
   return String("http://") + BACKEND_IP + ":" + String(BACKEND_PORT) + "/api";
 }
-
-// Result of asking the portal about a booking QR.
-struct QrAuthResult {
-  bool    valid       = false;
-  String  authSubject = "";     // USER1 / USER2 - matches authorizedUsers[].name
-  String  displayName = "";
-  long    bookingId   = -1;
-  String  reason      = "";
-};
 
 QrAuthResult validateQrWithBackend(const String &token) {
   QrAuthResult out;
