@@ -116,5 +116,9 @@ jobs:
       - name: No blank pages, no refresh needed
         working-directory: frontend
         run: npm run test:e2e
+      # Writes to the throwaway CI database: booking, staff booking, issue + photo.
+      - name: Workflows (booking to QR, issue with photo, phone width)
+        working-directory: frontend
+        run: npm run test:e2e:workflows
       - if: failure()
         run: cat api.log web.log
