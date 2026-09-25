@@ -81,7 +81,13 @@ constexpr int JPEG_QUALITY = 18;
 // already travelling while the previous one is analysed, roughly doubling
 // frames/s at the same image quality.
 // Set to 1 for the exact previous behaviour (one frame at a time).
-constexpr int ANALYZE_WORKERS = 2;
+//
+// MEASURED at the door (WiFi -65..-75 dBm): 2 workers gave 1.3-2.6 frames/s
+// vs 1.2-2.2 with 1, but each frame's round trip grew from ~0.6 s to ~1.5 s
+// - the radio link was already full, so frames just queued. Fresher results
+// matter more at the door than a few extra frames, so 1 it is. Try 2 again
+// only with a much stronger signal (around -55 dBm or better).
+constexpr int ANALYZE_WORKERS = 1;
 
 // Print a [PERF] line this often: frames/s actually sent and where the time
 // goes (capture vs upload+reply). Set to 0 to silence it.

@@ -236,6 +236,9 @@ constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
                                                    // the alert short
 constexpr uint32_t DOOR_DEBOUNCE_MS       = 100;
 constexpr uint32_t RFID_HEARTBEAT_MS      = 3000;  // link self-test interval
+constexpr uint32_t RELAY_SETTLE_MS        = 80;    // supply settles after the
+                                                   // coil switches, before
+                                                   // the display is redrawn
 
 // ---------------------------------------------------------------------------
 // DENIAL ALERT - buzzer + red LED share one NPN stage on GPIO21.
@@ -888,7 +891,16 @@ void goAccessGranted(const char *factorEvent, const char *factorMethod,
   setIndicators(true, false);      // GREEN ON at grant, per spec
   setRelay(true);                  // relay LOW -> unlocked
   enterState(STATE_ACCESS_GRANTED);
-  updateDisplay();                 // show HELLO now, not after the reports
+
+  // The coil switching on is the supply dip that can reset the ST7735 to
+  // white. Drawing straight into that dip left the screen white, so let the
+  // rail settle, then re-initialise the controller (it may have reset and
+  // there is no way to read it back) and only then draw the grant screen.
+  delay(RELAY_SETTLE_MS);
+  tftInit();
+  tftRefreshWanted = false;        // just done
+  displayDirty = true;
+  updateDisplay();                 // show the grant now, not after the reports
 
   // Reported AFTER the door is already unlocked. The portal is a witness to
   // this decision, not a participant in it - if the report fails, the person

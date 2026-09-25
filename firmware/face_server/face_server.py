@@ -457,6 +457,8 @@ def analyze():
             fails = _cam_header("X-Cam-Fails") or 0
             if _stats["fails0"] is None:
                 _stats["fails0"] = fails
+            if fails < _stats["fails0"]:      # camera rebooted: counter reset
+                _stats["fails0"] = fails - _stats["fails"]
             _stats["fails"] = fails - _stats["fails0"]
         elapsed = time.time() - _stats["t0"]
         if elapsed >= STATS_EVERY_S:
