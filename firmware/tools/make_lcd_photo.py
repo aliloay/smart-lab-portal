@@ -35,16 +35,58 @@ _cascade = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 
+def real_format(data):
+    """What the file actually is, whatever its extension says."""
+    head = data[:32]
+    if head[:3] == b"\xff\xd8\xff":
+        return "JPEG"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "PNG"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "WEBP"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12].decode("ascii", "replace")
+        return "AVIF" if brand.startswith("avi") else f"HEIC ({brand})"
+    return "unknown"
+
+
 def load(path):
-    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if not os.path.isfile(path):
+        sys.exit(f"no such file: {os.path.abspath(path)}")
+    # np.fromfile + imdecode instead of imread: imread cannot open paths with
+    # non-ASCII characters on Windows.
+    data = np.fromfile(path, dtype=np.uint8)
+    img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
     if img is None:
-        sys.exit(f"cannot read {path}")
+        img = _load_with_pillow(path)
+    if img is None:
+        fmt = real_format(data.tobytes())
+        sys.exit(
+            f"cannot decode {path}\n"
+            f"The file is actually {fmt}, whatever its name says.\n"
+            "Fix: open it in Paint, choose File > Save as > JPEG picture,\n"
+            "and run this again with the new file.")
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     if img.shape[2] == 4:                       # transparent PNG -> on white
         alpha = img[:, :, 3:4].astype(np.float32) / 255
         img = (img[:, :, :3] * alpha + 255 * (1 - alpha)).astype(np.uint8)
     return img
+
+
+def _load_with_pillow(path):
+    """Fallback for formats OpenCV lacks (HEIC/AVIF need pillow-heif)."""
+    try:
+        from PIL import Image
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        except ImportError:
+            pass
+        with Image.open(path) as im:
+            return cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+    except Exception:
+        return None
 
 
 def crop_around_face(img):
