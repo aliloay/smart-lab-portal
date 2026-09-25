@@ -19,16 +19,13 @@ no API calls at all, and the scripted run must point at a separate database.
 Put the laptop, the phone(s) and both ESP32 boards on the same Wi-Fi or
 phone hotspot. Then, on the laptop:
 
-1. Start Docker Desktop and wait for **Engine running**.
-2. Double-click `launch.bat` (or run `docker compose up --build`). Note the
-   address it prints, e.g. `http://192.168.1.8`.
-3. Start the face server in a second window (it runs outside Docker, see
-   [DOOR_SYSTEM.md](DOOR_SYSTEM.md)):
-   `cd firmware/face_server` then `python face_server.py`
-4. If the network changed since the boards were flashed, set the camera's
+1. Double-click `launch.bat`. It starts Docker Desktop if needed, opens the
+   face server in its own window, starts the portal and opens it in the
+   browser. Note the address it prints, e.g. `http://192.168.1.8`.
+2. If the network changed since the boards were flashed, set the camera's
    `SERVER_IP` and the master's `BACKEND_IP` to the printed address, and the
    master's `CAMERA_IP` to the address the camera prints on its Serial.
-5. Open the printed address on the phone. Nothing to install.
+3. Open the printed address on the phone. Nothing to install.
 
 Check: the top bar says **System healthy**; the access monitor shows the
 master controller online if the hardware is powered.
