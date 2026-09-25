@@ -173,8 +173,15 @@ constexpr uint8_t RED_LED_SOLO_PIN = 15;
 MFRC522 mfrc522(RFID_SS_PIN, RFID_RST_PIN);
 HardwareSerial fingerSerial(2);
 Adafruit_Fingerprint finger(&fingerSerial);
-// Software-SPI constructor: TFT gets its own SCK/MOSI, fully separate from RFID.
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS_PIN, TFT_DC_PIN, TFT_MOSI_PIN, TFT_SCK_PIN, TFT_RST_PIN);
+// The TFT runs on the ESP32's SECOND hardware SPI controller (HSPI), routed
+// to its own SCK/MOSI pins - still a separate bus from the RFID (VSPI), just
+// no longer bit-banged by the CPU. Bit-banging painted a full-screen photo
+// line by line; hardware SPI draws it in ~20-30 ms.
+// RST is passed as -1 and pulsed by tftInit() itself, so a light wake-up
+// (tftWake) can bring the display back WITHOUT a reset pulse.
+constexpr uint32_t TFT_SPI_HZ = 20000000;   // 20 MHz; lower if long wires
+SPIClass tftSPI(HSPI);
+Adafruit_ST7735 tft = Adafruit_ST7735(&tftSPI, TFT_CS_PIN, TFT_DC_PIN, -1);
 
 // ===========================================================================
 // Forward declarations — Arduino IDE's auto prototype generator mishandles a
@@ -501,8 +508,20 @@ void softStartAlert() {
 // CHANGE 1: the full-screen clear and the static header are painted ONCE,
 // here. Screen transitions afterwards repaint only the three content rows.
 // ===========================================================================
+// Full (re)initialisation: hardware reset pulse + the library's whole
+// command list. ~0.8 s, and the panel shows white while it runs, so it is
+// used at boot and as the IDLE-time recovery only.
 void tftInit() {
+  static bool spiStarted = false;
+  if (!spiStarted) {
+    tftSPI.begin(TFT_SCK_PIN, -1, TFT_MOSI_PIN, TFT_CS_PIN);
+    pinMode(TFT_RST_PIN, OUTPUT);
+    spiStarted = true;
+  }
+  digitalWrite(TFT_RST_PIN, LOW);  delay(10);
+  digitalWrite(TFT_RST_PIN, HIGH); delay(120);
   tft.initR(INITR_BLACKTAB);
+  tft.setSPISpeed(TFT_SPI_HZ);
   tft.setRotation(3);
 
   tftBase();
@@ -523,6 +542,20 @@ void tftBase() {
   photoOnScreen = false;
 }
 
+// Light recovery after a supply dip (~125 ms, no reset pulse, no flash).
+// If the dip reset the controller, it is asleep in its defaults: wake it,
+// set 16-bit colour and orientation, switch the panel on. If it did NOT
+// reset, every one of these commands is harmless and nothing visibly
+// changes. The full tftInit() still runs later, back in IDLE.
+void tftWake() {
+  tft.sendCommand(ST77XX_SLPOUT);
+  delay(120);                                   // datasheet: 120 ms after SLPOUT
+  uint8_t colmod = 0x05;                        // 16-bit RGB565
+  tft.sendCommand(ST77XX_COLMOD, &colmod, 1);
+  tft.setRotation(3);                           // rewrites MADCTL
+  tft.sendCommand(ST77XX_DISPON);
+}
+
 // Centered text with a transparent background (drawn over the photo).
 void drawCentered(int16_t y, uint8_t size, const char *text, uint16_t color) {
   if (!text) return;
@@ -537,7 +570,11 @@ void drawCentered(int16_t y, uint8_t size, const char *text, uint16_t color) {
 // darkened band at the top (0-21) and bottom (88-127) so the text is legible.
 void drawPhotoScreen(const uint16_t *photo, const char *top, const char *name,
                      const char *bottom, uint16_t color) {
-  tft.drawRGBBitmap(0, 0, photo, USER_PHOTO_W, USER_PHOTO_H);
+  // The non-const overload streams whole rows over hardware SPI in one go;
+  // the const/PROGMEM one sets an address window per pixel. On the ESP32
+  // flash is memory-mapped and the SPI driver only reads the buffer.
+  tft.drawRGBBitmap(0, 0, const_cast<uint16_t *>(photo),
+                    USER_PHOTO_W, USER_PHOTO_H);
   drawCentered(7,   1, top,    color);
   drawCentered(94,  2, name,   ST77XX_WHITE);
   drawCentered(114, 1, bottom, color);
@@ -894,13 +931,15 @@ void goAccessGranted(const char *factorEvent, const char *factorMethod,
 
   // The coil switching on is the supply dip that can reset the ST7735 to
   // white. Drawing straight into that dip left the screen white, so let the
-  // rail settle, then re-initialise the controller (it may have reset and
-  // there is no way to read it back) and only then draw the grant screen.
+  // rail settle, wake the controller in case it reset (there is no way to
+  // read it back), and only then draw the grant screen.
+  uint32_t t0 = millis();
   delay(RELAY_SETTLE_MS);
-  tftInit();
-  tftRefreshWanted = false;        // just done
+  tftWake();
   displayDirty = true;
   updateDisplay();                 // show the grant now, not after the reports
+  Serial.printf("[TFT] grant screen shown %u ms after unlock\n",
+                (unsigned)(millis() - t0));
 
   // Reported AFTER the door is already unlocked. The portal is a witness to
   // this decision, not a participant in it - if the report fails, the person
@@ -1145,9 +1184,12 @@ void loop() {
     case STATE_IDLE: {
       // Safe point to repair the display after a relay switch reset it.
       // Only ever runs here, while idle - never during a door cycle.
+      // Light wake + clean repaint rather than a full tftInit(): the full
+      // reset pulse showed white for most of a second after every relock.
       if (tftRefreshWanted) {
         tftRefreshWanted = false;
-        tftInit();
+        tftWake();
+        tftBase();
         displayDirty = true;
       }
 
