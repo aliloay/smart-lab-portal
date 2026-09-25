@@ -1109,10 +1109,12 @@ void loop() {
         // ---- Portal-issued booking credential -------------------------
         if (payload.startsWith(PORTAL_QR_PREFIX)) {
           Serial.printf("[QR] Booking token - asking portal (%s)...\n", LAB_ID);
-          // Instant feedback: the two portal round trips below take a moment,
-          // and without this the screen sits on "SCAN" as if nothing happened.
+          // Instant feedback: the portal check below takes a moment, and
+          // without this the screen sits on "SCAN" as if nothing happened.
           drawScreen("CHECKING", "BOOKING QR FOUND", "ONE MOMENT...", ST77XX_YELLOW);
-          reportEvent("QR_SCAN", "", -1, "QR", "", "", "Booking QR presented");
+          // No separate QR_SCAN report: validate-qr itself records every
+          // attempt (person, booking, lab, device, result and reason), so a
+          // prior anonymous "QR presented" event only cost a round trip.
 
           QrAuthResult auth = validateQrWithBackend(payload);
 
@@ -1120,8 +1122,10 @@ void loop() {
             // FAIL CLOSED. Backend offline, expired, wrong lab, cancelled -
             // every one of them ends here with the door still shut.
             Serial.printf("[QR][DENIED] %s\n", auth.reason.c_str());
-            reportEvent("ACCESS_DENIED", "", -1, "QR", "DENIED",
-                        auth.reason.c_str(), "Booking QR refused");
+            // goAccessDenied() reports this refusal. Reporting it here as
+            // well sent the same ACCESS_DENIED twice - two round trips and
+            // two identical security alerts for staff.
+            pendingViaPortal = true;    // so that report says method QR
             goAccessDenied(auth.reason.c_str());
             break;
           }
