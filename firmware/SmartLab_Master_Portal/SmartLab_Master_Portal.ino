@@ -44,6 +44,8 @@
 #include <Adafruit_Fingerprint.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 
@@ -243,6 +245,16 @@ constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
                                                    // the alert short
 constexpr uint32_t DOOR_DEBOUNCE_MS       = 100;
 constexpr uint32_t RFID_HEARTBEAT_MS      = 3000;  // link self-test interval
+// How long the green "QR CODE OK" / "RFID OK" confirmation shows before the
+// step-2 prompt replaces it. Display only: face/finger are accepted from
+// the first moment of step 2.
+constexpr uint32_t STEP1_OK_SHOW_MS       = 1200;
+// Door alarms (reed switch). Held-open: a legitimately opened door that is
+// not closed within this long raises an alert.
+constexpr uint32_t DOOR_HELD_OPEN_MS      = 30000;
+// A component check that has not succeeded for this long counts as down.
+constexpr uint32_t CAMERA_HEALTHY_MS      = 10000;
+constexpr uint32_t FP_HEALTH_CHECK_MS     = 10000;
 constexpr uint32_t RELAY_SETTLE_MS        = 80;    // supply settles after the
                                                    // coil switches, before
                                                    // the display is redrawn
@@ -287,7 +299,8 @@ enum SystemState {
   STATE_ACCESS_GRANTED,
   STATE_DOOR_UNLOCKED_WAIT_OPEN,
   STATE_DOOR_OPEN_WAIT_CLOSE,
-  STATE_ACCESS_DENIED
+  STATE_ACCESS_DENIED,
+  STATE_DOOR_ALARM              // door opened while locked (forced entry)
 };
 
 SystemState state = STATE_IDLE;
@@ -300,6 +313,24 @@ bool        pendingViaPortal = false;
 uint32_t    lastHeartbeatSentMs = 0;
 uint32_t    stateEnteredMs = 0;
 const char *deniedReason = "";
+char        deniedReasonBuf[40];   // deniedReason points here: the callers'
+                                   // strings (e.g. a portal reply) are
+                                   // temporaries that die before a redraw
+
+// Display-only state (never consulted by the access logic).
+const char *step1Label = "";       // "QR CODE OK" / "RFID OK"
+bool        verifyPromptShown = false;
+uint32_t    lastVerifyBarMs = 0;
+
+// Door alarms
+bool        heldOpenAlarmed = false;
+
+// Component health, sent with the heartbeat so the portal can alert staff.
+bool        fpOk = false;
+uint32_t    lastFpCheckMs = 0;
+uint32_t    lastCameraOkMs = 0;
+uint8_t     lastComponentBits = 0xFF;   // forces a report on the first loop
+float       visionDistance = 0;
 
 // RFID de-dup tracking (from the proven standalone implementation)
 uint8_t  lastUID[10] = {0};
@@ -505,12 +536,27 @@ void softStartAlert() {
 
 // ===========================================================================
 // TFT
-// CHANGE 1: the full-screen clear and the static header are painted ONCE,
-// here. Screen transitions afterwards repaint only the three content rows.
 // ===========================================================================
+// Every screen is composed in RAM (a 160x128 canvas, 40 KB) and sent to the
+// display in ONE transfer (~16 ms at 20 MHz). The panel therefore never shows
+// a half-drawn screen - no clear-then-draw flicker, no text appearing line by
+// line - which is what makes each change look like a clean cut.
+// If the canvas cannot be allocated, the same screens are drawn directly.
+// ===========================================================================
+GFXcanvas16 *canvas = nullptr;
+
+Adafruit_GFX &gfx() {
+  if (canvas) return *canvas;
+  return tft;
+}
+
+void present() {
+  if (canvas) tft.drawRGBBitmap(0, 0, canvas->getBuffer(), 160, 128);
+}
+
 // Full (re)initialisation: hardware reset pulse + the library's whole
 // command list. ~0.8 s, and the panel shows white while it runs, so it is
-// used at boot and as the IDLE-time recovery only.
+// used at boot and after a buzzer surge only.
 void tftInit() {
   static bool spiStarted = false;
   if (!spiStarted) {
@@ -518,35 +564,23 @@ void tftInit() {
     pinMode(TFT_RST_PIN, OUTPUT);
     spiStarted = true;
   }
+  if (!canvas) {
+    canvas = new GFXcanvas16(160, 128);
+    if (!canvas->getBuffer()) { delete canvas; canvas = nullptr; }
+  }
   digitalWrite(TFT_RST_PIN, LOW);  delay(10);
   digitalWrite(TFT_RST_PIN, HIGH); delay(120);
   tft.initR(INITR_BLACKTAB);
   tft.setSPISpeed(TFT_SPI_HZ);
   tft.setRotation(3);
-
-  tftBase();
-}
-
-// The static background: black screen + header. Unlike tftInit() this does
-// NOT reset the controller, so it never flashes white - it is what restores
-// the normal layout after a full-screen photo.
-bool photoOnScreen = false;
-
-void tftBase() {
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextSize(1);
-  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  tft.setCursor(6, 8);
-  tft.print("SMART LAB ACCESS");
-  tft.drawFastHLine(0, 20, tft.width(), ST77XX_WHITE);
-  photoOnScreen = false;
+  displayDirty = true;
 }
 
 // Light recovery after a supply dip (~125 ms, no reset pulse, no flash).
 // If the dip reset the controller, it is asleep in its defaults: wake it,
 // set 16-bit colour and orientation, switch the panel on. If it did NOT
 // reset, every one of these commands is harmless and nothing visibly
-// changes. The full tftInit() still runs later, back in IDLE.
+// changes.
 void tftWake() {
   tft.sendCommand(ST77XX_SLPOUT);
   delay(120);                                   // datasheet: 120 ms after SLPOUT
@@ -556,109 +590,258 @@ void tftWake() {
   tft.sendCommand(ST77XX_DISPON);
 }
 
-// Centered text with a transparent background (drawn over the photo).
-void drawCentered(int16_t y, uint8_t size, const char *text, uint16_t color) {
-  if (!text) return;
-  int16_t w = strlen(text) * 6 * size;
-  tft.setTextSize(size);
-  tft.setTextColor(color);                      // no bg colour = transparent
-  tft.setCursor(max(0, (tft.width() - w) / 2), y);
-  tft.print(text);
+// --- palette ---------------------------------------------------------------
+constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+constexpr uint16_t C_BG       = rgb(8, 16, 36);     // deep navy
+constexpr uint16_t C_HEADER   = rgb(22, 36, 66);
+constexpr uint16_t C_WHITE    = 0xFFFF;
+constexpr uint16_t C_SUB      = rgb(175, 195, 225); // soft blue-grey
+constexpr uint16_t C_ACCENT   = rgb(90, 200, 255);  // cyan
+constexpr uint16_t C_OK       = rgb(0, 160, 70);    // success green
+constexpr uint16_t C_OK_DARK  = rgb(0, 105, 45);
+constexpr uint16_t C_OK_LIGHT = rgb(150, 255, 180);
+constexpr uint16_t C_BAD      = rgb(205, 20, 25);   // failure red
+constexpr uint16_t C_BAD_DARK = rgb(125, 10, 12);
+constexpr uint16_t C_WARN     = rgb(255, 190, 0);   // amber
+constexpr uint16_t C_TRACK    = rgb(40, 55, 85);
+
+// --- text helpers ----------------------------------------------------------
+// Draws text horizontally centred with its TOP at y, in the given font
+// (nullptr = the small built-in font). Custom fonts draw from the baseline,
+// so the bounds are measured first and the cursor shifted accordingly.
+void centerText(Adafruit_GFX &g, const char *t, const GFXfont *font,
+                int16_t y, uint16_t color) {
+  if (!t || !*t) return;
+  g.setFont(font);
+  g.setTextSize(1);
+  g.setTextWrap(false);
+  int16_t x1, y1; uint16_t w, h;
+  g.getTextBounds(t, 0, 0, &x1, &y1, &w, &h);
+  g.setCursor((160 - (int16_t)w) / 2 - x1, y - y1);
+  g.setTextColor(color);
+  g.print(t);
+  g.setFont(nullptr);
 }
 
-// Full-screen user photo with text over it. The photo was prepared with a
-// darkened band at the top (0-21) and bottom (88-127) so the text is legible.
-void drawPhotoScreen(const uint16_t *photo, const char *top, const char *name,
-                     const char *bottom, uint16_t color) {
-  // The non-const overload streams whole rows over hardware SPI in one go;
-  // the const/PROGMEM one sets an address window per pixel. On the ESP32
-  // flash is memory-mapped and the SPI driver only reads the buffer.
-  tft.drawRGBBitmap(0, 0, const_cast<uint16_t *>(photo),
-                    USER_PHOTO_W, USER_PHOTO_H);
-  drawCentered(7,   1, top,    color);
-  drawCentered(94,  2, name,   ST77XX_WHITE);
-  drawCentered(114, 1, bottom, color);
-  photoOnScreen = true;
+// The largest bold font the text fits in: 12pt, then 9pt, then built-in.
+const GFXfont *fitFont(Adafruit_GFX &g, const char *t) {
+  const GFXfont *fonts[] = { &FreeSansBold12pt7b, &FreeSansBold9pt7b };
+  for (const GFXfont *f : fonts) {
+    g.setFont(f);
+    int16_t x1, y1; uint16_t w, h;
+    g.getTextBounds(t, 0, 0, &x1, &y1, &w, &h);
+    g.setFont(nullptr);
+    if (w <= 152) return f;
+  }
+  return nullptr;
 }
 
-// Draws one text row. Three layers stop leftovers from the previous screen:
-//   1. fillRect clears the FULL WIDTH of the row, so a shorter new string
-//      cannot leave the tail of a longer old string behind.
-//   2. setTextColor(fg, bg) makes glyphs opaque - each character paints its
-//      own background instead of drawing over whatever is underneath.
-//   3. print() not println() - no cursor advance, no wrap onto the next row.
-void drawRow(int16_t y, uint8_t size, const char *text, uint16_t color) {
-  tft.fillRect(0, y, tft.width(), 8 * size, ST77XX_BLACK);
-  if (!text) return;
-  tft.setTextSize(size);
-  tft.setTextColor(color, ST77XX_BLACK);
-  tft.setCursor(6, y);
-  tft.print(text);
+void header(Adafruit_GFX &g, uint16_t color, const char *left) {
+  g.fillRect(0, 0, 160, 14, color);
+  g.setFont(nullptr);
+  g.setTextSize(1);
+  g.setTextColor(C_WHITE);
+  g.setCursor(4, 3);
+  g.print(left);
+  g.setCursor(160 - 4 - 6 * strlen(LAB_ID), 3);
+  g.print(LAB_ID);
 }
 
-// No full-screen clear, no header redraw - that is what makes switching look
-// instant instead of flashing through black on a bit-banged display.
-void drawScreen(const char *l1, const char *l2, const char *l3, uint16_t color) {
-  drawRow(34, 2, l1, color);   // headline
-  drawRow(62, 1, l2, color);   // detail
-  drawRow(76, 1, l3, color);   // hint
+void iconCheck(Adafruit_GFX &g, int16_t cx, int16_t cy, uint16_t ring, uint16_t mark) {
+  g.fillCircle(cx, cy, 15, ring);
+  for (int d = -2; d <= 2; d++) {
+    g.drawLine(cx - 8, cy + d, cx - 3, cy + 5 + d, mark);
+    g.drawLine(cx - 3, cy + 5 + d, cx + 8, cy - 6 + d, mark);
+  }
+}
+
+void iconCross(Adafruit_GFX &g, int16_t cx, int16_t cy, uint16_t ring, uint16_t mark) {
+  g.fillCircle(cx, cy, 15, ring);
+  for (int d = -2; d <= 2; d++) {
+    g.drawLine(cx - 7 + d, cy - 7, cx + 7 + d, cy + 7, mark);
+    g.drawLine(cx + 7 + d, cy - 7, cx - 7 + d, cy + 7, mark);
+  }
+}
+
+// Short, human wording for the reason codes the door and the portal use.
+const char *friendlyReason(const char *code) {
+  struct { const char *code, *text; } map[] = {
+    {"FACE MISMATCH",         "Face does not match"},
+    {"WRONG FINGER",          "Fingerprint mismatch"},
+    {"FINGER TIMEOUT",        "Timed out - try again"},
+    {"UNKNOWN CARD",          "Card not recognised"},
+    {"UNKNOWN QR",            "QR not recognised"},
+    {"NOT ENROLLED",          "Not enrolled at door"},
+    {"TOKEN_UNKNOWN",         "QR not recognised"},
+    {"TOKEN_REVOKED",         "QR was replaced"},
+    {"BOOKING_NOT_STARTED",   "Booking not started"},
+    {"BOOKING_EXPIRED",       "Booking has ended"},
+    {"BOOKING_CANCELLED",     "Booking cancelled"},
+    {"BOOKING_NOT_CONFIRMED", "Booking not confirmed"},
+    {"WRONG_LAB",             "Booked for other lab"},
+    {"USER_INACTIVE",         "Account disabled"},
+    {"NO_ENROLLED_IDENTITY",  "No biometric enrolled"},
+    {"NO_NETWORK",            "Portal unreachable"},
+    {"BACKEND_DISABLED",      "Portal disabled"},
+  };
+  if (!code) return "";
+  for (auto &m : map) if (strcmp(code, m.code) == 0) return m.text;
+  if (strncmp(code, "HTTP_", 5) == 0) return "Portal unreachable";
+  return code;
+}
+
+bool cameraHealthy();   // defined with the camera polling
+
+// --- screens ---------------------------------------------------------------
+void screenBoot(Adafruit_GFX &g) {
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "SMART LAB");
+  centerText(g, "SMART LAB", &FreeSansBold12pt7b, 42, C_WHITE);
+  centerText(g, "Starting...", nullptr, 76, C_SUB);
+}
+
+void screenIdle(Adafruit_GFX &g) {
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "SMART LAB");
+  centerText(g, "WELCOME", &FreeSansBold12pt7b, 26, C_WHITE);
+  centerText(g, "Scan your QR code", nullptr, 56, C_SUB);
+  centerText(g, "or RFID tag / card", nullptr, 68, C_SUB);
+  // Say what does NOT work, so nobody waits at a dead reader.
+  const char *note = nullptr;
+  if (rfidLinkDown && !cameraHealthy()) note = "Readers offline - call staff";
+  else if (rfidLinkDown)                note = "RFID offline - use QR code";
+  else if (!cameraHealthy())            note = "Camera offline - use card";
+  if (note) centerText(g, note, nullptr, 90, C_WARN);
+  centerText(g, "STEP 1 OF 2", nullptr, 112, C_ACCENT);
+}
+
+void screenChecking(Adafruit_GFX &g) {
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "SMART LAB");
+  centerText(g, "CHECKING", &FreeSansBold12pt7b, 34, C_WARN);
+  centerText(g, "Booking QR code found", nullptr, 66, C_WHITE);
+  centerText(g, "One moment...", nullptr, 80, C_SUB);
+}
+
+void screenStep1Ok(Adafruit_GFX &g) {
+  const char *name = authorizedUsers[pendingUserIndex].displayName;
+  g.fillScreen(C_OK);
+  header(g, C_OK_DARK, "SMART LAB");
+  iconCheck(g, 80, 38, C_WHITE, C_OK);
+  centerText(g, step1Label, &FreeSansBold9pt7b, 60, C_WHITE);
+  centerText(g, name, fitFont(g, name), 84, C_WHITE);
+}
+
+// Remaining-time bar for step 2, drawn straight to the panel: it changes
+// several times a second and is only 150x6 pixels.
+void drawVerifyBar() {
+  uint32_t used = millis() - stateEnteredMs;
+  uint32_t left = used >= FINGERPRINT_TIMEOUT_MS ? 0 : FINGERPRINT_TIMEOUT_MS - used;
+  int16_t w = (int32_t)150 * left / FINGERPRINT_TIMEOUT_MS;
+  uint16_t c = left < 5000 ? C_WARN : C_OK;
+  tft.fillRect(5, 116, w, 6, c);
+  tft.fillRect(5 + w, 116, 150 - w, 6, C_TRACK);
+}
+
+void screenVerify(Adafruit_GFX &g) {
+  const char *name = authorizedUsers[pendingUserIndex].displayName;
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "SMART LAB");
+  centerText(g, "VERIFY", &FreeSansBold12pt7b, 20, C_WHITE);
+  centerText(g, name, &FreeSansBold9pt7b, 44, C_OK_LIGHT);
+  centerText(g, "Look at the camera", nullptr, 66, C_WHITE);
+  centerText(g, "or place your finger", nullptr, 78, C_WHITE);
+  centerText(g, "STEP 2 OF 2", nullptr, 98, C_ACCENT);
+  g.fillRect(5, 116, 150, 6, C_OK);             // full; drawVerifyBar shrinks it
+}
+
+// Identical for ACCESS_GRANTED and DOOR_UNLOCKED_WAIT_OPEN, so moving
+// between the two changes nothing on the panel.
+void screenGranted(Adafruit_GFX &g) {
+  const char *name = authorizedUsers[pendingUserIndex].displayName;
+  const uint16_t *photo = userPhoto(authorizedUsers[pendingUserIndex].name);
+  if (photo) {
+    // Photo full screen; the name on a green band at the top, ACCESS
+    // GRANTED on a green band below the chin.
+    if (canvas) memcpy(canvas->getBuffer(), photo, 160 * 128 * 2);
+    else tft.drawRGBBitmap(0, 0, const_cast<uint16_t *>(photo), 160, 128);
+    g.fillRect(0, 0, 160, 22, C_OK);
+    centerText(g, name, &FreeSansBold9pt7b, 4, C_WHITE);
+    g.fillRect(0, 84, 160, 44, C_OK);
+    centerText(g, "ACCESS", &FreeSansBold12pt7b, 86, C_WHITE);
+    centerText(g, "GRANTED", &FreeSansBold12pt7b, 107, C_WHITE);
+    return;
+  }
+  g.fillScreen(C_OK);
+  header(g, C_OK_DARK, "DOOR UNLOCKED");
+  iconCheck(g, 80, 34, C_WHITE, C_OK);
+  centerText(g, "ACCESS", &FreeSansBold12pt7b, 54, C_WHITE);
+  centerText(g, "GRANTED", &FreeSansBold12pt7b, 76, C_WHITE);
+  centerText(g, name, &FreeSansBold9pt7b, 104, C_WHITE);
+}
+
+void screenDoorOpen(Adafruit_GFX &g) {
+  if (heldOpenAlarmed) {
+    g.fillScreen(C_BAD);
+    header(g, C_BAD_DARK, "DOOR HELD OPEN");
+    centerText(g, "CLOSE", &FreeSansBold12pt7b, 26, C_WHITE);
+    centerText(g, "THE DOOR", &FreeSansBold12pt7b, 50, C_WHITE);
+    centerText(g, "Open for too long", nullptr, 84, C_WHITE);
+    centerText(g, "Staff have been notified", nullptr, 98, C_WHITE);
+    return;
+  }
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "SMART LAB");
+  centerText(g, "DOOR OPEN", &FreeSansBold12pt7b, 34, C_WHITE);
+  centerText(g, "Please close the door", nullptr, 70, C_SUB);
+  centerText(g, "behind you", nullptr, 82, C_SUB);
+}
+
+void screenDenied(Adafruit_GFX &g) {
+  g.fillScreen(C_BAD);
+  header(g, C_BAD_DARK, "DOOR LOCKED");
+  iconCross(g, 80, 34, C_WHITE, C_BAD);
+  centerText(g, "ACCESS", &FreeSansBold12pt7b, 54, C_WHITE);
+  centerText(g, "DENIED", &FreeSansBold12pt7b, 76, C_WHITE);
+  centerText(g, friendlyReason(deniedReason), nullptr, 106, C_WHITE);
+}
+
+void screenAlarm(Adafruit_GFX &g) {
+  g.fillScreen(C_BAD);
+  header(g, C_BAD_DARK, "! SECURITY ALERT !");
+  centerText(g, "FORCED", &FreeSansBold12pt7b, 24, C_WHITE);
+  centerText(g, "ENTRY", &FreeSansBold12pt7b, 48, C_WHITE);
+  centerText(g, "Door opened while locked", nullptr, 80, C_WHITE);
+  centerText(g, "Staff have been notified", nullptr, 94, C_WHITE);
+  centerText(g, "Please close the door", nullptr, 108, C_WHITE);
+}
+
+// Shown by the QR path while the portal is asked - outside updateDisplay()
+// because the state does not change until the answer arrives.
+void showChecking() {
+  screenChecking(gfx());
+  present();
 }
 
 void updateDisplay() {
   if (!displayDirty) return;
   displayDirty = false;
 
-  // A photo covers the whole screen, header included. Leaving the photo
-  // screens repaints the normal background first (no controller reset).
-  const uint16_t *photo = (pendingUserIndex >= 0)
-      ? userPhoto(authorizedUsers[pendingUserIndex].name) : nullptr;
-  bool photoState = photo && (state == STATE_ACCESS_GRANTED ||
-                              state == STATE_DOOR_UNLOCKED_WAIT_OPEN);
-  if (photoState) {
-    if (state == STATE_ACCESS_GRANTED) {
-      drawPhotoScreen(photo, "ACCESS GRANTED",
-                      authorizedUsers[pendingUserIndex].displayName,
-                      "WELCOME", ST77XX_GREEN);
-    } else {
-      drawPhotoScreen(photo, "DOOR UNLOCKED",
-                      authorizedUsers[pendingUserIndex].displayName,
-                      "PLEASE ENTER", ST77XX_GREEN);
-    }
-    return;
-  }
-  if (photoOnScreen) tftBase();
-
+  Adafruit_GFX &g = gfx();
   switch (state) {
-    case STATE_IDLE:
-      if (rfidLinkDown) {
-        drawScreen("RFID DOWN", "READER LINK LOST", "CHECK WIRING", ST77XX_RED);
-      } else {
-        drawScreen("SCAN", "RFID CARD OR QR CODE", "STEP 1 OF 2", ST77XX_WHITE);
-      }
-      break;
-
+    case STATE_IDLE:                    screenIdle(g); break;
     case STATE_WAIT_FINGERPRINT:
-      drawScreen(authorizedUsers[pendingUserIndex].displayName,
-                 "VERIFIED - FINGER OR FACE", "STEP 2 OF 2", ST77XX_YELLOW);
+      if (verifyPromptShown) screenVerify(g); else screenStep1Ok(g);
       break;
-
     case STATE_ACCESS_GRANTED:
-      drawScreen("HELLO", authorizedUsers[pendingUserIndex].displayName,
-                 "ACCESS GRANTED - DOOR OPEN", ST77XX_GREEN);
-      break;
-
-    case STATE_DOOR_UNLOCKED_WAIT_OPEN:
-      drawScreen("UNLOCKED", "DOOR IS OPEN NOW", "PLEASE ENTER", ST77XX_GREEN);
-      break;
-
-    case STATE_DOOR_OPEN_WAIT_CLOSE:
-      drawScreen("DOOR OPEN", "CLOSE DOOR TO LOCK", nullptr, ST77XX_CYAN);
-      break;
-
-    case STATE_ACCESS_DENIED:
-      drawScreen("DENIED", deniedReason, "DOOR STAYS LOCKED", ST77XX_RED);
-      break;
+    case STATE_DOOR_UNLOCKED_WAIT_OPEN: screenGranted(g); break;
+    case STATE_DOOR_OPEN_WAIT_CLOSE:    screenDoorOpen(g); break;
+    case STATE_ACCESS_DENIED:           screenDenied(g); break;
+    case STATE_DOOR_ALARM:              screenAlarm(g); break;
   }
+  present();
 }
 
 // ===========================================================================
@@ -717,6 +900,7 @@ void pollCamera() {
   String body = http.getString();
   http.end();
   cameraOnline = true;
+  lastCameraOkMs = millis();
 
   // FRESHNESS IS THE SECURITY CHECK. An old QR or face must never authorize
   // the person standing there now.
@@ -727,6 +911,14 @@ void pollCamera() {
   visionFace      = jsonStr(body, "face");
   visionQrFresh   = (visionQr.length()   > 0) && (qrAge   >= 0) && (qrAge   < VISION_FRESH_MS);
   visionFaceFresh = (visionFace.length() > 0) && (faceAge >= 0) && (faceAge < VISION_FRESH_MS);
+  int d = body.indexOf("\"distance\":");
+  visionDistance = d >= 0 ? body.substring(d + 11).toFloat() : 0;
+}
+
+// The camera counts as healthy while it answered within CAMERA_HEALTHY_MS.
+// A single slow poll is not an outage.
+bool cameraHealthy() {
+  return lastCameraOkMs != 0 && millis() - lastCameraOkMs < CAMERA_HEALTHY_MS;
 }
 
 // Finds a user by their INTERNAL name (USER1 / USER2) - this is what the
@@ -871,7 +1063,14 @@ void sendHeartbeat() {
                 "\",\"lab_id\":\"" + LAB_ID +
                 "\",\"ip_address\":\"" + WiFi.localIP().toString() +
                 "\",\"firmware_version\":\"portal-1.0\"" +
-                ",\"door_closed\":" + (doorClosed ? "true" : "false") + "}";
+                ",\"door_closed\":" + (doorClosed ? "true" : "false") +
+                // Per-component health for the admin view. The LCD is not
+                // here: its bus has no return line, so a dead display
+                // cannot be detected from the ESP32.
+                ",\"components\":{\"rfid\":" + (rfidLinkDown ? "false" : "true") +
+                ",\"fingerprint\":" + (fpOk ? "true" : "false") +
+                ",\"camera\":" + (cameraHealthy() ? "true" : "false") +
+                ",\"relay_locked\":" + (relayUnlocked ? "false" : "true") + "}}";
   http.POST(body);
   http.end();
 }
@@ -911,6 +1110,7 @@ void goWaitFingerprint(int userIndex) {
   Serial.printf("[STATE] -> WAIT_FINGERPRINT (%s / %s)\n",
                 authorizedUsers[userIndex].displayName,
                 authorizedUsers[userIndex].name);
+  verifyPromptShown = false;
   enterState(STATE_WAIT_FINGERPRINT);
 }
 
@@ -954,7 +1154,9 @@ void goAccessGranted(const char *factorEvent, const char *factorMethod,
 
 void goAccessDenied(const char *reason) {
   Serial.printf("[AUTH][DENIED] %s\n", reason);
-  deniedReason = reason;
+  strncpy(deniedReasonBuf, reason, sizeof(deniedReasonBuf) - 1);
+  deniedReasonBuf[sizeof(deniedReasonBuf) - 1] = '\0';
+  deniedReason = deniedReasonBuf;
 
   // ORDER MATTERS. Draw the DENIED screen FIRST, while the supply is still
   // clean. Previously the buzzer was energized before this, so the TFT was
@@ -1000,7 +1202,24 @@ void goDoorOpenWaitClose() {
   reportEvent("DOOR_OPENED",
               pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
               pendingBookingId, "", "", "", "Door opened");
+  heldOpenAlarmed = false;
   enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
+}
+
+// The door opened although nobody was granted access: the relay was locked,
+// so it was forced (or the lock failed). Red LED + red screen until it is
+// closed again; the portal raises a critical alert.
+void goDoorAlarm() {
+  Serial.println("[ALARM] Door opened while LOCKED - forced entry");
+  setIndicators(false, false);
+  setRedSolo(true);
+  pendingUserIndex = -1;
+  pendingBookingId = -1;
+  pendingViaPortal = false;
+  enterState(STATE_DOOR_ALARM);
+  updateDisplay();
+  reportEvent("ALARM", "", -1, "", "", "FORCED_ENTRY",
+              "Door opened while locked - no access had been granted");
 }
 
 void goRelockAndIdle() {
@@ -1079,7 +1298,8 @@ void setup() {
   Serial.println("[INIT] Starting ST7735 TFT on separate bus...");
   Serial.println("[INIT] TFT SCK=GPIO13, MOSI=GPIO2 (GPIO4 reserved for fingerprint wiring).");
   tftInit();
-  drawScreen("BOOT", "Initializing...", nullptr, ST77XX_WHITE);
+  screenBoot(gfx());
+  present();
 
   // --- RFID on the proven VSPI path --- (UNCHANGED)
   Serial.println("[RFID] Initializing the proven standalone VSPI path...");
@@ -1105,7 +1325,9 @@ void setup() {
   Serial.println("[FP] Initializing fingerprint sensor...");
   fingerSerial.begin(57600, SERIAL_8N1, FP_RX_PIN, FP_TX_PIN);
   finger.begin(57600);
-  if (finger.verifyPassword()) {
+  fpOk = finger.verifyPassword();
+  lastFpCheckMs = millis();
+  if (fpOk) {
     Serial.println("[FP][PASS] Fingerprint sensor detected.");
     finger.getTemplateCount();
     Serial.printf("[FP] Stored templates = %u\n", finger.templateCount);
@@ -1163,6 +1385,29 @@ void setup() {
 void loop() {
   pollDoor();
 
+  // Forced entry: the door opened while the relay was locked and no door
+  // cycle was in progress.
+  if (doorChangedThisLoop && !doorClosed && !relayUnlocked &&
+      (state == STATE_IDLE || state == STATE_WAIT_FINGERPRINT ||
+       state == STATE_ACCESS_DENIED)) {
+    goDoorAlarm();
+  }
+
+  // Component health: report a change at once rather than at the next
+  // 30 s heartbeat, so a failure reaches the admin view immediately.
+  uint8_t bits = (rfidLinkDown ? 0 : 1) | (fpOk ? 2 : 0) | (cameraHealthy() ? 4 : 0);
+  if (bits != lastComponentBits) {
+    if (lastComponentBits != 0xFF) {
+      Serial.printf("[HEALTH] rfid=%s fingerprint=%s camera=%s\n",
+                    bits & 1 ? "ok" : "DOWN", bits & 2 ? "ok" : "DOWN",
+                    bits & 4 ? "ok" : "DOWN");
+    }
+    lastComponentBits = bits;
+    lastHeartbeatSentMs = millis();
+    sendHeartbeat();
+    if (state == STATE_IDLE) displayDirty = true;   // idle screen notes it
+  }
+
   // Device liveness and door state. Cheap, and it is what makes the admin
   // dashboard able to say "controller online" truthfully rather than
   // assuming it.
@@ -1189,8 +1434,14 @@ void loop() {
       if (tftRefreshWanted) {
         tftRefreshWanted = false;
         tftWake();
-        tftBase();
-        displayDirty = true;
+        displayDirty = true;          // full-screen repaint from the canvas
+      }
+
+      // Fingerprint sensor self-test (idle only: it shares nothing with the
+      // door cycle, and a UART round trip is a few milliseconds).
+      if (millis() - lastFpCheckMs > FP_HEALTH_CHECK_MS) {
+        lastFpCheckMs = millis();
+        fpOk = finger.verifyPassword();
       }
 
       // Periodic SPI link self-test with automatic recovery.
@@ -1231,7 +1482,7 @@ void loop() {
           Serial.printf("[QR] Booking token - asking portal (%s)...\n", LAB_ID);
           // Instant feedback: the portal check below takes a moment, and
           // without this the screen sits on "SCAN" as if nothing happened.
-          drawScreen("CHECKING", "BOOKING QR FOUND", "ONE MOMENT...", ST77XX_YELLOW);
+          showChecking();
           // No separate QR_SCAN report: validate-qr itself records every
           // attempt (person, booking, lab, device, result and reason), so a
           // prior anonymous "QR presented" event only cost a round trip.
@@ -1267,6 +1518,7 @@ void loop() {
                         auth.authSubject.c_str());
           pendingBookingId = auth.bookingId;
           pendingViaPortal = true;
+          step1Label = "QR CODE OK";
           goWaitFingerprint(qrUser);
           break;
         }
@@ -1278,7 +1530,7 @@ void loop() {
                       qrUser >= 0 ? authorizedUsers[qrUser].displayName : "NOT AUTHORIZED");
         pendingBookingId = -1;
         pendingViaPortal = false;
-        if (qrUser >= 0) { goWaitFingerprint(qrUser); break; }
+        if (qrUser >= 0) { step1Label = "QR CODE OK"; goWaitFingerprint(qrUser); break; }
         else             { goAccessDenied("UNKNOWN QR");  break; }
       }
 
@@ -1306,7 +1558,7 @@ void loop() {
       int userIndex = findAuthorizedUser(mfrc522.uid);
       finishRFIDTransaction();
 
-      if (userIndex >= 0) goWaitFingerprint(userIndex);
+      if (userIndex >= 0) { step1Label = "RFID OK"; goWaitFingerprint(userIndex); }
       else                goAccessDenied("UNKNOWN CARD");
       break;
     }
@@ -1316,6 +1568,16 @@ void loop() {
       if (millis() - stateEnteredMs > FINGERPRINT_TIMEOUT_MS) {
         goAccessDenied("FINGER TIMEOUT");
         break;
+      }
+      // Display only: the green step-1 confirmation gives way to the
+      // step-2 prompt, whose time bar then counts down.
+      if (!verifyPromptShown && millis() - stateEnteredMs > STEP1_OK_SHOW_MS) {
+        verifyPromptShown = true;
+        lastVerifyBarMs = millis();
+        displayDirty = true;
+      } else if (verifyPromptShown && millis() - lastVerifyBarMs > 250) {
+        lastVerifyBarMs = millis();
+        drawVerifyBar();
       }
       // ---- STEP 2 ALTERNATIVE: face from the camera -------------------
       // The face identity must match the identity established in step 1.
@@ -1329,7 +1591,8 @@ void loop() {
         visionFaceFresh = false;        // consume it
         if (match) {
           goAccessGranted("FACE_ACCEPTED", "FACE",
-                          String("Face matched ") + expected);
+                          String("Face matched ") + expected + " (distance " +
+                          String(visionDistance, 1) + ", accepted up to 70)");
           break;
         } else {
           // The headline security event: a valid step-1 credential presented
@@ -1338,7 +1601,7 @@ void loop() {
           reportEvent("IDENTITY_MISMATCH", expected.c_str(), pendingBookingId,
                       "FACE", "DENIED", "IDENTITY_MISMATCH",
                       String("Step 1 was ") + expected + " but face matched " +
-                      visionFace);
+                      visionFace + " (distance " + String(visionDistance, 1) + ")");
           goAccessDenied("FACE MISMATCH");
           break;
         }
@@ -1364,6 +1627,15 @@ void loop() {
 
     // -------------------------------------------------------------------
     case STATE_ACCESS_GRANTED: {
+      // Opening the door during the grant screen is the normal case now
+      // that the screen appears at once. Without this the open was missed
+      // (it is only seen on the loop it happens), the cycle waited for an
+      // open that had already happened, and relocked after UNLOCK_HOLD_MS
+      // with the door standing open.
+      if (doorChangedThisLoop && !doorClosed) {
+        goDoorOpenWaitClose();
+        break;
+      }
       if (millis() - stateEnteredMs > GRANTED_DISPLAY_MS) {
         enterState(STATE_DOOR_UNLOCKED_WAIT_OPEN);
       }
@@ -1387,6 +1659,29 @@ void loop() {
     case STATE_DOOR_OPEN_WAIT_CLOSE: {
       if (doorChangedThisLoop && doorClosed) {
         goRelockAndIdle();
+        break;
+      }
+      if (!heldOpenAlarmed && millis() - stateEnteredMs > DOOR_HELD_OPEN_MS) {
+        heldOpenAlarmed = true;
+        Serial.println("[ALARM] Door held open");
+        setRedSolo(true);
+        displayDirty = true;
+        reportEvent("ALARM",
+                    pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
+                    pendingBookingId, "", "", "DOOR_HELD_OPEN",
+                    String("Door open for more than ") +
+                    (DOOR_HELD_OPEN_MS / 1000) + " s");
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------------
+    case STATE_DOOR_ALARM: {
+      if (doorChangedThisLoop && doorClosed) {
+        Serial.println("[ALARM] Door closed again");
+        reportEvent("DOOR_CLOSED", "", -1, "", "", "",
+                    "Door closed after forced entry");
+        goIdle();
       }
       break;
     }
@@ -1409,7 +1704,6 @@ void loop() {
         if (denyAlertFired) tftInit();
         denyAlertFired = false;
         goIdle();
-        displayDirty = true;
       }
       break;
     }
