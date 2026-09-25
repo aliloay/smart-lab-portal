@@ -250,7 +250,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
           {/* Phones have no desktop top bar, so the university mark sits here. */}
           <div className="lg:hidden px-5 pb-3">
-            <InstitutionLogo className="!h-6 opacity-80" textClass="!text-[9.5px] !tracking-[0.12em]" />
+            <InstitutionLogo strong className="!h-8" textClass="!text-[10px] !tracking-[0.12em] !text-slate-200" />
           </div>
         </div>
       </div>
@@ -311,12 +311,12 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <div className="flex-1 min-w-0 relative z-10 flex flex-col">
         {/* desktop top bar */}
-        {/* Left: the university, quietly. Right: system and account actions. */}
+        {/* Left: the university. Right: system and account actions. */}
         <div className="hidden lg:flex sticky top-0 z-30 items-center gap-2.5
                         h-16 px-8 bg-ink-900/55 backdrop-blur-xl border-b border-white/[0.07]">
           <div className="mr-auto flex items-center min-w-0">
-            <InstitutionLogo className="!h-6 opacity-80"
-                             textClass="!text-[10px] !tracking-[0.14em] whitespace-nowrap" />
+            <InstitutionLogo strong className="!h-10"
+                             textClass="!text-[11px] !tracking-[0.14em] !text-slate-200 whitespace-nowrap" />
           </div>
           <Link to="/issues/new" className="glass-control inline-flex items-center gap-2 px-3 text-[13px] font-medium">
             <Wrench size={15} /> Report an issue
