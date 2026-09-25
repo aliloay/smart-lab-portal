@@ -5,6 +5,7 @@ Devices authenticate with a shared API key rather than a user JWT. An ESP32
 is not a person: it has no login, cannot refresh a token, and must keep
 working across reboots without human interaction.
 """
+import hmac
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
@@ -56,6 +57,8 @@ def require_device(x_device_key: Optional[str] = Header(None)) -> str:
     still could not open the door, because the backend never drives the relay,
     but a trustworthy log is the whole point of the portal.
     """
-    if not x_device_key or x_device_key != settings.DEVICE_API_KEY:
+    # Constant-time comparison: the key is not leaked through response timing.
+    if not x_device_key or not hmac.compare_digest(
+            x_device_key.encode(), settings.DEVICE_API_KEY.encode()):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device key")
     return x_device_key
