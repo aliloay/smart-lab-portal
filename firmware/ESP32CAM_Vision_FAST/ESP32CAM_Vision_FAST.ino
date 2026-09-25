@@ -105,6 +105,16 @@ float    lastDistance  = 0;
 uint32_t lastAnalyzeMs = 0;
 bool     analyzeBusy   = false;
 
+// Failure handling for the laptop link. After a failed frame the next one is
+// delayed a little more each time (up to ANALYZE_BACKOFF_MAX_MS), so a laptop
+// that is busy or briefly unreachable is not hammered 7 times a second, and
+// the log shows one line per outage instead of hundreds.
+constexpr uint32_t ANALYZE_BACKOFF_STEP_MS = 150;
+constexpr uint32_t ANALYZE_BACKOFF_MAX_MS  = 1500;
+uint32_t analyzeFails   = 0;
+uint32_t analyzeDelayMs = 0;     // extra delay before the next frame
+uint32_t lastFailLogMs  = 0;
+
 // ===========================================================================
 // Camera capture with retry - the ESP32-CAM often fails the first capture
 // after boot, and a brief power dip can fail one mid-run.
@@ -169,19 +179,30 @@ void analyzeFrame() {
   http.begin(client, url);
   http.setReuse(true);
   http.addHeader("Content-Type", "image/jpeg");
-  http.setConnectTimeout(2500);
-  http.setTimeout(2500);
+  http.setConnectTimeout(1500);
+  http.setTimeout(2000);
 
   int code = http.POST(fb->buf, fb->len);
   if (code == 200) {
+    if (analyzeFails > 0) {
+      Serial.printf("[ANALYZE] laptop reachable again (after %u failed frames)\n",
+                    (unsigned)analyzeFails);
+    }
+    analyzeFails   = 0;
+    analyzeDelayMs = 0;
+
     String body = http.getString();
 
     String qr = jsonString(body, "qr");
     if (qr.length() > 0) {
+      // Print a QR when it first appears (or reappears after 2 s), not on
+      // every frame it stays in view - the cache is refreshed either way.
+      if (qr != lastQr || millis() - lastQrMs > 2000) {
+        Serial.printf("[QR]   %s\n", qr.c_str());
+      }
       lastQr   = qr;
       lastQrMs = millis();
       everQr   = true;
-      Serial.printf("[QR]   %s\n", qr.c_str());
     }
 
     String face = jsonString(body, "face");
@@ -193,8 +214,25 @@ void analyzeFrame() {
       Serial.printf("[FACE] %s  (distance %.1f)\n", face.c_str(), lastDistance);
     }
   } else {
-    Serial.printf("[ANALYZE] HTTP %d - is face_server.py running on %s?\n",
-                  code, SERVER_IP);
+    // Throw the connection away: after a timeout or reset, reusing it makes
+    // the NEXT frame fail too, which is how one hiccup became a long run of
+    // -1 / -11 errors.
+    client.stop();
+    analyzeFails++;
+    analyzeDelayMs = std::min<uint32_t>(analyzeFails * ANALYZE_BACKOFF_STEP_MS,
+                                   ANALYZE_BACKOFF_MAX_MS);
+    if (analyzeFails == 1 || millis() - lastFailLogMs > 5000) {
+      lastFailLogMs = millis();
+      const char *why =
+        code == HTTPC_ERROR_CONNECTION_REFUSED ? "cannot connect - is face_server.py running, firewall open?" :
+        code == HTTPC_ERROR_READ_TIMEOUT       ? "laptop too slow to answer (busy, or its console window is paused?)" :
+        code == HTTPC_ERROR_CONNECTION_LOST    ? "connection dropped" :
+        code == HTTPC_ERROR_SEND_PAYLOAD_FAILED ? "image upload failed (weak WiFi?)" :
+                                                  "request failed";
+      Serial.printf("[ANALYZE] HTTP %d - %s  [%s:%d, %u fails, WiFi %d dBm]\n",
+                    code, why, SERVER_IP, SERVER_PORT,
+                    (unsigned)analyzeFails, WiFi.RSSI());
+    }
   }
 
   http.end();
@@ -401,7 +439,7 @@ void setup() {
 
 // ===========================================================================
 void loop() {
-  if (!analyzeBusy && (millis() - lastAnalyzeMs > ANALYZE_INTERVAL_MS)) {
+  if (!analyzeBusy && (millis() - lastAnalyzeMs > ANALYZE_INTERVAL_MS + analyzeDelayMs)) {
     lastAnalyzeMs = millis();
     analyzeFrame();
   }

@@ -18,7 +18,7 @@ NOT as robust as a modern CNN model - state that plainly in your thesis
 rather than overclaiming.
 
 INSTALL
-    pip install flask opencv-python opencv-contrib-python numpy
+    pip install flask waitress opencv-python opencv-contrib-python numpy
 
 RUN
     python face_server.py
@@ -352,6 +352,12 @@ def analyze():
     # Timing is printed only when something was actually found, so the console
     # stays readable. These numbers are worth putting in the thesis: they are
     # the measured per-stage latency of the recognition pipeline.
+    total_ms = 1000 * (t_face - t0)
+    if total_ms > 500:
+        # The camera gives up after 2 s. A frame this slow means the laptop
+        # is overloaded - or this console window is paused (see
+        # start_face_server.bat).
+        print(f"[analyze] SLOW frame: {total_ms:.0f}ms")
     if qr_payload or face_name:
         print(f"[analyze] qr={qr_payload}  face={face_name} (d={face_distance})"
               f"   qr {1000*(t_qr-t0):.0f}ms  face {1000*(t_face-t_qr):.0f}ms")
@@ -393,5 +399,17 @@ if __name__ == "__main__":
     print(" Find your LAN IP with 'ipconfig' and put it in the ESP32-CAM sketch.")
     print("=" * 60)
     print()
-    # threaded: one slow frame must never queue behind another.
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    # waitress, not Flask's built-in server. The built-in one closes the
+    # connection after EVERY response, so the camera had to open a new TCP
+    # connection for every frame, several times a second - slow, and on
+    # Windows a steady source of refused (-1) and timed-out (-11) frames.
+    # waitress keeps one connection open and just streams frames down it.
+    try:
+        from waitress import serve
+    except ImportError:
+        print(" (waitress not installed - using Flask's slower built-in server."
+              " Fix: pip install waitress)")
+        # threaded: one slow frame must never queue behind another.
+        app.run(host="0.0.0.0", port=5000, threaded=True)
+    else:
+        serve(app, host="0.0.0.0", port=5000, threads=8)
