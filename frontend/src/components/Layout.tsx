@@ -6,6 +6,7 @@ import {
   Gauge, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, TriangleAlert,
   UserRound, Users, Wrench, X,
 } from 'lucide-react'
+import DoorStatus from './DoorStatus'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
@@ -211,7 +212,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const sidebar = (
     <>
-      <div className="relative px-5 pt-5 pb-4">
+      <div className="relative mx-3 px-2 pt-5 pb-4 mb-2 border-b border-ink-600/60">
         <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab home">
           <SmartLabMark size={38} animated />
           <Wordmark tight />
@@ -223,25 +224,37 @@ export default function Layout({ children }: { children: ReactNode }) {
           <X size={18} />
         </button>
       </div>
-      <div className="mx-5 mb-2 pb-3 border-b border-ink-600/60">
-        <InstitutionLogo className="!h-7" textClass="!text-[9.5px] !tracking-[0.12em] whitespace-nowrap" />
-      </div>
 
-      <nav className="flex-1 px-3 pb-3 overflow-y-auto" aria-label="Main">
-        {navFor(user?.role).map((section, i) => (
-          <div key={section.title}>
-            <div className={`label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5
-                             ${i === 0 ? 'pt-2' : 'pt-5'}`}>{section.title}</div>
-            <div className="space-y-0.5">
-              {section.items.map(item => (
-                <NavItem key={item.to} item={item}
-                         badge={item.badge ? badges[item.badge] : undefined}
-                         onNavigate={() => setOpen(false)} />
-              ))}
+      {/* Navigation first. The status card sits at the bottom when there is
+          room, and simply follows the menu on short screens - it never takes
+          space from a navigation item. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        <nav className="px-3 pb-3" aria-label="Main">
+          {navFor(user?.role).map((section, i) => (
+            <div key={section.title}>
+              <div className={`label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5
+                               ${i === 0 ? 'pt-2' : 'pt-5'}`}>{section.title}</div>
+              <div className="space-y-0.5">
+                {section.items.map(item => (
+                  <NavItem key={item.to} item={item}
+                           badge={item.badge ? badges[item.badge] : undefined}
+                           onNavigate={() => setOpen(false)} />
+                ))}
+              </div>
             </div>
+          ))}
+        </nav>
+
+        <div className="mt-auto pt-2">
+          {/* The spare space under the navigation: the door, at a glance. */}
+          <DoorStatus onNavigate={() => setOpen(false)} />
+
+          {/* Phones have no desktop top bar, so the university mark sits here. */}
+          <div className="lg:hidden px-5 pb-3">
+            <InstitutionLogo className="!h-6 opacity-80" textClass="!text-[9.5px] !tracking-[0.12em]" />
           </div>
-        ))}
-      </nav>
+        </div>
+      </div>
 
       <div className="p-3 border-t border-ink-600/60">
         <div className="flex items-center gap-3 px-2 py-2">
@@ -299,11 +312,17 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <div className="flex-1 min-w-0 relative z-10 flex flex-col">
         {/* desktop top bar */}
-        <div className="hidden lg:flex sticky top-0 z-30 items-center justify-end gap-2.5
+        {/* Left: the university, quietly. Right: system and account actions. */}
+        <div className="hidden lg:flex sticky top-0 z-30 items-center gap-2.5
                         h-16 px-8 bg-ink-900/70 backdrop-blur border-b border-ink-600/50">
+          <div className="mr-auto flex items-center min-w-0">
+            <InstitutionLogo className="!h-6 opacity-80"
+                             textClass="!text-[10px] !tracking-[0.14em] whitespace-nowrap" />
+          </div>
           <Link to="/issues/new" className="btn-ghost btn-sm !h-9">
             <Wrench size={15} /> Report an issue
           </Link>
+          <span className="h-6 w-px bg-ink-600/70 mx-1" aria-hidden />
           <SystemHealth />
           <NotificationBell />
           <UserMenu />
