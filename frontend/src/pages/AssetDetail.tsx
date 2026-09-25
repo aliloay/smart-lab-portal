@@ -135,27 +135,28 @@ export default function AssetDetail() {
                 detail="Nothing has been reported against this equipment." />
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px]">
+                <table className="w-full min-w-[560px]">
                   <thead><tr>
-                    <th className="th">Issue</th><th className="th">Reported</th><th className="th">Severity</th>
-                    <th className="th">Status</th><th className="th">Resolved</th><th className="th">Technician</th>
+                    <th className="th">Issue</th><th className="th">Reported</th>
+                    <th className="th">State</th><th className="th">Resolved</th>
                   </tr></thead>
                   <tbody>
                     {d.maintenance.map(m => (
                       <tr key={m.id} className="tr align-top">
                         <td className="td">
-                          <div className="mono !text-[11px] text-slate-400">{m.ticket_number}</div>
+                          <div className="mono !text-[11px] text-slate-400">{m.ticket_number} · {categoryLabel(m.category)}</div>
                           {staff || m.is_mine
                             ? <Link to={`/issues/${m.id}`} className="text-slate-100 hover:text-accent-200">{m.title}</Link>
                             : <span className="text-slate-100">{m.title}</span>}
-                          <div className="text-[11.5px] text-slate-500">{categoryLabel(m.category)}</div>
-                          {m.resolution_notes && <div className="mt-1 text-[12px] text-slate-300 max-w-sm">↳ {m.resolution_notes}</div>}
+                          {m.resolution_notes && <div className="mt-1 text-[12px] text-slate-300">↳ {m.resolution_notes}</div>}
                         </td>
                         <td className="td text-slate-300 whitespace-nowrap">{fmtDate(m.created_at)}</td>
-                        <td className="td"><SeverityBadge severity={m.severity} /></td>
-                        <td className="td"><IssueStatusChip status={m.status} /></td>
-                        <td className="td text-slate-300 whitespace-nowrap">{m.resolved_at ? fmtDate(m.resolved_at) : '—'}</td>
-                        <td className="td text-slate-300">{m.technician ?? '—'}</td>
+                        <td className="td"><div className="flex flex-col items-start gap-1.5">
+                          <SeverityBadge severity={m.severity} /><IssueStatusChip status={m.status} /></div></td>
+                        <td className="td text-slate-300 text-[13px]">
+                          {m.resolved_at ? <div className="whitespace-nowrap">{fmtDate(m.resolved_at)}</div> : '—'}
+                          {m.technician && <div className="text-[12px] text-slate-400">{m.technician}</div>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

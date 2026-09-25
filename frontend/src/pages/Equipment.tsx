@@ -78,29 +78,37 @@ export default function Equipment() {
           : list.length === 0 ? <EmptyState icon={<Boxes size={20} />} title="No equipment matches" />
           : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px]">
+              <table className="w-full min-w-[900px]">
                 <thead><tr>
-                  <th className="th">Equipment</th><th className="th">Tag</th><th className="th">Laboratory</th>
-                  <th className="th">Status</th><th className="th">Current user</th>
-                  <th className="th">Last inspection</th><th className="th">Next maintenance</th>
+                  <th className="th">Equipment</th><th className="th">Laboratory</th>
+                  <th className="th">Status</th><th className="th">Maintenance</th>
                   <th className="th">Issues</th><th className="th"></th>
                 </tr></thead>
                 <tbody>
                   {list.map(a => (
                     <tr key={a.id} className="tr">
-                      <td className="td"><Link to={`/equipment/${a.id}`} className="text-slate-100 hover:text-accent-200">{a.name}</Link>
-                        <div className="text-[11.5px] text-slate-400">{a.category || '—'}
-                          {a.serial_number && <span className="mono !text-[11px]"> · SN {a.serial_number}</span>}</div></td>
-                      <td className="td mono text-slate-300">{a.asset_tag}</td>
-                      <td className="td mono text-slate-300">{a.lab_code}</td>
-                      <td className="td"><Chip tone={assetTone(a.status)}>{assetStatusLabel(a.status)}</Chip></td>
-                      <td className="td text-slate-300 text-[13px]">{a.status === 'CHECKED_OUT' ? (a.holder_name ?? 'Checked out') : '—'}</td>
-                      <td className="td text-slate-300 text-[13px] whitespace-nowrap">{a.last_inspected_at ? fmtDate(a.last_inspected_at) : <span className="text-slate-500">Not recorded</span>}</td>
-                      <td className="td text-[13px] whitespace-nowrap">{a.next_maintenance_at
-                        ? <span className={a.maintenance_due ? 'text-bad-soft font-medium' : 'text-slate-300'}>
-                            {fmtDate(a.next_maintenance_at)}{a.maintenance_due && ' · overdue'}</span>
-                        : <span className="text-slate-500">Not scheduled</span>}</td>
-                      <td className="td">{a.open_issues > 0
+                      <td className="td">
+                        <Link to={`/equipment/${a.id}`} className="text-slate-100 hover:text-accent-200">{a.name}</Link>
+                        <div className="text-[11.5px] text-slate-400 whitespace-nowrap">
+                          <span className="mono !text-[11px] text-accent-200">{a.asset_tag}</span>
+                          {' · '}{a.category || '—'}
+                          {a.serial_number && <span className="mono !text-[11px]"> · SN {a.serial_number}</span>}
+                        </div>
+                      </td>
+                      <td className="td mono text-slate-300 whitespace-nowrap">{a.lab_code}</td>
+                      <td className="td">
+                        <Chip tone={assetTone(a.status)}>{assetStatusLabel(a.status)}</Chip>
+                        {a.status === 'CHECKED_OUT' && a.holder_name &&
+                          <div className="mt-1 text-[12px] text-slate-300">{a.holder_name}</div>}
+                      </td>
+                      <td className="td text-[12.5px] whitespace-nowrap">
+                        <div className="text-slate-300">Inspected: {a.last_inspected_at ? fmtDate(a.last_inspected_at)
+                          : <span className="text-slate-500">not recorded</span>}</div>
+                        <div className={a.maintenance_due ? 'text-bad-soft font-medium' : 'text-slate-400'}>
+                          Next: {a.next_maintenance_at ? <>{fmtDate(a.next_maintenance_at)}{a.maintenance_due && ' · overdue'}</>
+                            : <span className="text-slate-500">not scheduled</span>}</div>
+                      </td>
+                      <td className="td whitespace-nowrap">{a.open_issues > 0
                         ? <span className="inline-flex items-center gap-1 text-warn-soft text-[12.5px]"><TriangleAlert size={13} />{a.open_issues} open</span>
                         : <span className="text-slate-600">—</span>}</td>
                       <td className="td text-right whitespace-nowrap space-x-3">
