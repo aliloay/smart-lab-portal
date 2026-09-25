@@ -130,6 +130,11 @@ uint32_t lastFailLogMs  = 0;
 uint32_t perfStartMs = 0, perfFrames = 0, perfFails = 0;
 uint32_t perfCaptureMs = 0, perfPostMs = 0, perfBytes = 0;
 
+// Timing of the PREVIOUS frame, sent as headers with the next one so the
+// face server can print the camera's side of the story in its [stats] line
+// (one window to read instead of two).
+uint32_t prevCaptureMs = 0, prevPostMs = 0, totalFails = 0;
+
 void perfReport() {
   if (PERF_EVERY_MS == 0) return;
   uint32_t now = millis();
@@ -203,7 +208,8 @@ void analyzeFrame() {
   uint32_t tCap = millis();
   camera_fb_t *fb = captureWithRetry();
   if (!fb) return;
-  perfCaptureMs += millis() - tCap;
+  prevCaptureMs  = millis() - tCap;
+  perfCaptureMs += prevCaptureMs;
   perfBytes     += fb->len;
 
   // STATIC so the TCP connection survives between frames. At a weak signal
@@ -219,6 +225,10 @@ void analyzeFrame() {
   // and Windows delays ACKs by up to 200 ms - a stall on EVERY frame.
   client.setNoDelay(true);
   http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-Cam-Rssi", String(WiFi.RSSI()));
+  http.addHeader("X-Cam-Capture-Ms", String(prevCaptureMs));
+  http.addHeader("X-Cam-Post-Ms", String(prevPostMs));
+  http.addHeader("X-Cam-Fails", String(totalFails));
   http.setConnectTimeout(1500);
   http.setTimeout(2000);
 
@@ -261,6 +271,7 @@ void analyzeFrame() {
     // -1 / -11 errors.
     client.stop();
     perfFails++;
+    totalFails++;
     analyzeFails++;
     analyzeDelayMs = std::min<uint32_t>(analyzeFails * ANALYZE_BACKOFF_STEP_MS,
                                    ANALYZE_BACKOFF_MAX_MS);
@@ -279,7 +290,8 @@ void analyzeFrame() {
   }
 
   http.end();
-  perfPostMs += millis() - tPost;
+  prevPostMs  = millis() - tPost;
+  perfPostMs += prevPostMs;
   esp_camera_fb_return(fb);
   perfReport();
 }

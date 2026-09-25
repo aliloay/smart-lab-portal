@@ -146,7 +146,15 @@ def decode_qr(gray):
 # camera actually delivers and how long each takes here. If fps is low while
 # ms/frame is small, the bottleneck is the camera's WiFi, not this laptop.
 STATS_EVERY_S = 10
-_stats = {"t0": time.time(), "frames": 0, "ms": 0.0, "qr": 0, "face": 0}
+_stats = {"t0": time.time(), "frames": 0, "ms": 0.0, "qr": 0, "face": 0,
+          "cam": 0, "rssi": 0, "cap": 0, "post": 0, "fails0": None, "fails": 0}
+
+
+def _cam_header(name):
+    try:
+        return int(request.headers.get(name, ""))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -396,13 +404,32 @@ def analyze():
     _stats["ms"] += total_ms
     _stats["qr"] += bool(qr_payload)
     _stats["face"] += bool(face_name)
+    # The camera's own timing (previous frame), sent as headers by the
+    # ESP32-CAM sketch. Absent with older camera firmware.
+    rssi = _cam_header("X-Cam-Rssi")
+    if rssi is not None:
+        _stats["cam"] += 1
+        _stats["rssi"] += rssi
+        _stats["cap"] += _cam_header("X-Cam-Capture-Ms") or 0
+        _stats["post"] += _cam_header("X-Cam-Post-Ms") or 0
+        fails = _cam_header("X-Cam-Fails") or 0
+        if _stats["fails0"] is None:
+            _stats["fails0"] = fails
+        _stats["fails"] = fails - _stats["fails0"]
     elapsed = time.time() - _stats["t0"]
     if elapsed >= STATS_EVERY_S:
         n = _stats["frames"]
         print(f"[stats] {n / elapsed:.1f} frames/s from camera, "
               f"{_stats['ms'] / n:.0f} ms/frame here, "
               f"QR in {_stats['qr']}, face in {_stats['face']} of {n} frames")
-        _stats.update(t0=time.time(), frames=0, ms=0.0, qr=0, face=0)
+        c = _stats["cam"]
+        if c:
+            print(f"        camera: capture {_stats['cap'] // c} ms, "
+                  f"upload+reply {_stats['post'] // c} ms, "
+                  f"{_stats['fails']} failed uploads, "
+                  f"WiFi {_stats['rssi'] // c} dBm")
+        _stats.update(t0=time.time(), frames=0, ms=0.0, qr=0, face=0,
+                      cam=0, rssi=0, cap=0, post=0, fails0=None, fails=0)
     if total_ms > 500:
         # The camera gives up after 2 s. A frame this slow means the laptop
         # is overloaded - or this console window is paused (see
