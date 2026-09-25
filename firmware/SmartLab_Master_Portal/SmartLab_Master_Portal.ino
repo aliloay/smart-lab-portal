@@ -96,7 +96,9 @@ constexpr uint32_t HEARTBEAT_PERIOD_MS  = 30000;
 // working with the portal switched off.
 const char *PORTAL_QR_PREFIX = "SLB:";
 
-constexpr uint32_t CAMERA_POLL_MS   = 250;   // how often to ask the camera
+constexpr uint32_t CAMERA_POLL_MS   = 100;   // how often to ask the camera
+                                             // (/status is tiny; 250 ms added
+                                             // up to a quarter second per step)
 constexpr uint32_t CAMERA_TIMEOUT_MS = 800; // keep it short: a slow reply
                                              // must never stall the door
 // A camera result older than this is IGNORED. Without it, a QR scanned a

@@ -103,6 +103,51 @@ model_trained = False
 # decodes QR far more reliably than quirc on an ESP32.
 qr_detector = cv2.QRCodeDetector()
 
+# Second decoder: WeChat's, which ships in opencv-contrib (already required
+# for cv2.face). Measured on simulated ESP32-CAM frames (VGA, JPEG q12, blur,
+# tilt, dim/bright), share of frames decoded, by QR size in the frame:
+#
+#     QR size      QRCodeDetector   WeChat
+#     110 px            1%            33%
+#     140 px           15%            90%
+#     180 px           69%           100%
+#     260 px           97%           100%
+#
+# i.e. the plain detector only works with the phone held close. WeChat is
+# slower on a frame with no QR (~80 ms vs ~8 ms), so it only runs when the
+# fast detector has found nothing.
+try:
+    wechat_qr = cv2.wechat_qrcode_WeChatQRCode()
+except Exception as e:                      # pragma: no cover
+    wechat_qr = None
+    print(f"[startup] WeChat QR decoder unavailable ({e}) - close-range QR only")
+
+
+def decode_qr(gray):
+    """QR payload in the frame, or None. Fast decoder first, WeChat second."""
+    try:
+        data, _, _ = qr_detector.detectAndDecode(gray)
+        if data:
+            return data.strip()
+    except Exception as e:
+        print(f"[analyze] QR decode error: {e}")
+    if wechat_qr is not None:
+        try:
+            results, _ = wechat_qr.detectAndDecode(gray)
+            for r in results:
+                if r:
+                    return r.strip()
+        except Exception as e:
+            print(f"[analyze] WeChat QR error: {e}")
+    return None
+
+
+# Rolling numbers printed every STATS_EVERY_S seconds: how many frames the
+# camera actually delivers and how long each takes here. If fps is low while
+# ms/frame is small, the bottleneck is the camera's WiFi, not this laptop.
+STATS_EVERY_S = 10
+_stats = {"t0": time.time(), "frames": 0, "ms": 0.0, "qr": 0, "face": 0}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -328,13 +373,7 @@ def analyze():
     # Decoding from the GRAYSCALE image, not the colour one: the detector
     # converts internally anyway, so handing it one channel instead of three
     # saves that conversion on every frame.
-    qr_payload = None
-    try:
-        data, points, _ = qr_detector.detectAndDecode(gray)
-        if data:
-            qr_payload = data.strip()
-    except Exception as e:
-        print(f"[analyze] QR decode error: {e}")
+    qr_payload = decode_qr(gray)
     t_qr = time.perf_counter()
 
     # --- Face ---
@@ -353,6 +392,17 @@ def analyze():
     # stays readable. These numbers are worth putting in the thesis: they are
     # the measured per-stage latency of the recognition pipeline.
     total_ms = 1000 * (t_face - t0)
+    _stats["frames"] += 1
+    _stats["ms"] += total_ms
+    _stats["qr"] += bool(qr_payload)
+    _stats["face"] += bool(face_name)
+    elapsed = time.time() - _stats["t0"]
+    if elapsed >= STATS_EVERY_S:
+        n = _stats["frames"]
+        print(f"[stats] {n / elapsed:.1f} frames/s from camera, "
+              f"{_stats['ms'] / n:.0f} ms/frame here, "
+              f"QR in {_stats['qr']}, face in {_stats['face']} of {n} frames")
+        _stats.update(t0=time.time(), frames=0, ms=0.0, qr=0, face=0)
     if total_ms > 500:
         # The camera gives up after 2 s. A frame this slow means the laptop
         # is overloaded - or this console window is paused (see
