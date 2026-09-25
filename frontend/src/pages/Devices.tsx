@@ -120,12 +120,18 @@ export default function Devices() {
               ))}
             </div>
             {master && (
-              <div className="px-5 py-4 border-t border-ink-600 grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Comp icon={<DoorClosed size={14} />} label="Door sensor" state={master.door_closed}
+              <div className="px-5 py-4 border-t border-ink-600">
+              {master.state !== 'ONLINE' && master.last_seen_at && (
+                <div className="mb-2.5 text-[11.5px] text-slate-500">
+                  Last reported {relative(master.last_seen_at)} - the controller is offline, so these are not live.</div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Comp icon={<DoorClosed size={14} />} label="Door sensor" state={master.door_closed} stale={master.state !== 'ONLINE'} 
                       labels={['Closed', 'Open']} />
-                <Comp icon={<Radio size={14} />} label="RFID reader" state={comp('rfid')} labels={['Ready', 'Fault']} />
-                <Comp icon={<Fingerprint size={14} />} label="Fingerprint" state={comp('fingerprint')} labels={['Ready', 'Fault']} />
-                <Comp icon={<Lock size={14} />} label="Relay" state={comp('relay_locked')} labels={['Locked', 'Unlocked']} />
+                <Comp icon={<Radio size={14} />} label="RFID reader" stale={master.state !== 'ONLINE'} state={comp('rfid')} labels={['Ready', 'Fault']} />
+                <Comp icon={<Fingerprint size={14} />} label="Fingerprint" stale={master.state !== 'ONLINE'} state={comp('fingerprint')} labels={['Ready', 'Fault']} />
+                <Comp icon={<Lock size={14} />} label="Relay" stale={master.state !== 'ONLINE'} state={comp('relay_locked')} labels={['Locked', 'Unlocked']} />
+              </div>
               </div>
             )}
           </section>
@@ -137,14 +143,19 @@ export default function Devices() {
   )
 }
 
-function Comp({ icon, label, state, labels }: {
+function Comp({ icon, label, state, labels, stale }: {
   icon: JSX.Element; label: string; state: boolean | null; labels: [string, string]
+  /** The value is the last report from a controller that is now offline. */
+  stale?: boolean
 }) {
   return (
     <div className="well px-3 py-2.5">
       <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400">{icon}{label}</div>
-      <div className="mt-1"><StateDot state={state} labels={labels} size="sm"
-        unknown={label === 'Door sensor' ? 'No data' : 'Not reported'} /></div>
+      <div className="mt-1">{stale && state !== null ? (
+        <span className="inline-flex items-center gap-2 text-xs text-slate-400">
+          <Dot tone="idle" />{state ? labels[0] : labels[1]}
+          <span className="text-[10.5px] text-slate-500">(last reported)</span></span>
+      ) : <StateDot state={state} labels={labels} size="sm" unknown="Not reported" />}</div>
     </div>
   )
 }

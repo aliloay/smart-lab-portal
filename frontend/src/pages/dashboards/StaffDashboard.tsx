@@ -67,10 +67,10 @@ export default function StaffDashboard() {
                       hint={s.critical_issues ? `${s.critical_issues} critical` : `${s.unassigned_issues} unassigned`} />
           <MetricCard label="Open alerts" value={s.open_alerts} to="/admin/alerts"
                       icon={<Bell size={16} />} tone={s.open_alerts ? 'warn' : 'idle'} />
-          <MetricCard label="Access controllers online" animate={false}
+          <MetricCard label="Door devices online" animate={false}
                       value={s.devices_total ? `${s.devices_online}/${s.devices_total}` : null}
                       icon={<Cpu size={16} />} to="/admin/devices"
-                      info="ESP32-based laboratory access devices currently connected to the portal."
+                      info="Master controllers, entry cameras and face servers with a recent heartbeat."
                       tone={!s.devices_total ? 'idle' : s.devices_online === s.devices_total ? 'ok' : 'warn'} />
         </div>
       )}
