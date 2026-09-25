@@ -13,7 +13,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import generate_qr_token
+from app.services.qr import issue_token
 from app.models import (Booking, BookingStatus, EventType, Lab, QrToken, User,
                         AuthMethod)
 from app.services.events import log_event
@@ -161,7 +161,7 @@ def issue_token_for(db: Session, booking: Booking) -> QrToken:
         t.revoked_at = now
 
     token = QrToken(
-        token=generate_qr_token(),
+        token=issue_token(),
         booking_id=booking.id,
         user_id=booking.user_id,
         lab_id=booking.lab_id,

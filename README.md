@@ -337,7 +337,7 @@ Every one of these has a test. See below.
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt     # adds OpenCV for the QR decoding tests
+pip install -r requirements-dev.txt
 createdb smartlab_test                  # the suite drops and recreates every table in it
 DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_test \
   python -m pytest tests/ -q
@@ -346,7 +346,7 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_te
 Use a dedicated test database, never your real one. GitHub Actions runs the
 same suite against a PostgreSQL service container on every push.
 
-**153 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
+**157 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
 comparison is precisely what must not be tested on a different engine than
 production runs.
 
@@ -413,7 +413,7 @@ the rendered credential through that whole chain and decode it with the same
 `cv2.QRCodeDetector` the face server uses — across distance, tilt, JPEG
 quality and lighting.
 
-Two findings came out of building it, both worth reporting in the thesis:
+Three findings came out of building it, all worth reporting in the thesis:
 
 **Token length is an optical decision, not a cryptographic one.**
 
@@ -433,6 +433,16 @@ undecodable — *more* blur fixes it, because blur is an anti-alias filter. It
 does not matter in operation because the camera analyzes ~4 frames a second
 while the person moves. It matters for tests, which is why they measure a
 success rate across distances rather than asserting one lucky frame.
+
+**Some valid QR codes are unreadable to the decoder.** With OpenCV 4.10 -
+the decoder the face server runs - about 1 in 150 random tokens (0.66% over
+5,000) renders to a QR that `cv2.QRCodeDetector` cannot read even from a
+perfect image. It is a combination of data and mask pattern, not one bad
+mask: each of those tokens decodes under 7 of the 8 masks. Unhandled, one
+booking in 150 would get a credential the door can never open. Tokens are
+random anyway, so every token is now decoded with that same detector before
+it is issued, and an unreadable one is simply drawn again
+(`app/services/qr.py`).
 
 Measured from an actual browser render at phone resolution: **28/28** across
 seven distances × four degradation settings.
@@ -530,7 +540,7 @@ smart-lab-portal/
 │   │   │                  notifications, devices  ← the rules live here
 │   │   └── ws/            authenticated live stream
 │   ├── alembic/      migrations (checked against the models in CI)
-│   └── tests/        153 tests + 30 end-to-end assertions
+│   └── tests/        157 tests + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
 │   └── e2e/          real-browser navigation and workflow tests
 ├── firmware/         master (portal), camera, face server

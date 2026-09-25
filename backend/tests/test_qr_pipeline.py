@@ -8,32 +8,18 @@ whatever light the corridor has. So proving "qrcode produced an image" proves
 nothing. These tests push the rendered credential through that whole chain and
 decode it with the SAME cv2.QRCodeDetector that face_server.py uses.
 """
-import base64
-import io
 
 import cv2
 import numpy as np
 import pytest
-from PIL import Image
 
 from app.core.security import generate_qr_token
+from app.services import qr as qr_service
+# The credential exactly as the portal serves it, and the tokens exactly as
+# bookings are issued them - no copy of the settings to drift out of step.
+from app.services.qr import door_can_read, issue_token, render_qr_png
 
 detector = cv2.QRCodeDetector()
-
-
-def render_qr_png(payload: str) -> bytes:
-    """Identical settings to app/api/routes/bookings.py."""
-    import qrcode
-    from qrcode.constants import ERROR_CORRECT_Q
-
-    qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_Q,
-                       box_size=10, border=4)
-    qr.add_data(payload)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 
 def to_cv(png: bytes) -> np.ndarray:
@@ -112,13 +98,13 @@ def test_token_shape_is_camera_friendly():
 
 
 def test_decodes_from_clean_render():
-    token = generate_qr_token()
+    token = issue_token()
     assert decode(to_cv(render_qr_png(token))) == token
 
 
 def test_decodes_through_simulated_esp32cam():
     """The headline test: phone screen -> VGA -> blur -> JPEG q12 -> decode."""
-    token = generate_qr_token()
+    token = issue_token()
     assert decodes_at_any_distance(token)
 
 
@@ -133,7 +119,7 @@ def test_decodes_at_various_distances(screen_px):
     below: measured over 5000 random tokens, 1.5% of single frames fail
     (up to 4.6% at 280px); within the window, 0.06% do.
     """
-    token = generate_qr_token()
+    token = issue_token()
     qr = to_cv(render_qr_png(token))
     assert any(decode(simulate_camera(qr, screen_px=screen_px + d)) == token
                for d in (0, -2, 2, -4, 4, -6, 6, -8, 8)), \
@@ -162,7 +148,7 @@ def decodes_at_any_distance(payload: str, **kw) -> bool:
 
 @pytest.mark.parametrize("angle", [-12, -6, 0, 6, 12])
 def test_decodes_when_phone_is_tilted(angle):
-    token = generate_qr_token()
+    token = issue_token()
     assert decodes_at_any_distance(token, rotate_deg=angle), \
         f"failed at every distance when tilted {angle} degrees"
 
@@ -170,14 +156,14 @@ def test_decodes_when_phone_is_tilted(angle):
 @pytest.mark.parametrize("quality", [8, 10, 12, 20])
 def test_decodes_across_jpeg_quality(quality):
     """The camera sketch uses jpeg_quality = 12; 8 is the pessimistic case."""
-    token = generate_qr_token()
+    token = issue_token()
     assert decodes_at_any_distance(token, jpeg_quality=quality), \
         f"failed at every distance at JPEG quality {quality}"
 
 
 @pytest.mark.parametrize("brightness", [0.55, 0.8, 1.0, 1.35])
 def test_decodes_under_poor_lighting(brightness):
-    token = generate_qr_token()
+    token = issue_token()
     assert decodes_at_any_distance(token, brightness=brightness), \
         f"failed at every distance at brightness {brightness}"
 
@@ -217,7 +203,7 @@ def test_booking_token_scans_across_distances():
     The real bar: a booking credential must decode at most distances a person
     would hold a phone, not at one lucky one.
     """
-    token = generate_qr_token()
+    token = issue_token()
     rate = scan_success_rate(token)
     assert rate >= 0.85, f"booking token only decoded at {rate:.0%} of distances"
 
@@ -231,3 +217,37 @@ def test_legacy_payloads_still_decode():
     for legacy in ("USER1", "USER2", "UNKNOWN-CARD"):
         rate = scan_success_rate(legacy)
         assert rate >= 0.7, f"{legacy} only decoded at {rate:.0%} of distances"
+
+
+# ---------------------------------------------------------------------------
+# Every issued token is readable by the door.
+#
+# With the pinned OpenCV about 1 in 150 random tokens renders to a QR that
+# cv2.QRCodeDetector cannot read even from a perfect image. These two were
+# found in CI; they stay unreadable for this OpenCV version.
+UNREADABLE = ("SLB:6_4IyTAq8Mtm04N4Q3NGYg", "SLB:PGPkeX0IGti0koTQUNd0Vg")
+
+
+def test_some_random_tokens_really_are_unreadable():
+    for t in UNREADABLE:
+        assert door_can_read(t) is False
+
+
+def test_an_unreadable_token_is_never_issued(monkeypatch):
+    drawn = iter([*UNREADABLE, "SLB:good-token-after-two-bad"])
+    monkeypatch.setattr(qr_service, "generate_qr_token", lambda: next(drawn))
+    assert issue_token() == "SLB:good-token-after-two-bad"
+
+
+def test_every_issued_token_decodes_from_the_served_image():
+    for _ in range(300):
+        token = issue_token()
+        assert decode(to_cv(render_qr_png(token))) == token
+
+
+def test_bookings_are_issued_readable_tokens(monkeypatch, db, alice, lab, now, hour):
+    from app.services.booking import active_token, create_booking
+    drawn = iter([UNREADABLE[0], "SLB:readable-booking-token"])
+    monkeypatch.setattr(qr_service, "generate_qr_token", lambda: next(drawn))
+    b = create_booking(db, alice, lab, now + hour, now + 2 * hour, "x")
+    assert active_token(db, b.id).token == "SLB:readable-booking-token"
