@@ -1,3 +1,8 @@
+# A fixed project name keeps ONE database no matter which folder or clone
+# this is started from: the volumes are always smart-lab-portal_pgdata and
+# smart-lab-portal_uploads, reused by every start and every rebuild.
+name: smart-lab-portal
+
 services:
   db:
     image: postgres:16-alpine
@@ -52,6 +57,8 @@ services:
     # browser only ever talks to this one address (no CORS, no API URL).
     ports: ["80:80"]
 
+# The data. `docker compose up`, `down`, restarts and rebuilds all keep it;
+# only `docker compose down -v` (or deleting the volume) erases it.
 volumes:
   pgdata:
   uploads:

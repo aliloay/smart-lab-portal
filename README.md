@@ -153,8 +153,10 @@ The LAN IP is the Wi-Fi adapter's `IPv4 Address` in `ipconfig` (ignore
 VMware or WSL adapters). It changes when you switch networks - e.g. to a
 phone hotspot - and the firmware's `BACKEND_IP` must then change with it.
 
-Stop with `Ctrl+C` or `docker compose down`. Data is kept in Docker volumes
-(`pgdata`, `uploads`); `docker compose down -v` **deletes** it.
+Stop with `Ctrl+C` or `docker compose down`. There is one database: the
+`smart-lab-portal_pgdata` volume (photos in `smart-lab-portal_uploads`). Every
+start, restart and rebuild reuses it, whichever folder you launch from, and
+migrations only add what is new. Only `docker compose down -v` **deletes** it.
 
 **Before the first start:**
 
