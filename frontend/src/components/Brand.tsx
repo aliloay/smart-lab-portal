@@ -81,8 +81,10 @@ const LOGO_URL = (import.meta.env.VITE_INSTITUTION_LOGO as string | undefined)
   || '/brand/giu-logo.png'
 
 /** The official university logo; its name as text if the file is missing. */
-export function InstitutionLogo({ className = '', textClass = '' }: {
+export function InstitutionLogo({ className = '', textClass = '', strong = false }: {
   className?: string; textClass?: string
+  /** A firmer outline, for where the logo sits small on a dark bar. */
+  strong?: boolean
 }) {
   const [failed, setFailed] = useState(false)
   if (LOGO_URL && !failed) {
@@ -92,7 +94,9 @@ export function InstitutionLogo({ className = '', textClass = '' }: {
       // without recolouring them - a display effect, the file is unchanged.
       <img src={LOGO_URL} alt="German International University"
            className={`h-8 w-auto object-contain ${className}`}
-           style={{ filter: 'drop-shadow(0 0 0.6px rgba(241,245,249,.95)) drop-shadow(0 0 2px rgba(241,245,249,.18))' }}
+           style={{ filter: strong
+             ? 'drop-shadow(0 0 0.8px rgba(241,245,249,1)) drop-shadow(0 0 0.8px rgba(241,245,249,.85)) drop-shadow(0 0 3px rgba(241,245,249,.22))'
+             : 'drop-shadow(0 0 0.6px rgba(241,245,249,.95)) drop-shadow(0 0 2px rgba(241,245,249,.18))' }}
            onError={() => setFailed(true)} />
     )
   }
