@@ -26,6 +26,10 @@ const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Review', 'Confirmed'] a
 const DAY_START = 8
 const DAY_END = 22
 const MAX_HOURS = 8
+// "Test QR now": a short booking that starts immediately, so the door can
+// be tested at any hour - including outside DAY_START..DAY_END, when the
+// grid has nothing left to pick.
+const TEST_MINUTES = 30
 const PURPOSES = ['Thesis experiment', 'Course lab session', 'Project prototyping',
                   'Equipment training', 'Measurement / testing']
 
@@ -166,6 +170,31 @@ export default function Book() {
     }
   }
 
+  /** Book from right now for TEST_MINUTES and go straight to the QR. */
+  async function testQrNow() {
+    if (!labId) return
+    setError(''); setBusy(true)
+    try {
+      // Start a minute back so a browser clock slightly ahead of the server
+      // does not produce a credential that is "not valid yet".
+      const start = new Date(Date.now() - 60e3)
+      const end = new Date(Date.now() + TEST_MINUTES * 60e3)
+      const b = await api.createBooking({
+        lab_id: labId,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        reason: 'QR door test',
+        user_id: forUser ? Number(forUser) : undefined,
+      })
+      nav(`/bookings/${b.id}/qr`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test booking failed')
+      loadDay()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // ------------------------------------------------------------ confirmed
   if (done) return <Confirmed b={done} onAnother={() => {
     setDone(null); setStep(0); setStartHour(null); setEndHour(null); setReason('')
@@ -297,6 +326,15 @@ export default function Book() {
                               <span className="text-slate-400">({endHour - startHour} h)</span></>}
                       </>
                     )}
+                  </div>
+                  <div className="mt-5 pt-4 border-t border-ink-600/60 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[13px] text-slate-400">
+                      Testing the door? Book this laboratory from now for {TEST_MINUTES} minutes
+                      and open the QR immediately.
+                    </div>
+                    <button className="btn-quiet" disabled={busy || !labId} onClick={testQrNow}>
+                      <QrCode size={15} /> Test QR now
+                    </button>
                   </div>
                 </div>
               )}
