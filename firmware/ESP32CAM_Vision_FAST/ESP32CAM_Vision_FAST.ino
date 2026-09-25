@@ -214,6 +214,10 @@ void analyzeFrame() {
   String url = String("http://") + SERVER_IP + ":" + SERVER_PORT + "/analyze";
   http.begin(client, url);
   http.setReuse(true);
+  // Send every TCP segment immediately. By default lwIP holds back the last,
+  // partly-filled segment of each upload until the previous one is ACKed,
+  // and Windows delays ACKs by up to 200 ms - a stall on EVERY frame.
+  client.setNoDelay(true);
   http.addHeader("Content-Type", "image/jpeg");
   http.setConnectTimeout(1500);
   http.setTimeout(2000);
