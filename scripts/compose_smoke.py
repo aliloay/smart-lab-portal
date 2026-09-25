@@ -103,7 +103,7 @@ try:
     with socket.create_connection((HOST, 80), timeout=10) as sock:
         sock.sendall((f"GET /ws/activity?token={token} HTTP/1.1\r\nHost: {HOST}\r\n"
                       "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n"
-                      "Sec-WebSocket-Key: c21hcnRsYWJzbW9rZXRlc3Q=\r\n\r\n").encode())
+                      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").encode())
         first = sock.recv(200).decode("latin-1").split("\r\n")[0]
 except OSError as e:
     first = str(e)
