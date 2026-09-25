@@ -32,15 +32,15 @@ function Frame({ hue, children, className = '' }: {
       <defs>
         <linearGradient id={`bg${id}`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor={hue} stopOpacity=".22" />
-          <stop offset=".55" stopColor="#0f1a2c" />
-          <stop offset="1" stopColor="#0b1322" />
+          <stop offset=".55" stopColor="#172841" />
+          <stop offset="1" stopColor="#12213a" />
         </linearGradient>
         <pattern id={`g${id}`} width="16" height="16" patternUnits="userSpaceOnUse">
           <path d="M16 0H0V16" fill="none" stroke="#94b8e2" strokeOpacity=".07" />
         </pattern>
         <radialGradient id={`v${id}`} cx="50%" cy="40%" r="75%">
-          <stop offset=".55" stopColor="#0b1322" stopOpacity="0" />
-          <stop offset="1" stopColor="#0b1322" stopOpacity=".85" />
+          <stop offset=".55" stopColor="#12213a" stopOpacity="0" />
+          <stop offset="1" stopColor="#12213a" stopOpacity=".85" />
         </radialGradient>
       </defs>
       <rect width="320" height="180" fill={`url(#bg${id})`} />
@@ -92,7 +92,7 @@ function RoboticsArt({ className }: { className?: string }) {
       <path d="M88 144 L96 86 L150 60 L176 82" stroke={S} strokeOpacity=".8" strokeWidth="5" />
       <path d="M88 144 L96 86 L150 60 L176 82" stroke={h} strokeOpacity=".35" strokeWidth="9" />
       {[[88, 144, 7], [96, 86, 7], [150, 60, 6], [176, 82, 4]].map(([x, y, r], i) => (
-        <circle key={i} cx={x} cy={y} r={r} fill="#0f1a2c" stroke={h} strokeWidth="2" />
+        <circle key={i} cx={x} cy={y} r={r} fill="#172841" stroke={h} strokeWidth="2" />
       ))}
       <path d="M176 82l-6 12M176 82l8 10" stroke={S} strokeOpacity=".8" strokeWidth="2.5" />
       <circle cx="176" cy="82" r="2" fill={h} className="art-blink" />
@@ -254,7 +254,7 @@ function PowerArt({ className }: { className?: string }) {
                        stroke={h} strokeWidth="3" />
         })}
       </g>
-      <circle cx="92" cy="96" r="6" fill="#0f1a2c" stroke={h} strokeWidth="2" />
+      <circle cx="92" cy="96" r="6" fill="#172841" stroke={h} strokeWidth="2" />
       <path d="M40 150h104M56 140v10M128 140v10" stroke={S} strokeOpacity=".55" strokeWidth="2" />
       {/* three phase */}
       <rect x="170" y="40" width="128" height="92" rx="6" stroke={S} strokeOpacity=".5" strokeWidth="1.5" />
@@ -350,7 +350,7 @@ function GeneralArt({ className }: { className?: string }) {
       {[[236, 64], [276, 84], [262, 128], [218, 118], [292, 44]].map(([x, y], i, arr) => (
         <g key={i}>
           {i > 0 && <path d={`M${arr[0][0]} ${arr[0][1]}L${x} ${y}`} stroke={S} strokeOpacity=".4" />}
-          <circle cx={x} cy={y} r={i === 0 ? 9 : 6} stroke={h} strokeWidth="1.8" fill="#0f1a2c" />
+          <circle cx={x} cy={y} r={i === 0 ? 9 : 6} stroke={h} strokeWidth="1.8" fill="#172841" />
         </g>
       ))}
       <path d="M236 64 L276 84" stroke={h} strokeWidth="1.6" className="art-flow" />

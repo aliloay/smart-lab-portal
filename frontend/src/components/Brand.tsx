@@ -29,8 +29,8 @@ export function SmartLabMark({ size = 36, animated = false, className = '' }: {
           <stop offset="1" stopColor="#2dd4bf" />
         </linearGradient>
         <radialGradient id={bg} cx="35%" cy="25%" r="80%">
-          <stop offset="0" stopColor="#1c2e4a" />
-          <stop offset="1" stopColor="#0b1322" />
+          <stop offset="0" stopColor="#273e62" />
+          <stop offset="1" stopColor="#12213a" />
         </radialGradient>
       </defs>
       <path d="M32 4 56.2 18v28L32 60 7.8 46V18Z" fill={`url(#${bg})`}

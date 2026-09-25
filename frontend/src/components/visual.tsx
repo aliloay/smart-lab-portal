@@ -19,7 +19,7 @@ export function GridBackdrop({ className = '' }: { className?: string }) {
       <div className="absolute inset-0 bg-grid-major bg-grid-major opacity-70" />
       <div className="absolute inset-0"
            style={{ background:
-             'radial-gradient(90% 70% at 50% 0%, transparent 35%, rgba(10,17,32,.85) 90%)' }} />
+             'radial-gradient(90% 70% at 50% 0%, transparent 35%, rgba(16,30,53,.85) 90%)' }} />
     </div>
   )
 }
@@ -79,17 +79,17 @@ export function RoboticArm({ className = '', animated = true }: {
 
       <g className={`arm-shoulder ${a}`} style={{ transformOrigin: '210px 352px' }}>
         <path d="M210 352V214" stroke={`url(#${link})`} strokeWidth="16" />
-        <circle cx="210" cy="352" r="17" fill="#0f1a2c" stroke="#7dd3fc"
+        <circle cx="210" cy="352" r="17" fill="#172841" stroke="#7dd3fc"
                 strokeOpacity=".7" strokeWidth="5" />
         <g className={`arm-elbow ${a}`} style={{ transformOrigin: '210px 214px' }}>
           <path d="M210 214 L318 128" stroke={`url(#${link})`} strokeWidth="14" />
-          <circle cx="210" cy="214" r="18" fill="#0f1a2c" stroke="#7dd3fc"
+          <circle cx="210" cy="214" r="18" fill="#172841" stroke="#7dd3fc"
                   strokeOpacity=".7" strokeWidth="5" />
           <g className={`arm-wrist ${a}`} style={{ transformOrigin: '318px 128px' }}>
             <path d="M318 128 L352 72" stroke={`url(#${link})`} strokeWidth="11" />
-            <circle cx="318" cy="128" r="14" fill="#0f1a2c" stroke="#7dd3fc"
+            <circle cx="318" cy="128" r="14" fill="#172841" stroke="#7dd3fc"
                     strokeOpacity=".7" strokeWidth="5" />
-            <circle cx="352" cy="72" r="9" fill="#0f1a2c" stroke="#2dd4bf"
+            <circle cx="352" cy="72" r="9" fill="#172841" stroke="#2dd4bf"
                     strokeOpacity=".8" strokeWidth="4" />
             <path d="M352 72 l-18 -22 M352 72 l16 -24" stroke="#2dd4bf"
                   strokeOpacity=".6" strokeWidth="6" />
@@ -184,7 +184,7 @@ export function AccessFlow({ steps, className = '' }: {
           {i < steps.length - 1 && (
             <svg aria-hidden className="absolute left-[19px] top-10 h-[calc(100%-18px)] w-1"
                  preserveAspectRatio="none" viewBox="0 0 2 40">
-              <line x1="1" y1="0" x2="1" y2="40" stroke="#314a70" strokeWidth="2" />
+              <line x1="1" y1="0" x2="1" y2="40" stroke="#41618f" strokeWidth="2" />
               <line x1="1" y1="0" x2="1" y2="40" stroke="#38bdf8" strokeWidth="2"
                     className="art-flow" />
             </svg>
@@ -240,14 +240,14 @@ export function LabNetworkMap({ nodes, className = '' }: {
           <stop offset="1" stopColor="#38bdf8" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="#253a5a"
+      <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke="#33507a"
                strokeDasharray="3 7" />
       <ellipse cx={cx} cy={cy} rx={rx * 0.55} ry={ry * 0.55} fill="none"
-               stroke="#1c2e4a" />
+               stroke="#273e62" />
       {placed.map(n => (
         <g key={`e-${n.id}`}>
           <line x1={cx} y1={cy} x2={n.x} y2={n.y}
-                stroke={n.hasHardware ? '#314a70' : '#1c2e4a'} strokeWidth="1.2"
+                stroke={n.hasHardware ? '#41618f' : '#273e62'} strokeWidth="1.2"
                 strokeDasharray={n.hasHardware ? undefined : '2 6'} />
           {n.online && (
             <line x1={cx} y1={cy} x2={n.x} y2={n.y} stroke="#2dd4bf"
@@ -257,7 +257,7 @@ export function LabNetworkMap({ nodes, className = '' }: {
       ))}
       {/* hub: the portal */}
       <circle cx={cx} cy={cy} r="70" fill={`url(#${glow})`} />
-      <circle cx={cx} cy={cy} r="30" fill="#0f1a2c" stroke="#38bdf8" strokeWidth="1.5" />
+      <circle cx={cx} cy={cy} r="30" fill="#172841" stroke="#38bdf8" strokeWidth="1.5" />
       <circle cx={cx} cy={cy} r="38" fill="none" stroke="#38bdf8" strokeOpacity=".25"
               strokeDasharray="4 6" className="art-spin" />
       <text x={cx} y={cy - 2} textAnchor="middle" fontSize="10" fill="#e0f2fe"
@@ -268,7 +268,7 @@ export function LabNetworkMap({ nodes, className = '' }: {
 
       {placed.map(n => {
         const color = n.online === true ? '#10b981' : n.online === false ? '#ef4444'
-          : n.hasHardware ? '#94a3b8' : '#46618a'
+          : n.hasHardware ? '#94a3b8' : '#5776a3'
         const labelRight = n.x >= cx
         return (
           <Link key={n.id} to={`/labs/${n.id}`}>
@@ -278,14 +278,14 @@ export function LabNetworkMap({ nodes, className = '' }: {
                 <circle cx={n.x} cy={n.y} r="16" fill="none" stroke="#f59e0b"
                         strokeOpacity=".5" className="art-blink" />
               )}
-              <circle cx={n.x} cy={n.y} r="11" fill="#132036" stroke={color}
+              <circle cx={n.x} cy={n.y} r="11" fill="#1b2e4b" stroke={color}
                       strokeWidth="2" />
               <circle cx={n.x} cy={n.y} r="4" fill={color} />
               {n.issues > 0 && (
                 <g>
                   <circle cx={n.x + 10} cy={n.y - 10} r="7" fill="#f59e0b" />
                   <text x={n.x + 10} y={n.y - 7.2} textAnchor="middle" fontSize="8"
-                        fontWeight="700" fill="#0b1322">{n.issues}</text>
+                        fontWeight="700" fill="#12213a">{n.issues}</text>
                 </g>
               )}
               <text x={n.x + (labelRight ? 18 : -18)} y={n.y + 3.5}
@@ -316,34 +316,34 @@ export function DoorSchematic({ controller, camera, face, doorClosed, className 
     <svg viewBox="0 0 520 220" className={className} role="img"
          aria-label="Door access hardware schematic">
       {/* wall and door frame */}
-      <path d="M20 200h480" stroke="#314a70" strokeWidth="2" />
-      <rect x="210" y="40" width="100" height="160" fill="#0f1a2c" stroke="#46618a"
+      <path d="M20 200h480" stroke="#41618f" strokeWidth="2" />
+      <rect x="210" y="40" width="100" height="160" fill="#172841" stroke="#5776a3"
             strokeWidth="2" rx="3" />
-      <rect x="222" y="52" width="76" height="136" fill="none" stroke="#253a5a" />
+      <rect x="222" y="52" width="76" height="136" fill="none" stroke="#33507a" />
       <circle cx="288" cy="124" r="4" fill="#94b8e2" />
       {/* lock + reed sensor */}
-      <rect x="302" y="104" width="14" height="40" rx="3" fill="#132036"
+      <rect x="302" y="104" width="14" height="40" rx="3" fill="#1b2e4b"
             stroke={door} strokeWidth="2" />
       <circle cx="309" cy="98" r="3.5" fill={door} />
 
       {/* reader panel */}
-      <rect x="140" y="92" width="44" height="64" rx="6" fill="#132036"
-            stroke="#46618a" strokeWidth="1.5" />
-      <rect x="148" y="100" width="28" height="18" rx="2" fill="#0b1322" stroke="#314a70" />
+      <rect x="140" y="92" width="44" height="64" rx="6" fill="#1b2e4b"
+            stroke="#5776a3" strokeWidth="1.5" />
+      <rect x="148" y="100" width="28" height="18" rx="2" fill="#12213a" stroke="#41618f" />
       <circle cx="162" cy="134" r="8" fill="none" stroke="#7dd3fc" strokeOpacity=".7" />
       <circle cx="162" cy="134" r="4" fill="none" stroke="#7dd3fc" strokeOpacity=".5" />
       <circle cx="176" cy="148" r="3" fill={col(controller)} />
 
       {/* camera */}
-      <rect x="146" y="46" width="32" height="20" rx="4" fill="#132036"
-            stroke="#46618a" strokeWidth="1.5" />
-      <circle cx="162" cy="56" r="5" fill="#0b1322" stroke="#7dd3fc" />
+      <rect x="146" y="46" width="32" height="20" rx="4" fill="#1b2e4b"
+            stroke="#5776a3" strokeWidth="1.5" />
+      <circle cx="162" cy="56" r="5" fill="#12213a" stroke="#7dd3fc" />
       <circle cx="176" cy="48" r="3" fill={col(camera)} />
       <path d="M162 66 L132 118 M162 66 L192 118" stroke="#38bdf8" strokeOpacity=".18" />
 
       {/* controller box */}
-      <rect x="360" y="70" width="92" height="56" rx="6" fill="#132036"
-            stroke="#46618a" strokeWidth="1.5" />
+      <rect x="360" y="70" width="92" height="56" rx="6" fill="#1b2e4b"
+            stroke="#5776a3" strokeWidth="1.5" />
       <text x="406" y="94" textAnchor="middle" fontSize="9" fill="#cbd5e1"
             fontFamily="JetBrains Mono, monospace">ESP32</text>
       <text x="406" y="108" textAnchor="middle" fontSize="7.5" fill="#94a3b8"
@@ -351,8 +351,8 @@ export function DoorSchematic({ controller, camera, face, doorClosed, className 
       <circle cx="444" cy="78" r="3" fill={col(controller)} />
 
       {/* face server */}
-      <rect x="40" y="70" width="70" height="46" rx="6" fill="#132036"
-            stroke="#46618a" strokeWidth="1.5" />
+      <rect x="40" y="70" width="70" height="46" rx="6" fill="#1b2e4b"
+            stroke="#5776a3" strokeWidth="1.5" />
       <text x="75" y="92" textAnchor="middle" fontSize="8" fill="#cbd5e1"
             fontFamily="JetBrains Mono, monospace">FACE</text>
       <text x="75" y="104" textAnchor="middle" fontSize="7.5" fill="#94a3b8"
@@ -360,11 +360,11 @@ export function DoorSchematic({ controller, camera, face, doorClosed, className 
       <circle cx="104" cy="76" r="3" fill={col(face)} />
 
       {/* wiring / network */}
-      <path d="M184 124 H 210" stroke="#314a70" strokeWidth="1.5" />
-      <path d="M316 124 H 340 V 100 H 360" stroke="#314a70" strokeWidth="1.5" fill="none" />
-      <path d="M178 56 H 340 V 84 H 360" stroke="#314a70" strokeWidth="1.2"
+      <path d="M184 124 H 210" stroke="#41618f" strokeWidth="1.5" />
+      <path d="M316 124 H 340 V 100 H 360" stroke="#41618f" strokeWidth="1.5" fill="none" />
+      <path d="M178 56 H 340 V 84 H 360" stroke="#41618f" strokeWidth="1.2"
             strokeDasharray="3 5" fill="none" />
-      <path d="M110 92 H 146" stroke="#314a70" strokeWidth="1.2" strokeDasharray="3 5" />
+      <path d="M110 92 H 146" stroke="#41618f" strokeWidth="1.2" strokeDasharray="3 5" />
       {controller && (
         <path d="M316 124 H 340 V 100 H 360" stroke="#2dd4bf" strokeWidth="1.6"
               fill="none" className="art-flow" />
