@@ -133,9 +133,26 @@ One command starts the whole portal - PostgreSQL, the API and the web app:
 docker compose up --build
 ```
 
-On Windows you can double-click **`launch.bat`** instead. It runs exactly
-that command, after checking Docker Desktop is running, and prints the
-address to use from phones and in the ESP32 firmware.
+On Windows, double-click **`launch.bat`** instead - it brings up everything
+the door demo needs:
+
+1. starts Docker Desktop if it is not running and waits for the engine;
+2. opens the **face server** in its own window
+   (`firmware\face_server\start_face_server.bat`);
+3. runs that same `docker compose up --build` in its own window, with the
+   logs;
+4. opens <http://localhost> in the browser as soon as the portal answers,
+   and prints the address for phones and for the ESP32 firmware.
+
+`Ctrl+C` in the launcher window stops the portal and closes the face server.
+
+The face server stays a separate Windows process on purpose - its window
+shows every QR decode and face match live during a demo, and the door's face
+step keeps working if the portal is stopped. It uses the `dataset\`,
+`lbph_model.yml` and `labels.txt` in `firmware\face_server` (git-ignored:
+they are photos of real people), and a Python with Flask and OpenCV contrib;
+if none is installed, the starter sets one up once in
+`firmware\face_server\.venv`.
 
 On first start the API migrates the database and seeds the accounts,
 laboratories, door devices and equipment (only what is missing; it never

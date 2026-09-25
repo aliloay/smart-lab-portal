@@ -35,10 +35,16 @@ Nothing is wired between the two boards. They talk over WiFi.
 
 ### 1. Laptop server
 
+`launch.bat` at the repository root opens it in its own window together with
+the portal. To run it on its own, double-click
+`firmware\face_server\start_face_server.bat`, or:
+
 ```
-cd "C:\Users\dell\OneDrive\Desktop\Bsc\codes\draft_codes\face_server"
+cd firmware\face_server
 python face_server.py
 ```
+
+It reads `dataset\`, `lbph_model.yml` and `labels.txt` from that folder.
 
 Leave the window open. Expect:
 

@@ -1,0 +1,5 @@
+# face_server.py - Flask, and OpenCV *contrib* for cv2.face (LBPH).
+# 4.10.0.84 is the build the recognition thresholds were measured with.
+flask
+opencv-contrib-python==4.10.0.84
+numpy
