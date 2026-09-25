@@ -11,6 +11,10 @@ bcrypt==4.0.1
 python-multipart==0.0.20
 qrcode[pil]==8.0
 Pillow==11.0.0
+# The door's QR decoder (the face server's cv2.QRCodeDetector, same pin):
+# every issued token is checked to be readable before it is handed out.
+opencv-python-headless==4.10.0.84
+numpy==2.1.3
 slowapi==0.1.9
 httpx==0.28.1
 pytest==8.3.4

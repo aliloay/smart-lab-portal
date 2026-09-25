@@ -5,12 +5,9 @@ Ownership is enforced on every route: a student can only ever see and act on
 their own bookings. Staff and admins see everything.
 """
 import base64
-import io
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import qrcode
-from qrcode.constants import ERROR_CORRECT_Q
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, desc, or_, select
 from sqlalchemy.orm import Session
@@ -24,6 +21,7 @@ from app.schemas import (BookingCreate, BookingOut, BookingTrace, LabOut,
 from app.services.booking import (BookingError, active_token, cancel_booking,
                                   confirm_booking, create_booking,
                                   reject_booking)
+from app.services.qr import render_qr_png
 from app.services.sessions import close_expired, duration_minutes
 from app.services.trace import DOOR_EVENTS, event_out, summarise
 
@@ -193,11 +191,8 @@ def booking_qr(booking_id: int, db: Session = Depends(get_db),
     """
     Render the booking's door credential.
 
-    QR settings are chosen for the ESP32-CAM, not for looks: error correction
-    level Q (25% recoverable) survives glare and a phone's own pixel grid, and
-    box_size 10 with a 4-module quiet zone gives a large, high-contrast target.
-    The quiet zone is not decoration - OpenCV's detector needs the white
-    margin to find the finder patterns at all.
+    How it is drawn, and why every issued token is readable by the door, is
+    in app/services/qr.py.
     """
     b = _get(db, booking_id, user)
 
@@ -206,15 +201,7 @@ def booking_qr(booking_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "No active credential for this booking")
 
-    qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_Q,
-                       box_size=10, border=4)
-    qr.add_data(token.token)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    png_b64 = base64.b64encode(buf.getvalue()).decode()
+    png_b64 = base64.b64encode(render_qr_png(token.token)).decode()
 
     now = datetime.now(timezone.utc)
     currently_valid = (
