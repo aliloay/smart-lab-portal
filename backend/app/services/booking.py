@@ -9,7 +9,7 @@ live booking alone would lose the record of what was issued. Both.
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -17,7 +17,7 @@ from app.core.security import generate_qr_token
 from app.models import (Booking, BookingStatus, EventType, Lab, QrToken, User,
                         AuthMethod)
 from app.services.events import log_event
-from app.services.notifications import notify
+from app.services.notifications import notify, staff_ids
 
 
 class BookingError(Exception):
@@ -93,6 +93,12 @@ def create_booking(db: Session, user: User, lab: Lab, start: datetime,
 
     if settings.BOOKING_AUTO_APPROVE:
         confirm_booking(db, booking, issue_token=True)
+    else:
+        notify(db, staff_ids(db), "BOOKING_PENDING",
+               f"Booking request awaiting approval - {lab.code}",
+               body=f"{user.full_name}, {start:%d %b %Y %H:%M}-{end:%H:%M} UTC",
+               link="/admin/bookings", booking_id=booking.id,
+               exclude=actor.id if actor else user.id)
 
     db.commit()
     db.refresh(booking)

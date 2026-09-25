@@ -10,9 +10,15 @@ real components do:
   * the Master ESP32       -> report the biometric outcome and door events
 
 Run:  python tests/e2e_booking_to_door.py
+
+It WRITES a booking and door events to whatever database that API uses.
+Point it at a QA instance, never at a database whose history matters:
+
+      E2E_API=http://127.0.0.1:8001/api python tests/e2e_booking_to_door.py
 """
 import base64
 import io
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -20,8 +26,9 @@ import cv2
 import httpx
 import numpy as np
 
-API = "http://127.0.0.1:8000/api"
-DEVICE_HEADERS = {"X-Device-Key": "dev-device-key-change-me"}
+API = os.environ.get("E2E_API", "http://127.0.0.1:8000/api")
+DEVICE_HEADERS = {"X-Device-Key": os.environ.get("DEVICE_API_KEY",
+                                                "dev-device-key-change-me")}
 LAB = "LAB_01"
 DEVICE = "MASTER_LAB01"
 

@@ -1,0 +1,20 @@
+# Keep the image to the code. Configuration comes from docker-compose.yml,
+# never from a developer's local .env (which holds their own database
+# password and keys).
+.env
+.env.*
+!.env.example
+
+# A Windows virtualenv does not run in a Linux container.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Issue photos live in the "uploads" volume, not in the image.
+uploads/
+
+*.log
+*.dump
+*.backup

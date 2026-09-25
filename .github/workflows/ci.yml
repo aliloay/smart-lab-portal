@@ -116,5 +116,32 @@ jobs:
       - name: No blank pages, no refresh needed
         working-directory: frontend
         run: npm run test:e2e
+      # Writes to the throwaway CI database: booking, staff booking, issue + photo.
+      - name: Workflows (booking to QR, issue with photo, phone width)
+        working-directory: frontend
+        run: npm run test:e2e:workflows
       - if: failure()
         run: cat api.log web.log
+
+  compose:
+    # The documented launch path (docker compose up / launch.bat), started
+    # exactly as a user would and checked from outside: the portal on :80 as
+    # a phone uses it, the API on :8000 as the ESP32 master calls it.
+    name: Docker Compose (full stack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: docker compose up -d --build
+      - name: Phone and ESP32 paths
+        run: python3 scripts/compose_smoke.py
+      - name: Restart the API - migrating and seeding again must be harmless
+        run: |
+          docker compose restart backend
+          python3 scripts/compose_smoke.py
+      - name: Database is published to this machine only
+        run: test "$(docker compose port db 5432)" = "127.0.0.1:5433"
+      - if: failure()
+        run: docker compose logs --tail 200
+      - if: always()
+        run: docker compose down -v

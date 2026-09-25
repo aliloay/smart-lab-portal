@@ -56,6 +56,7 @@ const STAFF_NAV: Section[] = [
     { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
+    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
   ]},
 ]
 

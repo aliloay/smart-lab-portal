@@ -1,0 +1,8 @@
+# node_modules installed on Windows would overwrite the Linux ones from
+# `npm ci` and break the build (esbuild/rollup ship per-platform binaries).
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+*.log

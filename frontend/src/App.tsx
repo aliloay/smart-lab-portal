@@ -16,6 +16,8 @@ import MyBookings from './pages/MyBookings'
 import Reservations from './pages/Reservations'
 import BookingDetail from './pages/BookingDetail'
 import BookingQr from './pages/BookingQr'
+import SessionDetail from './pages/SessionDetail'
+import Simulation from './pages/Simulation'
 import AccessMonitor from './pages/AccessMonitor'
 import Devices from './pages/Devices'
 import Equipment from './pages/Equipment'
@@ -77,6 +79,7 @@ export default function App() {
                                                  : <MyBookings />} />
           <Route path="/bookings/:id" element={<BookingDetail />} />
           <Route path="/bookings/:id/qr" element={<BookingQr />} />
+          <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/equipment/:id" element={<AssetDetail />} />
           <Route path="/issues" element={<IssueList />} />
           <Route path="/issues/new" element={<ReportIssue />} />
@@ -90,6 +93,7 @@ export default function App() {
           <Route path="/admin/equipment" element={staffOnly(<Equipment />)} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
+          <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/admin/users" element={adminOnly(<Users />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />
 

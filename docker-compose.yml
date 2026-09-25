@@ -12,9 +12,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    # Exposed so the face server and any local tooling on the same machine can
-    # reach it. Remove this line to keep the database strictly internal.
-    ports: ["5432:5432"]
+    # Reachable from this laptop only (pgAdmin, psql, pg_dump) on port 5433:
+    # 5432 is usually taken by a locally installed PostgreSQL, and the
+    # database has no business being open to the Wi-Fi. The backend reaches
+    # it inside the compose network as db:5432.
+    ports: ["127.0.0.1:5433:5432"]
 
   backend:
     build: ./backend
@@ -27,19 +29,27 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost}
     # Migrations run before the API accepts traffic, so a fresh volume comes
-    # up with the right schema without a manual step.
+    # up with the right schema without a manual step. seed.py only creates
+    # what is missing (accounts, laboratories, devices, equipment) and never
+    # overwrites or invents activity, so it is safe on every start; set
+    # SEED_DEMO_DATA=false to skip it.
     command: >
       sh -c "alembic upgrade head &&
+             if [ ${SEED_DEMO_DATA:-true} = true ]; then python seed.py; fi &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
     # Issue photos. A named volume so they survive rebuilding the container.
     volumes:
       - uploads:/app/uploads
-    # Port published so the ESP32 master can reach it directly on the LAN.
+    # Published on every interface: the ESP32 master calls
+    # http://<laptop LAN IP>:8000/api directly.
     ports: ["8000:8000"]
 
   frontend:
     build: ./frontend
     depends_on: [backend]
+    # The portal for browsers and phones: http://<laptop LAN IP>/
+    # nginx serves the app and forwards /api and /ws to the backend, so the
+    # browser only ever talks to this one address (no CORS, no API URL).
     ports: ["80:80"]
 
 volumes:

@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Where the API runs. Override to point a second instance elsewhere, e.g.
+// VITE_API_TARGET=http://127.0.0.1:8001 npm run dev -- --port 5174
+const API = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000'
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -9,8 +13,8 @@ export default defineConfig({
     // The API is proxied so the browser talks to one origin in development.
     // `vite preview` inherits this, which is what the e2e test runs against.
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
-      '/ws':  { target: 'ws://127.0.0.1:8000', ws: true },
+      '/api': { target: API, changeOrigin: true },
+      '/ws':  { target: API.replace(/^http/, 'ws'), ws: true },
     },
   },
   build: {

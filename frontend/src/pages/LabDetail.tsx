@@ -127,7 +127,7 @@ export default function LabDetail() {
       {/* ---------------------------------------------------- live status */}
       <section>
         <SectionTitle icon={<CircuitBoard size={15} />}
-          sub={lab.has_controller ? 'What the door hardware last reported. Grey means no data, not "fine".' : undefined}
+          sub={lab.has_controller ? 'What the door hardware last reported. Grey means not reported - never assumed "fine".' : undefined}
           action={<span className="flex items-center gap-1.5 text-[12px] text-slate-400">
             <Dot tone={connected ? 'ok' : 'idle'} live={connected} />{connected ? 'Live' : 'Reconnecting'}
           </span>}>
@@ -149,16 +149,16 @@ export default function LabDetail() {
               <Node icon={<Radio size={15} />} title="RFID reader"
                     state={comp('rfid')} labels={['Ready', 'Fault']}
                     stale={comp('rfid') !== null ? staleNote : undefined}
-                    note={comp('rfid') === null ? 'Not reported by firmware' : undefined} />
+                    note={comp('rfid') === null ? 'The firmware does not send this yet' : undefined} />
               <Node icon={<Fingerprint size={15} />} title="Fingerprint"
                     state={comp('fingerprint')} labels={['Ready', 'Fault']}
                     stale={comp('fingerprint') !== null ? staleNote : undefined}
-                    note={comp('fingerprint') === null ? 'Not reported by firmware' : undefined} />
+                    note={comp('fingerprint') === null ? 'The firmware does not send this yet' : undefined} />
               <Node icon={<Lock size={15} />} title="Relay"
                     state={comp('relay_locked')} labels={['Locked', 'Unlocked']}
                     stale={comp('relay_locked') !== null ? staleNote : undefined}
-                    note={comp('relay_locked') === null ? 'Not reported by firmware' : undefined} />
-              <Node icon={<Users size={15} />} title="Occupancy"
+                    note={comp('relay_locked') === null ? 'The firmware does not send this yet' : undefined} />
+              <Node icon={<Users size={15} />} title="Occupancy" neutral
                     state={status.occupants > 0 ? true : status.controller_online === null ? null : false}
                     labels={[`${status.occupants} inside`, 'Nobody inside']}
                     note={staff && status.current_users.length ? status.current_users.join(', ') : undefined} />
@@ -210,7 +210,7 @@ export default function LabDetail() {
                   <ul className="space-y-1.5">
                     {status.upcoming.map((s, i) => (
                       <li key={i} className="flex items-center gap-2 text-[13px]">
-                        <span className="mono text-slate-300 w-36 shrink-0 tnum">
+                        <span className="mono text-slate-300 shrink-0 tnum whitespace-nowrap">
                           {new Date(s.start_time).toLocaleDateString([], { day: 'numeric', month: 'short' })}
                           {' '}{fmtTime(s.start_time)}–{fmtTime(s.end_time)}
                         </span>
@@ -362,9 +362,11 @@ export default function LabDetail() {
   )
 }
 
-function Node({ icon, title, state, labels, device, note, stale }: {
+function Node({ icon, title, state, labels, device, note, stale, neutral }: {
   icon: React.ReactNode; title: string; state: boolean | null
   labels: [string, string]; device?: Device; note?: string
+  /** Both values are normal (e.g. occupancy): "false" is not a fault colour. */
+  neutral?: boolean
   /** Set when the value is a last report from a controller now offline. */
   stale?: string
 }) {
@@ -379,7 +381,10 @@ function Node({ icon, title, state, labels, device, note, stale }: {
             <Dot tone="idle" />{state ? labels[0] : labels[1]}
             <span className="text-[11px] text-slate-500">(last reported)</span>
           </span>
-        ) : <StateDot state={state} labels={labels} />}
+        ) : neutral && state === false ? (
+          <span className="inline-flex items-center gap-2 text-sm text-slate-300">
+            <Dot tone="idle" />{labels[1]}</span>
+        ) : <StateDot state={state} labels={labels} unknown="Not reported" />}
       </div>
       {stale && state !== null && <div className="text-[11px] text-slate-500 mt-1 truncate">{stale}</div>}
       {device && (
