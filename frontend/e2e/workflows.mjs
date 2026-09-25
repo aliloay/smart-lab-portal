@@ -96,15 +96,26 @@ async function bookThroughWizard(page, { forUserIndex } = {}) {
   // 0: laboratory
   await page.locator('main button[aria-pressed]', { hasText: 'Door access' }).first().click()
   await cont.click()
-  // 1: date - the last of the 14 day buttons
-  await page.getByText('Which day?').waitFor({ timeout: 4000 })
-  await page.locator('main .grid button[aria-pressed]').last().click()
-  await cont.click()
-  // 2: hours - first free hour, tapped twice = one hour. (The previous step
-  // animates out, so match hour buttons by their "HH:00" label.)
-  await page.getByText('Which hours?').waitFor({ timeout: 4000 })
+  // 1+2: the latest of the 14 days that still has a free hour. Repeated runs
+  // against one database fill a day up; the wizard then rightly shows every
+  // hour as reserved, so step back a day rather than fail.
+  // (Hour buttons are matched by their "HH:00" label because the previous
+  // step animates out.)
+  const back = page.getByRole('button', { name: 'Back' })
   const free = page.locator('main button[aria-pressed]:not([disabled])', { hasText: /^\d\d:00/ }).first()
-  await free.waitFor({ timeout: 8000 })
+  let found = false
+  for (let day = 13; day >= 1 && !found; day--) {
+    await page.getByText('Which day?').waitFor({ timeout: 4000 })
+    await page.locator('main .grid button[aria-pressed]').nth(day).click()
+    await cont.click()
+    await page.getByText('Which hours?').waitFor({ timeout: 4000 })
+    // availability arrives a moment after the step appears
+    await page.locator('main button', { hasText: /^\d\d:00/ }).first().waitFor({ timeout: 8000 })
+    await page.waitForTimeout(300)
+    found = await free.count() > 0
+    if (!found) await back.click()
+  }
+  if (!found) throw new Error('no free hour in the next 14 days')
   const hour = (await free.innerText()).trim().slice(0, 5)
   await free.click(); await free.click()
   await page.getByText(/→.*\(1 h\)/).first().waitFor({ timeout: 4000 })
