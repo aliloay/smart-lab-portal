@@ -220,12 +220,8 @@ DETECT_SCALE = 0.5
 
 def largest_face(gray):
     """Haar cascade finds WHERE the face is. LBPH then decides WHO it is."""
-    # Frames narrower than 600 px (e.g. CIF 400x296) are searched at full
-    # size: halving them would push a face at normal door distance under
-    # minSize. VGA frames are handled exactly as before.
-    scale = DETECT_SCALE if gray.shape[1] >= 600 else 1.0
-    small = cv2.resize(gray, None, fx=scale, fy=scale,
-                       interpolation=cv2.INTER_AREA) if scale != 1.0 else gray.copy()
+    small = cv2.resize(gray, None, fx=DETECT_SCALE, fy=DETECT_SCALE,
+                       interpolation=cv2.INTER_AREA)
 
     # equalizeHist flattens the illumination differences that LBPH is most
     # sensitive to. It also makes detection more reliable in uneven light,
@@ -244,7 +240,7 @@ def largest_face(gray):
 
     x, y, w, h = sorted(found, key=lambda r: r[2] * r[3], reverse=True)[0]
 
-    inv = 1.0 / scale
+    inv = 1.0 / DETECT_SCALE
     x, y, w, h = int(x * inv), int(y * inv), int(w * inv), int(h * inv)
 
     # Clamp to the frame: the scaled-up box can overhang by a pixel or two.
