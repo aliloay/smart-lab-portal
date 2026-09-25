@@ -1,9 +1,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Boxes, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
+import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { assetStatusLabel, assetTone } from '../lib/labels'
+import { fmtDate } from '../lib/time'
 import {
   Chip, EmptyState, ErrorBanner, Field, MetricCard, Modal, PageHeader, Select, Skeleton,
 } from '../components/ui'
@@ -14,6 +15,7 @@ export default function Equipment() {
   const [q, setQ] = useState('')
   const [lab, setLab] = useState('')
   const [status, setStatus] = useState('')
+  const [dueOnly, setDueOnly] = useState(false)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
 
@@ -27,8 +29,9 @@ export default function Equipment() {
 
   const list = useMemo(() => (rows ?? []).filter(a =>
     (!lab || String(a.lab_id) === lab) && (!status || a.status === status) &&
+    (!dueOnly || a.maintenance_due) &&
     (!q || `${a.name} ${a.asset_tag} ${a.category} ${a.lab_code}`.toLowerCase().includes(q.toLowerCase()))),
-  [rows, lab, status, q])
+  [rows, lab, status, q, dueOnly])
 
   async function act(fn: () => Promise<unknown>) {
     setError('')
@@ -49,10 +52,11 @@ export default function Equipment() {
         <MetricCard label="Available" value={rows ? count('AVAILABLE') : null} tone="ok" />
         <MetricCard label="Checked out" value={rows ? count('CHECKED_OUT') : null} tone="info" />
         <MetricCard label="In maintenance" value={rows ? count('MAINTENANCE') : null}
-                    tone={rows && count('MAINTENANCE') ? 'warn' : 'idle'} />
+                    tone={rows && count('MAINTENANCE') ? 'warn' : 'idle'}
+                    hint={rows ? `${rows.filter(a => a.maintenance_due).length} with maintenance overdue` : undefined} />
       </div>
 
-      <div className="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
+      <div className="card p-4 mb-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className="input pl-9" placeholder="Name, tag or category" value={q}
@@ -63,6 +67,10 @@ export default function Equipment() {
         <Select value={status} onChange={setStatus}
                 options={[['', 'Any status'], ...['AVAILABLE', 'CHECKED_OUT', 'MAINTENANCE', 'RETIRED']
                   .map(s => [s, assetStatusLabel(s)] as [string, string])]} />
+        <button onClick={() => setDueOnly(v => !v)} aria-pressed={dueOnly}
+          className={`btn border ${dueOnly ? 'bg-bad/10 text-bad-soft border-bad/40'
+            : 'border-ink-500 text-slate-300 hover:text-white bg-ink-800/40'}`}>
+          <CalendarClock size={15} />Maintenance due</button>
       </div>
 
       <div className="card overflow-hidden">
@@ -70,20 +78,28 @@ export default function Equipment() {
           : list.length === 0 ? <EmptyState icon={<Boxes size={20} />} title="No equipment matches" />
           : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px]">
+              <table className="w-full min-w-[1100px]">
                 <thead><tr>
                   <th className="th">Equipment</th><th className="th">Tag</th><th className="th">Laboratory</th>
-                  <th className="th">Category</th><th className="th">Status</th><th className="th">Issues</th>
-                  <th className="th"></th>
+                  <th className="th">Status</th><th className="th">Current user</th>
+                  <th className="th">Last inspection</th><th className="th">Next maintenance</th>
+                  <th className="th">Issues</th><th className="th"></th>
                 </tr></thead>
                 <tbody>
                   {list.map(a => (
                     <tr key={a.id} className="tr">
-                      <td className="td"><Link to={`/equipment/${a.id}`} className="text-slate-100 hover:text-accent-200">{a.name}</Link></td>
+                      <td className="td"><Link to={`/equipment/${a.id}`} className="text-slate-100 hover:text-accent-200">{a.name}</Link>
+                        <div className="text-[11.5px] text-slate-400">{a.category || '—'}
+                          {a.serial_number && <span className="mono !text-[11px]"> · SN {a.serial_number}</span>}</div></td>
                       <td className="td mono text-slate-300">{a.asset_tag}</td>
                       <td className="td mono text-slate-300">{a.lab_code}</td>
-                      <td className="td text-slate-300">{a.category || '—'}</td>
                       <td className="td"><Chip tone={assetTone(a.status)}>{assetStatusLabel(a.status)}</Chip></td>
+                      <td className="td text-slate-300 text-[13px]">{a.status === 'CHECKED_OUT' ? (a.holder_name ?? 'Checked out') : '—'}</td>
+                      <td className="td text-slate-300 text-[13px] whitespace-nowrap">{a.last_inspected_at ? fmtDate(a.last_inspected_at) : <span className="text-slate-500">Not recorded</span>}</td>
+                      <td className="td text-[13px] whitespace-nowrap">{a.next_maintenance_at
+                        ? <span className={a.maintenance_due ? 'text-bad-soft font-medium' : 'text-slate-300'}>
+                            {fmtDate(a.next_maintenance_at)}{a.maintenance_due && ' · overdue'}</span>
+                        : <span className="text-slate-500">Not scheduled</span>}</td>
                       <td className="td">{a.open_issues > 0
                         ? <span className="inline-flex items-center gap-1 text-warn-soft text-[12.5px]"><TriangleAlert size={13} />{a.open_issues} open</span>
                         : <span className="text-slate-600">—</span>}</td>
@@ -106,12 +122,18 @@ export default function Equipment() {
 }
 
 function AddAsset({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ asset_tag: '', name: '', category: '', lab_id: '', notes: '' })
+  const [f, setF] = useState({ asset_tag: '', name: '', category: '', lab_id: '', notes: '',
+                               serial_number: '', next: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
-    try { await api.createAsset({ ...f, lab_id: Number(f.lab_id) }); onSaved() }
+    try {
+      await api.createAsset({ asset_tag: f.asset_tag, name: f.name, category: f.category,
+        lab_id: Number(f.lab_id), notes: f.notes, serial_number: f.serial_number.trim() || null,
+        next_maintenance_at: f.next ? new Date(`${f.next}T09:00`).toISOString() : null })
+      onSaved()
+    }
     catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setBusy(false) }
   }
   return (
@@ -130,6 +152,12 @@ function AddAsset({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => void
         </div>
         <Field label="Name"><input className="input" required value={f.name}
           onChange={e => setF({ ...f, name: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Serial number (optional)"><input className="input mono" value={f.serial_number}
+            onChange={e => setF({ ...f, serial_number: e.target.value })} /></Field>
+          <Field label="Next maintenance (optional)"><input className="input" type="date" value={f.next}
+            onChange={e => setF({ ...f, next: e.target.value })} /></Field>
+        </div>
         <Field label="Notes (optional)"><textarea className="input" value={f.notes}
           onChange={e => setF({ ...f, notes: e.target.value })} /></Field>
         <div className="flex justify-end gap-2 pt-2">

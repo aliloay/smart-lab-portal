@@ -135,7 +135,11 @@ export function DeviceHealth() {
 // ---------------------------------------------------------------------------
 const SEV_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } as const
 
-export function MaintenanceQueue({ title = 'Maintenance queue' }: { title?: string }) {
+export function MaintenanceQueue({ title = 'Maintenance queue', stats = false }: {
+  title?: string
+  /** Administrators also get the statistics row. */
+  stats?: boolean
+}) {
   const [summary, setSummary] = useState<IssueSummary | null>(null)
   const [queue, setQueue] = useState<Issue[] | null>(null)
   const load = useCallback(() => {
@@ -151,6 +155,8 @@ export function MaintenanceQueue({ title = 'Maintenance queue' }: { title?: stri
     ['Critical', summary?.critical, 'text-bad-soft', '/issues?severity=CRITICAL'],
     ['High', summary?.high, 'text-warn-soft', '/issues?severity=HIGH'],
     ['Unassigned', summary?.unassigned, 'text-accent-200', '/issues?assigned=unassigned'],
+    ['In progress', summary?.in_progress, 'text-violet-300', '/issues'],
+    ['Waiting parts', summary?.waiting_for_parts, 'text-warn-soft', '/issues'],
     ['Overdue', summary?.overdue, summary?.overdue ? 'text-bad-soft' : 'text-slate-200', '/issues?overdue=1'],
   ]
   return (
@@ -161,7 +167,7 @@ export function MaintenanceQueue({ title = 'Maintenance queue' }: { title?: stri
         {title}
       </SectionTitle>
       <div className="card p-4">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {tiles.map(([k, v, c, to]) => (
             <Link key={k} to={to} className="well py-2.5 text-center hover:border-ink-500 transition-colors">
               <div className={`font-display text-xl tnum ${c}`}>{v ?? '–'}</div>
@@ -169,6 +175,22 @@ export function MaintenanceQueue({ title = 'Maintenance queue' }: { title?: stri
             </Link>
           ))}
         </div>
+        {stats && summary && (
+          <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 text-[12px]">
+            {[
+              ['Resolved this month', String(summary.resolved_this_month)],
+              ['Avg resolution', summary.avg_resolution_hours != null ? `${summary.avg_resolution_hours} h` : 'No data yet'],
+              ['Most issues (lab)', summary.by_lab[0] ? `${summary.by_lab[0].label} · ${summary.by_lab[0].count}` : '—'],
+              ['Top category', summary.by_category[0] ? `${summary.by_category[0].label} · ${summary.by_category[0].count}` : '—'],
+              ['Most reported item', summary.by_asset[0] ? `${summary.by_asset[0].label} · ${summary.by_asset[0].count}` : '—'],
+            ].map(([k, v]) => (
+              <div key={k} className="well px-3 py-2 min-w-0">
+                <div className="text-slate-400 text-[10.5px] uppercase tracking-wide">{k}</div>
+                <div className="text-slate-100 truncate" title={v}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
         {queue === null ? <Skeleton className="h-28 mt-3" /> : queue.length === 0 ? (
           <p className="mt-4 text-[13px] text-slate-400 text-center py-3">
             No open maintenance issues.

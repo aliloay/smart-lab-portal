@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Activity, BarChart3, Bell, Boxes, CalendarRange, CheckCircle2, Cpu, DoorOpen,
-  FlaskConical, Network, ShieldX, Users, Wrench,
+  FlaskConical, Network, PlayCircle, ShieldX, Users, Wrench,
 } from 'lucide-react'
 import { Alert, LabOverview, Summary, SystemStatus, api } from '../../lib/api'
 import { useLive, useLiveMessages } from '../../lib/live'
@@ -90,6 +90,7 @@ export default function AdminDashboard() {
             <div className="mt-auto pt-5 flex gap-2 flex-wrap">
               <Link to="/admin/reports" className="btn-primary btn-sm"><BarChart3 size={15} />Reports</Link>
               <Link to="/admin/access" className="btn-ghost btn-sm"><Activity size={15} />Access & audit</Link>
+              <Link to="/demo" className="btn-quiet btn-sm"><PlayCircle size={15} />Simulation</Link>
             </div>
           </div>
           <div className="relative px-4 pb-4 lg:py-4">
@@ -184,7 +185,7 @@ export default function AdminDashboard() {
 
       <div className="grid xl:grid-cols-2 gap-6">
         <LiveActivity securityOnly title="Security events" height="max-h-[380px]" limit={30} />
-        <MaintenanceQueue title="Laboratory maintenance" />
+        <MaintenanceQueue title="Laboratory maintenance" stats />
       </div>
 
       <div className="grid xl:grid-cols-3 gap-6">

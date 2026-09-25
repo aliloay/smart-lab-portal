@@ -229,6 +229,15 @@ export interface BookingTrace {
   events: AccessEvent[]
 }
 
+export interface SessionTrace {
+  session: Session
+  user: { id: number; full_name: string; role: Role; auth_subject: string | null }
+  lab: Lab
+  booking: Booking | null
+  summary: TraceSummary
+  events: AccessEvent[]
+}
+
 export interface Asset {
   id: number
   asset_tag: string
@@ -239,7 +248,25 @@ export interface Asset {
   notes: string
   lab_code?: string | null
   lab_name?: string | null
+  lab_location?: string | null
   open_issues: number
+  serial_number?: string | null
+  holder_id?: number | null
+  /** Staff only. */
+  holder_name?: string | null
+  checked_out_at?: string | null
+  last_inspected_at?: string | null
+  next_maintenance_at?: string | null
+  maintenance_due: boolean
+}
+
+export interface LifecycleEntry {
+  at: string
+  kind: 'ISSUE_REPORTED' | 'ISSUE_RESOLVED' | 'INSPECTION' | 'CHECKOUT' | 'RETURN' | 'STATUS'
+  title: string
+  detail: string
+  actor: string | null
+  issue_id: number | null
 }
 
 export interface AssetDetail {
@@ -253,6 +280,7 @@ export interface AssetDetail {
     created_at: string; resolved_at: string | null; technician: string | null
     resolution_notes: string; is_mine: boolean
   }[]
+  lifecycle: LifecycleEntry[]
 }
 
 export interface Alert {
@@ -597,6 +625,10 @@ export const api = {
     request<AccessEvent[]>(`/access-events${qs(q)}`),
   sessions: (q: { lab_id?: number; open_only?: boolean; limit?: number } = {}) =>
     request<Session[]>(`/access-sessions${qs(q)}`),
+  session: (id: number) => request<SessionTrace>(`/access-sessions/${id}`),
+  sessionLookup: (userId: number, labId: number, at: string) =>
+    request<{ session_id: number | null }>(
+      `/access-sessions/lookup${qs({ user_id: userId, lab_id: labId, at })}`),
   exportEventsPath: (labId?: number) =>
     `/access-events/export${labId ? `?lab_id=${labId}` : ''}`,
 
@@ -611,11 +643,17 @@ export const api = {
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;
                       ip_address?: string | null }) => post<Device>('/devices', d),
   createAsset: (a: { asset_tag: string; name: string; category: string; lab_id: number;
-                     notes?: string }) => post<Asset>('/assets', a),
-  assets: (labId?: number) => request<Asset[]>(`/assets${qs({ lab_id: labId })}`),
+                     notes?: string; serial_number?: string | null;
+                     next_maintenance_at?: string | null }) => post<Asset>('/assets', a),
+  assets: (labId?: number, due?: boolean) =>
+    request<Asset[]>(`/assets${qs({ lab_id: labId, due: due || undefined })}`),
   asset: (id: number) => request<AssetDetail>(`/assets/${id}`),
-  updateAsset: (id: number, body: { status?: string; notes?: string }) =>
+  updateAsset: (id: number, body: { status?: string; notes?: string; name?: string;
+                                    category?: string; serial_number?: string | null;
+                                    next_maintenance_at?: string | null }) =>
     request<Asset>(`/assets/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  inspectAsset: (id: number, note: string, nextMaintenanceAt?: string | null) =>
+    post<Asset>(`/assets/${id}/inspect`, { note, next_maintenance_at: nextMaintenanceAt || null }),
   checkoutAsset: (id: number) => post<Asset>(`/assets/${id}/checkout`),
   returnAsset: (id: number) => post<Asset>(`/assets/${id}/return`),
   alerts: (openOnly = false) => request<Alert[]>(`/alerts${qs({ open_only: openOnly })}`),

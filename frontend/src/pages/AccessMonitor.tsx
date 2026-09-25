@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
-  Activity, DoorOpen, Download, Filter, ListChecks, ShieldCheck, Wrench, X,
+  Activity, DoorOpen, Download, Filter, ListChecks, PlayCircle, ShieldCheck, Wrench, X,
 } from 'lucide-react'
 import { AccessEvent, Lab, Session, User, api, fetchBlob } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 import {
-  denialShort, denialText, endReasonText, eventLabel, eventTone, methodLabel,
+  DOOR_EVENTS, denialShort, denialText, endReasonText, eventLabel, eventTone, methodLabel,
 } from '../lib/labels'
 import { fmtDate, fmtDuration, fmtTimeSec, relative } from '../lib/time'
 import {
@@ -42,7 +42,8 @@ export default function AccessMonitor() {
   return (
     <div>
       <PageHeader eyebrow="Security & traceability" title={isAdmin(user) ? 'Access & audit' : 'Access monitor'}
-        sub="Every authentication attempt and door transition, with the reason it was allowed or refused - and every occupancy session." />
+        sub="Every authentication attempt and door transition, with the reason it was allowed or refused - and every occupancy session."
+        actions={<Link to="/demo" className="btn-ghost"><PlayCircle size={16} />Simulation mode</Link>} />
       <Tabs id="access" value={tab} onChange={setTab} tabs={[
         { key: 'events', label: 'Events', icon: <Activity size={14} /> },
         { key: 'sessions', label: 'Sessions', icon: <DoorOpen size={14} /> },
@@ -53,7 +54,21 @@ export default function AccessMonitor() {
 }
 
 function Events() {
+  const nav = useNavigate()
   const { connected } = useLive()
+  const [lookingUp, setLookingUp] = useState(false)
+
+  // Any door event of an identified person belongs to a visit: find it.
+  async function openSession(e: AccessEvent) {
+    if (!e.user_id || !e.lab_id) return
+    setLookingUp(true)
+    try {
+      const r = await api.sessionLookup(e.user_id, e.lab_id, e.created_at)
+      if (r.session_id) nav(`/sessions/${r.session_id}`)
+      else setError('No access session was opened around this event - access was not granted.')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Lookup failed') }
+    finally { setLookingUp(false); setSelected(null) }
+  }
   const [rows, setRows] = useState<AccessEvent[] | null>(null)
   const [labs, setLabs] = useState<Lab[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -206,8 +221,12 @@ function Events() {
             <div><div className="label mb-1.5">Message</div>
               <p className="text-[13.5px] text-slate-200 leading-relaxed">{selected.message || '—'}</p></div>
             <div className="flex flex-col gap-2">
+              {selected.user_id && selected.lab_id && DOOR_EVENTS.has(selected.event_type) && (
+                <button className="btn-primary" disabled={lookingUp} onClick={() => openSession(selected)}>
+                  <DoorOpen size={15} />{lookingUp ? 'Finding the session…' : 'Open the access session'}</button>
+              )}
               {selected.booking_id && (
-                <Link to={`/bookings/${selected.booking_id}`} className="btn-primary"><ListChecks size={15} />
+                <Link to={`/bookings/${selected.booking_id}`} className="btn-ghost"><ListChecks size={15} />
                   Open the full booking trace</Link>
               )}
               {selected.lab_id && (
@@ -273,7 +292,10 @@ function Sessions() {
                           : <span className="text-slate-400">{endReasonText(s.end_reason)}</span>}
                       </td>
                       <td className="td tnum text-slate-200">{s.duration_minutes != null ? fmtDuration(s.duration_minutes) : '—'}</td>
-                      <td className="td text-right">{s.booking_id && <Link to={`/bookings/${s.booking_id}`} className="text-xs link">Trace</Link>}</td>
+                      <td className="td text-right whitespace-nowrap space-x-3">
+                        <Link to={`/sessions/${s.id}`} className="text-xs link">Session</Link>
+                        {s.booking_id && <Link to={`/bookings/${s.booking_id}`} className="text-xs text-slate-300 hover:text-white">Booking</Link>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
