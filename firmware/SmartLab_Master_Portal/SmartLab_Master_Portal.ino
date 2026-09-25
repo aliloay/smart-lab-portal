@@ -810,17 +810,26 @@ void goWaitFingerprint(int userIndex) {
 }
 
 // The ONLY place the door is ever unlocked.
-void goAccessGranted() {
-  Serial.printf("[AUTH][GRANTED] %s (%s) - RFID + fingerprint matched\n",
+// factorEvent/factorMethod/factorMsg describe the step-2 match (face or
+// fingerprint). They used to be reported BEFORE this was called, so every
+// entry waited on a portal round trip before the lock opened. Now the door
+// unlocks and the screen updates first; both audit lines follow, in the
+// same order as before.
+void goAccessGranted(const char *factorEvent, const char *factorMethod,
+                     const String &factorMsg) {
+  Serial.printf("[AUTH][GRANTED] %s (%s) - %s matched\n",
                 authorizedUsers[pendingUserIndex].displayName,
-                authorizedUsers[pendingUserIndex].name);
+                authorizedUsers[pendingUserIndex].name, factorMethod);
   setIndicators(true, false);      // GREEN ON at grant, per spec
   setRelay(true);                  // relay LOW -> unlocked
   enterState(STATE_ACCESS_GRANTED);
+  updateDisplay();                 // show HELLO now, not after the reports
 
   // Reported AFTER the door is already unlocked. The portal is a witness to
   // this decision, not a participant in it - if the report fails, the person
   // still gets in, and only the audit line is lost.
+  reportEvent(factorEvent, authorizedUsers[pendingUserIndex].name,
+              pendingBookingId, factorMethod, "GRANTED", "", factorMsg);
   reportEvent("ACCESS_GRANTED", authorizedUsers[pendingUserIndex].name,
               pendingBookingId, pendingViaPortal ? "QR" : "RFID", "GRANTED",
               "", String("Access granted to ") +
@@ -1195,10 +1204,8 @@ void loop() {
         bool match = visionFace.equals(expected);
         visionFaceFresh = false;        // consume it
         if (match) {
-          reportEvent("FACE_ACCEPTED", expected.c_str(), pendingBookingId,
-                      "FACE", "GRANTED", "",
-                      String("Face matched ") + expected);
-          goAccessGranted();
+          goAccessGranted("FACE_ACCEPTED", "FACE",
+                          String("Face matched ") + expected);
           break;
         } else {
           // The headline security event: a valid step-1 credential presented
@@ -1217,10 +1224,8 @@ void loop() {
       if (fid >= 0) {
         Serial.printf("[FP] Matched fingerprint ID %d\n", fid);
         if (fid == authorizedUsers[pendingUserIndex].fingerprintId) {
-          reportEvent("FINGERPRINT_ACCEPTED",
-                      authorizedUsers[pendingUserIndex].name, pendingBookingId,
-                      "FINGERPRINT", "GRANTED", "", "Fingerprint matched");
-          goAccessGranted();
+          goAccessGranted("FINGERPRINT_ACCEPTED", "FINGERPRINT",
+                          "Fingerprint matched");
         } else {
           reportEvent("IDENTITY_MISMATCH",
                       authorizedUsers[pendingUserIndex].name, pendingBookingId,
