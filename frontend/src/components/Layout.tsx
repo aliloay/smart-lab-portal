@@ -97,14 +97,14 @@ function NavItem({ item, badge, onNavigate }: {
       className={({ isActive }) =>
         `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
          transition-colors ${isActive
-          ? 'text-white bg-gradient-to-r from-accent-500/20 to-accent-500/[0.04]'
-          : 'text-slate-300 hover:text-white hover:bg-ink-700/55'}`}>
+          ? 'text-white bg-gradient-to-r from-accent-400/[0.14] to-transparent'
+          : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'}`}>
       {({ isActive }) => (
         <>
           {isActive && (
             <motion.span layoutId="nav-active"
               className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
-                         shadow-[0_0_12px_rgba(56,189,248,.8)]"
+                         shadow-[0_0_8px_rgba(56,189,248,.55)]"
               transition={{ type: 'spring', stiffness: 500, damping: 40 }} />
           )}
           <span className={isActive ? 'text-accent-300'
@@ -137,8 +137,7 @@ function UserMenu() {
   return (
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen(o => !o)} aria-expanded={open}
-        className="flex items-center gap-2.5 h-9 pl-1 pr-2.5 rounded-xl border border-ink-600
-                   bg-ink-800/70 hover:border-ink-500">
+        className="glass-control flex items-center gap-2.5 pl-1 pr-2.5">
         <Avatar name={user?.full_name} size={28} />
         <span className="hidden xl:block text-left leading-tight">
           <span className="block text-[12.5px] text-white max-w-[140px] truncate">
@@ -281,7 +280,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* phone header */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14
-                         bg-ink-900/90 backdrop-blur border-b border-ink-600/60">
+                         bg-ink-900/80 backdrop-blur-xl border-b border-white/[0.07]">
         <button onClick={() => setOpen(v => !v)} aria-label="Open navigation"
                 className="p-2 -ml-2 text-slate-300 hover:text-white">
           <Menu size={20} />
@@ -303,8 +302,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       </AnimatePresence>
 
       <aside className={`fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[264px]
-                         shrink-0 flex flex-col border-r border-ink-600/60 overflow-hidden
-                         bg-ink-900/95 lg:bg-ink-900/75 backdrop-blur-md
+                         shrink-0 flex flex-col border-r border-white/[0.07] overflow-hidden
+                         bg-ink-900/95 lg:bg-ink-900/60 backdrop-blur-xl
                          transition-transform duration-200 ease-out
                          ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         {sidebar}
@@ -314,12 +313,12 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* desktop top bar */}
         {/* Left: the university, quietly. Right: system and account actions. */}
         <div className="hidden lg:flex sticky top-0 z-30 items-center gap-2.5
-                        h-16 px-8 bg-ink-900/70 backdrop-blur border-b border-ink-600/50">
+                        h-16 px-8 bg-ink-900/55 backdrop-blur-xl border-b border-white/[0.07]">
           <div className="mr-auto flex items-center min-w-0">
             <InstitutionLogo className="!h-6 opacity-80"
                              textClass="!text-[10px] !tracking-[0.14em] whitespace-nowrap" />
           </div>
-          <Link to="/issues/new" className="btn-ghost btn-sm !h-9">
+          <Link to="/issues/new" className="glass-control inline-flex items-center gap-2 px-3 text-[13px] font-medium">
             <Wrench size={15} /> Report an issue
           </Link>
           <span className="h-6 w-px bg-ink-600/70 mx-1" aria-hidden />

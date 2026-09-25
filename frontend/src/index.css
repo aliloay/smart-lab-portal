@@ -13,7 +13,7 @@ body {
      element having to glow. */
   background-image:
     radial-gradient(1200px 600px at 12% -10%, rgba(14,165,233,.10), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(45,212,191,.06), transparent 55%),
+    radial-gradient(900px 520px at 100% 0%, rgba(139,92,246,.07), transparent 55%),
     linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
   background-attachment: fixed;
 }
@@ -47,19 +47,35 @@ body {
 
 @layer components {
   /* --- surfaces ----------------------------------------------------------- */
+  /* Glass: translucent blue-grey, a light blur, one thin border, a soft
+     shadow. Opaque enough that text never competes with what is behind. */
   .card {
-    @apply relative rounded-2xl border border-ink-600/70 shadow-card;
-    background: linear-gradient(180deg, rgba(33,54,86,.92) 0%, rgba(27,46,75,.92) 100%);
+    @apply relative rounded-2xl shadow-card;
+    border: 1px solid rgba(148,184,226,.13);
+    background: linear-gradient(180deg, rgba(36,58,92,.74) 0%, rgba(27,46,75,.70) 100%);
+    -webkit-backdrop-filter: blur(14px) saturate(135%);
+            backdrop-filter: blur(14px) saturate(135%);
   }
   .card-pad { @apply card p-5; }
   .card-hover {
     @apply transition-[transform,box-shadow,border-color] duration-200
-           hover:-translate-y-0.5 hover:shadow-lift hover:border-ink-500;
+           hover:-translate-y-0.5 hover:shadow-lift;
   }
+  .card-hover:hover { border-color: rgba(125,211,252,.26); }
   /* Nested panel inside a card. */
   .well {
-    @apply rounded-xl border border-ink-600/60 bg-ink-900/55;
+    @apply rounded-xl bg-ink-950/35;
+    border: 1px solid rgba(148,184,226,.10);
   }
+  /* Compact glass control for the top bar (status, bell, account). */
+  .glass-control {
+    @apply h-9 rounded-xl text-slate-200 transition-colors;
+    border: 1px solid rgba(148,184,226,.16);
+    background: rgba(255,255,255,.035);
+    -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+  }
+  .glass-control:hover { border-color: rgba(125,211,252,.38); background: rgba(255,255,255,.06); }
   /* Legacy names, kept so older markup still renders as a card. */
   .surface { @apply card; }
   .surface-pad { @apply card p-5; }
@@ -82,7 +98,7 @@ body {
 
   /* --- controls ------------------------------------------------------------ */
   .input {
-    @apply w-full bg-ink-950/60 border border-ink-500/80 rounded-xl px-3.5 py-2.5
+    @apply w-full bg-ink-950/50 border border-ink-500/60 rounded-xl px-3.5 py-2.5
            text-sm text-slate-100 placeholder-slate-500 transition-colors
            focus:outline-none focus:ring-2 focus:ring-accent-500/40
            focus:border-accent-400;
@@ -97,13 +113,16 @@ body {
   .btn-primary {
     @apply btn text-white;
     background: linear-gradient(180deg, #0ea5e9 0%, #0284c7 100%);
-    box-shadow: 0 1px 0 rgba(255,255,255,.25) inset, 0 8px 22px -10px rgba(14,165,233,.9);
+    box-shadow: 0 1px 0 rgba(255,255,255,.22) inset, 0 6px 16px -10px rgba(14,165,233,.6);
   }
+  .btn-primary:focus-visible { box-shadow: 0 0 0 1px rgba(125,211,252,.6), 0 0 18px -6px rgba(56,189,248,.55); }
   .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
   .btn-ghost {
-    @apply btn border border-ink-500 text-slate-200 bg-ink-800/40
-           hover:border-ink-400 hover:text-white hover:bg-ink-700/70;
+    @apply btn text-slate-200 hover:text-white;
+    border: 1px solid rgba(148,184,226,.20);
+    background: rgba(255,255,255,.035);
   }
+  .btn-ghost:hover:not(:disabled) { border-color: rgba(125,211,252,.40); background: rgba(255,255,255,.06); }
   .btn-quiet { @apply btn text-slate-300 hover:text-white hover:bg-ink-700/70; }
   .btn-danger {
     @apply btn border border-bad/45 text-bad-soft hover:bg-bad/10 hover:border-bad/70;
@@ -118,11 +137,11 @@ body {
 
   /* --- tables -------------------------------------------------------------- */
   .th {
-    @apply text-left px-4 py-3 label border-b border-ink-600
-           bg-ink-850/95 sticky top-0 backdrop-blur-sm z-[1];
+    @apply text-left px-4 py-3 label border-b border-ink-600/70
+           bg-ink-850/80 sticky top-0 backdrop-blur-md z-[1];
   }
-  .td { @apply px-4 py-3 text-sm border-b border-ink-700/60 align-middle; }
-  .tr { @apply transition-colors hover:bg-ink-700/35; }
+  .td { @apply px-4 py-3 text-sm border-b border-ink-700/50 align-middle; }
+  .tr { @apply transition-colors hover:bg-accent-400/[0.04]; }
 
   /* --- misc ---------------------------------------------------------------- */
   .skeleton { @apply relative overflow-hidden rounded-xl bg-ink-800/70; }
@@ -130,7 +149,7 @@ body {
     content: ''; @apply absolute inset-0 -translate-x-full animate-sweep;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,.04), transparent);
   }
-  .divider { @apply border-t border-ink-600/60; }
+  .divider { border-top: 1px solid rgba(148,184,226,.10); }
   .link { @apply text-accent-300 hover:text-accent-200 transition-colors; }
 }
 

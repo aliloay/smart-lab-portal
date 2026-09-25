@@ -15,8 +15,10 @@ import { Link } from 'react-router-dom'
 export function GridBackdrop({ className = '' }: { className?: string }) {
   return (
     <div aria-hidden className={`pointer-events-none overflow-hidden ${className}`}>
-      <div className="absolute inset-0 bg-grid-fine bg-grid-fine opacity-60" />
-      <div className="absolute inset-0 bg-grid-major bg-grid-major opacity-70" />
+      <div className="absolute inset-0 bg-grid-fine bg-grid-fine opacity-50" />
+      <div className="absolute inset-0 bg-grid-major bg-grid-major opacity-60" />
+      {/* faint circuit traces - texture, never content */}
+      <div className="absolute inset-0 bg-circuit bg-circuit opacity-[0.05]" />
       <div className="absolute inset-0"
            style={{ background:
              'radial-gradient(90% 70% at 50% 0%, transparent 35%, rgba(16,30,53,.85) 90%)' }} />

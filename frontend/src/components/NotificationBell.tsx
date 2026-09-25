@@ -48,8 +48,7 @@ export default function NotificationBell() {
     <div className="relative" ref={ref}>
       <button onClick={() => setOpen(o => !o)} aria-expanded={open}
         aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
-        className="relative grid place-items-center w-9 h-9 rounded-xl border
-                   border-ink-600 bg-ink-800/70 hover:border-ink-500 text-slate-200">
+        className="glass-control relative grid place-items-center w-9">
         <Bell size={16} />
         {unread > 0 && (
           <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1

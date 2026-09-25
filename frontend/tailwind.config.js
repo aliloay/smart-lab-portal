@@ -52,11 +52,13 @@ export default {
       },
       letterSpacing: { technical: '0.14em' },
       boxShadow: {
-        card: '0 1px 0 0 rgba(255,255,255,0.05) inset, 0 10px 30px -14px rgba(2,6,23,0.85)',
-        lift: '0 1px 0 0 rgba(255,255,255,0.07) inset, 0 22px 44px -20px rgba(2,6,23,0.95)',
-        glow: '0 0 0 1px rgba(56,189,248,0.28), 0 0 36px -8px rgba(56,189,248,0.45)',
-        'glow-ok': '0 0 0 1px rgba(16,185,129,0.30), 0 0 36px -10px rgba(16,185,129,0.45)',
-        'glow-accent': '0 0 24px -4px rgba(14,165,233,0.65)',
+        // Glass: a faint top highlight, then a soft shadow for depth.
+        card: '0 1px 0 0 rgba(255,255,255,0.06) inset, 0 12px 32px -18px rgba(2,6,23,0.9)',
+        lift: '0 1px 0 0 rgba(255,255,255,0.08) inset, 0 20px 40px -22px rgba(2,6,23,0.95)',
+        // Glow is for a few important states only - kept faint.
+        glow: '0 0 0 1px rgba(56,189,248,0.30), 0 0 22px -10px rgba(56,189,248,0.40)',
+        'glow-ok': '0 0 0 1px rgba(16,185,129,0.30), 0 0 22px -12px rgba(16,185,129,0.40)',
+        'glow-accent': '0 0 16px -6px rgba(14,165,233,0.45)',
       },
       backgroundImage: {
         'grid-fine':
@@ -66,8 +68,10 @@ export default {
           'linear-gradient(rgba(125,211,252,0.07) 1px, transparent 1px),' +
           'linear-gradient(90deg, rgba(125,211,252,0.07) 1px, transparent 1px)',
         sheen: 'linear-gradient(180deg, rgba(56,189,248,0.08) 0%, transparent 55%)',
+        // Very faint circuit traces for the page ground.
+        circuit: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280' fill='none' stroke='%237dd3fc' stroke-width='1'%3E%3Cpath d='M0 70h60l20 20h60M140 90v50l30 30h110M40 0v40l30 30M200 0v60l-20 20M0 210h90l30-30h40M120 280v-60l20-20h40l30 30h70M230 120v40'/%3E%3Cg fill='%237dd3fc' stroke='none'%3E%3Ccircle cx='140' cy='90' r='2.5'/%3E%3Ccircle cx='170' cy='170' r='2.5'/%3E%3Ccircle cx='70' cy='70' r='2.5'/%3E%3Ccircle cx='160' cy='180' r='2.5'/%3E%3Ccircle cx='230' cy='160' r='2.5'/%3E%3C/g%3E%3C/svg%3E\")",
       },
-      backgroundSize: { 'grid-fine': '28px 28px', 'grid-major': '140px 140px' },
+      backgroundSize: { 'grid-fine': '28px 28px', 'grid-major': '140px 140px', circuit: '280px 280px' },
       keyframes: {
         pulseDot: {
           '0%,100%': { opacity: '1', transform: 'scale(1)' },
