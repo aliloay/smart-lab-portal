@@ -16,15 +16,19 @@ no API calls at all, and the scripted run must point at a separate database.
 
 ## Before the demo
 
-```bash
-# terminal 1 - API
-cd backend && .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
-alembic upgrade head
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+Put the laptop, the phone(s) and both ESP32 boards on the same Wi-Fi or
+phone hotspot. Then, on the laptop:
 
-# terminal 2 - portal
-cd frontend && npm run dev                     # http://localhost:5173
-```
+1. Start Docker Desktop and wait for **Engine running**.
+2. Double-click `launch.bat` (or run `docker compose up --build`). Note the
+   address it prints, e.g. `http://192.168.1.8`.
+3. Start the face server in a second window (it runs outside Docker, see
+   [DOOR_SYSTEM.md](DOOR_SYSTEM.md)):
+   `cd firmware/face_server` then `python face_server.py`
+4. If the network changed since the boards were flashed, set the camera's
+   `SERVER_IP` and the master's `BACKEND_IP` to the printed address, and the
+   master's `CAMERA_IP` to the address the camera prints on its Serial.
+5. Open the printed address on the phone. Nothing to install.
 
 Check: the top bar says **System healthy**; the access monitor shows the
 master controller online if the hardware is powered.

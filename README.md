@@ -125,27 +125,64 @@ latency-critical, and it must keep working if the portal is down.
 
 ---
 
-## Quick start — Docker
+## Quick start — Docker (recommended)
+
+One command starts the whole portal - PostgreSQL, the API and the web app:
 
 ```bash
-cp .env.example .env          # then edit: set real secrets
 docker compose up --build
 ```
 
-- Portal: <http://localhost>
-- API docs: <http://localhost:8000/api/docs>
+On Windows you can double-click **`launch.bat`** instead. It runs exactly
+that command, after checking Docker Desktop is running, and prints the
+address to use from phones and in the ESP32 firmware.
 
-Migrations run automatically before the API accepts traffic.
+On first start the API migrates the database and seeds the accounts,
+laboratories, door devices and equipment (only what is missing; it never
+invents activity). Set `SEED_DEMO_DATA=false` in `.env` to skip seeding.
 
-Seed the demo data once the stack is up:
+| Who | Address |
+|---|---|
+| This laptop | <http://localhost> |
+| Phones and other laptops on the same Wi-Fi or hotspot | `http://<laptop LAN IP>` - e.g. `http://192.168.1.8` |
+| ESP32 master (`BACKEND_IP` in the firmware) | `<laptop LAN IP>`, port `8000` |
+| API documentation | <http://localhost:8000/api/docs> |
+| Database tools (pgAdmin, psql) on this laptop only | `localhost:5433`, user and database `smartlab` |
 
-```bash
-docker compose exec backend python seed.py
-```
+The LAN IP is the Wi-Fi adapter's `IPv4 Address` in `ipconfig` (ignore
+VMware or WSL adapters). It changes when you switch networks - e.g. to a
+phone hotspot - and the firmware's `BACKEND_IP` must then change with it.
 
-## Quick start — without Docker
+Stop with `Ctrl+C` or `docker compose down`. Data is kept in Docker volumes
+(`pgdata`, `uploads`); `docker compose down -v` **deletes** it.
 
-Needs Python 3.11+, Node 20+, PostgreSQL 14+.
+**Before the first start:**
+
+- Windows Home needs WSL 2 for Docker Desktop: in an Administrator
+  PowerShell run `wsl --install --no-distribution`, then restart.
+- Ports 80 and 8000 must be free: stop any `uvicorn` or other web server you
+  started by hand.
+- Optional: copy `.env.example` to `.env` to set your own `SECRET_KEY`,
+  `POSTGRES_PASSWORD` and `DEVICE_API_KEY` (the firmware's `DEVICE_KEY` must
+  match it). Without a `.env` the development defaults are used.
+- To reach the portal from a phone, allow it through Windows Firewall once
+  (Administrator prompt), and set the Wi-Fi connection's network profile to
+  **Private**:
+
+  ```bat
+  netsh advfirewall firewall add rule name="Smart Lab Portal" dir=in action=allow protocol=TCP localport=80,8000,5000 profile=private
+  ```
+
+  Port 5000 is the face server, which runs outside Docker on purpose (see
+  [DOOR_SYSTEM.md](docs/DOOR_SYSTEM.md)).
+
+The Docker database is its own volume. It does not share data with a
+PostgreSQL installed directly on the machine.
+
+## Development without Docker
+
+For working on the code with hot reload (and for running the tests). Needs
+Python 3.11+, Node 20+, PostgreSQL 14+.
 
 ```bash
 # 1. database
