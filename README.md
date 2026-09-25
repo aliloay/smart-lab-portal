@@ -25,6 +25,12 @@ Research Laboratory Management System*, German International University, Cairo.
   factors and their identities, result, entry, door cycle — and an exit only when one is observed
 - **Maintenance workflow**: anyone can report a broken, missing or unsafe item with photos in
   about a minute; staff triage, assign, fix and record it, with a full audit timeline
+- **Equipment lifecycle**: serial number, current holder, last inspection, next maintenance
+  (overdue flagged), maintenance history and one timeline of each item's life
+- **Access sessions**: any door event opens the session it belongs to - both factors, result,
+  entry, door cycle, and an exit only when one was recorded
+- **Simulation mode** for demonstrations without hardware, clearly labelled and entirely in the
+  browser - it never writes to the audit trail
 - **Role-specific experiences** for students, laboratory staff and administrators
 - **Live operations**: authenticated WebSocket stream, device heartbeats with automatic
   offline alerts, and in-portal notifications
@@ -50,6 +56,17 @@ photographs of the rooms.
 | ![Issue detail](docs/screenshots/issue-detail.png) | ![Access monitor](docs/screenshots/access-monitor.png) |
 | **System overview (admin)** | |
 | ![Admin overview](docs/screenshots/admin-overview.png) | |
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, responsibilities, the guarantees, code layout |
+| [DATABASE.md](docs/DATABASE.md) | every table, indexes, migrations, safe upgrade with a backup |
+| [ACCESS_FLOW.md](docs/ACCESS_FLOW.md) | booking → QR → step 1 → step 2 → relay → audit, fail-closed paths |
+| [MAINTENANCE.md](docs/MAINTENANCE.md) | issue workflow, permissions, photos, dashboards, equipment lifecycle |
+| [DEMO.md](docs/DEMO.md) | a 15-minute demonstration script, with and without hardware |
+| [DOOR_SYSTEM.md](docs/DOOR_SYSTEM.md) | firmware, wiring, launch order, troubleshooting |
 
 ---
 
@@ -290,7 +307,7 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_te
 Use a dedicated test database, never your real one. GitHub Actions runs the
 same suite against a PostgreSQL service container on every push.
 
-**134 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
+**153 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
 comparison is precisely what must not be tested on a different engine than
 production runs.
 
@@ -306,6 +323,10 @@ production runs.
 - `test_portal.py` — availability without identities, role scoping,
   notifications, device offline detection, and WebSocket authentication and
   cross-thread delivery.
+- `test_lifecycle.py` — equipment holder, inspections and maintenance due,
+  the lifecycle timeline, access-session detail and event → session lookup,
+  RFID entries without a booking, and the staff notifications (pending
+  bookings, security events, cancellations, new reports).
 
 ### Navigation in a real browser
 
@@ -319,12 +340,25 @@ journey from laboratory to QR, rapid clicking, back/forward, direct URLs,
 reloads and an expired session - failing on any blank or invisible page,
 error screen or console error. CI runs it against the production build.
 
+```bash
+npm run test:e2e:workflows  # writes test data: use the CI or a QA database
+```
+
+The things people actually do, through the UI: a student books through the
+wizard and opens the QR; staff book for a student; a student reports an
+issue with a photo; staff acknowledge, assign, add an internal note and an
+"after" photo, and resolve; the admin closes and reopens; the student never
+sees the internal note and is notified. It also runs a simulation (and fails
+if that touches the API), opens an access session, and checks key pages at
+phone width for sideways scrolling.
+
 ### End-to-end
 
-With the API running:
+With an API running **against a QA database** (it writes a booking and door
+events to whatever database that API uses):
 
 ```bash
-python tests/e2e_booking_to_door.py
+E2E_API=http://127.0.0.1:8001/api python tests/e2e_booking_to_door.py
 ```
 
 Drives the live API over HTTP as the real components do — student logs in and
@@ -457,11 +491,12 @@ smart-lab-portal/
 │   │   │                  notifications, devices  ← the rules live here
 │   │   └── ws/            authenticated live stream
 │   ├── alembic/      migrations (checked against the models in CI)
-│   └── tests/        134 tests + 30 end-to-end assertions
+│   └── tests/        153 tests + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
-│   └── e2e/          real-browser navigation test
+│   └── e2e/          real-browser navigation and workflow tests
 ├── firmware/         master (portal), camera, face server
-├── docs/             door subsystem reference, screenshots
+├── docs/             architecture, database, access flow, maintenance,
+│                     demo script, door subsystem, screenshots
 ├── .github/workflows CI: backend tests, migrations, build, browser test
 └── docker-compose.yml
 ```

@@ -15,3 +15,7 @@ recognition_log.csv
 *.tsbuildinfo
 # issue photos uploaded through the portal (local storage backend)
 backend/uploads/
+
+# database backups (pg_dump) never belong in git
+*.dump
+*.backup
