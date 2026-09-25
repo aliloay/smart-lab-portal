@@ -74,6 +74,13 @@ constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 // every time. If face distances rise noticeably, go back towards 14.
 constexpr int JPEG_QUALITY = 18;
 
+// Camera resolution. TEST IN PROGRESS: CIF (400x296) instead of VGA (640x480)
+// = about 60% fewer pixels, so smaller uploads and more frames per second
+// over weak WiFi. Simulated door frames still decoded the QR at this size.
+// TO REVERT: change FRAMESIZE_CIF back to FRAMESIZE_VGA (the value before
+// this test) - nothing else was changed for it.
+constexpr framesize_t FRAME_SIZE = FRAMESIZE_CIF;
+
 // Print a [PERF] line this often: frames/s actually sent and where the time
 // goes (capture vs upload+reply). Set to 0 to silence it.
 constexpr uint32_t PERF_EVERY_MS = 10000;
@@ -434,7 +441,7 @@ void setup() {
   // ONE configuration serving both jobs. VGA + good quality: faces need the
   // detail, and QR codes decode more reliably at higher resolution too.
   config.pixel_format = PIXFORMAT_JPEG;
-  config.frame_size   = FRAMESIZE_VGA;    // 640x480
+  config.frame_size   = FRAME_SIZE;       // see FRAME_SIZE above
   config.jpeg_quality = JPEG_QUALITY;
   config.grab_mode    = CAMERA_GRAB_LATEST;
 
