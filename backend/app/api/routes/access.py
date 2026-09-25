@@ -22,7 +22,7 @@ from app.services import sessions
 from app.services.access import get_device, get_lab_by_code, validate_qr, validate_rfid
 from app.services.devices import resolve_offline_alerts
 from app.services.events import log_event
-from app.services.notifications import notify
+from app.services.notifications import notify, notify_security
 from app.ui_text import denial_sentence
 
 router = APIRouter(prefix="/access", tags=["access (device)"])
@@ -104,6 +104,10 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
               method=req.method, result=req.result, reason=req.reason,
               message=req.message or req.event_type.value,
               metadata=req.metadata)
+
+    if req.event_type == EventType.IDENTITY_MISMATCH:
+        notify_security(db, lab, "IDENTITY_MISMATCH",
+                        req.message or "The biometric did not match step 1.")
 
     if lab is not None:
         # The door cycle is recorded on the session; it does not end it.
@@ -190,6 +194,9 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
               method=req.method, result=AccessResult.DENIED,
               reason=req.reason,
               message=req.message or f"Access denied: {req.reason}")
+
+    if req.reason:
+        notify_security(db, lab, req.reason, req.message or "")
 
     # Tell the person, once. The master can report the same refusal from two
     # places in quick succession; a minute of de-duplication keeps that to a

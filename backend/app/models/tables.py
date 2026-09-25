@@ -193,6 +193,8 @@ class Booking(Base):
     __table_args__ = (
         CheckConstraint("start_time < end_time", name="ck_booking_window"),
         Index("ix_booking_lab_window", "lab_id", "start_time", "end_time"),
+        # "my bookings", newest first - the most frequent student query
+        Index("ix_booking_user_start", "user_id", "start_time"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -288,7 +290,9 @@ class AccessEvent(Base):
     """The complete event timeline. Every lab-related event references a lab."""
     __tablename__ = "access_events"
     __table_args__ = (Index("ix_event_lab_time", "lab_id", "created_at"),
-                      Index("ix_event_type_time", "event_type", "created_at"))
+                      Index("ix_event_type_time", "event_type", "created_at"),
+                      # a person's own timeline (student dashboard, traces)
+                      Index("ix_event_user_time", "user_id", "created_at"))
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_type: Mapped[EventType] = mapped_column(
@@ -323,6 +327,8 @@ class AccessSession(Base):
     ever presented as an exit when end_reason is EXIT_RECORDED.
     """
     __tablename__ = "access_sessions"
+    # "who is inside this lab now" = open sessions per lab
+    __table_args__ = (Index("ix_session_lab_open", "lab_id", "ended_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
@@ -361,16 +367,29 @@ class Asset(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
+    # Lifecycle. All optional: an item may never have been inspected, and
+    # a missing value is shown as "not recorded", never guessed.
+    serial_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Who has it right now. Set on checkout, cleared on return.
+    holder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    checked_out_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    last_inspected_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    next_maintenance_at: Mapped[datetime | None] = mapped_column(
+        TS, nullable=True, index=True)
+
 
 class AssetTransaction(Base):
     __tablename__ = "asset_transactions"
+    __table_args__ = (Index("ix_asset_tx_asset_time", "asset_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"),
                                           index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
-    action: Mapped[str] = mapped_column(String(32))          # CHECKOUT / RETURN
+    # CHECKOUT / RETURN / INSPECTION / STATUS_<new status>
+    action: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     note: Mapped[str] = mapped_column(String(255), default="")
 

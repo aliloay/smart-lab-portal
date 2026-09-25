@@ -296,6 +296,16 @@ class EventOut(ORM):
     device_name: Optional[str] = None
 
 
+class SessionTrace(BaseModel):
+    """One occupancy session, traced: who, where, both factors, the door."""
+    session: SessionOut
+    user: "UserBrief"
+    lab: LabOut
+    booking: Optional[BookingOut] = None
+    summary: TraceSummary
+    events: list[EventOut] = []
+
+
 class BookingTrace(BaseModel):
     booking: BookingOut
     user: UserBrief
@@ -376,7 +386,16 @@ class AssetOut(ORM):
     notes: str
     lab_code: Optional[str] = None
     lab_name: Optional[str] = None
+    lab_location: Optional[str] = None
     open_issues: int = 0
+    # lifecycle
+    serial_number: Optional[str] = None
+    holder_id: Optional[int] = None
+    holder_name: Optional[str] = None       # staff only
+    checked_out_at: Optional[datetime] = None
+    last_inspected_at: Optional[datetime] = None
+    next_maintenance_at: Optional[datetime] = None
+    maintenance_due: bool = False           # next_maintenance_at has passed
 
 
 class AssetCreate(BaseModel):
@@ -385,11 +404,23 @@ class AssetCreate(BaseModel):
     category: str = ""
     lab_id: int
     notes: str = ""
+    serial_number: Optional[str] = Field(default=None, max_length=64)
+    next_maintenance_at: Optional[datetime] = None
 
 
 class AssetUpdate(BaseModel):
     status: Optional[AssetStatus] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
+    name: Optional[str] = Field(default=None, min_length=2, max_length=128)
+    category: Optional[str] = Field(default=None, max_length=64)
+    serial_number: Optional[str] = Field(default=None, max_length=64)
+    next_maintenance_at: Optional[datetime] = None
+
+
+class AssetInspect(BaseModel):
+    """A recorded inspection: when, what was found, when the next is due."""
+    note: str = Field(default="", max_length=255)
+    next_maintenance_at: Optional[datetime] = None
 
 
 class AssetTransactionOut(ORM):
@@ -415,11 +446,23 @@ class AssetMaintenanceRow(BaseModel):
     is_mine: bool = False
 
 
+class LifecycleEntry(BaseModel):
+    """One line of an item's life: reported, fixed, inspected, lent, moved."""
+    at: datetime
+    kind: str       # ISSUE_REPORTED / ISSUE_RESOLVED / INSPECTION / CHECKOUT /
+                    # RETURN / STATUS
+    title: str
+    detail: str = ""
+    actor: Optional[str] = None     # staff only
+    issue_id: Optional[int] = None
+
+
 class AssetDetail(BaseModel):
     asset: "AssetOut"
     lab: "LabOut"
     transactions: list[AssetTransactionOut] = []
     maintenance: list[AssetMaintenanceRow] = []
+    lifecycle: list[LifecycleEntry] = []
 
 
 class AlertOut(ORM):

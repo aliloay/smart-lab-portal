@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin, require_staff
@@ -15,13 +15,16 @@ from app.models import (AccessEvent, AccessResult, AccessSession, Alert, Asset,
                         BookingStatus, Device, EventType, Issue, IssueSeverity,
                         Lab, RfidCredential, Role, User)
 from app.schemas import (AdminSummary, AlertOut, AssetCreate, AssetDetail,
-                         AssetMaintenanceRow, AssetOut, AssetTransactionOut,
-                         AssetUpdate, DeviceCreate, DeviceOut, EventOut, LabOut,
-                         SessionOut, UserOut, UserUpdate)
+                         AssetInspect, AssetMaintenanceRow, AssetOut,
+                         AssetTransactionOut, AssetUpdate, DeviceCreate,
+                         DeviceOut, EventOut, LabOut, LifecycleEntry,
+                         SessionOut, SessionTrace, UserBrief, UserOut,
+                         UserUpdate)
 from app.services.devices import device_out, is_fresh, refresh_liveness
 from app.services.events import log_event
 from app.services.issues import ACTIVE as ISSUE_ACTIVE, is_overdue
 from app.services.sessions import close_expired, duration_minutes
+from app.services.trace import DOOR_EVENTS, event_out, summarise
 
 router = APIRouter(tags=["admin"])
 
@@ -140,6 +143,77 @@ def access_sessions(lab_id: Optional[int] = None,
         item.duration_minutes = duration_minutes(s)
         out.append(item)
     return out
+
+
+@router.get("/access-sessions/lookup")
+def session_lookup(user_id: int, lab_id: int, at: datetime,
+                   db: Session = Depends(get_db),
+                   caller: User = Depends(get_current_user)):
+    """
+    The session a moment belongs to: the latest session of this person in
+    this lab that had started by `at` (plus a short margin, because the grant
+    is reported just after the biometric). Lets any access event link to its
+    session. Students may only look themselves up.
+    """
+    if not _staff(caller) and user_id != caller.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    at = _utc(at)
+    s = db.scalar(select(AccessSession).where(
+        AccessSession.user_id == user_id, AccessSession.lab_id == lab_id,
+        AccessSession.started_at <= at + timedelta(minutes=3))
+        .order_by(desc(AccessSession.started_at)))
+    # Too old to be the same visit when it ended well before `at`.
+    if s is not None and s.ended_at is not None and             _utc(s.ended_at) < at - timedelta(minutes=3):
+        s = None
+    return {"session_id": s.id if s else None}
+
+
+@router.get("/access-sessions/{session_id}", response_model=SessionTrace)
+def session_detail(session_id: int, db: Session = Depends(get_db),
+                   caller: User = Depends(get_current_user)):
+    """
+    One visit, end to end: the booking (if any), step 1 and its identity,
+    step 2 and its identity, the grant, the door cycle, and an exit only if
+    one was recorded. Works for RFID entries with no booking too.
+    """
+    close_expired(db)
+    s = db.get(AccessSession, session_id)
+    if s is None or (not _staff(caller) and s.user_id != caller.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
+    user = db.get(User, s.user_id)
+    lab = db.get(Lab, s.lab_id)
+
+    start = _utc(s.started_at) - timedelta(minutes=3)
+    end = (_utc(s.ended_at) if s.ended_at else datetime.now(timezone.utc))         + timedelta(minutes=1)
+    conds = [and_(AccessEvent.user_id == s.user_id,
+                  AccessEvent.lab_id == s.lab_id,
+                  AccessEvent.event_type.in_(DOOR_EVENTS))]
+    if s.booking_id:
+        conds.append(and_(AccessEvent.booking_id == s.booking_id,
+                          AccessEvent.event_type.in_(DOOR_EVENTS)))
+    events = db.scalars(select(AccessEvent).where(
+        or_(*conds), AccessEvent.created_at >= start,
+        AccessEvent.created_at <= end).order_by(AccessEvent.created_at)).all()
+
+    ses = SessionOut.model_validate(s)
+    ses.user_name = user.full_name if user else None
+    ses.lab_code = lab.code if lab else None
+    ses.duration_minutes = duration_minutes(s)
+
+    booking = None
+    if s.booking_id:
+        from app.api.routes.bookings import _decorate
+        b = db.get(Booking, s.booking_id)
+        booking = _decorate(db, b) if b else None
+
+    return SessionTrace(
+        session=ses,
+        user=UserBrief(id=user.id, full_name=user.full_name, role=user.role,
+                       auth_subject=user.auth_subject),
+        lab=LabOut.model_validate(lab),
+        booking=booking,
+        summary=summarise(db, list(events), [s], user),
+        events=[event_out(db, e, lab) for e in events])
 
 
 # --------------------------------------------------------------- summary ---
@@ -298,70 +372,136 @@ def create_device(req: DeviceCreate, db: Session = Depends(get_db),
 
 # ---------------------------------------------------------------- assets ---
 def _asset_out(db: Session, a: Asset, labs: dict[int, Lab],
-               open_counts: Counter) -> AssetOut:
+               open_counts: Counter, viewer: Optional[User] = None,
+               now: Optional[datetime] = None) -> AssetOut:
+    now = now or datetime.now(timezone.utc)
     out = AssetOut.model_validate(a)
     lab = labs.get(a.lab_id)
     out.lab_code = lab.code if lab else None
     out.lab_name = lab.name if lab else None
+    out.lab_location = lab.location if lab else None
     out.open_issues = open_counts.get(a.id, 0)
+    out.maintenance_due = (a.next_maintenance_at is not None
+                           and _utc(a.next_maintenance_at) <= now)
+    # Who is holding an item is personal data: staff see the name.
+    if a.holder_id and viewer is not None and _staff(viewer):
+        h = db.get(User, a.holder_id)
+        out.holder_name = h.full_name if h else None
+    else:
+        out.holder_id = None
     return out
 
 
+def _open_counts(db: Session, asset_id: Optional[int] = None) -> Counter:
+    stmt = select(Issue.asset_id).where(Issue.asset_id.is_not(None),
+                                        Issue.status.in_(ISSUE_ACTIVE))
+    if asset_id is not None:
+        stmt = stmt.where(Issue.asset_id == asset_id)
+    return Counter(db.scalars(stmt).all())
+
+
+def _labs(db: Session) -> dict[int, Lab]:
+    return {l.id: l for l in db.scalars(select(Lab)).all()}
+
+
 @router.get("/assets", response_model=list[AssetOut])
-def list_assets(lab_id: Optional[int] = None, db: Session = Depends(get_db),
-                _: User = Depends(get_current_user)):
+def list_assets(lab_id: Optional[int] = None, due: bool = False,
+                db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
     stmt = select(Asset).order_by(Asset.name)
     if lab_id is not None:
         stmt = stmt.where(Asset.lab_id == lab_id)
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
-        Issue.asset_id.is_not(None), Issue.status.in_(ISSUE_ACTIVE))).all())
-    return [_asset_out(db, a, labs, open_counts)
+    labs, counts, now = _labs(db), _open_counts(db), datetime.now(timezone.utc)
+    rows = [_asset_out(db, a, labs, counts, user, now)
             for a in db.scalars(stmt).all()]
+    return [r for r in rows if r.maintenance_due] if due else rows
 
 
 @router.get("/assets/{asset_id}", response_model=AssetDetail)
 def asset_detail(asset_id: int, db: Session = Depends(get_db),
                  user: User = Depends(get_current_user)):
-    """The equipment's record: where it is, who used it, what went wrong."""
+    """
+    The equipment's record: where it is, who has it, when it was last
+    inspected, when maintenance is due, and everything that went wrong.
+    """
     a = db.get(Asset, asset_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
-        Issue.asset_id == a.id, Issue.status.in_(ISSUE_ACTIVE))).all())
+    labs = _labs(db)
+    staff = _staff(user)
+    names: dict[int, Optional[str]] = {}
 
-    tx = []
-    if _staff(user):
-        for t in db.scalars(select(AssetTransaction).where(
-                AssetTransaction.asset_id == a.id)
-                .order_by(desc(AssetTransaction.created_at)).limit(50)).all():
+    def name(uid: Optional[int]) -> Optional[str]:
+        if uid is None:
+            return None
+        if uid not in names:
+            u = db.get(User, uid)
+            names[uid] = u.full_name if u else None
+        return names[uid]
+
+    txs = db.scalars(select(AssetTransaction).where(
+        AssetTransaction.asset_id == a.id)
+        .order_by(desc(AssetTransaction.created_at)).limit(200)).all()
+    tx_out = []
+    if staff:
+        for t in txs[:50]:
             item = AssetTransactionOut.model_validate(t)
-            u = db.get(User, t.user_id)
-            item.user_name = u.full_name if u else None
-            tx.append(item)
+            item.user_name = name(t.user_id)
+            tx_out.append(item)
 
+    issues = db.scalars(select(Issue).where(Issue.asset_id == a.id)
+                        .order_by(desc(Issue.created_at))).all()
     history = []
-    for i in db.scalars(select(Issue).where(Issue.asset_id == a.id)
-                        .order_by(desc(Issue.created_at))).all():
-        tech = db.get(User, i.assigned_to_id) if i.assigned_to_id else None
+    for i in issues:
         history.append(AssetMaintenanceRow(
             id=i.id, ticket_number=i.ticket_number, title=i.title,
             category=i.category, severity=i.severity, status=i.status,
             created_at=i.created_at, resolved_at=i.resolved_at,
-            technician=tech.full_name if tech else None,
+            technician=name(i.assigned_to_id),
             resolution_notes=i.resolution_notes or "",
             is_mine=i.reporter_id == user.id))
 
-    return AssetDetail(asset=_asset_out(db, a, labs, open_counts),
-                       lab=LabOut.model_validate(labs[a.lab_id]),
-                       transactions=tx, maintenance=history)
+    # One timeline of the item's life. Check-outs name the borrower, so
+    # they are only part of it for staff.
+    life: list[LifecycleEntry] = []
+    for i in issues:
+        life.append(LifecycleEntry(
+            at=i.created_at, kind="ISSUE_REPORTED", issue_id=i.id,
+            title=f"{i.ticket_number} reported - {i.title}",
+            detail=f"{i.severity.value.title()} · {i.category.value.replace('_', ' ').title()}"))
+        if i.resolved_at:
+            life.append(LifecycleEntry(
+                at=i.resolved_at, kind="ISSUE_RESOLVED", issue_id=i.id,
+                title=f"{i.ticket_number} resolved",
+                detail=i.resolution_notes or "",
+                actor=name(i.assigned_to_id) if staff else None))
+    for t in txs:
+        if t.action == "INSPECTION":
+            life.append(LifecycleEntry(at=t.created_at, kind="INSPECTION",
+                                       title="Inspected", detail=t.note or "",
+                                       actor=name(t.user_id) if staff else None))
+        elif t.action.startswith("STATUS_"):
+            life.append(LifecycleEntry(
+                at=t.created_at, kind="STATUS",
+                title=f"Status changed to {t.action[7:].replace('_', ' ').lower()}",
+                detail=t.note or "", actor=name(t.user_id) if staff else None))
+        elif staff and t.action in ("CHECKOUT", "RETURN"):
+            life.append(LifecycleEntry(
+                at=t.created_at, kind=t.action,
+                title="Checked out" if t.action == "CHECKOUT" else "Returned",
+                detail=t.note or "", actor=name(t.user_id)))
+    life.sort(key=lambda e: _utc(e.at), reverse=True)
+
+    return AssetDetail(
+        asset=_asset_out(db, a, labs, _open_counts(db, a.id), user),
+        lab=LabOut.model_validate(labs[a.lab_id]),
+        transactions=tx_out, maintenance=history, lifecycle=life)
 
 
 @router.post("/assets", response_model=AssetOut,
              status_code=status.HTTP_201_CREATED)
 def create_asset(req: AssetCreate, db: Session = Depends(get_db),
-                 _: User = Depends(require_staff)):
+                 user: User = Depends(require_staff)):
     if db.scalar(select(Asset).where(Asset.asset_tag == req.asset_tag)):
         raise HTTPException(status.HTTP_409_CONFLICT, "asset_tag exists")
     if db.get(Lab, req.lab_id) is None:
@@ -370,8 +510,7 @@ def create_asset(req: AssetCreate, db: Session = Depends(get_db),
     db.add(a)
     db.commit()
     db.refresh(a)
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    return _asset_out(db, a, labs, Counter())
+    return _asset_out(db, a, _labs(db), Counter(), user)
 
 
 @router.patch("/assets/{asset_id}", response_model=AssetOut)
@@ -381,18 +520,42 @@ def update_asset(asset_id: int, req: AssetUpdate, db: Session = Depends(get_db),
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
     changes = req.model_dump(exclude_unset=True)
-    if "status" in changes and changes["status"] != a.status:
+    new_status = changes.get("status")
+    if new_status is not None and new_status != a.status:
         db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
-                                action=f"STATUS_{changes['status'].value}",
-                                note=f"{a.status.value} → {changes['status'].value}"))
+                                action=f"STATUS_{new_status.value}",
+                                note=f"{a.status.value} → {new_status.value}"))
+        # Leaving CHECKED_OUT any other way than a return still ends the loan.
+        if a.status == AssetStatus.CHECKED_OUT:
+            a.holder_id = None
+            a.checked_out_at = None
     for k, v in changes.items():
         setattr(a, k, v)
     db.commit()
     db.refresh(a)
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    open_counts = Counter(db.scalars(select(Issue.asset_id).where(
-        Issue.asset_id == a.id, Issue.status.in_(ISSUE_ACTIVE))).all())
-    return _asset_out(db, a, labs, open_counts)
+    return _asset_out(db, a, _labs(db), _open_counts(db, a.id), user)
+
+
+@router.post("/assets/{asset_id}/inspect", response_model=AssetOut)
+def inspect_asset(asset_id: int, req: AssetInspect,
+                  db: Session = Depends(get_db),
+                  user: User = Depends(require_staff)):
+    """Record an inspection now, and optionally when the next one is due."""
+    a = db.get(Asset, asset_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    now = datetime.now(timezone.utc)
+    if req.next_maintenance_at is not None and _utc(req.next_maintenance_at) <= now:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "The next maintenance date must be in the future")
+    a.last_inspected_at = now
+    if req.next_maintenance_at is not None:
+        a.next_maintenance_at = req.next_maintenance_at
+    db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
+                            action="INSPECTION", note=req.note.strip()))
+    db.commit()
+    db.refresh(a)
+    return _asset_out(db, a, _labs(db), _open_counts(db, a.id), user)
 
 
 @router.post("/assets/{asset_id}/checkout", response_model=AssetOut)
@@ -405,14 +568,15 @@ def checkout_asset(asset_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Asset is {a.status.value}")
     a.status = AssetStatus.CHECKED_OUT
+    a.holder_id = user.id
+    a.checked_out_at = datetime.now(timezone.utc)
     db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
                             action="CHECKOUT"))
     log_event(db, EventType.ASSET_CHECKOUT, lab_id=a.lab_id, user_id=user.id,
               message=f"{user.full_name} checked out {a.name}")
     db.commit()
     db.refresh(a)
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    return _asset_out(db, a, labs, Counter())
+    return _asset_out(db, a, _labs(db), _open_counts(db, a.id), user)
 
 
 @router.post("/assets/{asset_id}/return", response_model=AssetOut)
@@ -424,15 +588,21 @@ def return_asset(asset_id: int, db: Session = Depends(get_db),
     if a.status != AssetStatus.CHECKED_OUT:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Asset is {a.status.value}, not checked out")
+    # Only the borrower or staff can return an item.
+    if not _staff(user) and a.holder_id not in (None, user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Only the person who checked it out, or staff, "
+                            "can return this item")
     a.status = AssetStatus.AVAILABLE
+    a.holder_id = None
+    a.checked_out_at = None
     db.add(AssetTransaction(asset_id=a.id, user_id=user.id, lab_id=a.lab_id,
                             action="RETURN"))
     log_event(db, EventType.ASSET_RETURN, lab_id=a.lab_id, user_id=user.id,
               message=f"{user.full_name} returned {a.name}")
     db.commit()
     db.refresh(a)
-    labs = {l.id: l for l in db.scalars(select(Lab)).all()}
-    return _asset_out(db, a, labs, Counter())
+    return _asset_out(db, a, _labs(db), _open_counts(db, a.id), user)
 
 
 # ---------------------------------------------------------------- alerts ---

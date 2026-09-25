@@ -102,3 +102,31 @@ def ensure_booking_reminders(db: Session, user: User) -> int:
     if created:
         db.commit()
     return created
+
+
+# Refusals that suggest someone is trying a credential that is not theirs,
+# rather than an honest mistake like arriving early.
+SECURITY_REASONS = {"IDENTITY_MISMATCH", "UNKNOWN_CREDENTIAL", "TOKEN_UNKNOWN",
+                    "WRONG_LAB", "TOKEN_REVOKED"}
+
+
+def notify_security(db: Session, lab: Optional[Lab], reason: str,
+                    detail: str = "") -> None:
+    """
+    Tell staff and administrators about a security-relevant refusal. At most
+    one per laboratory and reason every five minutes, so a burst of attempts
+    raises one notification instead of flooding every inbox.
+    """
+    if reason not in SECURITY_REASONS:
+        return
+    title = (f"Security event at {lab.code if lab else 'an unknown lab'}: "
+             f"{reason.replace('_', ' ').lower()}")
+    since = datetime.now(timezone.utc) - timedelta(minutes=5)
+    if db.scalar(select(Notification.id).where(
+            Notification.kind == "SECURITY_EVENT",
+            Notification.title == title[:160],
+            Notification.created_at >= since)):
+        return
+    notify(db, staff_ids(db), "SECURITY_EVENT", title, body=detail,
+           link="/admin/access", severity="critical"
+           if reason == "IDENTITY_MISMATCH" else "warning")
