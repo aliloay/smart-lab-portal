@@ -123,14 +123,19 @@ except Exception as e:                      # pragma: no cover
     print(f"[startup] WeChat QR decoder unavailable ({e}) - close-range QR only")
 
 
-def decode_qr(gray):
-    """QR payload in the frame, or None. Fast decoder first, WeChat second."""
+def decode_qr_fast(gray):
+    """QR payload via cv2.QRCodeDetector (~10 ms), or None."""
     try:
         data, _, _ = qr_detector.detectAndDecode(gray)
         if data:
             return data.strip()
     except Exception as e:
         print(f"[analyze] QR decode error: {e}")
+    return None
+
+
+def decode_qr_wechat(gray):
+    """QR payload via the WeChat decoder (~80-150 ms), or None."""
     if wechat_qr is not None:
         try:
             results, _ = wechat_qr.detectAndDecode(gray)
@@ -381,11 +386,12 @@ def analyze():
     # Decoding from the GRAYSCALE image, not the colour one: the detector
     # converts internally anyway, so handing it one channel instead of three
     # saves that conversion on every frame.
-    qr_payload = decode_qr(gray)
+    qr_payload = decode_qr_fast(gray)
     t_qr = time.perf_counter()
 
     # --- Face ---
     face_name, face_distance = None, None
+    face = None
     if model_trained:
         face = largest_face(gray)
         if face is not None:
@@ -395,6 +401,19 @@ def analyze():
                 face_name = label_to_name.get(label)
 
     t_face = time.perf_counter()
+
+    # --- QR, second chance ---
+    # The slow WeChat decoder only runs when the fast one found nothing AND
+    # there is no face in the frame. A frame showing a face is someone at
+    # step 2, not holding up a phone, and skipping WeChat there cut ~120 ms
+    # from every face frame. A QR held close in front of a face is still
+    # caught by the fast decoder above.
+    if qr_payload is None and face is None:
+        t_w = time.perf_counter()
+        qr_payload = decode_qr_wechat(gray)
+        dt = time.perf_counter() - t_w
+        t_qr += dt                    # report it as QR time, not face time
+        t_face += dt
 
     # Timing is printed only when something was actually found, so the console
     # stays readable. These numbers are worth putting in the thesis: they are
