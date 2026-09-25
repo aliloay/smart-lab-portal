@@ -19,3 +19,14 @@ backend/uploads/
 # database backups (pg_dump) never belong in git
 *.dump
 *.backup
+
+# local environment variants (the templates stay tracked)
+.env.*
+!.env.example
+
+# logs and temporary files
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
