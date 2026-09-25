@@ -244,3 +244,43 @@ def test_heartbeat_brings_a_never_seen_device_online(client, db, staff, lab,
                 json={"device_uid": "CAM_T", "lab_id": lab.code})
     after = {x["device_uid"]: x["state"] for x in client.get("/api/devices", headers=h).json()}
     assert after["CAM_T"] == "ONLINE"
+
+
+# ===========================================================================
+# Notification checklist: the two kinds without a direct test elsewhere,
+# and who may see what.
+# ===========================================================================
+def test_staff_cancelling_a_booking_notifies_the_owner(client, db, alice, staff,
+                                                       lab, now, hour):
+    b = create_booking(db, alice, lab, now + hour, now + 2 * hour, "x")
+    assert client.post(f"/api/bookings/{b.id}/cancel",
+                       headers=H(client, staff)).status_code == 200
+    n = db.query(Notification).filter_by(user_id=alice.id,
+                                         kind="BOOKING_CANCELLED").one()
+    assert n.booking_id == b.id and n.link == f"/bookings/{b.id}"
+    # the canceller is not told about their own action
+    assert db.query(Notification).filter_by(user_id=staff.id,
+                                            kind="BOOKING_CANCELLED").count() == 0
+
+
+def test_cancelling_your_own_booking_is_not_news(client, db, alice, lab, now, hour):
+    b = create_booking(db, alice, lab, now + hour, now + 2 * hour, "x")
+    client.post(f"/api/bookings/{b.id}/cancel", headers=H(client, alice))
+    assert db.query(Notification).filter_by(kind="BOOKING_CANCELLED").count() == 0
+
+
+def test_new_issue_reaches_staff_and_admins_not_other_students(client, db, alice,
+                                                               bob, staff, admin, lab):
+    r = client.post("/api/issues", headers=H(client, alice), json={
+        "lab_id": lab.id, "category": "MALFUNCTION", "severity": "MEDIUM",
+        "title": "Scope channel 2 flat",
+        "description": "Channel 2 shows no signal on any probe."})
+    assert r.status_code == 201
+    for u in (staff, admin):
+        n = db.query(Notification).filter_by(user_id=u.id, kind="ISSUE_REPORTED").one()
+        assert n.issue_id == r.json()["id"] and n.severity == "info"
+    # neither the reporter nor another student gets the staff notice
+    assert db.query(Notification).filter(
+        Notification.user_id.in_([alice.id, bob.id])).count() == 0
+    # and the API only ever returns a person's own notifications
+    assert client.get("/api/notifications", headers=H(client, bob)).json() == []
