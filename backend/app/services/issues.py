@@ -27,6 +27,7 @@ from app.models import (AccessEvent, Asset, Device, Issue, IssueComment,
 from app.schemas import (IssueCommentOut, IssueDetail, IssueHistoryOut,
                          IssueOut, IssuePhotoOut)
 from app.services.events import queue_message
+from app.services.integration import emit
 from app.services.notifications import notify, staff_ids
 from app.services.storage import (ImageRejected, get_storage, new_key,
                                   process_image)
@@ -201,6 +202,12 @@ def create_issue(db: Session, reporter: User, *, lab_id: int,
            link=_link(issue), severity="critical" if critical else
            ("warning" if severity == IssueSeverity.HIGH else "info"),
            issue_id=issue.id, exclude=reporter.id)
+    emit(db, "issue.created", lab_id=lab.id, user_id=reporter.id,
+         device_id=issue.device_id, object_type="issue", object_id=issue.id,
+         correlation_id=f"issue:{issue.id}",
+         payload={"ticket": issue.ticket_number, "title": title,
+                  "severity": severity.value, "category": category.value,
+                  "asset_id": issue.asset_id})
     db.commit()
     db.refresh(issue)
     return issue
@@ -432,6 +439,12 @@ def _set_status(db: Session, issue: Issue, actor: User, new: IssueStatus,
     if new == IssueStatus.ACKNOWLEDGED and issue.acknowledged_at is None:
         issue.acknowledged_at = _now()
     _history(db, issue, actor, event, message, old=old, new=new)
+    emit(db, "issue.status_changed", lab_id=issue.lab_id,
+         user_id=actor.id if actor else None, device_id=issue.device_id,
+         object_type="issue", object_id=issue.id,
+         correlation_id=f"issue:{issue.id}",
+         payload={"ticket": issue.ticket_number, "from": old.value if old else None,
+                  "to": new.value, "severity": issue.severity.value})
 
 
 # ---------------------------------------------------------------------------

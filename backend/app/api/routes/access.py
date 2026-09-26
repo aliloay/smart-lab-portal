@@ -8,13 +8,15 @@ line of firmware and no HTTP request can reach it.
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_device
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
-                        DeviceType, EventType, Notification, User)
+                        DeviceType, EventType, Notification, SensorReading,
+                        User)
 from app.schemas import (DeviceEventRequest, HeartbeatRequest,
                          ValidateQrRequest, ValidateResponse,
                          ValidateRfidRequest)
@@ -262,3 +264,41 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
         resolve_offline_alerts(db, device)
     db.commit()
     return {"status": "ok", "lab": lab.code, "device_id": device.id}
+
+
+# ------------------------------------------------------------- telemetry ---
+class TelemetryReading(BaseModel):
+    metric: str = Field(pattern=r"^[a-z][a-z0-9_]{1,47}$")
+    value: float = Field(allow_inf_nan=False)
+    unit: str = Field(default="", max_length=16)
+
+
+class TelemetryRequest(BaseModel):
+    device_uid: str = Field(max_length=64)
+    lab_id: str = Field(max_length=32)
+    readings: list[TelemetryReading] = Field(min_length=1, max_length=20)
+
+
+@router.post("/telemetry", tags=["devices"])
+def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
+              _: str = Depends(require_device)):
+    """
+    Environmental readings from a sensor node (temperature, humidity, CO2,
+    ...). Stored as reported; nothing is interpolated. No sensor node is
+    installed yet, so until one posts here every environment view says
+    "Awaiting sensor data" - this endpoint is the contract it will use.
+    """
+    lab = get_lab_by_code(db, req.lab_id)
+    if lab is None:
+        return {"status": "unknown_lab"}
+    device = get_device(db, req.device_uid)
+    now = datetime.now(timezone.utc)
+    for r in req.readings:
+        db.add(SensorReading(lab_id=lab.id,
+                             device_id=device.id if device else None,
+                             metric=r.metric, value=r.value, unit=r.unit,
+                             recorded_at=now))
+    if device is not None:
+        device.last_seen_at = now
+    db.commit()
+    return {"status": "recorded", "count": len(req.readings)}

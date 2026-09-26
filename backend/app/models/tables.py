@@ -418,6 +418,9 @@ class SensorReading(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_alerts_dedupe_key"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     lab_id: Mapped[int | None] = mapped_column(ForeignKey("labs.id"),
@@ -431,6 +434,9 @@ class Alert(Base):
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    # Set by automation (n8n) so a retried call cannot raise the same alert
+    # twice. NULL for alerts the portal raises itself.
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
 
 class AuditLog(Base):
@@ -596,6 +602,9 @@ class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
         Index("ix_notification_user_unread", "user_id", "is_read", "created_at"),
+        # One notification per person per automation key: a retried n8n run
+        # (or a reminder raised by both n8n and the lazy path) lands once.
+        UniqueConstraint("user_id", "dedupe_key", name="uq_notification_dedupe"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -614,3 +623,42 @@ class Notification(Base):
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     read_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+
+
+class IntegrationEvent(Base):
+    """
+    Transactional outbox for external automation (n8n).
+
+    A row is staged in the same transaction as the change it describes, so an
+    event exists if and only if the change committed. A background dispatcher
+    pushes selected types to n8n; every row is also readable from the pull
+    feed. event_id is the idempotency key consumers de-duplicate on - a push
+    that is retried after a timeout carries the same id.
+
+    This is an integration record, not the audit trail: access_events stays
+    the authoritative log, and pruning this table loses nothing.
+    """
+    __tablename__ = "integration_events"
+    __table_args__ = (
+        Index("ix_integration_due", "delivery_status", "next_attempt_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(48), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    lab_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    object_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    object_id: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(64), nullable=True,
+                                                       index=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # PENDING -> DELIVERED | FAILED (gave up) ; SKIPPED = not a pushed type
+    delivery_status: Mapped[str] = mapped_column(String(16), default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(255), nullable=True)

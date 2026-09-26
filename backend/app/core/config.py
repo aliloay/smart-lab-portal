@@ -86,6 +86,66 @@ class Settings(BaseSettings):
     ISSUE_SLA_HOURS_MEDIUM: int = 168
     ISSUE_SLA_HOURS_LOW: int = 336
 
+    # --- automation (n8n) ---------------------------------------------------
+    # Everything here is optional. With these unset the portal behaves exactly
+    # as before: events are still recorded in the outbox (so a consumer added
+    # later can read the history), nothing is pushed, and /api/automation/*
+    # answers 503. n8n is never on the door path - it cannot lock or unlock.
+    #
+    # Key n8n presents in X-Automation-Key when it calls /api/automation/*.
+    AUTOMATION_API_KEY: str = ""
+    # Base URL of the n8n webhooks, e.g. http://n8n:5678/webhook. Each pushed
+    # event goes to {base}/smartlab-{event.type with . -> -}.
+    AUTOMATION_WEBHOOK_BASE: str = ""
+    # Sent as X-Smartlab-Token on every push; the n8n Webhook nodes check it
+    # with a Header Auth credential.
+    AUTOMATION_WEBHOOK_TOKEN: str = ""
+    # Which event types are pushed. The rest stay in the pull feed only.
+    AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
+                                  "issue.created,device.offline,door.alarm")
+    AUTOMATION_MAX_ATTEMPTS: int = 6
+    # Delivered/skipped outbox rows older than this are pruned.
+    AUTOMATION_RETENTION_DAYS: int = 30
+
+    # Rule thresholds the automation API evaluates. Rules live here, in the
+    # backend, so n8n never re-implements them.
+    DENIAL_WINDOW_MINUTES: int = 10
+    DENIAL_WARNING_COUNT: int = 3
+    # Offline escalation, minutes since the last heartbeat: level 1 at the
+    # stale threshold, level 2 and 3 at these.
+    DEVICE_ESCALATE_L2_MINUTES: int = 15
+    DEVICE_ESCALATE_L3_MINUTES: int = 60
+    # Hours per day a laboratory is bookable - the denominator of the
+    # utilisation percentage, stated on the chart rather than hidden.
+    LAB_OPEN_HOURS_PER_DAY: int = 10
+    # Hours considered "out of hours" by the anomaly rules, in this zone.
+    LOCAL_TIMEZONE: str = "Africa/Cairo"
+    AFTER_HOURS_START: int = 22
+    AFTER_HOURS_END: int = 6
+    # metric=min:max, comma separated. Empty side = unbounded.
+    SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
+                              "co2=:1000,noise=:85")
+
+    @property
+    def automation_push_types(self) -> set[str]:
+        return {t.strip() for t in self.AUTOMATION_PUSH_TYPES.split(",")
+                if t.strip()}
+
+    @property
+    def sensor_thresholds(self) -> dict[str, tuple[float | None, float | None]]:
+        out: dict[str, tuple[float | None, float | None]] = {}
+        for part in self.SENSOR_THRESHOLDS.split(","):
+            if "=" not in part:
+                continue
+            metric, _, rng = part.partition("=")
+            lo, _, hi = rng.partition(":")
+            try:
+                out[metric.strip()] = (float(lo) if lo.strip() else None,
+                                       float(hi) if hi.strip() else None)
+            except ValueError:
+                continue
+        return out
+
     @property
     def cors_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
