@@ -74,6 +74,13 @@ constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 // every time. If face distances rise noticeably, go back towards 14.
 constexpr int JPEG_QUALITY = 18;
 
+// TEST: greyscale frames. The face server converts every frame to grey
+// before reading QR codes and faces, so recognition sees the same image -
+// but a grey JPEG carries no colour detail and should be smaller, i.e.
+// faster over weak WiFi. Compare the KB/frame and frames/s in [PERF].
+// TO REVERT: set to false (nothing else was changed for this test).
+constexpr bool GRAYSCALE = true;
+
 // How many frames may be in flight to the laptop at once. The link to the
 // laptop is LATENCY-bound, not bandwidth-bound: halving the JPEG size only
 // cut each round trip from ~620 to ~450 ms. With one frame at a time the
@@ -519,6 +526,10 @@ void setup() {
   if (esp_camera_init(&config) != ESP_OK) {
     Serial.println("[INIT][FAIL] Camera init failed.");
     return;
+  }
+  if (GRAYSCALE) {
+    sensor_t *sensor = esp_camera_sensor_get();
+    if (sensor) sensor->set_special_effect(sensor, 2);   // 2 = grayscale
   }
 
   camera_fb_t *test = captureWithRetry();
