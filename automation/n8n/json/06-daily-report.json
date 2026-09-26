@@ -1,0 +1,151 @@
+{
+  "id": "OzSJhnKihJQBDP5P",
+  "name": "Smart Lab 06 - Daily lab report",
+  "active": false,
+  "nodes": [
+    {
+      "id": "e736d830-4e00-5e06-af26-ccaceac0cfde",
+      "name": "Daily 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 20
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "44cf0351-6139-579c-a544-00643eec6300",
+      "name": "Build Report In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/reports/daily",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "93dfa921-3031-5082-afa3-fe6e03e526d6",
+      "name": "Send To Administrators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"DAILY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "cfb30fcc-6096-5f32-aad8-021b6a2ac38d",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"06-daily-report\", status: \"success\", summary: $(\"Build Report In Backend\").item.json.title, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "de943726-5896-59d9-af61-7a59214df134",
+      "name": "Sticky Note 330b6e34",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per period via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Daily 20:00": {
+      "main": [
+        [
+          {
+            "node": "Build Report In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report In Backend": {
+      "main": [
+        [
+          {
+            "node": "Send To Administrators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send To Administrators": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

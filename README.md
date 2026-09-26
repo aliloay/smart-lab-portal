@@ -205,6 +205,26 @@ migrations only add what is new. Only `docker compose down -v` **deletes** it.
 The Docker database is its own volume. It does not share data with a
 PostgreSQL installed directly on the machine.
 
+### Optional: n8n automation
+
+The normal start does not run n8n; the portal never depends on it. To add it:
+
+```bash
+# .env: AUTOMATION_API_KEY, AUTOMATION_WEBHOOK_BASE=http://n8n:5678/webhook,
+#       AUTOMATION_WEBHOOK_TOKEN, N8N_ENCRYPTION_KEY  (see .env.example)
+docker compose --profile automation up -d --build
+docker compose --profile automation exec n8n n8n import:workflow --separate --input=/workflows
+```
+
+n8n then runs at http://localhost:5678. Create the two credentials, activate
+the workflows, and watch them in **Operations Center → Automation**. The full
+steps, security boundary and verification results are in
+[docs/AUTOMATION.md](docs/AUTOMATION.md).
+
+**Graphify** is used only as an architecture map of this repository for the
+thesis (point it at the GitHub repo). No runtime part of the portal depends on
+it, and no Graphify key is stored here. See docs/AUTOMATION.md §8.
+
 ## Development without Docker
 
 For working on the code with hot reload (and for running the tests). Needs

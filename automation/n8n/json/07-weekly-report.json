@@ -1,0 +1,155 @@
+{
+  "id": "qgr1MGUZJBo0icgw",
+  "name": "Smart Lab 07 - Weekly lab report",
+  "active": false,
+  "nodes": [
+    {
+      "id": "6d2f6e6b-2e4e-5893-aed9-c0b5dc06952b",
+      "name": "Mondays 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d9afc848-a179-5242-afd6-da4dfedcdaf9",
+      "name": "Build Report In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/reports/weekly",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "aa29e03e-c400-5d46-a3ec-4da9a10836ab",
+      "name": "Send To Administrators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"WEEKLY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "91433411-4b62-5909-aae4-a441f8664057",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"07-weekly-report\", status: \"success\", summary: $(\"Build Report In Backend\").item.json.title, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "c5fa4a04-2fd2-5430-ad81-aec215e8001f",
+      "name": "Sticky Note 88262f3c",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Weekly lab report\nThe backend computes every figure from recorded rows (no estimates), including the previous week for comparison; n8n only schedules and delivers. Idempotent per period via dedupe key.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Mondays 07:00": {
+      "main": [
+        [
+          {
+            "node": "Build Report In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Report In Backend": {
+      "main": [
+        [
+          {
+            "node": "Send To Administrators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send To Administrators": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

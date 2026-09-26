@@ -1,0 +1,175 @@
+{
+  "id": "9lJpTc93G2Hl4YKH",
+  "name": "Smart Lab 10 - Post-session follow-up",
+  "active": false,
+  "nodes": [
+    {
+      "id": "6ecf9675-74a0-58ad-a4e3-b1c5eb65eea9",
+      "name": "Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9f1a5b64-7eeb-5ad1-a43e-bb6aca7dc371",
+      "name": "Get Bookings That Just Ended",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/bookings/ended?minutes=60",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "e3c37c32-6280-58d5-a120-5872d0c0f8d3",
+      "name": "One Item Per Booking",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "bookings"
+      }
+    },
+    {
+      "id": "ae2e5cdc-e508-58f7-a3fa-77d8f9b98b92",
+      "name": "Send Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"POST_SESSION\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.attended ? \"info\" : \"warning\", dedupe_key: $json.dedupe_key, booking_id: $json.booking_id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "f8ff0623-a067-5ccd-a5f7-54adbc29bb4d",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"10-post-session\", status: \"success\", summary: \"Follow-ups: \" + $(\"Get Bookings That Just Ended\").first().json.bookings.length, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "92fb6b92-f1a9-5e3f-ad86-5fab08f857d1",
+      "name": "Sticky Note 4b051442",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Post-session\nAttended: summary, and says 'exit not recorded' honestly when no exit was observed. Missed: a gentle no-show note. Text is composed by the backend.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Bookings That Just Ended",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Bookings That Just Ended": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Booking": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

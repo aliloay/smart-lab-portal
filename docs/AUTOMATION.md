@@ -144,46 +144,93 @@ held open repeatedly, device flapping (≥ 3 outages), refusals above 3× the
 lab's own 7-day baseline. No ML model is used, because there is no labelled
 training data. That is stated rather than faked.
 
-## 5. Running it
+## 5. Running it (verified end to end)
 
-### Option A: self-hosted n8n next to the portal (recommended for the demo)
+### Option A: self-hosted n8n next to the portal (recommended)
 
-```bash
-# .env (see .env.example) - generate each value, never commit them
+**1. Secrets:** in the repo root `.env` (gitignored; see `.env.example`), generate each value with
+`python -c "import secrets; print(secrets.token_urlsafe(32))"`:
+
+```
 AUTOMATION_API_KEY=<random>
 AUTOMATION_WEBHOOK_BASE=http://n8n:5678/webhook
 AUTOMATION_WEBHOOK_TOKEN=<random>
 N8N_ENCRYPTION_KEY=<random>
+```
 
+**2. Start:**
+
+```bash
+git pull
 docker compose --profile automation up -d --build
 ```
 
-n8n runs at http://localhost:5678 (bound to this laptop only) and reaches the
-API as `http://backend:8000`, the URL the workflows already use. Import the
-workflows (export them first, below), then create two credentials in n8n:
+The normal `docker compose up` (and the launch script) does **not** start
+n8n. That is intentional: the portal never depends on it. With the profile,
+the editor is at http://localhost:5678 (bound to this laptop only) and n8n
+reaches the API as `http://backend:8000`.
 
-* **Smart Lab automation key**: *Custom Auth (templated)* sending header
-  `X-Automation-Key: <AUTOMATION_API_KEY>`.
-* **Smart Lab webhook token**: *Header Auth*, name `X-Smartlab-Token`,
-  value `<AUTOMATION_WEBHOOK_TOKEN>`.
+**3. Import the 12 workflows:** they are version-controlled in
+`automation/n8n/json/`, mounted into the container at `/workflows`:
 
-Then activate the workflows.
+```bash
+docker compose --profile automation exec n8n n8n import:workflow --separate --input=/workflows
+```
+
+**4. Create the two credentials in the n8n editor** (Credentials → Add). The
+names must match exactly:
+
+| Name | Type | Setting |
+|---|---|---|
+| `Smart Lab automation key` | Simplified Custom Auth (`httpTemplatedCustomAuth`) | template `{"headers":{"X-Automation-Key":"{{automation_key}}"}}`, value = `AUTOMATION_API_KEY` |
+| `Smart Lab webhook token` | Header Auth | name `X-Smartlab-Token`, value = `AUTOMATION_WEBHOOK_TOKEN` |
+
+Open each workflow, select these credentials on the nodes that ask for them
+(the exported JSON references them by name only, never by id or value),
+save, and **Publish/Activate**.
+
+**5. Check it:** in the portal, Operations Center → *Automation (n8n)* shows
+the API and push as enabled, the outbox counts and each workflow's runs.
 
 ### Option B: n8n Cloud
 
-The twelve workflows already exist in the n8n Cloud project. n8n Cloud
-cannot reach a laptop on a private LAN, so it needs a public HTTPS URL for
-the backend (for example a Cloudflare Tunnel) in place of
-`http://backend:8000`, and `AUTOMATION_WEBHOOK_BASE=https://<you>.app.n8n.cloud/webhook`
-for the push. Outbound pushes from the backend to n8n Cloud work without a
-tunnel.
+The same 12 workflows exist in the n8n Cloud project (`workflows.json` lists
+their ids). n8n Cloud cannot reach a laptop on a private LAN, so it needs a
+public HTTPS URL for the backend (for example a Cloudflare Tunnel) in place of
+`http://backend:8000` in the HTTP nodes. Set
+`AUTOMATION_WEBHOOK_BASE=https://<you>.app.n8n.cloud/webhook`; outbound pushes
+work without a tunnel.
 
-### Export / import
+### Changing a workflow
+
+Edit `automation/n8n/gen.py` (or `src/*.ts`), then rebuild the JSON:
 
 ```bash
-N8N_URL=https://<you>.app.n8n.cloud N8N_API_KEY=... python3 automation/n8n/export_workflows.py
-docker compose --profile automation exec n8n n8n import:workflow --separate --input=/workflows
+cd automation/n8n
+python3 gen.py                                  # SDK sources
+npm i --no-save @n8n/workflow-sdk@0.33.1        # once
+node build_json.mjs                             # src/*.ts -> json/*.json
 ```
+
+`export_workflows.py` downloads the live versions from any n8n instance
+through its public API (key read from the environment only).
+
+### Release verification (2026-09-26)
+
+Verified on the real Docker Compose stack (db, backend, frontend, n8n 2.40.7):
+
+* Fresh volume: Alembic migrated to head (`d7a4c2e9f1b3`), seed ran, and
+  `/api/health` answered directly and through nginx on port 80.
+* n8n reached `http://backend:8000`; all 12 workflows imported through the CLI.
+* A webhook call without `X-Smartlab-Token` → 403.
+* **End to end:** 3 × real `POST /api/access/deny` → 3 outbox rows DELIVERED
+  → workflow 03 → `/access/denials` level `warning` → **1** alert and **1**
+  notification per staff member → run recorded in the Operations Center.
+* **Deduplication:** a 4th identical refusal → the workflow ran again, still
+  1 alert and 1 notification per person.
+* **n8n stopped:** login, booking, QR issuance, `validate-qr` (valid), deny
+  and the Operations Center all worked; the event stayed PENDING and was
+  DELIVERED on the retry after n8n came back.
 
 ## 6. Failure modes
 
@@ -215,9 +262,22 @@ Honesty rules, enforced in `app/services/analytics.py`:
 
 ## 8. Graphify
 
-Graphify builds a knowledge graph of a **codebase** (local files or a GitHub
-repository). It is not a live-data charting service, and it exposed no tools
-to this session, so the portal's charts are rendered by the frontend from
-backend aggregates. Graphify is useful for the thesis as an architecture map:
-point it at this repository to get the module and dependency graph for the
-report. No Graphify credential is needed or stored by the portal.
+What Graphify is: a service that builds a knowledge graph of a **codebase**
+(local files or a GitHub repository), exposed to AI tools through an MCP
+endpoint (`https://api.graphify.net/mcp`, Bearer API key). It is not a
+live-data charting service.
+
+What was done with it: nothing at runtime, by design.
+
+* The Graphify MCP was not connected to the session that built this layer.
+  No Graphify tool was available, so no graph was generated automatically.
+  Nothing in this document claims otherwise.
+* The portal's charts are drawn by the frontend from backend aggregates;
+  they do not depend on Graphify, and no Graphify key is stored anywhere in
+  the repository or the portal.
+* For the thesis, use it as an architecture map: in the Graphify console,
+  build a project from `github.com/aliloay/smart-lab-portal`. The graph shows
+  the modules (routes → services → models), the outbox and the automation
+  API as described in section 2.
+* Keep the API key in your own MCP client configuration only. Never commit
+  it, and revoke any key that has been pasted into a chat or document.

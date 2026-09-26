@@ -1,0 +1,230 @@
+{
+  "id": "ZhcCkMf7KgQDfmSh",
+  "name": "Smart Lab 03 - Access denial intelligence",
+  "active": false,
+  "nodes": [
+    {
+      "id": "05ede42e-0606-5903-a67f-811ab989d601",
+      "name": "Access Denied Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlab-access-denied",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "webhookId": "34038c54-27df-593d-a9d9-90d097ad549c",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab webhook token"
+        }
+      }
+    },
+    {
+      "id": "fe43dc7a-d0d3-5c54-a9e7-4f944584ac58",
+      "name": "Evaluate Denial Burst",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://backend:8000/api/automation/access/denials{{ $json.body.lab_id ? \"?lab_id=\" + $json.body.lab_id : \"\" }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "9124add5-5b21-50d4-a4d8-a25c1cf20975",
+      "name": "Is It A Burst?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.level }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "warning"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "ef2307a7-6d7c-5682-a356-93f8f0d7b5e0",
+      "name": "Raise Security Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: \"Repeated refusals at \" + $json.lab_code, detail: $json.message + \". Reasons: \" + Object.entries($json.by_reason).map(([k, v]) => k + \" x\" + v).join(\", \"), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "da7c2c1f-eff4-5bf5-a6b5-6d081cfbd5c5",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SECURITY_EVENT\", title: String(\"Repeated refusals at \" + $(\"Evaluate Denial Burst\").item.json.lab_code).slice(0, 160), body: String($(\"Evaluate Denial Burst\").item.json.message + \" - check the camera and who is at the door.\").slice(0, 500), link: \"/admin/access\", severity: \"warning\", dedupe_key: $(\"Evaluate Denial Burst\").item.json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "c5f0b78d-22c2-5048-a2d0-f63a306ce32f",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"03-access-denial-intelligence\", status: \"success\", summary: \"Burst at \" + $(\"Evaluate Denial Burst\").item.json.lab_code, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "a8085dad-84b5-5276-abaa-73c4b4092d9b",
+      "name": "Sticky Note fcf70c7b",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Access denial intelligence\n1 refusal = normal (early, wrong code). 3 within 10 min = warning (thresholds in backend config). One alert per burst via dedupe key.\n\nThis workflow NEVER locks or unlocks anything - the door decides on its own.",
+        "color": 3
+      }
+    }
+  ],
+  "connections": {
+    "Access Denied Event": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Denial Burst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Denial Burst": {
+      "main": [
+        [
+          {
+            "node": "Is It A Burst?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is It A Burst?": {
+      "main": [
+        [
+          {
+            "node": "Raise Security Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise Security Alert": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

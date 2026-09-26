@@ -1,0 +1,194 @@
+{
+  "id": "kGJmLTC5T0fuQvQN",
+  "name": "Smart Lab 01 - Booking confirmation briefing",
+  "active": false,
+  "nodes": [
+    {
+      "id": "05fa310b-4eb1-5c75-a792-95a01b4d3112",
+      "name": "Booking Confirmed Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlab-booking-confirmed",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "webhookId": "28c40c02-1489-57f7-af8a-d6227c363198",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab webhook token"
+        }
+      }
+    },
+    {
+      "id": "b05d867c-a7a5-5cce-a256-933c664e656a",
+      "name": "Get Booking Readiness",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://backend:8000/api/automation/bookings/{{ $json.body.object.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "67cd6261-3d36-53df-a0b0-2540889c13c9",
+      "name": "Lab Needs Heads-up?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.readiness.level }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "rightValue": "ok"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "b6e495ae-fdae-555c-a493-585735107c59",
+      "name": "Send Briefing To Student",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"BOOKING_BRIEFING\", title: \"Before your \" + $json.lab_code + \" session\", body: [...$json.readiness.warnings, ...$json.readiness.notes].join(\" \").slice(0, 490), link: $json.link, severity: $json.readiness.level === \"warning\" ? \"warning\" : \"info\", booking_id: $json.booking_id, dedupe_key: \"booking-briefing:\" + $json.booking_id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "db68767e-4feb-53d3-abac-2209ae87882f",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"01-booking-confirmation\", status: \"success\", summary: \"Briefing for booking \" + $(\"Get Booking Readiness\").item.json.booking_id, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "4cc0cfc5-930e-5baa-a48a-ff2fc4a3553e",
+      "name": "Sticky Note 6efc4898",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Booking confirmation briefing\nThe portal already confirms the booking. This adds a heads-up only when the lab is not in a normal state (controller offline, critical issue, equipment in maintenance). Readiness is decided by the backend. Never cancels.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Booking Confirmed Event": {
+      "main": [
+        [
+          {
+            "node": "Get Booking Readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Booking Readiness": {
+      "main": [
+        [
+          {
+            "node": "Lab Needs Heads-up?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lab Needs Heads-up?": {
+      "main": [
+        [
+          {
+            "node": "Send Briefing To Student",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Briefing To Student": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

@@ -1,0 +1,175 @@
+{
+  "id": "DrfbU4VJiQPIEmpK",
+  "name": "Smart Lab 12 - Rule-based anomaly detection",
+  "active": false,
+  "nodes": [
+    {
+      "id": "ba35c554-cea4-53d2-a5ac-07bf17704270",
+      "name": "Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "38f34001-d64b-5e6d-aa7d-5a91071ee4e5",
+      "name": "Run Anomaly Rules",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/anomalies?hours=24",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "3d7019bf-ed58-58c7-a70b-d7103dbe2aef",
+      "name": "One Item Per Anomaly",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "anomalies"
+      }
+    },
+    {
+      "id": "effda16b-f545-5a56-a7fa-1b0f357b8ea1",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"ANOMALY\", title: String(\"Anomaly: \" + $json.rule.replaceAll(\"_\", \" \") + ($json.lab_code ? \" at \" + $json.lab_code : \"\")).slice(0, 160), body: String($json.detail).slice(0, 500), link: \"/admin/access\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "e43a3230-3c3c-5628-ac7d-d9bf78216366",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"12-anomaly-detection\", status: \"success\", summary: \"Anomalies: \" + $(\"Run Anomaly Rules\").first().json.count, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1f1e9459-fcfc-57aa-a3e9-76079ca0d3f5",
+      "name": "Sticky Note fe6644ee",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Rule-based anomaly detection\nExplainable rules only, evaluated in the backend: denial bursts, repeated identity mismatch, after-hours access, forced entry / door held open, device flapping, refusals far above the lab's own 7-day baseline. No ML model - there is no training data. One notification per rule, lab and day.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Run Anomaly Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Anomaly Rules": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Anomaly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Anomaly": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

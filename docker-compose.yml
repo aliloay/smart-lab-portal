@@ -74,6 +74,8 @@ services:
       GENERIC_TIMEZONE: ${TZ_NAME:-Africa/Cairo}
       TZ: ${TZ_NAME:-Africa/Cairo}
       N8N_SECURE_COOKIE: "false"
+      # IPv4: n8n binds "::" by default and exits on hosts with IPv6 disabled.
+      N8N_LISTEN_ADDRESS: 0.0.0.0
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
     volumes:
       - n8ndata:/home/node/.n8n
