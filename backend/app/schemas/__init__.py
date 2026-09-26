@@ -362,8 +362,8 @@ class HeartbeatRequest(BaseModel):
     door_closed: Optional[bool] = None
     # Used only when the device is auto-registered by its first heartbeat.
     device_type: Optional[DeviceType] = None
-    # Optional per-component health, e.g. {"rfid": true, "relay_locked": true}.
-    # Current firmware does not send it; the field is here so it can.
+    # Per-component health: {"rfid", "fingerprint", "camera", "relay_locked"}.
+    # A false rfid/fingerprint/camera raises an alert (services/devices.py).
     components: Optional[dict[str, Any]] = None
 
 

@@ -125,11 +125,12 @@ export default function Devices() {
                 <div className="mb-2.5 text-[11.5px] text-slate-500">
                   Last reported {relative(master.last_seen_at)} - the controller is offline, so these are not live.</div>
               )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <Comp icon={<DoorClosed size={14} />} label="Door sensor" state={master.door_closed} stale={master.state !== 'ONLINE'} 
                       labels={['Closed', 'Open']} />
                 <Comp icon={<Radio size={14} />} label="RFID reader" stale={master.state !== 'ONLINE'} state={comp('rfid')} labels={['Ready', 'Fault']} />
                 <Comp icon={<Fingerprint size={14} />} label="Fingerprint" stale={master.state !== 'ONLINE'} state={comp('fingerprint')} labels={['Ready', 'Fault']} />
+                <Comp icon={<Camera size={14} />} label="Camera" stale={master.state !== 'ONLINE'} state={comp('camera')} labels={['Ready', 'Fault']} />
                 <Comp icon={<Lock size={14} />} label="Relay" stale={master.state !== 'ONLINE'} state={comp('relay_locked')} labels={['Locked', 'Unlocked']} />
               </div>
               </div>
