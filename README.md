@@ -54,7 +54,7 @@ Research Laboratory Management System*, German International University, Cairo.
   most no-shows?"). Answers come from the portal's own records through read-only tools.
   Students get their own helper for their bookings, reports, door refusals and free labs.
   Both know how the whole system works. Open it from the round chat button or the sidebar.
-  Runs **free on your own computer with Ollama** (two small models, one per chat), or on
+  Runs **free on your own computer with Ollama** (one small model shared by both chats), or on
   Claude if you add a key. Also
   a ranked "what to fix first" maintenance list, week-over-week trends and CSV/PDF export -
   see [AI_ASSISTANT.md](docs/AI_ASSISTANT.md)

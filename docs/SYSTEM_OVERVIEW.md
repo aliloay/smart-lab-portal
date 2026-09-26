@@ -245,7 +245,7 @@ events wait and are delivered later.
 
 | | Staff / admin — "Ask the lab" | Students — "Ask Smart Lab" |
 |---|---|---|
-| Model (free, Ollama) | `qwen2.5:3b` | `qwen2.5:1.5b` |
+| Model (free, Ollama) | `qwen2.5:3b` | the same model by default (a 4 GB GPU cannot hold two); `qwen2.5:1.5b` on 6 GB+ |
 | How it answers | Calls **read-only tools**: overview, trends, reports, maintenance priorities, open issues, anomalies, lab readiness. Every number comes from the database. | Reads a context the backend prepares: only **this student's** bookings, reports, recent door attempts (with the refusal reason in plain words) and lab access setup, plus the lab list with times already booked (never who booked them). |
 | Knows how the system works | yes | yes |
 | Can change anything | no | no |
@@ -256,8 +256,8 @@ door, camera and n8n. That's how a student can ask "why isn't my QR code
 working?" or "how do I register my face?" and get a real answer. The guide
 contains no addresses, keys or passwords.
 
-- **Where the models run:** both stay loaded on the laptop's GPU and are
-  loaded when the portal starts.
+- **Where the model runs:** on the laptop's GPU. It is loaded when the portal
+  starts and stays loaded, shared by both chats.
 - **Paid alternative:** Claude can be used instead by adding a key.
 - **Limits:** questions have an hourly limit per user, and every question is
   audited.
