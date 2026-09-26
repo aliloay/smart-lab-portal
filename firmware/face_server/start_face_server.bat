@@ -28,6 +28,17 @@ rem than Flask's built-in server). Added later, so install it if missing.
 "%FACEPY%" -c "import waitress" >nul 2>&1 || "%FACEPY%" -m pip install waitress
 
 :run
+rem Without this rule Windows Firewall silently drops the camera's frames
+rem (the camera then logs "HTTP -1 cannot connect").
+netsh advfirewall firewall show rule name="Smart Lab face server" >nul 2>&1
+if errorlevel 1 (
+  echo ************************************************************
+  echo  The camera cannot reach this server yet: Windows Firewall
+  echo  has no rule for it. Double-click allow_firewall.bat once
+  echo  ^(it asks for administrator rights^), then restart this.
+  echo ************************************************************
+  echo.
+)
 echo Do NOT click inside this window: Windows pauses the program while text
 echo is selected, and the camera then times out. If the title says "Select",
 echo press Esc.
