@@ -51,6 +51,15 @@ class UserCreate(BaseModel):
     department: Optional[str] = None
 
 
+class SignupRequest(BaseModel):
+    """Public sign-up. No role and no auth_subject: always a plain student."""
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    student_id: Optional[str] = Field(default=None, max_length=64)
+    department: Optional[str] = Field(default=None, max_length=128)
+
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[Role] = None

@@ -137,6 +137,23 @@ class Settings(BaseSettings):
     AI_MAX_TOOL_ROUNDS: int = 6
     AI_QUESTIONS_PER_HOUR: int = 30
 
+    # --- Self-service sign-up -----------------------------------------------
+    # The login page offers "Create account". Sign-up only ever creates a
+    # STUDENT with no fingerprint/RFID enrolment, so it grants no door access
+    # by itself: an administrator still enrols the person at the reader.
+    SIGNUP_ENABLED: bool = True
+    # Comma-separated allowed email domains, e.g. "giu-uni.de". Empty = any.
+    SIGNUP_EMAIL_DOMAINS: str = ""
+    # True = new accounts start disabled until an administrator activates
+    # them on Users & roles.
+    SIGNUP_REQUIRES_APPROVAL: bool = False
+    SIGNUPS_PER_IP_PER_HOUR: int = 10
+
+    @property
+    def signup_domains(self) -> list[str]:
+        return [d.strip().lower().lstrip("@") for d in
+                self.SIGNUP_EMAIL_DOMAINS.split(",") if d.strip()]
+
     @property
     def automation_push_types(self) -> set[str]:
         return {t.strip() for t in self.AUTOMATION_PUSH_TYPES.split(",")

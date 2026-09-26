@@ -681,6 +681,10 @@ export const api = {
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
       '/auth/login', { email, password }),
   me: () => request<User>('/auth/me'),
+  signupConfig: () => request<{ enabled: boolean; email_domains: string[]; requires_approval: boolean }>(
+    '/auth/signup-config'),
+  signup: (u: { email: string; full_name: string; password: string; student_id?: string; department?: string }) =>
+    post<{ pending_approval: boolean; message?: string; access_token?: string }>('/auth/signup', u),
 
   // --- labs
   labs: () => request<Lab[]>('/labs'),

@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  ArrowRight, Fingerprint, QrCode, ScanFace, ShieldCheck, Lock, Eye, EyeOff,
+  ArrowRight, Fingerprint, UserPlus, QrCode, ScanFace, ShieldCheck, Lock, Eye, EyeOff,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { api } from '../lib/api'
 import { ErrorBanner, Notice } from '../components/ui'
 import { InstitutionLogo, SmartLabMark, Wordmark } from '../components/Brand'
 import { AccessFlow, Bloom, GridField, NodeField, RoboticArm, SystemBadge } from '../components/visual'
@@ -29,6 +30,15 @@ export default function Login() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [portalUp, setPortalUp] = useState<boolean | null>(null)
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [signupCfg, setSignupCfg] = useState<{ enabled: boolean; email_domains: string[]; requires_approval: boolean } | null>(null)
+  const [fullName, setFullName] = useState('')
+  const [studentId, setStudentId] = useState('')
+  const [department, setDepartment] = useState('')
+  const [done, setDone] = useState('')
+
+  useEffect(() => { api.signupConfig().then(setSignupCfg).catch(() => setSignupCfg(null)) }, [])
+  const signingUp = mode === 'signup'
 
   // A real check, not a decorative "SYSTEM ONLINE" label.
   useEffect(() => {
@@ -42,6 +52,17 @@ export default function Login() {
     setError('')
     setBusy(true)
     try {
+      if (signingUp) {
+        const r = await api.signup({
+          email: email.trim().toLowerCase(), full_name: fullName.trim(), password,
+          student_id: studentId.trim() || undefined, department: department.trim() || undefined,
+        })
+        if (r.pending_approval) {
+          setDone(r.message || 'Account created. An administrator must approve it before you can sign in.')
+          setMode('signin'); setPassword('')
+          return
+        }
+      }
       await login(email.trim().toLowerCase(), password)
       const next = params.get('next')
       nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
@@ -125,32 +146,56 @@ export default function Login() {
             <div className="flex items-center gap-2.5">
               <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-500/15
                                border border-accent-500/30 text-accent-300">
-                <Lock size={16} />
+                {signingUp ? <UserPlus size={16} /> : <Lock size={16} />}
               </span>
               <div>
-                <h2 className="font-display text-xl font-semibold text-white">Sign in</h2>
-                <p className="text-[13px] text-slate-400">Use your university account.</p>
+                <h2 className="font-display text-xl font-semibold text-white">
+                  {signingUp ? 'Create account' : 'Sign in'}</h2>
+                <p className="text-[13px] text-slate-400">
+                  {signingUp ? 'Student accounts. Staff are added by an administrator.'
+                    : 'Use your university account.'}</p>
               </div>
             </div>
+
+            {signupCfg?.enabled && (
+              <div role="tablist" className="mt-5 grid grid-cols-2 gap-1 p-1 rounded-xl bg-ink-800/70 border border-ink-600/70">
+                {(['signin', 'signup'] as const).map(m => (
+                  <button key={m} type="button" role="tab" aria-selected={mode === m}
+                    onClick={() => { setMode(m); setError(''); setDone('') }}
+                    className={`py-1.5 rounded-lg text-[13px] font-medium transition-colors ${mode === m
+                      ? 'bg-accent-500/20 text-white border border-accent-400/30' : 'text-slate-400 hover:text-white'}`}>
+                    {m === 'signin' ? 'Sign in' : 'Sign up'}
+                  </button>))}
+              </div>)}
 
             <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
               {params.get('expired') && !error && (
                 <Notice tone="warn">Your session ended. Sign in again to continue.</Notice>
               )}
               {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+              {done && <Notice tone="ok">{done}</Notice>}
+
+              {signingUp && (
+                <div>
+                  <label htmlFor="full_name" className="label block mb-1.5">Full name</label>
+                  <input id="full_name" className="input" value={fullName} autoComplete="name"
+                         required minLength={2} onChange={e => setFullName(e.target.value)} />
+                </div>)}
 
               <div>
                 <label htmlFor="email" className="label block mb-1.5">Email</label>
                 <input id="email" className="input" type="email" value={email}
                        autoFocus autoComplete="username" required
-                       placeholder="you@giu-uni.de"
+                       placeholder={signingUp && signupCfg?.email_domains.length
+                         ? `you@${signupCfg.email_domains[0]}` : 'you@giu-uni.de'}
                        onChange={e => setEmail(e.target.value)} />
               </div>
               <div>
                 <label htmlFor="password" className="label block mb-1.5">Password</label>
                 <div className="relative">
                   <input id="password" className="input pr-11" type={show ? 'text' : 'password'}
-                         value={password} autoComplete="current-password" required
+                         value={password} required
+                         autoComplete={signingUp ? 'new-password' : 'current-password'}
                          onChange={e => setPassword(e.target.value)} />
                   <button type="button" onClick={() => setShow(s => !s)}
                           aria-label={show ? 'Hide password' : 'Show password'}
@@ -161,17 +206,37 @@ export default function Login() {
                 </div>
               </div>
 
+              {signingUp && (<>
+                <p className="-mt-2 text-[11.5px] text-slate-500">At least 8 characters.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="student_id" className="label block mb-1.5">Student ID</label>
+                    <input id="student_id" className="input" value={studentId} maxLength={64}
+                           onChange={e => setStudentId(e.target.value)} />
+                  </div>
+                  <div>
+                    <label htmlFor="department" className="label block mb-1.5">Department</label>
+                    <input id="department" className="input" value={department} maxLength={128}
+                           onChange={e => setDepartment(e.target.value)} />
+                  </div>
+                </div>
+              </>)}
+
               <button type="submit" className="btn-primary w-full !py-3"
-                      disabled={busy || !email || !password}>
-                {busy ? 'Signing in…' : 'Sign in'}
+                      disabled={busy || !email || !password
+                        || (signingUp && (fullName.trim().length < 2 || password.length < 8))}>
+                {busy ? (signingUp ? 'Creating account…' : 'Signing in…')
+                  : (signingUp ? 'Create account' : 'Sign in')}
                 {!busy && <ArrowRight size={16} />}
               </button>
             </form>
           </div>
 
           <p className="mt-5 text-[12px] text-slate-400 leading-relaxed text-center px-2">
-            Accounts are created by an administrator. Signing in does not open a
-            door — entry also needs your enrolled fingerprint or face at the laboratory.
+            {signupCfg?.enabled
+              ? 'New students can sign up here; staff and admin accounts are created by an administrator.'
+              : 'Accounts are created by an administrator.'} Signing in does not open a
+            door — entry also needs your fingerprint or face, enrolled by lab staff.
           </p>
 
           <div className="lg:hidden mt-8 card p-5">

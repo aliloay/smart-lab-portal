@@ -15,7 +15,7 @@ export default function Users() {
   const [q, setQ] = useState('')
   const [role, setRole] = useState('')
   const [editing, setEditing] = useState<User | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<Role | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(() => api.users().then(setRows)
@@ -31,7 +31,11 @@ export default function Users() {
     <div>
       <PageHeader eyebrow="Administration" title="Users & roles"
         sub="Accounts, roles, and the auth subject that links a person to the door hardware."
-        actions={<button className="btn-primary" onClick={() => setCreating(true)}><UserPlus size={16} />Add user</button>} />
+        actions={<div className="flex flex-wrap gap-2">
+          <button className="btn-primary" onClick={() => setCreating('STUDENT')}><UserPlus size={16} />Add student</button>
+          <button className="btn-ghost" onClick={() => setCreating('LAB_STAFF')}><UserPlus size={16} />Add staff</button>
+          <button className="btn-ghost" onClick={() => setCreating('ADMIN')}><UserPlus size={16} />Add admin</button>
+        </div>} />
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -95,7 +99,7 @@ export default function Users() {
         {editing && <EditUser u={editing} self={editing.id === me?.id}
                               onSaved={() => { setEditing(null); load() }} />}
       </Drawer>
-      {creating && <CreateUser onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load() }} />}
+      {creating && <CreateUser role={creating} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); load() }} />}
     </div>
   )
 }
@@ -141,8 +145,8 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
   )
 }
 
-function CreateUser({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ email: '', full_name: '', password: '', role: 'STUDENT' as Role,
+function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ email: '', full_name: '', password: '', role,
     auth_subject: '', department: '', student_id: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)

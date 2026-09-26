@@ -271,6 +271,14 @@ new tables.
 
 **Change these before the system goes anywhere real.**
 
+**New accounts.** Students can use the **Sign up** tab on the login page. Sign-up
+only ever creates a *student* with no fingerprint/card enrolment, so it gives no
+door access until lab staff enrol the person and set the auth subject. Admins get
+a notification for each sign-up. Staff and admin accounts are created by an
+administrator on **Users & roles** (*Add student / Add staff / Add admin*).
+Settings: `SIGNUP_ENABLED`, `SIGNUP_EMAIL_DOMAINS` (e.g. `giu-uni.de`),
+`SIGNUP_REQUIRES_APPROVAL`.
+
 ---
 
 ## The identity bridge
