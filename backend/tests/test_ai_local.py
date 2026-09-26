@@ -161,7 +161,8 @@ def test_student_helper_on_claude(db, alice, monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "k")
     out = ai.ask_student(db, alice, "hello", client=NS(messages=NS(create=create)))
     assert out["answer"] == "Hi Alice." and seen["model"] == settings.AI_STUDENT_MODEL
-    assert "tools" not in seen and "DATA:" in seen["system"]
+    assert "tools" not in seen and "DATA (this student only)" in seen["system"]
+    assert "HOW SMART LAB WORKS" in seen["system"]
 
 
 def test_ollama_crash_retries_with_smaller_context(db, monkeypatch, ollama):
@@ -220,11 +221,46 @@ def test_student_model_defaults_to_staff_model(monkeypatch):
     assert settings.ollama_student_model == settings.OLLAMA_MODEL
 
 
-def test_warm_up_loads_each_model_once(monkeypatch, ollama):
+def test_warm_up_loads_both_models_with_their_own_context(monkeypatch, ollama):
     ollama([])
-    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "")
     loaded = []
     monkeypatch.setattr(ai.httpx, "post", lambda url, json=None, timeout=None: loaded.append(
         (url.rsplit("/", 1)[-1], json["model"], json["options"]["num_ctx"])))
     ai.warm_up()
-    assert loaded == [("generate", settings.OLLAMA_MODEL, settings.OLLAMA_NUM_CTX)]
+    assert loaded == [("generate", "qwen2.5:3b", settings.OLLAMA_NUM_CTX),
+                      ("generate", "qwen2.5:1.5b", settings.OLLAMA_STUDENT_NUM_CTX)]
+    loaded.clear()                          # shared model: loaded once, staff size
+    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "")
+    ai.warm_up()
+    assert loaded == [("generate", "qwen2.5:3b", settings.OLLAMA_NUM_CTX)]
+
+
+def test_student_chat_uses_its_own_context_size(db, alice, ollama):
+    fake = ollama([{"role": "assistant", "content": "hi"}])
+    ai.ask_student(db, alice, "hello")
+    assert fake.bodies[0]["options"]["num_ctx"] == settings.OLLAMA_STUDENT_NUM_CTX
+
+
+def test_student_sees_own_door_refusals_in_plain_words(db, alice, bob, lab):
+    from app.models import AccessEvent, AccessResult, AuthMethod, EventType
+    db.add_all([
+        AccessEvent(event_type=EventType.QR_REJECTED, user_id=alice.id, lab_id=lab.id,
+                    method=AuthMethod.QR, result=AccessResult.DENIED,
+                    reason="BOOKING_NOT_STARTED", message="x"),
+        AccessEvent(event_type=EventType.QR_REJECTED, user_id=bob.id, lab_id=lab.id,
+                    method=AuthMethod.QR, result=AccessResult.DENIED,
+                    reason="WRONG_LAB", message="x"),
+    ])
+    db.commit()
+    ctx = ai.student_context(db, alice)
+    assert [a["why"] for a in ctx["my_recent_door_attempts"]] == [
+        "The booking window has not opened yet."]
+    assert ctx["lab_access_setup"]["setup_complete"] is True   # enrolled fixture
+
+
+def test_guide_has_no_secrets():
+    from app.services.ai_guide import guide
+    text = guide().lower()
+    for bad in ("api_key", "password", "token=", "http://", "https://", "192.168.", "secret"):
+        assert bad not in text
+    assert "enroll" not in text or "fingerprint" in text

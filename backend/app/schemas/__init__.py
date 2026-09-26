@@ -39,6 +39,8 @@ class UserOut(ORM):
     student_id: Optional[str] = None
     department: Optional[str] = None
     created_at: Optional[datetime] = None
+    fingerprint_enrolled_at: Optional[datetime] = None
+    face_enrolled_at: Optional[datetime] = None
 
 
 class UserCreate(BaseModel):
@@ -67,6 +69,9 @@ class UserUpdate(BaseModel):
     auth_subject: Optional[str] = Field(default=None, max_length=32)
     department: Optional[str] = None
     student_id: Optional[str] = None
+    # Staff confirm (or undo) an enrolment done at the sensor / camera.
+    fingerprint_enrolled: Optional[bool] = None
+    face_enrolled: Optional[bool] = None
 
 
 class UserBrief(BaseModel):

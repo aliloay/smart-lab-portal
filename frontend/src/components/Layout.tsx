@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
+import { AccessSetupBanner } from './AccessSetup'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
@@ -353,6 +354,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           {/* Bottom padding on phones keeps the last content clear of the
               floating Report button. */}
           <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 lg:py-8">
+            <AccessSetupBanner />
             {/*
               The page is keyed on the path and fades in with a CSS keyframe.
 

@@ -30,6 +30,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const r = await api.login(email, password)
     setToken(r.access_token)
     const me = await api.me()
+    // A fresh sign-in shows the "finish your lab access setup" banner again.
+    try { sessionStorage.removeItem(`smartlab.setupBanner.${me.id}`) } catch { /* ignore */ }
     setUser(me)
     return me
   }

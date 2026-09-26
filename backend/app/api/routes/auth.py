@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models import AuditLog, Role, User
 from app.schemas import (LoginRequest, SignupRequest, TokenResponse,
                          UserCreate, UserOut)
+from app.services import enrolment
 from app.services.identity import next_auth_subject
 from app.services.notifications import admin_ids, notify
 
@@ -33,6 +34,9 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     db.add(AuditLog(actor_user_id=user.id, action="LOGIN", entity_type="user",
                     entity_id=str(user.id),
                     ip_address=request.client.host if request.client else None))
+    # Accounts made before this reminder existed get it on their next sign-in
+    # (once - the dedupe key stops repeats; the banner shows every time).
+    enrolment.welcome(db, user)
     db.commit()
 
     return TokenResponse(
@@ -69,6 +73,7 @@ def register(req: UserCreate, db: Session = Depends(get_db),
                     entity_type="user", entity_id=str(user.id),
                     detail={"email": user.email, "role": user.role.value,
                             "auth_subject": user.auth_subject}))
+    enrolment.welcome(db, user)
     db.commit()
     db.refresh(user)
     return user
@@ -135,6 +140,7 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
                     f"{user.auth_subject} to give door access."
                     if user.auth_subject else "")),
            link="/admin/users", severity="warning" if pending else "info")
+    enrolment.welcome(db, user)
     db.commit()
 
     if pending:
@@ -150,3 +156,9 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.get("/me/access-setup")
+def my_access_setup(user: User = Depends(get_current_user)):
+    """What this person still needs before a lab door will open for them."""
+    return enrolment.status(user)

@@ -32,6 +32,18 @@ export interface User {
   student_id: string | null
   department: string | null
   created_at?: string | null
+  fingerprint_enrolled_at?: string | null
+  face_enrolled_at?: string | null
+}
+
+export interface AccessSetupItem {
+  key: 'identity' | 'fingerprint' | 'face'
+  label: string; done: boolean; how: string
+  value?: string | null; at?: string | null
+}
+export interface AccessSetup {
+  complete: boolean; needed: boolean; auth_subject: string | null
+  items: AccessSetupItem[]; summary: string; pending: string[]
 }
 
 export interface Lab {
@@ -732,8 +744,10 @@ export const api = {
   users: () => request<User[]>('/users'),
   createUser: (u: Partial<User> & { password: string }) =>
     post<User>('/auth/register', u),
+  myAccessSetup: () => request<AccessSetup>('/auth/me/access-setup'),
+  userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
-  updateUser: (id: number, u: Partial<User>) =>
+  updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;

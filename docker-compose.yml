@@ -47,8 +47,8 @@ services:
       AI_PROVIDER: ${AI_PROVIDER:-auto}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
-      # Empty = same model as staff (one model stays loaded on a 4 GB GPU).
-      OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-}
+      # Smaller student model, loaded next to the staff one (empty = share it).
+      OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
       OLLAMA_CPU_ONLY: ${OLLAMA_CPU_ONLY:-false}
       AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
       # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the

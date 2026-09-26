@@ -78,6 +78,12 @@ def provider() -> Optional[str]:
     return None
 
 
+def _staff_system(extra: str = "") -> str:
+    from app.services.ai_guide import guide
+    return (SYSTEM + extra + "\n- For 'how does it work' questions, answer from the guide "
+            "below; for numbers, use the tools.\n\n" + guide() + "\n\n" + _today_line())
+
+
 def configured() -> bool:
     return provider() is not None
 
@@ -325,7 +331,7 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
             response = client.beta.messages.create(
                 model=settings.AI_MODEL,
                 max_tokens=16000,
-                system=SYSTEM + "\n\n" + _today_line(),
+                system=_staff_system(),
                 tools=TOOLS,
                 messages=messages,
                 thinking={"type": "adaptive"},
@@ -383,6 +389,13 @@ OLLAMA_EXTRA = """
 - Answer in the same language as the question."""
 
 
+def _ctx_for(model: str) -> int:
+    """One fixed context size per model - a different size forces a reload."""
+    if model == settings.OLLAMA_MODEL:
+        return settings.OLLAMA_NUM_CTX
+    return settings.OLLAMA_STUDENT_NUM_CTX
+
+
 def _ollama_chat(model: str, messages: list[dict],
                  tools: Optional[list[dict]] = None) -> dict:
     """
@@ -395,7 +408,7 @@ def _ollama_chat(model: str, messages: list[dict],
     # A GPU whose driver cannot run Ollama's CUDA code ("device kernel image
     # is invalid") still answers on the processor, just more slowly.
     cpu_only = settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]
-    attempts = [(settings.OLLAMA_NUM_CTX, cpu_only)]
+    attempts = [(_ctx_for(model), cpu_only)]
     if not cpu_only:
         attempts += [(OLLAMA_FALLBACK_CTX, False), (OLLAMA_FALLBACK_CTX, True)]
     attempts = list(dict.fromkeys(attempts))
@@ -460,10 +473,10 @@ def warm_up() -> None:
     """
     if provider() != "ollama":
         return
-    options: dict[str, Any] = {"num_ctx": settings.OLLAMA_NUM_CTX}
-    if settings.OLLAMA_CPU_ONLY:
-        options["num_gpu"] = 0
     for model in dict.fromkeys([settings.OLLAMA_MODEL, settings.ollama_student_model]):
+        options: dict[str, Any] = {"num_ctx": _ctx_for(model)}
+        if settings.OLLAMA_CPU_ONLY:
+            options["num_gpu"] = 0
         try:
             httpx.post(settings.OLLAMA_URL.rstrip("/") + "/api/generate",
                        json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE,
@@ -483,7 +496,7 @@ def _ollama_tools() -> list[dict]:
 def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
     model = settings.OLLAMA_MODEL
     messages = [{"role": "system",
-                 "content": SYSTEM + OLLAMA_EXTRA + "\n\n" + _today_line()}]
+                 "content": _staff_system(OLLAMA_EXTRA)}]
     messages += _history(question, history)
     tools = _ollama_tools()
     tools_used: list[str] = []
@@ -516,11 +529,13 @@ def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> di
 
 # --------------------------------------------------------------- student ---
 STUDENT_SYSTEM = """You are the Smart Lab helper for a university student.
-Answer ONLY from the JSON data below: it holds this student's own bookings,
-the issue reports they submitted, and the list of laboratories with the
-times they are already booked. Rules:
+Answer from the GUIDE (how the system works) and the DATA below (this
+student's own bookings, reports, recent door attempts, lab access setup, and
+the lab list with times already booked). Rules:
 - Never invent bookings, times, labs or statuses. If the answer is not in
-  the data, say you don't have that information.
+  the guide or the data, say you don't know and suggest lab staff.
+- "Why doesn't my QR / card work?": check my_recent_door_attempts (the
+  reason says why), the booking's time window and lab, and lab_access_setup.
 - Times in the data are local time. Say the day and time plainly.
 - A lab is free at a time if it is active and that time is not inside one of
   its booked slots (capacity is how many people fit).
@@ -528,7 +543,8 @@ times they are already booked. Rules:
   "Book a lab" to book, "My bookings" to cancel or show the QR code,
   "Report an issue" to report a problem.
 - Door entry needs the booking QR code (or card) and the student's enrolled
-  fingerprint or face. If they are not enrolled, lab staff do it.
+  fingerprint or face. "lab_access_setup" says what is still to do; if it is
+  not complete, tell them to visit lab staff and point to their Profile page.
 - Be short and friendly: two to five sentences or a short list.
 - Answer in the same language as the question."""
 
@@ -539,6 +555,13 @@ def _local(dt: Optional[datetime], tz: ZoneInfo) -> Optional[str]:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(tz).strftime("%a %d %b %Y %H:%M")
+
+
+def _setup_for_ai(db: Session, user: User) -> dict:
+    from app.services.enrolment import status
+    st = status(user)
+    return {"setup_complete": st["complete"], "door_identity": st["auth_subject"],
+            "still_to_do": st["pending"], "what_it_means": st["summary"]}
 
 
 def student_context(db: Session, user: User) -> dict:
@@ -572,10 +595,22 @@ def student_context(db: Session, user: User) -> dict:
         slots.setdefault(b.lab_id, []).append(
             f"{_local(b.start_time, tz)} - {_local(b.end_time, tz)[-5:]}")
 
+    from app.models import AccessEvent
+    from app.ui_text import denial_sentence
+    attempts = db.scalars(select(AccessEvent).where(
+        AccessEvent.user_id == user.id, AccessEvent.result.is_not(None),
+        AccessEvent.created_at >= now - timedelta(days=14))
+        .order_by(AccessEvent.created_at.desc()).limit(6)).all()
+
     return {
         "now": _local(now, tz),
-        "student": {"name": user.full_name, "department": user.department,
-                    "door_enrolled": bool(user.auth_subject)},
+        "my_recent_door_attempts": [{
+            "when": _local(a.created_at, tz), "lab": code(a.lab_id),
+            "step": a.method.value if a.method else None,
+            "result": a.result.value if a.result else None,
+            "why": denial_sentence(a.reason) if a.reason else None} for a in attempts],
+        "student": {"name": user.full_name, "department": user.department},
+        "lab_access_setup": _setup_for_ai(db, user),
         "upcoming_bookings": [b_row(b) for b in upcoming],
         "past_bookings": [b_row(b) for b in past],
         "my_issue_reports": [{
@@ -600,7 +635,8 @@ def ask_student(db: Session, user: User, question: str,
     p = "anthropic" if client is not None else provider()
     if p is None:
         raise AIUnavailable("The AI helper is not configured.")
-    system = (STUDENT_SYSTEM + "\n\nDATA:\n"
+    from app.services.ai_guide import guide
+    system = (STUDENT_SYSTEM + "\n\n" + guide() + "\n\nDATA (this student only):\n"
               + _json(student_context(db, user)))
     messages = _history(question, history)
     if p == "ollama":

@@ -77,6 +77,11 @@ class User(Base):
     department: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
+    # When this person's biometrics were enrolled under auth_subject. NULL =
+    # still to do. Only the fact is stored, never the biometric.
+    fingerprint_enrolled_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    face_enrolled_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
     bookings: Mapped[list["Booking"]] = relationship(back_populates="user")
     rfid_credentials: Mapped[list["RfidCredential"]] = relationship(
         back_populates="user", cascade="all, delete-orphan")

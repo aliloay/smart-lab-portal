@@ -85,7 +85,11 @@ export default function Users() {
                           <div className="text-[12px] text-slate-400">{u.email}</div></div></div></td>
                       <td className="td"><Chip tone={ROLE_TONE[u.role]}>{roleLabel(u.role)}</Chip></td>
                       <td className="td">{u.auth_subject ? <span className="mono text-accent-200">{u.auth_subject}</span>
-                        : <span className="text-[12px] text-slate-500">no door identity</span>}</td>
+                        : <span className="text-[12px] text-slate-500">no door identity</span>}
+                        {!(u.fingerprint_enrolled_at && u.face_enrolled_at) && (
+                          <div className="text-[11px] text-warn-soft mt-0.5">
+                            {[!u.fingerprint_enrolled_at && 'fingerprint', !u.face_enrolled_at && 'face']
+                              .filter(Boolean).join(' + ')} pending</div>)}</td>
                       <td className="td text-slate-300">{u.department ?? '—'}</td>
                       <td className="td"><Chip tone={u.is_active ? 'ok' : 'bad'} dot>{u.is_active ? 'Active' : 'Disabled'}</Chip></td>
                       <td className="td text-right"><button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
@@ -109,7 +113,8 @@ export default function Users() {
 
 function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () => void }) {
   const [f, setF] = useState({ full_name: u.full_name, role: u.role, is_active: u.is_active,
-    auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '' })
+    auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '',
+    fingerprint_enrolled: !!u.fingerprint_enrolled_at, face_enrolled: !!u.face_enrolled_at })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function save(e: FormEvent) {
@@ -146,6 +151,23 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
         <Field label="Student ID"><input className="input" value={f.student_id}
           onChange={e => setF({ ...f, student_id: e.target.value })} /></Field>
       </div>
+      <fieldset className="rounded-xl border border-ink-600/70 p-3 space-y-2">
+        <legend className="label px-1">Biometrics registered at the door</legend>
+        <p className="text-[12px] text-slate-400">
+          Tick once this person's finger is stored on the door sensor
+          {f.auth_subject.trim() ? <> (<span className="mono">enroll {f.auth_subject.replace(/^USER/, '')}</span>)</> : null}
+          {' '}and their face photos are on the face server. This only updates the reminder they
+          see in the portal; it does not change what the door accepts.
+        </p>
+        <label className="flex items-center gap-2.5 text-sm text-slate-200">
+          <input type="checkbox" checked={f.fingerprint_enrolled} className="accent-sky-500"
+                 onChange={e => setF({ ...f, fingerprint_enrolled: e.target.checked })} />
+          Fingerprint registered</label>
+        <label className="flex items-center gap-2.5 text-sm text-slate-200">
+          <input type="checkbox" checked={f.face_enrolled} className="accent-sky-500"
+                 onChange={e => setF({ ...f, face_enrolled: e.target.checked })} />
+          Face ID registered</label>
+      </fieldset>
       <label className="flex items-center gap-2.5 text-sm text-slate-200">
         <input type="checkbox" checked={f.is_active} disabled={self} className="accent-sky-500"
                onChange={e => setF({ ...f, is_active: e.target.checked })} />

@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from app.core.security import hash_password  # noqa: E402
+from app.models.tables import utcnow  # noqa: E402
 from app.db.session import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (Device, DeviceType, Lab, RfidCredential, Role,  # noqa: E402
@@ -76,7 +77,8 @@ def other_lab(db) -> Lab:
 def alice(db) -> User:
     u = User(email="alice@test.edu", full_name="Alice",
              hashed_password=hash_password("Password123"),
-             role=Role.STUDENT, auth_subject="USER1")
+             role=Role.STUDENT, auth_subject="USER1",
+             fingerprint_enrolled_at=utcnow(), face_enrolled_at=utcnow())
     db.add(u)
     db.commit()
     db.refresh(u)
@@ -87,7 +89,8 @@ def alice(db) -> User:
 def bob(db) -> User:
     u = User(email="bob@test.edu", full_name="Bob",
              hashed_password=hash_password("Password123"),
-             role=Role.STUDENT, auth_subject="USER2")
+             role=Role.STUDENT, auth_subject="USER2",
+             fingerprint_enrolled_at=utcnow(), face_enrolled_at=utcnow())
     db.add(u)
     db.commit()
     db.refresh(u)
@@ -150,7 +153,8 @@ def hour():
 def staff(db) -> User:
     u = User(email="staff@test.edu", full_name="Lab Technician",
              hashed_password=hash_password("Password123"),
-             role=Role.LAB_STAFF, auth_subject="STAFF1")
+             role=Role.LAB_STAFF, auth_subject="STAFF1",
+             fingerprint_enrolled_at=utcnow(), face_enrolled_at=utcnow())
     db.add(u)
     db.commit()
     db.refresh(u)

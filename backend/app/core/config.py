@@ -142,10 +142,14 @@ class Settings(BaseSettings):
     # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
     OLLAMA_MODEL: str = "qwen2.5:3b"
     # Student helper: answers from a small, pre-fetched context - no tools.
-    # Empty = the same model as staff. On a 4 GB GPU two different models do
-    # not fit together, so Ollama would unload one and load the other every
-    # time the staff and student chats alternate (slow). One model stays put.
-    OLLAMA_STUDENT_MODEL: str = ""
+    # A separate, smaller model so both stay loaded side by side and neither
+    # chat waits for the other's model to be swapped in. Empty = share the
+    # staff model (use on GPUs with less than 4 GB).
+    OLLAMA_STUDENT_MODEL: str = "qwen2.5:1.5b"
+    # The student context is small, so a smaller window keeps GPU memory free
+    # for the staff model. Each model always gets the same size (a change
+    # would make Ollama reload it).
+    OLLAMA_STUDENT_NUM_CTX: int = 4096
     # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
     # 4k by itself if Ollama's engine crashes.
     OLLAMA_NUM_CTX: int = 8192

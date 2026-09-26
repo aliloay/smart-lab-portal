@@ -23,7 +23,7 @@ The AI part runs on either:
 |---|---|---|
 | Who | Lab staff, administrators | Any signed-in user |
 | Sees | Analytics through 8 read-only tools | Only the caller's own bookings and reports, plus the lab list with booked time slots (never who booked) |
-| Free model (Ollama) | `qwen2.5:3b` (can call tools) | same model by default (`OLLAMA_STUDENT_MODEL` to change) |
+| Free model (Ollama) | `qwen2.5:3b`, 8k context (reliable tool calling) | `qwen2.5:1.5b`, 4k context (fast; loaded next to the staff model) |
 | Claude model | `claude-opus-5` | `claude-haiku-4-5` |
 | Limit per user | 30 questions/hour | 20 questions/hour |
 | Audit action | `AI_QUESTION` | `AI_STUDENT_QUESTION` |
@@ -110,12 +110,31 @@ the GPU. Without a GPU they still run on the CPU, just slower.
 If you also have `ANTHROPIC_API_KEY` in `.env` but want the free model, add
 `AI_PROVIDER=ollama`.
 
-The portal loads the model when it starts and keeps it on the GPU for 2 hours
-after the last question, so answers normally take a few seconds. Both chats
-share one model by default: on a 4 GB GPU two different models do not fit
-together and would be swapped in and out on every switch. Check with
-`ollama ps` while a question runs: `100% GPU` is the fast case; a CPU share
-means the model did not fit and runs partly on the processor. Small local models are less precise than
+The portal loads both models when it starts and keeps them on the GPU for
+2 hours after the last question, so neither chat waits for the other's model
+to be swapped in. On a 4 GB GPU (GTX 1650) both fit when Ollama stores its
+working memory compactly - run once in PowerShell, then quit Ollama from the
+tray and start it again:
+
+```
+setx OLLAMA_FLASH_ATTENTION 1
+setx OLLAMA_KV_CACHE_TYPE q8_0
+```
+
+Check with `ollama ps` after asking both chats something: both models listed
+with `100% GPU` is the fast case. If one shows a CPU share or they keep
+replacing each other, set `OLLAMA_STUDENT_MODEL=` (empty) in `.env` so both
+chats share the staff model.
+
+Both assistants also get a short guide to how Smart Lab works
+(`backend/app/services/ai_guide.py`: booking, QR/RFID, fingerprint and Face ID
+registration, what each refusal means, the door and camera, n8n). It holds no
+addresses, keys or passwords. The student helper additionally sees that
+student's last door attempts with the reason in plain words, and what is still
+pending in their lab access setup, so "why doesn't my QR work?" gets a real
+answer.
+
+Small local models are less precise than
 Claude: the numbers still come from the database, but check important figures
 on the charts. For better staff answers on a stronger PC, set
 `OLLAMA_MODEL=qwen2.5:7b` (and `ollama pull qwen2.5:7b`).
@@ -152,7 +171,7 @@ for Ollama's GPU code. To fix it at the source:
 3. Restart: `launch.bat` (or `docker compose up -d --build`).
 
 Optional settings (backend env): `AI_PROVIDER` (`auto`/`ollama`/`anthropic`),
-`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL`, `OLLAMA_NUM_CTX` (8192; the portal retries at 4096 if Ollama crashes),
+`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL` (empty = share the staff model), `OLLAMA_NUM_CTX` (8192; the portal retries at 4096 if Ollama crashes), `OLLAMA_STUDENT_NUM_CTX` (4096),
 `AI_MODEL` (default `claude-opus-5`), `AI_STUDENT_MODEL` (`claude-haiku-4-5`),
 `AI_EFFORT` (default `medium`), `AI_MAX_TOOL_ROUNDS` (6),
 `AI_QUESTIONS_PER_HOUR` (30), `AI_STUDENT_ENABLED` (true),

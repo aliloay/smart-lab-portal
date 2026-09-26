@@ -9,7 +9,7 @@ where ollama >nul 2>&1 || set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.
 
 rem Model names: the same defaults as docker-compose.yml, or .env if set there.
 set "M1=qwen2.5:3b"
-set "M2="
+set "M2=qwen2.5:1.5b"
 if exist "%~dp0..\.env" (
   for /f "usebackq tokens=1,* delims==" %%a in ("%~dp0..\.env") do (
     if /i "%%a"=="OLLAMA_MODEL" if not "%%b"=="" set "M1=%%b"
@@ -31,7 +31,7 @@ timeout /t 2 /nobreak >nul
 goto wait
 :ready
 
-rem Empty student model = the same model as staff.
+rem An empty OLLAMA_STUDENT_MODEL in .env means: share the staff model.
 if "%M2%"=="" set "M2=%M1%"
 for %%m in ("%M1%" "%M2%") do (
   "%OLLAMA_EXE%" list | findstr /b /c:"%%~m " >nul || (
