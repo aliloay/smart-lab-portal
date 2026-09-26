@@ -6,6 +6,13 @@
       "headers": {
         "Authorization": "Bearer ${GRAPHIFY_API_KEY}"
       }
+    },
+    "n8n-mcp": {
+      "type": "http",
+      "url": "https://aliloay.app.n8n.cloud/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer ${N8N_ACCESS_TOKEN}"
+      }
     }
   }
 }
