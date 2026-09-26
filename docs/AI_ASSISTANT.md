@@ -100,8 +100,11 @@ the GPU. Without a GPU they still run on the CPU, just slower.
    ollama pull qwen2.5:3b
    ollama pull qwen2.5:1.5b
    ```
-3. Restart the portal (`launch.bat`). Docker reaches Ollama at
-   `http://host.docker.internal:11434`; nothing to add to `.env`.
+3. Restart the portal (`launch.bat`). From then on `launch.bat` starts Ollama
+   if it is not already running, and downloads any missing model in a
+   minimized "Smart Lab - AI models" window (so step 2 is optional). Docker
+   reaches Ollama at `http://host.docker.internal:11434`; nothing to add to
+   `.env`.
 4. Staff: Operations Center → **Ask the lab**. Students: dashboard →
    **Ask Smart Lab**.
 

@@ -2,10 +2,12 @@
 rem Smart Lab - one-click launcher. It:
 rem   1. starts Docker Desktop if it is not running yet
 rem   2. opens the face server (firmware\face_server) in its own window
-rem   3. runs "docker compose up --build" here: portal, API and database
+rem   3. starts the free local AI (Ollama) if it is installed, and downloads
+rem      its two models the first time
+rem   4. runs "docker compose up --build" here: portal, API and database
 rem      (docker-compose.yml is the single definition of the system), plus
 rem      n8n when automation is configured in .env (AUTOMATION_WEBHOOK_BASE)
-rem   4. opens the portal in the browser as soon as it answers
+rem   5. opens the portal in the browser as soon as it answers
 rem Ctrl+C in this window stops the portal and closes the face server.
 setlocal EnableExtensions
 cd /d "%~dp0"
@@ -43,6 +45,25 @@ if not errorlevel 1 (
   set "FACE_STARTED=1"
 )
 
+rem ---- Local AI (Ollama) is optional: used when installed ---------------------
+rem Ollama normally starts with Windows (tray icon). If it is not running,
+rem start it; the helper then fetches missing models in a minimized window.
+set "OLLAMA_EXE="
+where ollama >nul 2>&1 && set "OLLAMA_EXE=ollama"
+if not defined OLLAMA_EXE if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+set "AI_STATE=off - install Ollama from ollama.com for the free AI chat"
+if not defined OLLAMA_EXE goto ai_done
+set "AI_STATE=Ollama (free, on this laptop)"
+netstat -ano | findstr /r /c:":11434 .*LISTENING" >nul && goto ai_models
+if exist "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe" (
+  start "" "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe"
+) else (
+  start "Smart Lab - Ollama" /min "%OLLAMA_EXE%" serve
+)
+:ai_models
+start "Smart Lab - AI models" /min cmd /c call "%~dp0scripts\ollama_models.bat"
+:ai_done
+
 rem ---- Automation (n8n) is optional: on only when .env configures it ----------
 set "PROFILE="
 if exist ".env" findstr /r /c:"^AUTOMATION_WEBHOOK_BASE=..*" ".env" >nul && set "PROFILE=--profile automation"
@@ -69,6 +90,7 @@ if defined PROFILE (
 ) else (
   echo    n8n automation     : off - see docs\AUTOMATION.md to enable it
 )
+echo    AI chat            : %AI_STATE%
 echo.
 echo  Stop everything: Ctrl+C here.
 echo.
