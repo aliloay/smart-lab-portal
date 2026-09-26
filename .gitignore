@@ -30,3 +30,5 @@ backend/uploads/
 *.swp
 .DS_Store
 Thumbs.db
+firmware/**/user_photos.h
+firmware/**/user_photos_preview.png

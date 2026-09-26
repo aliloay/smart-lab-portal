@@ -135,7 +135,7 @@ export default function LabDetail() {
         </SectionTitle>
         {lab.has_controller ? (
           <div className="card p-5 grid lg:grid-cols-[1.1fr_1fr] gap-6 items-center">
-            <DoorSchematic controller={tri(master)} camera={tri(camera)} face={tri(face)}
+            <DoorSchematic controller={tri(master)} camera={tri(camera) ?? comp('camera')} face={tri(face)}
                            doorClosed={status.door_closed} className="w-full h-auto" />
             <div className="grid sm:grid-cols-2 gap-2.5">
               <Node icon={<DoorClosed size={15} />} title="Door" stale={staleNote}
@@ -143,7 +143,7 @@ export default function LabDetail() {
               <Node icon={<Cpu size={15} />} title="Master controller" device={master}
                     state={tri(master)} labels={['Online', 'Offline']} />
               <Node icon={<Camera size={15} />} title="Entry camera" device={camera}
-                    state={tri(camera)} labels={['Online', 'Offline']} />
+                    state={tri(camera) ?? comp('camera')} labels={['Online', 'Offline']} />
               <Node icon={<Server size={15} />} title="Face server" device={face}
                     state={tri(face)} labels={['Online', 'Offline']} />
               <Node icon={<Radio size={15} />} title="RFID reader"

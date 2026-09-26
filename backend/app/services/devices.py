@@ -101,3 +101,91 @@ def resolve_offline_alerts(db: Session, device: Device) -> None:
             Alert.title.like("%offline"))).all():
         a.is_resolved = True
         a.resolved_at = now
+
+
+# ---------------------------------------------------------------------------
+# Component health reported by the door controller
+# ---------------------------------------------------------------------------
+# The master sends {"rfid": bool, "fingerprint": bool, "camera": bool, ...}
+# with every heartbeat, and at once when one of them changes. A component
+# that reports False gets one open alert (and one staff notification); the
+# alert is resolved when it reports True again. Keyed on the open alert
+# rather than on the previous heartbeat, so a restart or a repeated report
+# never raises a duplicate. The LCD is not in the list: its bus has no
+# return line, so the controller cannot tell whether it works.
+COMPONENT_LABELS = {
+    "rfid": "RFID reader",
+    "fingerprint": "Fingerprint sensor",
+    "camera": "Camera",
+}
+
+
+def component_alert_title(device: Device, key: str) -> str:
+    return f"{device.name}: {COMPONENT_LABELS[key]} not responding"
+
+
+def record_component_health(db: Session, device: Device, lab: Lab,
+                            components: dict) -> None:
+    now = datetime.now(timezone.utc)
+    for key, label in COMPONENT_LABELS.items():
+        ok = components.get(key)
+        if not isinstance(ok, bool):
+            continue
+        title = component_alert_title(device, key)
+        open_alert = db.scalar(select(Alert).where(
+            Alert.device_id == device.id, Alert.is_resolved.is_(False),
+            Alert.title == title))
+        if not ok and open_alert is None:
+            db.add(Alert(lab_id=lab.id, device_id=device.id,
+                         severity=AlertSeverity.WARNING, title=title,
+                         detail=f"The door controller of {lab.code} reports "
+                                f"that its {label.lower()} is not responding. "
+                                f"Check its wiring and power."))
+            log_event(db, EventType.ALARM, lab_id=lab.id, device_id=device.id,
+                      reason="COMPONENT_FAULT",
+                      message=f"{label} not responding")
+            notify(db, staff_ids(db), "DEVICE_FAULT",
+                   f"{label} not responding - {lab.code}",
+                   body=f"Reported by {device.name}. The door still works "
+                        f"with the remaining methods.",
+                   link="/admin/devices", severity="warning")
+        elif ok and open_alert is not None:
+            open_alert.is_resolved = True
+            open_alert.resolved_at = now
+            log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,
+                      device_id=device.id, message=f"{label} working again")
+
+
+# ---------------------------------------------------------------------------
+# Door alarms reported by the door controller (reed switch)
+# ---------------------------------------------------------------------------
+DOOR_ALARMS = {
+    # reason: (severity, title template, notification severity)
+    "FORCED_ENTRY": (AlertSeverity.CRITICAL, "Forced entry at {lab}", "critical"),
+    "DOOR_HELD_OPEN": (AlertSeverity.WARNING, "Door held open at {lab}", "warning"),
+}
+
+
+def record_door_alarm(db: Session, lab: Lab, device: Optional[Device],
+                      reason: str, message: str) -> None:
+    """A forced entry stays open until staff resolve it; a held-open alert
+    resolves itself when the door is closed (resolve_held_open)."""
+    if reason not in DOOR_ALARMS:
+        return
+    severity, template, notify_severity = DOOR_ALARMS[reason]
+    title = template.format(lab=lab.code)
+    db.add(Alert(lab_id=lab.id, device_id=device.id if device else None,
+                 severity=severity, title=title,
+                 detail=message or title))
+    notify(db, staff_ids(db), "SECURITY_EVENT", title,
+           body=message or "", link="/admin/alerts", severity=notify_severity)
+
+
+def resolve_held_open(db: Session, lab: Lab) -> None:
+    now = datetime.now(timezone.utc)
+    title = DOOR_ALARMS["DOOR_HELD_OPEN"][1].format(lab=lab.code)
+    for a in db.scalars(select(Alert).where(
+            Alert.lab_id == lab.id, Alert.is_resolved.is_(False),
+            Alert.title == title)).all():
+        a.is_resolved = True
+        a.resolved_at = now

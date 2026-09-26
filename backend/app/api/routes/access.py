@@ -20,7 +20,8 @@ from app.schemas import (DeviceEventRequest, HeartbeatRequest,
                          ValidateRfidRequest)
 from app.services import sessions
 from app.services.access import get_device, get_lab_by_code, validate_qr, validate_rfid
-from app.services.devices import resolve_offline_alerts
+from app.services.devices import (record_component_health, record_door_alarm,
+                                  resolve_held_open, resolve_offline_alerts)
 from app.services.events import log_event
 from app.services.notifications import notify, notify_security
 from app.ui_text import denial_sentence
@@ -109,12 +110,17 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
         notify_security(db, lab, "IDENTITY_MISMATCH",
                         req.message or "The biometric did not match step 1.")
 
+    # Door alarms from the reed switch: forced entry, door held open.
+    if req.event_type == EventType.ALARM and lab is not None and req.reason:
+        record_door_alarm(db, lab, device, req.reason, req.message)
+
     if lab is not None:
         # The door cycle is recorded on the session; it does not end it.
         if req.event_type == EventType.DOOR_OPENED:
             sessions.record_door_opened(db, lab.id, user)
         elif req.event_type == EventType.DOOR_CLOSED:
             sessions.record_door_closed(db, lab.id, user)
+            resolve_held_open(db, lab)
         elif req.event_type == EventType.EXIT_RECORDED:
             sessions.record_exit(db, lab.id, user)
         elif req.event_type in _SECOND_FACTOR:
@@ -248,6 +254,7 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
         device.door_closed = req.door_closed
     if req.components is not None:
         device.component_state = req.components
+        record_component_health(db, device, lab, req.components)
 
     if not was_online:
         log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,

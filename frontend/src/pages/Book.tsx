@@ -17,7 +17,7 @@ import {
 import { Booking, BookingSlot, Lab, User, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
-import { dateStr, localDayBounds, localToUtcIso, pad2, todayStr } from '../lib/time'
+import { dateStr, localDayBounds, pad2, todayStr } from '../lib/time'
 import { Chip, ErrorBanner, Notice, PageHeader, Skeleton, SuccessMark } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
 import { GridField } from '../components/visual'
@@ -26,6 +26,10 @@ const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Review', 'Confirmed'] a
 const DAY_START = 8
 const DAY_END = 22
 const MAX_HOURS = 8
+// "Test QR now": a short booking that starts immediately, so the door can
+// be tested at any hour - including outside DAY_START..DAY_END, when the
+// grid has nothing left to pick.
+const TEST_MINUTES = 30
 const PURPOSES = ['Thesis experiment', 'Course lab session', 'Project prototyping',
                   'Equipment training', 'Measurement / testing']
 
@@ -42,6 +46,11 @@ export default function Book() {
   const [date, setDate] = useState(params.get('date') ?? todayStr())
   const [startHour, setStartHour] = useState<number | null>(null)
   const [endHour, setEndHour] = useState<number | null>(null)
+  // 'grid' = whole hours from the availability grid; 'exact' = any time,
+  // to the minute, with AM/PM - e.g. 12:10 AM, outside the grid's hours.
+  const [mode, setMode] = useState<'grid' | 'exact'>('grid')
+  const [exStart, setExStart] = useState<Clock12>(() => nowClock12(0))
+  const [exEnd, setExEnd] = useState<Clock12>(() => nowClock12(60))
   const [reason, setReason] = useState('')
   const [forUser, setForUser] = useState<string>('')
   const [slots, setSlots] = useState<BookingSlot[] | null>(null)
@@ -140,17 +149,36 @@ export default function Book() {
   const inRange = (h: number) => startHour !== null && (
     endHour === null ? h === startHour : h >= startHour && h < endHour)
 
-  const canNext = [labId !== null, !!date, startHour !== null && endHour !== null,
+  /** The chosen window as local Date objects, whichever tab picked it. */
+  const win = useMemo<{ start: Date; end: Date } | null>(() => {
+    if (mode === 'grid') {
+      if (startHour === null || endHour === null) return null
+      return { start: new Date(`${date}T${pad2(startHour)}:00`),
+               end: new Date(`${date}T${pad2(endHour % 24)}:00`) }
+    }
+    const start = new Date(`${date}T${to24(exStart)}`)
+    const end = new Date(`${date}T${to24(exEnd)}`)
+    // An end at or before the start means it runs past midnight.
+    if (end <= start) end.setDate(end.getDate() + 1)
+    return { start, end }
+  }, [mode, date, startHour, endHour, exStart, exEnd])
+
+  const exactProblem = mode !== 'exact' || !win ? ''
+    : win.end.getTime() - win.start.getTime() > MAX_HOURS * 3600e3
+      ? `A booking can be at most ${MAX_HOURS} hours.`
+    : win.end <= new Date() ? 'That time has already passed.' : ''
+
+  const canNext = [labId !== null, !!date, win !== null && !exactProblem,
                    true, true][step] ?? false
 
   async function submit() {
-    if (startHour === null || endHour === null || !labId) return
+    if (!win || !labId) return
     setError(''); setBusy(true)
     try {
       const b = await api.createBooking({
         lab_id: labId,
-        start_time: localToUtcIso(date, `${pad2(startHour)}:00`),
-        end_time: localToUtcIso(date, `${pad2(endHour)}:00`),
+        start_time: win.start.toISOString(),
+        end_time: win.end.toISOString(),
         reason: reason.trim(),
         user_id: forUser ? Number(forUser) : undefined,
       })
@@ -161,6 +189,31 @@ export default function Book() {
       // Most likely someone else just took the slot: show the fresh picture.
       loadDay()
       setStep(2)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Book from right now for TEST_MINUTES and go straight to the QR. */
+  async function testQrNow() {
+    if (!labId) return
+    setError(''); setBusy(true)
+    try {
+      // Start a minute back so a browser clock slightly ahead of the server
+      // does not produce a credential that is "not valid yet".
+      const start = new Date(Date.now() - 60e3)
+      const end = new Date(Date.now() + TEST_MINUTES * 60e3)
+      const b = await api.createBooking({
+        lab_id: labId,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        reason: 'QR door test',
+        user_id: forUser ? Number(forUser) : undefined,
+      })
+      nav(`/bookings/${b.id}/qr`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Test booking failed')
+      loadDay()
     } finally {
       setBusy(false)
     }
@@ -259,7 +312,44 @@ export default function Book() {
               {step === 2 && (
                 <div>
                   <StepTitle icon={<Clock size={16} />} title="Which hours?"
-                    sub="Tap a start hour, then an end hour. Availability updates live." />
+                    sub={mode === 'grid'
+                      ? 'Tap a start hour, then an end hour. Availability updates live.'
+                      : 'Pick any start and end time, to the minute.'} />
+                  <div className="mb-4 inline-flex rounded-xl border border-ink-500 p-1 bg-ink-900/40" role="tablist">
+                    {([['grid', 'Hour grid'], ['exact', 'Exact time (AM/PM)']] as const).map(([m, label]) => (
+                      <button key={m} role="tab" aria-selected={mode === m}
+                        onClick={() => { setError(''); setMode(m) }}
+                        className={`px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
+                          mode === m ? 'bg-accent-500/25 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {mode === 'exact' ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap gap-6">
+                        <ClockPicker label="Start" value={exStart} onChange={setExStart} />
+                        <ClockPicker label="End" value={exEnd} onChange={setExEnd} />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="btn-quiet" onClick={() => { setExStart(nowClock12(0)); setExEnd(nowClock12(60)) }}>
+                          Now → +1 h
+                        </button>
+                        <button className="btn-quiet" onClick={() => { setExStart(nowClock12(0)); setExEnd(nowClock12(30)) }}>
+                          Now → +30 min
+                        </button>
+                      </div>
+                      {win && (
+                        <div className="text-sm text-slate-200 flex items-center gap-2">
+                          <Clock size={14} className="text-accent-300" />
+                          <b className="tnum">{fmtWin(win)}</b>
+                          {win.end.getDate() !== win.start.getDate() &&
+                            <span className="text-slate-400">(ends the next day)</span>}
+                        </div>
+                      )}
+                      {exactProblem && <Notice tone="warn" icon={<Clock size={15} />}>{exactProblem}</Notice>}
+                    </div>
+                  ) : <>
                   <Legend />
                   {slots === null ? <Skeleton className="h-40 mt-4" /> : (
                     <div className="mt-4 grid grid-cols-4 sm:grid-cols-7 gap-2">
@@ -298,6 +388,16 @@ export default function Book() {
                       </>
                     )}
                   </div>
+                  </>}
+                  <div className="mt-5 pt-4 border-t border-ink-600/60 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[13px] text-slate-400">
+                      Testing the door? Book this laboratory from now for {TEST_MINUTES} minutes
+                      and open the QR immediately.
+                    </div>
+                    <button className="btn-quiet" disabled={busy || !labId} onClick={testQrNow}>
+                      <QrCode size={15} /> Test QR now
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -333,7 +433,7 @@ export default function Book() {
                 </div>
               )}
 
-              {step === 4 && lab && startHour !== null && endHour !== null && (
+              {step === 4 && lab && win && (
                 <div>
                   <StepTitle icon={<ShieldCheck size={16} />} title="Review and confirm" />
                   <dl className="well p-4 space-y-3 text-[13.5px]">
@@ -341,7 +441,7 @@ export default function Book() {
                     <Row k="Location" v={lab.location || '—'} />
                     <Row k="Date" v={new Date(`${date}T00:00`).toLocaleDateString([], {
                       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} />
-                    <Row k="Time" v={<span className="tnum">{pad2(startHour)}:00 → {pad2(endHour)}:00 ({endHour - startHour} h)</span>} />
+                    <Row k="Time" v={<span className="tnum">{fmtWin(win)}</span>} />
                     <Row k="Purpose" v={reason || '—'} />
                     {forUser && <Row k="Booked for" v={people.find(p => String(p.id) === forUser)?.full_name} />}
                     <Row k="Door access" v={<span className="inline-flex items-center gap-2">
@@ -374,8 +474,7 @@ export default function Book() {
             <SumRow icon={<MapPin size={14} />} label="Location" value={lab?.location || '—'} />
             <SumRow icon={<Calendar size={14} />} label="Date" value={new Date(`${date}T00:00`)
               .toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })} />
-            <SumRow icon={<Clock size={14} />} label="Time" value={startHour !== null && endHour !== null
-              ? `${pad2(startHour)}:00 → ${pad2(endHour)}:00` : 'Not chosen'} />
+            <SumRow icon={<Clock size={14} />} label="Time" value={win ? fmtWin(win) : 'Not chosen'} />
           </div>
         </aside>
       </div>
@@ -419,6 +518,60 @@ function Stepper({ step }: { step: number }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+/** A 12-hour clock reading: hour 1-12, minute 0-59, AM/PM. */
+interface Clock12 { h: number; m: number; ap: 'AM' | 'PM' }
+
+function nowClock12(plusMinutes: number): Clock12 {
+  const d = new Date(Date.now() + plusMinutes * 60e3)
+  const h24 = d.getHours()
+  return { h: h24 % 12 || 12, m: d.getMinutes(), ap: h24 < 12 ? 'AM' : 'PM' }
+}
+
+/** Clock12 -> "HH:MM" (24-hour) for building a local Date. */
+function to24(c: Clock12): string {
+  const h = (c.h % 12) + (c.ap === 'PM' ? 12 : 0)
+  return `${pad2(h)}:${pad2(c.m)}`
+}
+
+const fmt12 = (d: Date) =>
+  d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+
+function fmtWin(w: { start: Date; end: Date }): string {
+  const mins = Math.round((w.end.getTime() - w.start.getTime()) / 60e3)
+  const dur = mins % 60 ? `${Math.floor(mins / 60) ? `${Math.floor(mins / 60)} h ` : ''}${mins % 60} min`
+                        : `${mins / 60} h`
+  return `${fmt12(w.start)} → ${fmt12(w.end)} (${dur})`
+}
+
+function ClockPicker({ label, value, onChange }:
+  { label: string; value: Clock12; onChange: (c: Clock12) => void }) {
+  return (
+    <div>
+      <div className="label mb-1.5">{label}</div>
+      <div className="flex items-center gap-2">
+        <select className="input w-[88px] tnum" aria-label={`${label} hour`} value={value.h}
+          onChange={e => onChange({ ...value, h: Number(e.target.value) })}>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map(h => <option key={h} value={h}>{h}</option>)}
+        </select>
+        <span className="text-slate-400">:</span>
+        <select className="input w-[88px] tnum" aria-label={`${label} minute`} value={value.m}
+          onChange={e => onChange({ ...value, m: Number(e.target.value) })}>
+          {Array.from({ length: 60 }, (_, i) => i).map(m => <option key={m} value={m}>{pad2(m)}</option>)}
+        </select>
+        <div className="inline-flex rounded-lg border border-ink-500 overflow-hidden">
+          {(['AM', 'PM'] as const).map(ap => (
+            <button key={ap} aria-pressed={value.ap === ap} onClick={() => onChange({ ...value, ap })}
+              className={`px-3 py-2 text-[13px] ${value.ap === ap
+                ? 'bg-accent-500/25 text-white font-semibold' : 'text-slate-400 hover:text-slate-200'}`}>
+              {ap}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 

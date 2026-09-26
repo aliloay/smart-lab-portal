@@ -67,6 +67,32 @@ const int   SERVER_PORT = 5000;
 // loads the WiFi and the laptop; 1200ms is a reasonable balance.
 constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 
+// JPEG quality, 0-63, LOWER = better quality and a BIGGER file. Every frame
+// is uploaded over WiFi, so file size is frame rate: at a weak signal the
+// upload, not the laptop, is what limits speed. 12 made ~20 KB frames;
+// 18 roughly halves that, and on simulated door frames the QR still decoded
+// every time. If face distances rise noticeably, go back towards 14.
+constexpr int JPEG_QUALITY = 18;
+
+// How many frames may be in flight to the laptop at once. The link to the
+// laptop is LATENCY-bound, not bandwidth-bound: halving the JPEG size only
+// cut each round trip from ~620 to ~450 ms. With one frame at a time the
+// camera sits idle for that whole round trip; with 2, the next frame is
+// already travelling while the previous one is analysed, roughly doubling
+// frames/s at the same image quality.
+// Set to 1 for the exact previous behaviour (one frame at a time).
+//
+// MEASURED at the door (WiFi -65..-75 dBm): 2 workers gave 1.3-2.6 frames/s
+// vs 1.2-2.2 with 1, but each frame's round trip grew from ~0.6 s to ~1.5 s
+// - the radio link was already full, so frames just queued. Fresher results
+// matter more at the door than a few extra frames, so 1 it is. Try 2 again
+// only with a much stronger signal (around -55 dBm or better).
+constexpr int ANALYZE_WORKERS = 1;
+
+// Print a [PERF] line this often: frames/s actually sent and where the time
+// goes (capture vs upload+reply). Set to 0 to silence it.
+constexpr uint32_t PERF_EVERY_MS = 10000;
+
 // ===========================================================================
 // AI-THINKER ESP32-CAM PIN MAP
 // ===========================================================================
@@ -102,8 +128,59 @@ uint32_t lastFaceMs    = 0;
 bool     everFace      = false;
 float    lastDistance  = 0;
 
-uint32_t lastAnalyzeMs = 0;
-bool     analyzeBusy   = false;
+volatile bool analyzeBusy = false;   // set by /enroll to pause analysis
+
+// Guards everything above and below that the analyze workers, the HTTP
+// server's /status handler and /enroll share. Held only while touching that
+// state - never across a camera capture or a network request.
+SemaphoreHandle_t stateLock = NULL;
+#define LOCK()   xSemaphoreTake(stateLock, portMAX_DELAY)
+#define UNLOCK() xSemaphoreGive(stateLock)
+
+// One per in-flight frame: each keeps its own TCP connection to the laptop.
+struct AnalyzeWorker {
+  WiFiClient client;
+  HTTPClient http;
+  uint32_t   lastStartMs = 0;
+};
+AnalyzeWorker workers[ANALYZE_WORKERS];
+
+// Failure handling for the laptop link. After a failed frame the next one is
+// delayed a little more each time (up to ANALYZE_BACKOFF_MAX_MS), so a laptop
+// that is busy or briefly unreachable is not hammered 7 times a second, and
+// the log shows one line per outage instead of hundreds.
+constexpr uint32_t ANALYZE_BACKOFF_STEP_MS = 150;
+constexpr uint32_t ANALYZE_BACKOFF_MAX_MS  = 1500;
+uint32_t analyzeFails   = 0;
+uint32_t analyzeDelayMs = 0;     // extra delay before the next frame
+uint32_t lastFailLogMs  = 0;
+
+// [PERF] accumulators
+uint32_t perfStartMs = 0, perfFrames = 0, perfFails = 0;
+uint32_t perfCaptureMs = 0, perfPostMs = 0, perfBytes = 0;
+
+// Timing of the PREVIOUS frame, sent as headers with the next one so the
+// face server can print the camera's side of the story in its [stats] line
+// (one window to read instead of two).
+uint32_t prevCaptureMs = 0, prevPostMs = 0, totalFails = 0;
+
+void perfReport() {
+  if (PERF_EVERY_MS == 0) return;
+  uint32_t now = millis();
+  if (perfStartMs == 0) { perfStartMs = now; return; }
+  uint32_t elapsed = now - perfStartMs;
+  if (elapsed < PERF_EVERY_MS) return;
+  uint32_t n = perfFrames + perfFails;
+  if (n > 0) {
+    Serial.printf("[PERF] %.1f frames/s ok, %u failed | capture %u ms, upload+reply %u ms,"
+                  " %u KB/frame | WiFi %d dBm\n",
+                  perfFrames * 1000.0f / elapsed, (unsigned)perfFails,
+                  (unsigned)(perfCaptureMs / n), (unsigned)(perfPostMs / n),
+                  (unsigned)(perfBytes / n / 1024), WiFi.RSSI());
+  }
+  perfStartMs = now;
+  perfFrames = perfFails = perfCaptureMs = perfPostMs = perfBytes = 0;
+}
 
 // ===========================================================================
 // Camera capture with retry - the ESP32-CAM often fails the first capture
@@ -154,34 +231,80 @@ float jsonNumber(const String &src, const String &key) {
 // ===========================================================================
 // Send one frame to the laptop and cache whatever comes back.
 // ===========================================================================
-void analyzeFrame() {
+void analyzeFrame(AnalyzeWorker &w) {
   if (WiFi.status() != WL_CONNECTED) return;
 
+  uint32_t tCap = millis();
   camera_fb_t *fb = captureWithRetry();
   if (!fb) return;
+  uint32_t capMs = millis() - tCap;
 
-  // STATIC so the TCP connection survives between frames. At a weak signal
-  // the handshake alone can cost more than the image transfer, and we now do
-  // this several times a second instead of once.
-  static WiFiClient client;
-  static HTTPClient http;
+  uint32_t hdrCapMs, hdrPostMs, hdrFails;
+  LOCK();
+  prevCaptureMs  = capMs;
+  perfCaptureMs += capMs;
+  perfBytes     += fb->len;
+  hdrCapMs = prevCaptureMs;  hdrPostMs = prevPostMs;  hdrFails = totalFails;
+  UNLOCK();
+
+  // Per-worker client, so the TCP connection survives between frames. At a
+  // weak signal the handshake alone can cost more than the image transfer.
+  WiFiClient &client = w.client;
+  HTTPClient &http   = w.http;
   String url = String("http://") + SERVER_IP + ":" + SERVER_PORT + "/analyze";
   http.begin(client, url);
   http.setReuse(true);
+  // Send every TCP segment immediately. By default lwIP holds back the last,
+  // partly-filled segment of each upload until the previous one is ACKed,
+  // and Windows delays ACKs by up to 200 ms - a stall on EVERY frame.
+  client.setNoDelay(true);
   http.addHeader("Content-Type", "image/jpeg");
-  http.setConnectTimeout(2500);
-  http.setTimeout(2500);
+  http.addHeader("X-Cam-Rssi", String(WiFi.RSSI()));
+  http.addHeader("X-Cam-Capture-Ms", String(hdrCapMs));
+  http.addHeader("X-Cam-Post-Ms", String(hdrPostMs));
+  http.addHeader("X-Cam-Fails", String(hdrFails));
+  http.setConnectTimeout(1500);
+  http.setTimeout(2000);
 
+  uint32_t tPost = millis();
   int code = http.POST(fb->buf, fb->len);
+  String body;
   if (code == 200) {
-    String body = http.getString();
+    body = http.getString();
+  } else {
+    // Throw the connection away: after a timeout or reset, reusing it makes
+    // the NEXT frame fail too, which is how one hiccup became a long run of
+    // -1 / -11 errors.
+    client.stop();
+  }
+  http.end();
+  uint32_t postMs = millis() - tPost;
+  esp_camera_fb_return(fb);
+
+  // Everything below touches shared state.
+  LOCK();
+  prevPostMs  = postMs;
+  perfPostMs += postMs;
+
+  if (code == 200) {
+    perfFrames++;
+    if (analyzeFails > 0) {
+      Serial.printf("[ANALYZE] laptop reachable again (after %u failed frames)\n",
+                    (unsigned)analyzeFails);
+    }
+    analyzeFails   = 0;
+    analyzeDelayMs = 0;
 
     String qr = jsonString(body, "qr");
     if (qr.length() > 0) {
+      // Print a QR when it first appears (or reappears after 2 s), not on
+      // every frame it stays in view - the cache is refreshed either way.
+      if (qr != lastQr || millis() - lastQrMs > 2000) {
+        Serial.printf("[QR]   %s\n", qr.c_str());
+      }
       lastQr   = qr;
       lastQrMs = millis();
       everQr   = true;
-      Serial.printf("[QR]   %s\n", qr.c_str());
     }
 
     String face = jsonString(body, "face");
@@ -193,22 +316,57 @@ void analyzeFrame() {
       Serial.printf("[FACE] %s  (distance %.1f)\n", face.c_str(), lastDistance);
     }
   } else {
-    Serial.printf("[ANALYZE] HTTP %d - is face_server.py running on %s?\n",
-                  code, SERVER_IP);
+    perfFails++;
+    totalFails++;
+    analyzeFails++;
+    analyzeDelayMs = std::min<uint32_t>(analyzeFails * ANALYZE_BACKOFF_STEP_MS,
+                                   ANALYZE_BACKOFF_MAX_MS);
+    if (analyzeFails == 1 || millis() - lastFailLogMs > 5000) {
+      lastFailLogMs = millis();
+      const char *why =
+        code == HTTPC_ERROR_CONNECTION_REFUSED ? "cannot connect - is face_server.py running, firewall open?" :
+        code == HTTPC_ERROR_READ_TIMEOUT       ? "laptop too slow to answer (busy, or its console window is paused?)" :
+        code == HTTPC_ERROR_CONNECTION_LOST    ? "connection dropped" :
+        code == HTTPC_ERROR_SEND_PAYLOAD_FAILED ? "image upload failed (weak WiFi?)" :
+                                                  "request failed";
+      Serial.printf("[ANALYZE] HTTP %d - %s  [%s:%d, %u fails, WiFi %d dBm]\n",
+                    code, why, SERVER_IP, SERVER_PORT,
+                    (unsigned)analyzeFails, WiFi.RSSI());
+    }
   }
+  perfReport();
+  UNLOCK();
+}
 
-  http.end();
-  esp_camera_fb_return(fb);
+// Each worker sends frames back to back (at most one per ANALYZE_INTERVAL_MS,
+// plus the shared back-off after failures). Running ANALYZE_WORKERS of them
+// keeps that many frames in flight.
+void analyzeTask(void *arg) {
+  AnalyzeWorker &w = *static_cast<AnalyzeWorker *>(arg);
+  // Staggered start so the workers settle into alternating frames.
+  int index = &w - workers;
+  vTaskDelay(pdMS_TO_TICKS(index * ANALYZE_INTERVAL_MS / ANALYZE_WORKERS));
+  for (;;) {
+    LOCK();
+    uint32_t gap = ANALYZE_INTERVAL_MS + analyzeDelayMs;
+    UNLOCK();
+    if (!analyzeBusy && millis() - w.lastStartMs > gap) {
+      w.lastStartMs = millis();
+      analyzeFrame(w);
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
 }
 
 // ===========================================================================
 // GET /status  - what the Master ESP32 polls
 // ===========================================================================
 static esp_err_t status_handler(httpd_req_t *req) {
+  char buf[256];
+  LOCK();
   long qrAge   = everQr   ? (long)(millis() - lastQrMs)   : -1;
   long faceAge = everFace ? (long)(millis() - lastFaceMs) : -1;
 
-  char buf[256];
   int len = snprintf(buf, sizeof(buf),
     "{\"qr\":%s%s%s,\"qr_age_ms\":%ld,"
     "\"face\":%s%s%s,\"face_age_ms\":%ld,"
@@ -218,6 +376,7 @@ static esp_err_t status_handler(httpd_req_t *req) {
     everFace ? "\"" : "", everFace ? lastFace.c_str() : "null", everFace ? "\"" : "",
     faceAge,
     lastDistance);
+  UNLOCK();
 
   httpd_resp_set_type(req, "application/json");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -257,7 +416,6 @@ static esp_err_t enroll_handler(httpd_req_t *req) {
   }
 
   analyzeBusy   = false;
-  lastAnalyzeMs = millis();
   Serial.printf("[ENROLL] %s -> %s\n", name, reply.c_str());
 
   httpd_resp_set_type(req, "application/json");
@@ -275,12 +433,16 @@ static esp_err_t snapshot_handler(httpd_req_t *req) {
 }
 
 static esp_err_t index_handler(httpd_req_t *req) {
+  LOCK();
+  String qrNow   = everQr   ? lastQr   : String("none");
+  String faceNow = everFace ? lastFace : String("none");
+  UNLOCK();
   String html =
     "<html><head><meta http-equiv='refresh' content='2'></head>"
     "<body style='font-family:sans-serif;background:#111;color:#eee;padding:20px'>"
     "<h2>Smart Lab Camera - Stage 3</h2>"
-    "<p>Last QR   : <b>" + (everQr   ? lastQr   : String("none")) + "</b></p>"
-    "<p>Last face : <b>" + (everFace ? lastFace : String("none")) + "</b></p>"
+    "<p>Last QR   : <b>" + qrNow   + "</b></p>"
+    "<p>Last face : <b>" + faceNow + "</b></p>"
     "<hr>"
     "<p><a style='color:#6cf' href='/enroll?name=USER1'>enroll USER1</a> | "
     "<a style='color:#6cf' href='/enroll?name=USER2'>enroll USER2</a></p>"
@@ -314,6 +476,7 @@ void startServer() {
 // ===========================================================================
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);   // stop spurious brownout resets
+  stateLock = xSemaphoreCreateMutex();
 
   Serial.begin(115200);
   delay(500);
@@ -340,11 +503,11 @@ void setup() {
   // detail, and QR codes decode more reliably at higher resolution too.
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size   = FRAMESIZE_VGA;    // 640x480
-  config.jpeg_quality = 12;
+  config.jpeg_quality = JPEG_QUALITY;
   config.grab_mode    = CAMERA_GRAB_LATEST;
 
   if (psramFound()) {
-    config.fb_count    = 2;
+    config.fb_count    = ANALYZE_WORKERS + 1;   // one per in-flight frame + one filling
     config.fb_location = CAMERA_FB_IN_PSRAM;
   } else {
     config.frame_size  = FRAMESIZE_QVGA;
@@ -394,16 +557,19 @@ void setup() {
   Serial.println("=================================================");
   Serial.print  ("PUT THIS IP IN THE MASTER SKETCH: ");
   Serial.println(WiFi.localIP());
-  Serial.printf ("Analyzing every %ums via http://%s:%d/analyze\n",
-                 (unsigned)ANALYZE_INTERVAL_MS, SERVER_IP, SERVER_PORT);
+  Serial.printf ("Analyzing via http://%s:%d/analyze, %d frame(s) in flight\n",
+                 SERVER_IP, SERVER_PORT, ANALYZE_WORKERS);
+
+  for (int i = 0; i < ANALYZE_WORKERS; i++) {
+    char name[16];
+    snprintf(name, sizeof(name), "analyze%d", i);
+    xTaskCreatePinnedToCore(analyzeTask, name, 8192, &workers[i], 1, NULL, 1);
+  }
   Serial.println("-------------------------------------------------");
 }
 
 // ===========================================================================
 void loop() {
-  if (!analyzeBusy && (millis() - lastAnalyzeMs > ANALYZE_INTERVAL_MS)) {
-    lastAnalyzeMs = millis();
-    analyzeFrame();
-  }
-  delay(2);
+  // All work happens in the analyze tasks and the HTTP server.
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }

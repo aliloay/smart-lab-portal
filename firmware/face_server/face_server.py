@@ -18,7 +18,7 @@ NOT as robust as a modern CNN model - state that plainly in your thesis
 rather than overclaiming.
 
 INSTALL
-    pip install flask opencv-python opencv-contrib-python numpy
+    pip install flask waitress opencv-python opencv-contrib-python numpy
 
 RUN
     python face_server.py
@@ -57,6 +57,8 @@ import csv
 import time
 import logging
 import datetime
+import functools
+import threading
 import cv2
 import numpy as np
 from flask import Flask, request, jsonify
@@ -102,6 +104,64 @@ model_trained = False
 # decoding here means the camera never has to switch modes, and a laptop
 # decodes QR far more reliably than quirc on an ESP32.
 qr_detector = cv2.QRCodeDetector()
+
+# Second decoder: WeChat's, which ships in opencv-contrib (already required
+# for cv2.face). Measured on simulated ESP32-CAM frames (VGA, JPEG q12, blur,
+# tilt, dim/bright), share of frames decoded, by QR size in the frame:
+#
+#     QR size      QRCodeDetector   WeChat
+#     110 px            1%            33%
+#     140 px           15%            90%
+#     180 px           69%           100%
+#     260 px           97%           100%
+#
+# i.e. the plain detector only works with the phone held close. WeChat is
+# slower on a frame with no QR (~80 ms vs ~8 ms), so it only runs when the
+# fast detector has found nothing.
+try:
+    wechat_qr = cv2.wechat_qrcode_WeChatQRCode()
+except Exception as e:                      # pragma: no cover
+    wechat_qr = None
+    print(f"[startup] WeChat QR decoder unavailable ({e}) - close-range QR only")
+
+
+def decode_qr_fast(gray):
+    """QR payload via cv2.QRCodeDetector (~10 ms), or None."""
+    try:
+        data, _, _ = qr_detector.detectAndDecode(gray)
+        if data:
+            return data.strip()
+    except Exception as e:
+        print(f"[analyze] QR decode error: {e}")
+    return None
+
+
+def decode_qr_wechat(gray):
+    """QR payload via the WeChat decoder (~80-150 ms), or None."""
+    if wechat_qr is not None:
+        try:
+            results, _ = wechat_qr.detectAndDecode(gray)
+            for r in results:
+                if r:
+                    return r.strip()
+        except Exception as e:
+            print(f"[analyze] WeChat QR error: {e}")
+    return None
+
+
+# Rolling numbers printed every STATS_EVERY_S seconds: how many frames the
+# camera actually delivers and how long each takes here. If fps is low while
+# ms/frame is small, the bottleneck is the camera's WiFi, not this laptop.
+STATS_EVERY_S = 10
+_stats = {"t0": time.time(), "frames": 0, "ms": 0.0, "qr": 0, "face": 0,
+          "cam": 0, "rssi": 0, "cap": 0, "post": 0, "fails0": None, "fails": 0}
+
+
+def _cam_header(name):
+    try:
+        return int(request.headers.get(name, ""))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +272,22 @@ def largest_face(gray):
     return cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE)
 
 
+# The camera keeps two frames in flight, so requests can overlap. OpenCV's
+# detectors and the LBPH model are single objects shared by every request
+# and are not guaranteed thread-safe, so the image work itself runs one frame
+# at a time; only the network transfer overlaps. Analysis takes ~20-120 ms,
+# far less than a frame's round trip, so this costs no throughput.
+cv_lock = threading.Lock()
+
+
+def one_at_a_time(view):
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        with cv_lock:
+            return view(*args, **kwargs)
+    return wrapped
+
+
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 ensure_log()
@@ -223,6 +299,7 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 
 @app.route("/enroll", methods=["GET", "POST"])
+@one_at_a_time
 def enroll():
     name = request.args.get("name")
     if not name:
@@ -247,6 +324,7 @@ def enroll():
 
 
 @app.route("/train", methods=["GET", "POST"])
+@one_at_a_time
 def train():
     global model_trained
     names = sorted(os.listdir(DATASET_DIR)) if os.path.exists(DATASET_DIR) else []
@@ -278,6 +356,7 @@ def train():
 
 
 @app.route("/recognize", methods=["POST"])
+@one_at_a_time
 def recognize():
     if not model_trained:
         return jsonify({"error": "model not trained"}), 400
@@ -321,46 +400,94 @@ def analyze():
     if img is None:
         return jsonify({"error": "no image received"}), 400
 
-    t0 = time.perf_counter()
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # JPEG decoding (above) runs in parallel; the analysis is serialised.
+    with cv_lock:
+        t0 = time.perf_counter()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # --- QR ---
-    # Decoding from the GRAYSCALE image, not the colour one: the detector
-    # converts internally anyway, so handing it one channel instead of three
-    # saves that conversion on every frame.
-    qr_payload = None
-    try:
-        data, points, _ = qr_detector.detectAndDecode(gray)
-        if data:
-            qr_payload = data.strip()
-    except Exception as e:
-        print(f"[analyze] QR decode error: {e}")
-    t_qr = time.perf_counter()
+        # --- QR ---
+        # Decoding from the GRAYSCALE image, not the colour one: the detector
+        # converts internally anyway, so handing it one channel instead of three
+        # saves that conversion on every frame.
+        qr_payload = decode_qr_fast(gray)
+        t_qr = time.perf_counter()
 
-    # --- Face ---
-    face_name, face_distance = None, None
-    if model_trained:
-        face = largest_face(gray)
-        if face is not None:
-            label, distance = recognizer.predict(face)
-            face_distance = round(float(distance), 1)
-            if distance <= CONFIDENCE_THRESHOLD:
-                face_name = label_to_name.get(label)
+        # --- Face ---
+        face_name, face_distance = None, None
+        face = None
+        if model_trained:
+            face = largest_face(gray)
+            if face is not None:
+                label, distance = recognizer.predict(face)
+                face_distance = round(float(distance), 1)
+                if distance <= CONFIDENCE_THRESHOLD:
+                    face_name = label_to_name.get(label)
 
-    t_face = time.perf_counter()
+        t_face = time.perf_counter()
 
-    # Timing is printed only when something was actually found, so the console
-    # stays readable. These numbers are worth putting in the thesis: they are
-    # the measured per-stage latency of the recognition pipeline.
-    if qr_payload or face_name:
-        print(f"[analyze] qr={qr_payload}  face={face_name} (d={face_distance})"
-              f"   qr {1000*(t_qr-t0):.0f}ms  face {1000*(t_face-t_qr):.0f}ms")
+        # --- QR, second chance ---
+        # The slow WeChat decoder only runs when the fast one found nothing AND
+        # there is no face in the frame. A frame showing a face is someone at
+        # step 2, not holding up a phone, and skipping WeChat there cut ~120 ms
+        # from every face frame. A QR held close in front of a face is still
+        # caught by the fast decoder above.
+        if qr_payload is None and face is None:
+            t_w = time.perf_counter()
+            qr_payload = decode_qr_wechat(gray)
+            dt = time.perf_counter() - t_w
+            t_qr += dt                    # report it as QR time, not face time
+            t_face += dt
 
-    return jsonify({
-        "qr": qr_payload,
-        "face": face_name,
-        "distance": face_distance
-    })
+        # Timing is printed only when something was actually found, so the console
+        # stays readable. These numbers are worth putting in the thesis: they are
+        # the measured per-stage latency of the recognition pipeline.
+        total_ms = 1000 * (t_face - t0)
+        _stats["frames"] += 1
+        _stats["ms"] += total_ms
+        _stats["qr"] += bool(qr_payload)
+        _stats["face"] += bool(face_name)
+        # The camera's own timing (previous frame), sent as headers by the
+        # ESP32-CAM sketch. Absent with older camera firmware.
+        rssi = _cam_header("X-Cam-Rssi")
+        if rssi is not None:
+            _stats["cam"] += 1
+            _stats["rssi"] += rssi
+            _stats["cap"] += _cam_header("X-Cam-Capture-Ms") or 0
+            _stats["post"] += _cam_header("X-Cam-Post-Ms") or 0
+            fails = _cam_header("X-Cam-Fails") or 0
+            if _stats["fails0"] is None:
+                _stats["fails0"] = fails
+            if fails < _stats["fails0"]:      # camera rebooted: counter reset
+                _stats["fails0"] = fails - _stats["fails"]
+            _stats["fails"] = fails - _stats["fails0"]
+        elapsed = time.time() - _stats["t0"]
+        if elapsed >= STATS_EVERY_S:
+            n = _stats["frames"]
+            print(f"[stats] {n / elapsed:.1f} frames/s from camera, "
+                  f"{_stats['ms'] / n:.0f} ms/frame here, "
+                  f"QR in {_stats['qr']}, face in {_stats['face']} of {n} frames")
+            c = _stats["cam"]
+            if c:
+                print(f"        camera: capture {_stats['cap'] // c} ms, "
+                      f"upload+reply {_stats['post'] // c} ms, "
+                      f"{_stats['fails']} failed uploads, "
+                      f"WiFi {_stats['rssi'] // c} dBm")
+            _stats.update(t0=time.time(), frames=0, ms=0.0, qr=0, face=0,
+                          cam=0, rssi=0, cap=0, post=0, fails0=None, fails=0)
+        if total_ms > 500:
+            # The camera gives up after 2 s. A frame this slow means the laptop
+            # is overloaded - or this console window is paused (see
+            # start_face_server.bat).
+            print(f"[analyze] SLOW frame: {total_ms:.0f}ms")
+        if qr_payload or face_name:
+            print(f"[analyze] qr={qr_payload}  face={face_name} (d={face_distance})"
+                  f"   qr {1000*(t_qr-t0):.0f}ms  face {1000*(t_face-t_qr):.0f}ms")
+
+        return jsonify({
+            "qr": qr_payload,
+            "face": face_name,
+            "distance": face_distance
+        })
 
 
 @app.route("/users", methods=["GET"])
@@ -393,5 +520,17 @@ if __name__ == "__main__":
     print(" Find your LAN IP with 'ipconfig' and put it in the ESP32-CAM sketch.")
     print("=" * 60)
     print()
-    # threaded: one slow frame must never queue behind another.
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    # waitress, not Flask's built-in server. The built-in one closes the
+    # connection after EVERY response, so the camera had to open a new TCP
+    # connection for every frame, several times a second - slow, and on
+    # Windows a steady source of refused (-1) and timed-out (-11) frames.
+    # waitress keeps one connection open and just streams frames down it.
+    try:
+        from waitress import serve
+    except ImportError:
+        print(" (waitress not installed - using Flask's slower built-in server."
+              " Fix: pip install waitress)")
+        # threaded: one slow frame must never queue behind another.
+        app.run(host="0.0.0.0", port=5000, threaded=True)
+    else:
+        serve(app, host="0.0.0.0", port=5000, threads=8)
