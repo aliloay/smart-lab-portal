@@ -1,14 +1,25 @@
 """
 AI lab assistant (optional).
 
-A question from staff goes to Claude together with a small set of READ-ONLY
-tools. Every tool is a function the portal already uses for its own pages
+Two assistants, two providers:
+
+  * staff   - a question goes to the model together with a small set of
+              READ-ONLY tools (below) and the model decides what to look up;
+  * student - a simpler helper that answers from the student's own bookings
+              and reports plus the public lab list, fetched here and handed
+              to the model as context. It has no tools and sees nobody
+              else's data.
+
+Provider is Ollama (free, local - https://ollama.com) or the Claude API; see
+AI_PROVIDER in app.core.config.
+
+For the staff assistant, every tool Every tool is a function the portal already uses for its own pages
 and reports (app.services.analytics / app.services.automation), so:
 
   * numbers come from the database, never from the model's imagination;
   * the model cannot change anything - there is no tool that writes, books,
     cancels, assigns or touches a door;
-  * with ANTHROPIC_API_KEY unset the assistant is simply "not configured"
+  * with no provider configured the assistant is simply "not configured"
     and nothing else in the portal changes.
 
 Issue titles/descriptions are written by users. They reach the model inside
@@ -18,14 +29,17 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
+from zoneinfo import ZoneInfo
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Issue, Lab
+from app.models import Booking, BookingStatus, Issue, Lab, User
 
 log = logging.getLogger("smartlab.ai")
 
@@ -55,8 +69,57 @@ Rules:
   the Operations Center page."""
 
 
+def provider() -> Optional[str]:
+    p = settings.AI_PROVIDER.strip().lower()
+    if p in ("auto", "anthropic") and settings.ANTHROPIC_API_KEY:
+        return "anthropic"
+    if p in ("auto", "ollama") and settings.OLLAMA_URL:
+        return "ollama"
+    return None
+
+
 def configured() -> bool:
-    return bool(settings.ANTHROPIC_API_KEY)
+    return provider() is not None
+
+
+def model_name(student: bool = False) -> Optional[str]:
+    p = provider()
+    if p == "anthropic":
+        return settings.AI_STUDENT_MODEL if student else settings.AI_MODEL
+    if p == "ollama":
+        return settings.OLLAMA_STUDENT_MODEL if student else settings.OLLAMA_MODEL
+    return None
+
+
+_health: dict[str, Any] = {"at": 0.0, "value": None}
+
+
+def health() -> dict:
+    """
+    Is the provider usable right now? For Ollama: is it running, and are the
+    two models downloaded. Cached for 20 s so page loads do not hammer it.
+    """
+    p = provider()
+    out = {"configured": p is not None, "provider": p,
+           "model": model_name(), "student_model": model_name(True),
+           "reachable": p == "anthropic", "missing_models": []}
+    if p != "ollama":
+        return out
+    if time.monotonic() - _health["at"] < 20 and _health["value"] is not None:
+        return {**out, **_health["value"]}
+    extra: dict[str, Any]
+    try:
+        r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=2.5)
+        r.raise_for_status()
+        have = {m.get("name", "") for m in r.json().get("models", [])}
+        have |= {n.removesuffix(":latest") for n in have}
+        missing = [m for m in {settings.OLLAMA_MODEL, settings.OLLAMA_STUDENT_MODEL}
+                   if m not in have]
+        extra = {"reachable": True, "missing_models": sorted(missing)}
+    except (httpx.HTTPError, ValueError):
+        extra = {"reachable": False, "missing_models": []}
+    _health.update(at=time.monotonic(), value=extra)
+    return {**out, **extra}
 
 
 def _client():
@@ -224,17 +287,7 @@ class AIUnavailable(RuntimeError):
     pass
 
 
-def ask(db: Session, question: str, history: Optional[list[dict]] = None,
-        client=None) -> dict:
-    """
-    Answer one question. `history` is prior plain-text turns
-    [{"role": "user"|"assistant", "content": str}] from the chat panel.
-    """
-    if not configured() and client is None:
-        raise AIUnavailable("AI assistant is not configured (ANTHROPIC_API_KEY).")
-    import anthropic
-    client = client or _client()
-
+def _history(question: str, history: Optional[list[dict]]) -> list[dict]:
     messages: list[dict] = []
     for turn in (history or [])[-10:]:
         if turn.get("role") in ("user", "assistant") and turn.get("content"):
@@ -242,6 +295,29 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
     while messages and messages[0]["role"] != "user":
         messages.pop(0)
     messages.append({"role": "user", "content": question})
+    return messages
+
+
+def _today_line() -> str:
+    now = datetime.now(ZoneInfo(settings.LOCAL_TIMEZONE))
+    return (f"Current local time: {now:%A %d %B %Y, %H:%M} "
+            f"({settings.LOCAL_TIMEZONE}).")
+
+
+def ask(db: Session, question: str, history: Optional[list[dict]] = None,
+        client=None) -> dict:
+    """
+    Staff assistant: answer one question using the read-only tools.
+    `history` is prior plain-text turns [{"role", "content"}] from the chat
+    panel. `client` (tests) forces the Claude API path with a fake client.
+    """
+    if client is None and provider() == "ollama":
+        return _ask_ollama(db, question, history)
+    if not configured() and client is None:
+        raise AIUnavailable("The AI assistant is not configured.")
+    import anthropic
+    client = client or _client()
+    messages = _history(question, history)
 
     tools_used: list[str] = []
     for _ in range(settings.AI_MAX_TOOL_ROUNDS + 1):
@@ -249,7 +325,7 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
             response = client.beta.messages.create(
                 model=settings.AI_MODEL,
                 max_tokens=16000,
-                system=SYSTEM,
+                system=SYSTEM + "\n\n" + _today_line(),
                 tools=TOOLS,
                 messages=messages,
                 thinking={"type": "adaptive"},
@@ -292,6 +368,203 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 
     return {"answer": "The question needed more steps than allowed; try a narrower question.",
             "tools_used": tools_used, "model": settings.AI_MODEL}
+
+
+# ---------------------------------------------------------------- ollama ---
+OLLAMA_RESULT_CHARS = 12_000
+OLLAMA_EXTRA = """
+- Only call the tools listed. Call a tool before answering any question
+  about numbers, labs, issues or devices.
+- Answer in the same language as the question."""
+
+
+def _ollama_chat(model: str, messages: list[dict],
+                 tools: Optional[list[dict]] = None) -> dict:
+    body: dict[str, Any] = {
+        "model": model, "messages": messages, "stream": False,
+        "options": {"temperature": 0.2, "num_ctx": settings.OLLAMA_NUM_CTX},
+        # Keep the model loaded between questions (first load takes seconds).
+        "keep_alive": "30m",
+    }
+    if tools:
+        body["tools"] = tools
+    url = settings.OLLAMA_URL.rstrip("/") + "/api/chat"
+    try:
+        r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
+    except httpx.ConnectError as exc:
+        raise AIUnavailable(
+            "Ollama is not running. Install it from ollama.com, start it, "
+            "and try again.") from exc
+    except httpx.TimeoutException as exc:
+        raise AIUnavailable("The local model took too long to answer - "
+                            "try a shorter question.") from exc
+    except httpx.HTTPError as exc:
+        raise AIUnavailable("Ollama could not be reached.") from exc
+    if r.status_code == 404:
+        raise AIUnavailable(f"The model {model} is not downloaded yet. "
+                            f"On the computer running Ollama, run: ollama pull {model}")
+    if r.status_code >= 400:
+        detail = ""
+        try:
+            detail = str(r.json().get("error", ""))[:200]
+        except ValueError:
+            pass
+        log.warning("Ollama error %s: %s", r.status_code, detail)
+        raise AIUnavailable(f"The local model returned an error ({r.status_code}). {detail}".strip())
+    return r.json()
+
+
+def _ollama_tools() -> list[dict]:
+    return [{"type": "function", "function": {
+        "name": t["name"], "description": t["description"],
+        "parameters": t["input_schema"]}} for t in TOOLS]
+
+
+def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
+    model = settings.OLLAMA_MODEL
+    messages = [{"role": "system",
+                 "content": SYSTEM + OLLAMA_EXTRA + "\n\n" + _today_line()}]
+    messages += _history(question, history)
+    tools = _ollama_tools()
+    tools_used: list[str] = []
+    for _ in range(settings.AI_MAX_TOOL_ROUNDS + 1):
+        msg = (_ollama_chat(model, messages, tools).get("message") or {})
+        calls = msg.get("tool_calls") or []
+        messages.append({"role": "assistant", "content": msg.get("content", ""),
+                         **({"tool_calls": calls} if calls else {})})
+        if not calls:
+            text = (msg.get("content") or "").strip()
+            return {"answer": text or "No answer was produced.",
+                    "tools_used": tools_used, "model": model}
+        for call in calls:
+            fn = call.get("function") or {}
+            name = str(fn.get("name", ""))
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            out, _err = run_tool(db, name, args)
+            tools_used.append(name)
+            if len(out) > OLLAMA_RESULT_CHARS:
+                out = out[:OLLAMA_RESULT_CHARS] + '..."(truncated)"'
+            messages.append({"role": "tool", "tool_name": name, "content": out})
+    return {"answer": "The question needed more steps than allowed; try a narrower question.",
+            "tools_used": tools_used, "model": model}
+
+
+# --------------------------------------------------------------- student ---
+STUDENT_SYSTEM = """You are the Smart Lab helper for a university student.
+Answer ONLY from the JSON data below: it holds this student's own bookings,
+the issue reports they submitted, and the list of laboratories with the
+times they are already booked. Rules:
+- Never invent bookings, times, labs or statuses. If the answer is not in
+  the data, say you don't have that information.
+- Times in the data are local time. Say the day and time plainly.
+- A lab is free at a time if it is active and that time is not inside one of
+  its booked slots (capacity is how many people fit).
+- You cannot book, cancel or open doors. Point to the portal page instead:
+  "Book a lab" to book, "My bookings" to cancel or show the QR code,
+  "Report an issue" to report a problem.
+- Door entry needs the booking QR code (or card) and the student's enrolled
+  fingerprint or face. If they are not enrolled, lab staff do it.
+- Be short and friendly: two to five sentences or a short list.
+- Answer in the same language as the question."""
+
+
+def _local(dt: Optional[datetime], tz: ZoneInfo) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).strftime("%a %d %b %Y %H:%M")
+
+
+def student_context(db: Session, user: User) -> dict:
+    """Everything the student helper may know. Only this user's own rows."""
+    tz = ZoneInfo(settings.LOCAL_TIMEZONE)
+    now = datetime.now(timezone.utc)
+    labs = {l.id: l for l in db.scalars(select(Lab).order_by(Lab.code)).all()}
+    code = lambda lid: labs[lid].code if lid in labs else None  # noqa: E731
+
+    def b_row(b: Booking) -> dict:
+        return {"id": b.id, "lab": code(b.lab_id),
+                "lab_name": labs[b.lab_id].name if b.lab_id in labs else None,
+                "start": _local(b.start_time, tz), "end": _local(b.end_time, tz),
+                "status": b.status.value, "reason": (b.reason or "")[:120]}
+
+    mine = select(Booking).where(Booking.user_id == user.id)
+    upcoming = db.scalars(mine.where(Booking.end_time >= now)
+                          .order_by(Booking.start_time).limit(20)).all()
+    past = db.scalars(mine.where(Booking.end_time < now)
+                      .order_by(Booking.start_time.desc()).limit(10)).all()
+    reports = db.scalars(select(Issue).where(Issue.reporter_id == user.id)
+                         .order_by(Issue.created_at.desc()).limit(10)).all()
+
+    horizon = now + timedelta(days=3)
+    busy = db.scalars(select(Booking).where(
+        Booking.status.in_([BookingStatus.CONFIRMED, BookingStatus.PENDING]),
+        Booking.end_time > now, Booking.start_time < horizon)
+        .order_by(Booking.start_time)).all()
+    slots: dict[int, list[str]] = {}
+    for b in busy:     # times only - never who booked
+        slots.setdefault(b.lab_id, []).append(
+            f"{_local(b.start_time, tz)} - {_local(b.end_time, tz)[-5:]}")
+
+    return {
+        "now": _local(now, tz),
+        "student": {"name": user.full_name, "department": user.department,
+                    "door_enrolled": bool(user.auth_subject)},
+        "upcoming_bookings": [b_row(b) for b in upcoming],
+        "past_bookings": [b_row(b) for b in past],
+        "my_issue_reports": [{
+            "ticket": i.ticket_number, "lab": code(i.lab_id), "title": i.title,
+            "status": i.status.value, "severity": i.severity.value,
+            "reported": _local(i.created_at, tz),
+            "resolved": _local(i.resolved_at, tz),
+            "resolution_notes": (i.resolution_notes or "")[:200]} for i in reports],
+        "labs": [{"code": l.code, "name": l.name, "category": l.category,
+                  "location": l.location, "capacity": l.capacity,
+                  "active": l.is_active,
+                  "booked_slots_next_3_days": slots.get(l.id, [])[:30]}
+                 for l in labs.values()],
+        "booking_rules": {"max_hours_per_booking": settings.MAX_BOOKING_HOURS,
+                          "auto_approved": settings.BOOKING_AUTO_APPROVE},
+    }
+
+
+def ask_student(db: Session, user: User, question: str,
+                history: Optional[list[dict]] = None, client=None) -> dict:
+    """Student helper: one call, no tools, only this student's data."""
+    p = "anthropic" if client is not None else provider()
+    if p is None:
+        raise AIUnavailable("The AI helper is not configured.")
+    system = (STUDENT_SYSTEM + "\n\nDATA:\n"
+              + _json(student_context(db, user)))
+    messages = _history(question, history)
+    if p == "ollama":
+        model = settings.OLLAMA_STUDENT_MODEL
+        msg = _ollama_chat(model, [{"role": "system", "content": system}]
+                           + messages).get("message") or {}
+        text = (msg.get("content") or "").strip()
+        return {"answer": text or "No answer was produced.", "tools_used": [],
+                "model": model}
+
+    import anthropic
+    client = client or _client()
+    try:
+        r = client.messages.create(model=settings.AI_STUDENT_MODEL,
+                                   max_tokens=1024, system=system,
+                                   messages=messages)
+    except anthropic.APIConnectionError as exc:
+        raise AIUnavailable("The AI service could not be reached.") from exc
+    except anthropic.APIStatusError as exc:
+        log.warning("AI student request failed: %s", exc)
+        raise AIUnavailable(f"The AI service returned an error ({exc.status_code}).") from exc
+    text = "\n".join(b.text for b in r.content if b.type == "text").strip()
+    return {"answer": text or "No answer was produced.", "tools_used": [],
+            "model": r.model}
 
 
 WEEKLY_PROMPT = (

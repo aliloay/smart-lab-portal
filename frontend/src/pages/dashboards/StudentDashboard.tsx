@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowRight, BarChart3, CalendarCheck, CalendarPlus, Clock, DoorOpen, FlaskConical, History,
-  QrCode, ShieldCheck, Wrench,
+  QrCode, ShieldCheck, Sparkles, Wrench,
 } from 'lucide-react'
+import { AskTheLab } from '../../components/ai'
 import { AccessEvent, Booking, Issue, LabOverview, MyStats, api } from '../../lib/api'
 import { firstName, useAuth } from '../../lib/auth'
 import { useLiveMessages } from '../../lib/live'
@@ -195,6 +196,8 @@ export default function StudentDashboard() {
         </section>
       </div>
 
+      <StudentHelper />
+
       {/* ------------------------------------------------ available labs */}
       <section>
         <SectionTitle icon={<FlaskConical size={15} />}
@@ -326,6 +329,21 @@ function QuickBooking({ labs }: { labs: LabOverview[] }) {
  * The student's own usage over 90 days - their bookings only, never other
  * people's and never lab-wide analytics.
  */
+/** Optional AI helper - hidden entirely when no model is set up. */
+function StudentHelper() {
+  const [on, setOn] = useState(false)
+  useEffect(() => { api.studentAiStatus().then(s => setOn(s.configured)).catch(() => setOn(false)) }, [])
+  if (!on) return null
+  return (
+    <section>
+      <SectionTitle icon={<Sparkles size={15} />} sub="Quick answers about your bookings, reports and free labs.">
+        Ask Smart Lab
+      </SectionTitle>
+      <div className="card p-4"><AskTheLab mode="student" /></div>
+    </section>
+  )
+}
+
 function MyUsage() {
   const [s, setS] = useState<MyStats | null>(null)
   const [failed, setFailed] = useState(false)

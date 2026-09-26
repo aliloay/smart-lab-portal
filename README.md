@@ -41,7 +41,9 @@ Research Laboratory Management System*, German International University, Cairo.
   API drive 12 workflows (reminders, denial bursts, offline escalation, reports, data quality,
   rule-based anomalies...). n8n never touches the door - see [AUTOMATION.md](docs/AUTOMATION.md)
 - **AI lab assistant (optional)**: staff ask questions in plain language ("which lab has the
-  most no-shows?"). Answers come from the portal's own records through read-only tools. Also
+  most no-shows?"). Answers come from the portal's own records through read-only tools.
+  Students get their own helper for their bookings, reports and free labs. Runs **free on your
+  own computer with Ollama**, or on Claude if you add a key. Also
   a ranked "what to fix first" maintenance list, week-over-week trends and CSV/PDF export -
   see [AI_ASSISTANT.md](docs/AI_ASSISTANT.md)
 - **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV

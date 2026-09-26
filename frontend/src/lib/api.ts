@@ -563,6 +563,10 @@ export interface Priority {
   bookings_next_24h: number; score: number; reasons: string[]; link: string
 }
 export interface AiAnswer { answer: string; tools_used: string[]; model: string }
+export interface AiStatus {
+  configured: boolean; provider: 'ollama' | 'anthropic' | null; model: string | null
+  student_model?: string | null; reachable: boolean; missing_models: string[]; questions_per_hour: number
+}
 
 // ---------------------------------------------------------------------------
 const TOKEN_KEY = 'slp.token'
@@ -759,7 +763,10 @@ export const api = {
     request<Trends>(`/analytics/trends${qs({ weeks, lab_id: labId })}`),
   exportCsvPath: (kind: 'bookings' | 'sessions' | 'events' | 'weekly', days = 90) =>
     `/analytics/export.csv${qs({ kind, days })}`,
-  aiStatus: () => request<{ configured: boolean; model: string | null; questions_per_hour: number }>('/ai/status'),
+  aiStatus: () => request<AiStatus>('/ai/status'),
+  studentAiStatus: () => request<AiStatus>('/ai/student/status'),
+  studentAiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
+    post<AiAnswer>('/ai/student/ask', { question, history }),
   aiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
     post<AiAnswer>('/ai/ask', { question, history }),
   aiSummary: (kind: 'issues' | 'weekly') => post<AiAnswer>(`/ai/summaries/${kind}`),

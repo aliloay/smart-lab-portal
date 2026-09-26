@@ -27,6 +27,8 @@ services:
     build: ./backend
     depends_on:
       db: { condition: service_healthy }
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://smartlab:${POSTGRES_PASSWORD:-smartlab}@db:5432/smartlab
       SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
@@ -38,7 +40,17 @@ services:
       AUTOMATION_API_KEY: ${AUTOMATION_API_KEY:-}
       AUTOMATION_WEBHOOK_BASE: ${AUTOMATION_WEBHOOK_BASE:-}
       AUTOMATION_WEBHOOK_TOKEN: ${AUTOMATION_WEBHOOK_TOKEN:-}
-      # AI assistant - optional; empty = off. See docs/AI_ASSISTANT.md.
+      # AI assistant - optional. See docs/AI_ASSISTANT.md.
+      # Free: Ollama installed on this computer, reached from the container
+      # via host.docker.internal. If Ollama is not installed the assistant
+      # just says so; nothing else is affected.
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
+      AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
+      # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the
+      # free model even when this key is present.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       SIGNUP_EMAIL_DOMAINS: ${SIGNUP_EMAIL_DOMAINS:-}

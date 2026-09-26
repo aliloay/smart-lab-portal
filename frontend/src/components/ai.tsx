@@ -1,17 +1,27 @@
 /**
- * AI assistant UI (staff only).
+ * AI assistant UI.
  *
- * The assistant answers from the portal's own analytics through read-only
- * tools - see backend app/services/ai.py. When no AI key is configured the
- * panel says so; the priority list below it is deterministic and always works.
+ * staff:   answers from the portal's own analytics through read-only tools.
+ * student: answers from the student's own bookings/reports and the lab list.
+ * See backend app/services/ai.py. The model is either free and local
+ * (Ollama) or Claude. When neither is set up the staff panel says how; the
+ * student panel just stays hidden. The priority list is deterministic and
+ * always works.
  */
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Bot, ListOrdered, Send, Sparkles, TriangleAlert } from 'lucide-react'
-import { AiAnswer, Priority, api } from '../lib/api'
+import { AiAnswer, AiStatus, Priority, api } from '../lib/api'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
 type Turn = { role: 'user' | 'assistant'; content: string; tools?: string[] }
+
+const STUDENT_SUGGESTED = [
+  'When is my next booking?',
+  'Which labs are free tomorrow afternoon?',
+  'What happened to the issue I reported?',
+  'How do I get into the lab with my booking?',
+]
 
 const SUGGESTED = [
   'How busy were the labs this week compared with last week?',
@@ -42,15 +52,34 @@ export function AiText({ text }: { text: string }) {
   )
 }
 
-export function AskTheLab() {
-  const [configured, setConfigured] = useState<boolean | null>(null)
+/** What to tell staff when the model is configured but cannot answer yet. */
+function SetupHint({ s }: { s: AiStatus }) {
+  if (!s.configured) {
+    return <EmptyState compact icon={<Bot size={18} />} title="AI assistant not set up"
+      detail="Free option: install Ollama (ollama.com) on this computer, run the two 'ollama pull' commands from docs/AI_ASSISTANT.md, and restart the portal. Everything else, including the priority list, works without it." />
+  }
+  if (!s.reachable) {
+    return <EmptyState compact icon={<Bot size={18} />} title="Local AI (Ollama) is not running"
+      detail="Start the Ollama app on the computer running the portal (install it from ollama.com if needed), then reload this page." />
+  }
+  return <EmptyState compact icon={<Bot size={18} />} title="AI model not downloaded yet"
+    detail={`In a terminal on that computer run: ${s.missing_models.map(m => `ollama pull ${m}`).join('  and  ')}`} />
+}
+
+export function AskTheLab({ mode = 'staff' }: { mode?: 'staff' | 'student' }) {
+  const student = mode === 'student'
+  const [status, setStatus] = useState<AiStatus | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const end = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { api.aiStatus().then(s => setConfigured(s.configured)).catch(() => setConfigured(false)) }, [])
+  useEffect(() => {
+    (student ? api.studentAiStatus() : api.aiStatus()).then(setStatus)
+      .catch(() => setStatus({ configured: false, provider: null, model: null, reachable: false,
+                               missing_models: [], questions_per_hour: 0 }))
+  }, [student])
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns, busy])
 
   const ask = async (question: string) => {
@@ -62,7 +91,7 @@ export function AskTheLab() {
     setQ('')
     setBusy(true)
     try {
-      const r: AiAnswer = await api.aiAsk(text, history)
+      const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
       setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used }])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The assistant could not answer.')
@@ -72,20 +101,24 @@ export function AskTheLab() {
   }
   const submit = (e: FormEvent) => { e.preventDefault(); ask(q) }
 
-  if (configured === null) return <Skeleton className="h-40" />
-  if (!configured) {
-    return <EmptyState compact icon={<Bot size={18} />} title="AI assistant not configured"
-      detail="Add ANTHROPIC_API_KEY to .env and restart the portal. Everything else, including the priority list, works without it." />
+  if (status === null) return <Skeleton className="h-40" />
+  const ready = status.configured && status.reachable && status.missing_models.length === 0
+  if (!ready) {
+    if (!student) return <SetupHint s={status} />
+    return status.configured
+      ? <p className="text-[12.5px] text-slate-400">The helper is offline right now. Try again later.</p>
+      : null
   }
   return (
     <div className="flex flex-col">
       <div className="max-h-[420px] overflow-y-auto space-y-3 pr-1">
         {turns.length === 0 && (
           <div className="space-y-2">
-            <p className="text-[12.5px] text-slate-400">Ask about usage, access, devices or maintenance. Answers
-              are computed from the portal's own records.</p>
+            <p className="text-[12.5px] text-slate-400">{student
+              ? 'Ask about your bookings, your reports, or which labs are free.'
+              : "Ask about usage, access, devices or maintenance. Answers are computed from the portal's own records."}</p>
             <div className="flex flex-wrap gap-2">
-              {SUGGESTED.map(s => (
+              {(student ? STUDENT_SUGGESTED : SUGGESTED).map(s => (
                 <button key={s} onClick={() => ask(s)} disabled={busy}
                   className="text-left text-[12.5px] px-3 py-1.5 rounded-lg border border-ink-600 bg-ink-800/50
                              text-slate-300 hover:text-white hover:border-accent-400/50">{s}</button>))}
@@ -116,12 +149,16 @@ export function AskTheLab() {
         <TriangleAlert size={13} />{error}</div>}
       <form onSubmit={submit} className="mt-3 flex gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} maxLength={1000} disabled={busy}
-          placeholder="Ask the lab…" aria-label="Question for the AI assistant" className="input flex-1" />
+          placeholder={student ? 'Ask about your bookings…' : 'Ask the lab…'}
+          aria-label="Question for the AI assistant" className="input flex-1" />
         <button type="submit" className="btn-primary" disabled={busy || q.trim().length < 2}>
           <Send size={15} /><span className="hidden sm:inline">Ask</span></button>
       </form>
       <p className="mt-2 text-[11px] text-slate-500">
-        Read-only: the assistant cannot change bookings, issues or doors. Check important figures on the charts.
+        {student
+          ? 'It only sees your own bookings and reports. It cannot book, cancel or open doors.'
+          : 'Read-only: the assistant cannot change bookings, issues or doors. Check important figures on the charts.'}
+        {status.provider === 'ollama' && ` Runs on a free local model (${status.model}).`}
       </p>
     </div>
   )
@@ -136,7 +173,8 @@ export function PriorityList({ limit = 5, withSummary = true }: { limit?: number
 
   useEffect(() => {
     api.priorities(limit).then(r => { setRows(r.priorities); setScoring(r.scoring) }).catch(() => setRows([]))
-    api.aiStatus().then(s => setAi(a => ({ ...a, on: s.configured }))).catch(() => {})
+    api.aiStatus().then(s => setAi(a => ({ ...a, on: s.configured && s.reachable && !s.missing_models.length })))
+      .catch(() => {})
   }, [limit])
 
   const summarise = () => {
