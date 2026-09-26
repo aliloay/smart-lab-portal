@@ -83,6 +83,9 @@ Start-Sleep -Seconds 8
 $runs = Sql "select to_char(created_at at time zone 'Africa/Cairo','HH24:MI:SS') || '  ' || rpad(entity_id, 32) || coalesce(detail->>'status','') from audit_logs where action='AUTOMATION_RUN' and created_at > now() - interval '2 minutes' order by id"
 if ($runs) { $runs | ForEach-Object { if ("$_".Trim()) { Write-Host "         $_" } } }
 else { Bad 'No workflow reported a run. Open n8n > Overview > Executions and click the red run to see which node failed.' }
+Info 'Expected: 01 and 05 always report. 03 reports only when it raises an alert (3+ refusals'
+Info 'in 10 min) and 04 only when a device really is offline, so their absence alone is fine.'
+Info 'To be sure, open the workflow in n8n > Executions: all green = working.'
 Info 'A workflow that got the event but is missing here stopped at a red node:'
 Info 'open it in n8n > Executions. "Authorization failed" = that node needs "Smart Lab automation key".'
 
