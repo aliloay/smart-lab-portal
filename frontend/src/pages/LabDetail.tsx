@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, Camera, CircuitBoard, Cpu,
-  DoorClosed, Droplets, Fingerprint, Gauge, Lock, MapPin, Radio, Server, Thermometer,
-  TriangleAlert, Users, Wind, Wrench, Zap,
+  Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, CalendarRange, Camera,
+  CircuitBoard, Cpu, DoorClosed, Fingerprint, Gauge, Lock, MapPin, Radio, Server,
+  TriangleAlert, Users, Wrench,
 } from 'lucide-react'
-import { AccessEvent, Asset, Device, LabStatus, api } from '../lib/api'
+import { AccessEvent, Asset, Device, LabStatus, LabTwin, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 import { assetStatusLabel, assetTone, denialShort, eventLabel, eventTone } from '../lib/labels'
@@ -16,6 +16,7 @@ import {
 } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
 import { DoorSchematic } from '../components/visual'
+import { EnvironmentPanel, Heatmap } from '../components/analytics'
 
 export default function LabDetail() {
   const { id } = useParams()
@@ -27,7 +28,7 @@ export default function LabDetail() {
   const [error, setError] = useState('')
   const [events, setEvents] = useState<AccessEvent[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
-  const [sensors, setSensors] = useState<unknown[] | null>(null)
+  const [twin, setTwin] = useState<LabTwin | null>(null)
 
   const loadStatus = useCallback(() => {
     api.lab(labId).then(setStatus).catch(e => setError(e.message))
@@ -38,7 +39,7 @@ export default function LabDetail() {
     loadStatus()
     api.labActivity(labId, 60).then(setEvents).catch(() => {})
     api.assets(labId).then(setAssets).catch(() => {})
-    api.labSensors(labId).then(setSensors).catch(() => setSensors([]))
+    api.labTwin(labId).then(setTwin).catch(() => setTwin(null))
   }, [labId, loadStatus])
 
   useLiveMessages(m => {
@@ -226,6 +227,19 @@ export default function LabDetail() {
             </div>
           </section>
 
+          {/* ------------------------------------------------ usage pattern */}
+          <section>
+            <SectionTitle icon={<CalendarRange size={15} />}
+              sub={twin ? `Typical week over the last ${twin.days} days (${twin.timezone}) and the three weeks around today.`
+                : undefined}>Usage pattern</SectionTitle>
+            <div className="card p-5 space-y-5">
+              {!twin ? <Skeleton className="h-40" /> : <>
+                <DayStrip days={twin.days_strip} openHours={twin.open_hours_per_day} />
+                <Heatmap data={twin.heatmap} unit="avg h booked" tone="violet" />
+              </>}
+            </div>
+          </section>
+
           {/* ----------------------------------------------------- activity */}
           <section>
             <SectionTitle icon={<Activity size={15} />}
@@ -326,29 +340,16 @@ export default function LabDetail() {
           <section>
             <SectionTitle icon={<Gauge size={15} />}
               sub="Real sensor readings only - nothing is estimated.">Environment</SectionTitle>
-            <div className="card p-4">
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  [<Thermometer key="t" size={14} />, 'Temperature'], [<Droplets key="h" size={14} />, 'Humidity'],
-                  [<Wind key="c" size={14} />, 'CO₂'], [<Wind key="v" size={14} />, 'TVOC'],
-                  [<Zap key="e" size={14} />, 'Energy'],
-                ].map(([icon, label]) => (
-                  <div key={label as string} className="well px-3 py-2.5">
-                    <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400">{icon}{label}</div>
-                    <div className="mt-1 text-[12.5px] text-slate-500">No live sensor data</div>
-                  </div>
-                ))}
-                <div className="well px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400"><Users size={14} />Occupancy</div>
-                  <div className="mt-1 text-[13px] text-white tnum">
-                    {lab.has_controller ? `${status.occupants} / ${lab.capacity}` : 'No door data'}
-                  </div>
-                </div>
+            <div className="card p-4 space-y-3">
+              <EnvironmentPanel env={twin?.environment ?? null} compact />
+              <div className="well px-3 py-2.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[12px] text-slate-400"><Users size={14} />Occupancy</span>
+                <span className="text-[13px] text-white tnum">
+                  {lab.has_controller ? `${status.occupants} / ${lab.capacity}` : 'No door data'}
+                </span>
               </div>
-              <p className="mt-3 text-[11.5px] text-slate-400 leading-relaxed">
-                {sensors && sensors.length > 0 ? `${sensors.length} readings recorded.`
-                  : 'No environmental sensor node reports for this laboratory yet. Readings appear here once one is deployed.'}
-                {' '}Occupancy comes from door sessions.
+              <p className="text-[11.5px] text-slate-400 leading-relaxed">
+                Occupancy comes from door sessions. Energy is not metered in this laboratory.
               </p>
             </div>
           </section>
@@ -393,6 +394,38 @@ function Node({ icon, title, state, labels, device, note, stale, neutral }: {
         </div>
       )}
       {note && <div className="text-[11px] text-slate-500 mt-1 truncate">{note}</div>}
+    </div>
+  )
+}
+
+/** Booked hours per day, 13 days back to 7 ahead; today outlined. */
+function DayStrip({ days, openHours }: { days: { day: string; booked_hours: number }[]; openHours: number }) {
+  const today = new Date().toLocaleDateString('en-CA')
+  const max = Math.max(openHours, ...days.map(d => d.booked_hours))
+  return (
+    <div>
+      <div className="flex items-end gap-1 h-24" role="img"
+           aria-label="Booked hours per day, two weeks back and one week ahead">
+        {days.map(d => {
+          const future = d.day > today
+          return (
+            <div key={d.day} className="flex-1 h-full flex flex-col justify-end items-center"
+                 title={`${d.day}: ${d.booked_hours} h booked`}>
+              <div className={`w-full rounded-t-[4px] ${d.day === today ? 'ring-1 ring-accent-300' : ''}
+                               ${future ? 'bg-violet-400/35' : 'bg-accent-400/70'}`}
+                   style={{ height: `${d.booked_hours ? Math.max((d.booked_hours / max) * 100, 4) : 0}%` }} />
+              <div className={`h-[3px] w-full mt-0.5 rounded ${d.day === today ? 'bg-accent-300' : 'bg-ink-600/60'}`} />
+            </div>)
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10.5px] text-slate-500">
+        <span>{days[0]?.day.slice(5)}</span><span>today</span><span>{days[days.length - 1]?.day.slice(5)}</span>
+      </div>
+      <div className="mt-1 text-[11px] text-slate-500 flex gap-3">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-accent-400/70" />booked (past)</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-400/35" />booked ahead</span>
+        <span>scale: {max} h</span>
+      </div>
     </div>
   )
 }

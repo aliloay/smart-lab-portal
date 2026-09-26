@@ -205,3 +205,10 @@ body {
 @keyframes armShoulder { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(5deg); } }
 @keyframes armElbow    { 0%,100% { transform: rotate(7deg); }  50% { transform: rotate(-9deg); } }
 @keyframes armWrist    { 0%,100% { transform: rotate(-12deg); } 50% { transform: rotate(14deg); } }
+
+/* Operations Center "Print / save as PDF": content only, light paper. */
+@media print {
+  aside, header, nav, .print\:hidden { display: none !important; }
+  body { background: #fff !important; }
+  .card { break-inside: avoid; box-shadow: none !important; }
+}

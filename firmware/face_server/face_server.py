@@ -53,6 +53,7 @@ face result can later be checked against the RFID/QR identity from step 1.
 """
 
 import os
+import re
 import csv
 import time
 import logging
@@ -304,6 +305,9 @@ def enroll():
     name = request.args.get("name")
     if not name:
         return jsonify({"error": "missing ?name="}), 400
+    # The name becomes a folder: allow only a portal label such as USER5.
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+        return jsonify({"error": "name must be letters/digits only, e.g. USER5"}), 400
 
     img = decode_jpeg(request.get_data())
     if img is None:

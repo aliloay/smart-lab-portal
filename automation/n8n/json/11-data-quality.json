@@ -1,0 +1,192 @@
+{
+  "id": "kQ26kzclkT47uNaB",
+  "name": "Smart Lab 11 - Daily data quality check",
+  "active": false,
+  "nodes": [
+    {
+      "id": "cb42a492-f7fd-5231-a2e4-515fad56c244",
+      "name": "Daily 06:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "772c3f02-c338-562e-abc8-108b2369b7d8",
+      "name": "Run Checks In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/data-quality",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "e959dcd2-3a79-5b23-a21f-efe9f24aac26",
+      "name": "Any Check Failing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.failing }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "eeb0fb56-0243-56f8-ad08-a521a09afd9d",
+      "name": "Notify Administrators",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"DATA_QUALITY\", title: String(\"Data quality: \" + $json.failing + \" check(s) need attention\").slice(0, 160), body: String($json.summary).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "7956f04a-ce3b-5ebe-a60b-f9d1e9fb4e7f",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"11-data-quality\", status: \"success\", summary: $(\"Run Checks In Backend\").item.json.summary, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "3aa5f696-ac25-5dc9-a370-f6bbe90f3f68",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Data quality\nRead-only consistency checks (stale sessions, entries on cancelled bookings, unattributed events, devices never reporting, implausible sensor values...). Nothing is modified - a human decides.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Daily 06:00": {
+      "main": [
+        [
+          {
+            "node": "Run Checks In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Checks In Backend": {
+      "main": [
+        [
+          {
+            "node": "Any Check Failing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Check Failing?": {
+      "main": [
+        [
+          {
+            "node": "Notify Administrators",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Administrators": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

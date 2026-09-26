@@ -42,6 +42,9 @@ def log_event(db: Session, event_type: EventType, *,
     db.add(ev)
     db.flush()          # populate ev.id without committing
     queue_message(db, {"type": "access_event", "event": _payload(db, ev)})
+    # Same transaction: the outbox row exists only if this event commits.
+    from app.services.integration import emit_for_access_event
+    emit_for_access_event(db, ev)
     return ev
 
 

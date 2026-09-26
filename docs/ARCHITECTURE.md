@@ -127,7 +127,41 @@ the issue.
 ## Deployment shape
 
 - `docker-compose.yml`: PostgreSQL, backend (runs migrations before serving),
-  frontend (static build behind nginx).
+  frontend (static build behind nginx), n8n (profile `automation`).
+- Ollama runs natively on the laptop (for its GPU); the backend reaches it via
+  `host.docker.internal`. `launch.bat` starts it and fetches missing models.
 - Without Docker: `uvicorn` + `vite` as in the README.
 - The face server runs on the laptop next to the door and keeps working when
   the portal is down.
+
+## Accounts, door identities and the setup reminder
+
+Sign-up (students) and admin-created accounts get the next `USERn`
+(`services/identity.py`, never reused). `services/enrolment.py` tracks
+whether that person's fingerprint and Face ID are registered - confirmed by
+staff - and tells the person until they are (notification, banner, Profile
+checklist). The door never reads these flags.
+
+## AI assistants
+
+Optional, read-only, beside the chain. Staff ask through tools that reuse the
+analytics functions; students get a helper that sees only their own data.
+Both use a short system guide (`services/ai_guide.py`). Free local models via
+Ollama or Claude with a key - see [AI_ASSISTANT.md](AI_ASSISTANT.md).
+
+## Automation and analytics
+
+An optional layer beside the chain, never inside it; details in
+[AUTOMATION.md](AUTOMATION.md).
+
+```
+change ─► same transaction: state + access_events + integration_events
+                                                    │
+               dispatcher thread ──(push)──► n8n webhooks
+               n8n ──(X-Automation-Key)──► /api/automation/*  (rules live here)
+               n8n ──► /notify, /alerts (idempotent on dedupe_key)
+browser ─► /api/analytics/*  (Operations Center, lab twin, my usage)
+```
+
+n8n decides *when* and *where*; the backend decides *what*. Nothing reachable
+from n8n can open or lock a door or cancel a booking.

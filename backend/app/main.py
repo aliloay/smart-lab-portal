@@ -5,6 +5,7 @@ Boot order matters: the configuration check runs before anything binds, so a
 production deployment cannot start with the development secret key.
 """
 import asyncio
+import threading
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,13 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.routes import (access, admin, auth, bookings, issues, labs,
-                            notifications, system)
+from app.api.routes import (access, admin, ai, analytics, auth, automation,
+                            bookings, issues, labs, notifications, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.schema_check import check_schema, is_alembic_managed
 from app.db.session import Base, SessionLocal, engine, get_db
 from app.models import Role, User
+from app.services import integration
 from app.ws.manager import Client, manager
 
 log = logging.getLogger("smartlab")
@@ -44,8 +46,16 @@ async def lifespan(_: FastAPI):
     # Sync endpoints run in worker threads; the live stream publishes through
     # this loop from there.
     manager.bind_loop(asyncio.get_running_loop())
+    # Optional n8n push. Starts only when AUTOMATION_WEBHOOK_BASE is set, and
+    # its failures stay in its own thread - see app/services/integration.py.
+    integration.dispatcher = integration.Dispatcher(SessionLocal)
+    integration.dispatcher.start()
+    # Optional local AI: load the model now so the first question is quick.
+    from app.services import ai
+    threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
     log.info("Smart Lab Portal started (%s)", settings.ENVIRONMENT)
     yield
+    integration.dispatcher.stop()
 
 
 app = FastAPI(
@@ -72,7 +82,8 @@ app.add_middleware(
 )
 
 for r in (auth.router, labs.router, bookings.router, access.router,
-          admin.router, issues.router, notifications.router, system.router):
+          admin.router, issues.router, notifications.router, system.router,
+          automation.router, analytics.router, ai.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

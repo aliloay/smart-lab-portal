@@ -1,0 +1,211 @@
+{
+  "id": "SmZcJv5WrtpyOZIr",
+  "name": "Smart Lab 08 - Sensor threshold alerts",
+  "active": false,
+  "nodes": [
+    {
+      "id": "9ba940e3-7a1b-51c1-ab3a-3b336a6eacb9",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "13e76cc5-fe3a-563a-a0e0-a09a3f5add89",
+      "name": "Evaluate Sensors In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/sensors/evaluate?max_age_minutes=30",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "98a15d8c-40f0-5ed0-ae18-cf82a62983d0",
+      "name": "One Item Per Breach",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "breaches"
+      }
+    },
+    {
+      "id": "c2894e7f-280d-514a-a4b1-13a3fe6354a5",
+      "name": "Raise Threshold Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: $json.title, detail: \"Allowed range \" + ($json.min ?? \"-\") + \" to \" + ($json.max ?? \"-\") + \" \" + $json.unit + \".\", lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "a22065dd-10d6-5f3c-aca3-ae18e9d51e38",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SENSOR_THRESHOLD\", title: String($(\"One Item Per Breach\").item.json.title).slice(0, 160), body: String(\"Latest reading outside the configured range.\").slice(0, 500), link: \"/admin/operations\", severity: \"warning\", dedupe_key: $(\"One Item Per Breach\").item.json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "7b227fed-a123-5a9b-a637-b48a99dde48a",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"08-sensor-thresholds\", status: \"success\", summary: \"Breaches: \" + $(\"Evaluate Sensors In Backend\").first().json.breaches.length, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "5510fd88-15ff-58b8-ae6c-c50df86fa804",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Sensor thresholds (configuration-driven)\nThresholds live in backend SENSOR_THRESHOLDS (metric=min:max). Stale readings are never treated as OK. With no sensor node installed the backend returns no_data and this workflow does nothing - no simulated values.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Sensors In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Sensors In Backend": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Breach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Breach": {
+      "main": [
+        [
+          {
+            "node": "Raise Threshold Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise Threshold Alert": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

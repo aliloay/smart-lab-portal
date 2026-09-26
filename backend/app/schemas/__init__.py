@@ -39,6 +39,8 @@ class UserOut(ORM):
     student_id: Optional[str] = None
     department: Optional[str] = None
     created_at: Optional[datetime] = None
+    fingerprint_enrolled_at: Optional[datetime] = None
+    face_enrolled_at: Optional[datetime] = None
 
 
 class UserCreate(BaseModel):
@@ -51,6 +53,15 @@ class UserCreate(BaseModel):
     department: Optional[str] = None
 
 
+class SignupRequest(BaseModel):
+    """Public sign-up. No role and no auth_subject: always a plain student."""
+    email: EmailStr
+    full_name: str = Field(min_length=2, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+    student_id: Optional[str] = Field(default=None, max_length=64)
+    department: Optional[str] = Field(default=None, max_length=128)
+
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     role: Optional[Role] = None
@@ -58,6 +69,9 @@ class UserUpdate(BaseModel):
     auth_subject: Optional[str] = Field(default=None, max_length=32)
     department: Optional[str] = None
     student_id: Optional[str] = None
+    # Staff confirm (or undo) an enrolment done at the sensor / camera.
+    fingerprint_enrolled: Optional[bool] = None
+    face_enrolled: Optional[bool] = None
 
 
 class UserBrief(BaseModel):

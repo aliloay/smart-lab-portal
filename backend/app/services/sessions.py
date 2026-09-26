@@ -89,6 +89,7 @@ def record_exit(db: Session, lab_id: int, user: Optional[User]) -> bool:
         return False
     s.ended_at = datetime.now(timezone.utc)
     s.end_reason = SessionEndReason.EXIT_RECORDED
+    _emit_ended(db, s)
     return True
 
 
@@ -118,16 +119,30 @@ def close_expired(db: Session) -> int:
             if b is not None and _utc(b.end_time) < now:
                 s.ended_at = max(_utc(b.end_time), _utc(s.started_at))
                 s.end_reason = SessionEndReason.BOOKING_ENDED
+                _emit_ended(db, s)
                 changed += 1
                 continue
         cutoff = _utc(s.started_at) + timedelta(hours=settings.MAX_BOOKING_HOURS)
         if s.booking_id is None and cutoff < now:
             s.ended_at = cutoff
             s.end_reason = SessionEndReason.NO_EXIT_TIMEOUT
+            _emit_ended(db, s)
             changed += 1
     if changed:
         db.commit()
     return changed
+
+
+def _emit_ended(db: Session, s: AccessSession) -> None:
+    from app.services.integration import emit
+    emit(db, "session.ended", lab_id=s.lab_id, user_id=s.user_id,
+         device_id=s.device_id, object_type="session", object_id=s.id,
+         correlation_id=f"booking:{s.booking_id}" if s.booking_id
+         else f"session:{s.id}",
+         payload={"booking_id": s.booking_id,
+                  "end_reason": s.end_reason.value if s.end_reason else None,
+                  "exit_observed": s.end_reason == SessionEndReason.EXIT_RECORDED,
+                  "duration_minutes": duration_minutes(s)})
 
 
 def duration_minutes(s: AccessSession) -> Optional[int]:

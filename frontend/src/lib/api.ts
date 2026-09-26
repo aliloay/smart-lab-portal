@@ -32,6 +32,18 @@ export interface User {
   student_id: string | null
   department: string | null
   created_at?: string | null
+  fingerprint_enrolled_at?: string | null
+  face_enrolled_at?: string | null
+}
+
+export interface AccessSetupItem {
+  key: 'identity' | 'fingerprint' | 'face'
+  label: string; done: boolean; how: string
+  value?: string | null; at?: string | null
+}
+export interface AccessSetup {
+  complete: boolean; needed: boolean; auth_subject: string | null
+  items: AccessSetupItem[]; summary: string; pending: string[]
 }
 
 export interface Lab {
@@ -477,6 +489,97 @@ export interface ReportsOverview {
   asset_checkouts: { label: string; count: number }[]
 }
 
+// --- analytics (Operations Center, lab twin, my usage) ----------------------
+export interface EnvSeries {
+  metric: string; unit: string; min: number | null; max: number | null
+  latest: number; latest_at: string
+  points: { t: string; v: number; lab_id: number }[]
+}
+export interface EnvironmentBlock {
+  hours: number; has_data: boolean; message: string | null; series: EnvSeries[]
+}
+export interface AutomationStatus {
+  api_enabled: boolean; push_enabled: boolean; dispatcher_running: boolean
+  push_types: string[]
+  outbox: { PENDING: number; DELIVERED: number; FAILED: number; SKIPPED: number }
+  last_delivered_at: string | null
+  last_error: { event_type: string; error: string; at: string } | null
+  recent_runs: { workflow: string; status: string; summary: string; at: string }[]
+}
+export interface OpsDevice {
+  device_id: number; name: string; type: string; lab_code: string | null
+  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'; last_seen_at: string | null
+  components: Record<string, boolean> | null
+  offline_events: number; offline_minutes: number | null
+  outages: { from: string; to: string }[]
+}
+export interface Operations {
+  period_days: number; lab_id: number | null; generated_at: string
+  timezone: string; open_hours_per_day: number
+  utilisation: { lab_id: number; lab_code: string; lab_name: string; booked_hours: number
+                 available_hours: number; utilisation: number | null; bookings: number
+                 used: number }[]
+  booked_heatmap: number[][]
+  entry_heatmap: number[][]
+  funnel: { step: string; count: number }[]
+  granted_by_method: { method: string; count: number }[]
+  access_outcomes: { day: string; granted: number; denied: number }[]
+  denial_reasons: { reason: string; count: number }[]
+  security: { identity_mismatch: number; alarms: number }
+  sessions: {
+    started: number; open_now: number; end_reasons: Record<string, number>
+    exit_recorded: number; median_minutes: number | null
+    duration_buckets: { label: string; count: number }[]
+    second_factor: { entry: string; second: string; count: number }[]
+  }
+  devices: OpsDevice[]
+  maintenance: {
+    open: number; overdue: number; unassigned: number
+    by_severity: { severity: string; count: number }[]
+    flow: { day: string; opened: number; resolved: number }[]
+    median_hours_to_resolve: { severity: string; hours: number; resolved: number }[]
+    sla_hours: Record<string, number>
+  }
+  automation: AutomationStatus
+  environment: EnvironmentBlock
+}
+export interface LabTwin {
+  lab_id: number; days: number; timezone: string; open_hours_per_day: number
+  heatmap: number[][]; heatmap_unit: string
+  days_strip: { day: string; booked_hours: number }[]
+  has_bookings: boolean
+  environment: EnvironmentBlock
+}
+export interface MyStats {
+  period_days: number; booked_hours: number; sessions_finished: number
+  attended: number; attendance_rate: number | null; upcoming: number
+  cancelled: number; by_lab: { lab_code: string; count: number }[]
+  weekly_hours: { week: string; hours: number }[]
+}
+
+export interface TrendWeek {
+  week: string; partial: boolean; bookings: number; booked_hours: number
+  finished: number; no_shows: number; late: number; entries: number
+  granted: number; denied: number; no_show_rate: number | null; late_rate: number | null
+}
+export interface Trends {
+  weeks: number; timezone: string; late_minutes: number; series: TrendWeek[]
+  week_over_week: Record<string, { current: number; previous: number | null; change: number | null }>
+  by_lab: { lab_code: string; finished: number; no_shows: number; late: number; attended: number
+            no_show_rate: number | null; late_rate: number | null }[]
+}
+export interface Priority {
+  issue_id: number; ticket: string; title: string; lab_code: string | null
+  severity: string; category: string; status: string; assigned: boolean
+  age_hours: number; sla_hours: number | null; overdue: boolean
+  bookings_next_24h: number; score: number; reasons: string[]; link: string
+}
+export interface AiAnswer { answer: string; tools_used: string[]; model: string }
+export interface AiStatus {
+  configured: boolean; provider: 'ollama' | 'anthropic' | null; model: string | null
+  student_model?: string | null; reachable: boolean; missing_models: string[]; questions_per_hour: number
+}
+
 // ---------------------------------------------------------------------------
 const TOKEN_KEY = 'slp.token'
 
@@ -594,6 +697,10 @@ export const api = {
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
       '/auth/login', { email, password }),
   me: () => request<User>('/auth/me'),
+  signupConfig: () => request<{ enabled: boolean; email_domains: string[]; requires_approval: boolean }>(
+    '/auth/signup-config'),
+  signup: (u: { email: string; full_name: string; password: string; student_id?: string; department?: string }) =>
+    post<{ pending_approval: boolean; message?: string; access_token?: string }>('/auth/signup', u),
 
   // --- labs
   labs: () => request<Lab[]>('/labs'),
@@ -637,7 +744,10 @@ export const api = {
   users: () => request<User[]>('/users'),
   createUser: (u: Partial<User> & { password: string }) =>
     post<User>('/auth/register', u),
-  updateUser: (id: number, u: Partial<User>) =>
+  myAccessSetup: () => request<AccessSetup>('/auth/me/access-setup'),
+  userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
+  nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
+  updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;
@@ -662,6 +772,24 @@ export const api = {
     request<{ lab: string; day: string; event: string; count: number }[]>(
       `/reports/access?days=${days}`),
   reports: (days = 30) => request<ReportsOverview>(`/reports/overview?days=${days}`),
+  operations: (days = 30, labId?: number) =>
+    request<Operations>(`/analytics/operations${qs({ days, lab_id: labId })}`),
+  trends: (weeks = 8, labId?: number) =>
+    request<Trends>(`/analytics/trends${qs({ weeks, lab_id: labId })}`),
+  exportCsvPath: (kind: 'bookings' | 'sessions' | 'events' | 'weekly', days = 90) =>
+    `/analytics/export.csv${qs({ kind, days })}`,
+  aiStatus: () => request<AiStatus>('/ai/status'),
+  studentAiStatus: () => request<AiStatus>('/ai/student/status'),
+  studentAiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
+    post<AiAnswer>('/ai/student/ask', { question, history }),
+  aiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
+    post<AiAnswer>('/ai/ask', { question, history }),
+  aiSummary: (kind: 'issues' | 'weekly') => post<AiAnswer>(`/ai/summaries/${kind}`),
+  priorities: (limit = 20) =>
+    request<{ open_issues: number; scoring: string[]; priorities: Priority[] }>(
+      `/ai/maintenance-priorities${qs({ limit })}`),
+  labTwin: (id: number) => request<LabTwin>(`/analytics/labs/${id}`),
+  myStats: (days = 90) => request<MyStats>(`/analytics/me?days=${days}`),
 
   // --- issues
   issues: (q: Record<string, string | number | boolean | string[] | undefined> = {}) =>

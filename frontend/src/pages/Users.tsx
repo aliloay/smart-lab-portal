@@ -15,7 +15,7 @@ export default function Users() {
   const [q, setQ] = useState('')
   const [role, setRole] = useState('')
   const [editing, setEditing] = useState<User | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<Role | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(() => api.users().then(setRows)
@@ -31,7 +31,11 @@ export default function Users() {
     <div>
       <PageHeader eyebrow="Administration" title="Users & roles"
         sub="Accounts, roles, and the auth subject that links a person to the door hardware."
-        actions={<button className="btn-primary" onClick={() => setCreating(true)}><UserPlus size={16} />Add user</button>} />
+        actions={<div className="flex flex-wrap gap-2">
+          <button className="btn-primary" onClick={() => setCreating('STUDENT')}><UserPlus size={16} />Add student</button>
+          <button className="btn-ghost" onClick={() => setCreating('LAB_STAFF')}><UserPlus size={16} />Add staff</button>
+          <button className="btn-ghost" onClick={() => setCreating('ADMIN')}><UserPlus size={16} />Add admin</button>
+        </div>} />
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
@@ -43,9 +47,12 @@ export default function Users() {
       </div>
 
       <div className="mb-4"><Notice icon={<ShieldCheck size={15} />}>
-        The <b>auth subject</b> (e.g. <span className="mono">USER1</span>) must match the label enrolled in
-        the fingerprint sensor and the face server. If it does not, step 2 can never be matched to step 1
-        and every entry is refused - the safe failure, but check it first when a valid booking is denied.
+        Every new account gets the next <b>door identity</b> automatically (<span className="mono">USER3</span>,{' '}
+        <span className="mono">USER4</span>, …). <span className="mono">USERn</span> means fingerprint slot{' '}
+        <b>n</b> and face label <span className="mono">USERn</span>. It opens nothing until lab staff enrol
+        that person: type <span className="mono">enroll n</span> in the door controller's serial monitor and
+        place the finger twice, and add ~20 face photos with <span className="mono">/enroll?name=USERn</span> on
+        the camera. Their booking QR then works with their own fingerprint or face.
       </Notice></div>
 
       <div className="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
@@ -78,7 +85,11 @@ export default function Users() {
                           <div className="text-[12px] text-slate-400">{u.email}</div></div></div></td>
                       <td className="td"><Chip tone={ROLE_TONE[u.role]}>{roleLabel(u.role)}</Chip></td>
                       <td className="td">{u.auth_subject ? <span className="mono text-accent-200">{u.auth_subject}</span>
-                        : <span className="text-[12px] text-slate-500">not enrolled</span>}</td>
+                        : <span className="text-[12px] text-slate-500">no door identity</span>}
+                        {!(u.fingerprint_enrolled_at && u.face_enrolled_at) && (
+                          <div className="text-[11px] text-warn-soft mt-0.5">
+                            {[!u.fingerprint_enrolled_at && 'fingerprint', !u.face_enrolled_at && 'face']
+                              .filter(Boolean).join(' + ')} pending</div>)}</td>
                       <td className="td text-slate-300">{u.department ?? '—'}</td>
                       <td className="td"><Chip tone={u.is_active ? 'ok' : 'bad'} dot>{u.is_active ? 'Active' : 'Disabled'}</Chip></td>
                       <td className="td text-right"><button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
@@ -95,14 +106,15 @@ export default function Users() {
         {editing && <EditUser u={editing} self={editing.id === me?.id}
                               onSaved={() => { setEditing(null); load() }} />}
       </Drawer>
-      {creating && <CreateUser onClose={() => setCreating(false)} onSaved={() => { setCreating(false); load() }} />}
+      {creating && <CreateUser role={creating} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); load() }} />}
     </div>
   )
 }
 
 function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () => void }) {
   const [f, setF] = useState({ full_name: u.full_name, role: u.role, is_active: u.is_active,
-    auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '' })
+    auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '',
+    fingerprint_enrolled: !!u.fingerprint_enrolled_at, face_enrolled: !!u.face_enrolled_at })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function save(e: FormEvent) {
@@ -123,15 +135,39 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
                 onChange={e => setF({ ...f, role: e.target.value as Role })}>
           <option value="STUDENT">Student</option><option value="LAB_STAFF">Laboratory staff</option>
           <option value="ADMIN">Administrator</option></select></Field>
-      <Field label="Auth subject" hint="Must match the enrolled fingerprint / face label, e.g. USER1.">
-        <input className="input mono" value={f.auth_subject} maxLength={32}
-               onChange={e => setF({ ...f, auth_subject: e.target.value })} /></Field>
+      <Field label="Door identity (auth subject)"
+             hint="USERn = fingerprint slot n and face label USERn. Numbers are never reused.">
+        <div className="flex gap-2">
+          <input className="input mono flex-1" value={f.auth_subject} maxLength={32}
+                 onChange={e => setF({ ...f, auth_subject: e.target.value })} />
+          {!f.auth_subject.trim() && (
+            <button type="button" className="btn-ghost btn-sm"
+              onClick={() => api.nextAuthSubject().then(r => r.auth_subject && setF(x => ({ ...x, auth_subject: r.auth_subject! })))
+                .catch(e => setError(e.message))}>Assign next</button>)}
+        </div></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Department"><input className="input" value={f.department}
           onChange={e => setF({ ...f, department: e.target.value })} /></Field>
         <Field label="Student ID"><input className="input" value={f.student_id}
           onChange={e => setF({ ...f, student_id: e.target.value })} /></Field>
       </div>
+      <fieldset className="rounded-xl border border-ink-600/70 p-3 space-y-2">
+        <legend className="label px-1">Biometrics registered at the door</legend>
+        <p className="text-[12px] text-slate-400">
+          Tick once this person's finger is stored on the door sensor
+          {f.auth_subject.trim() ? <> (<span className="mono">enroll {f.auth_subject.replace(/^USER/, '')}</span>)</> : null}
+          {' '}and their face photos are on the face server. This only updates the reminder they
+          see in the portal; it does not change what the door accepts.
+        </p>
+        <label className="flex items-center gap-2.5 text-sm text-slate-200">
+          <input type="checkbox" checked={f.fingerprint_enrolled} className="accent-sky-500"
+                 onChange={e => setF({ ...f, fingerprint_enrolled: e.target.checked })} />
+          Fingerprint registered</label>
+        <label className="flex items-center gap-2.5 text-sm text-slate-200">
+          <input type="checkbox" checked={f.face_enrolled} className="accent-sky-500"
+                 onChange={e => setF({ ...f, face_enrolled: e.target.checked })} />
+          Face ID registered</label>
+      </fieldset>
       <label className="flex items-center gap-2.5 text-sm text-slate-200">
         <input type="checkbox" checked={f.is_active} disabled={self} className="accent-sky-500"
                onChange={e => setF({ ...f, is_active: e.target.checked })} />
@@ -141,11 +177,13 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
   )
 }
 
-function CreateUser({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ email: '', full_name: '', password: '', role: 'STUDENT' as Role,
+function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ email: '', full_name: '', password: '', role,
     auth_subject: '', department: '', student_id: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [nextSubject, setNextSubject] = useState('')
+  useEffect(() => { api.nextAuthSubject().then(r => setNextSubject(r.auth_subject ?? '')).catch(() => {}) }, [])
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
     try {
@@ -172,7 +210,8 @@ function CreateUser({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
           type="password" minLength={8} required value={f.password}
           onChange={e => setF({ ...f, password: e.target.value })} /></Field>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Auth subject"><input className="input mono" value={f.auth_subject} placeholder="USER3"
+          <Field label="Door identity" hint={nextSubject ? `Blank = ${nextSubject} (automatic)` : undefined}>
+            <input className="input mono" value={f.auth_subject} placeholder={nextSubject || 'auto'}
             onChange={e => setF({ ...f, auth_subject: e.target.value })} /></Field>
           <Field label="Department"><input className="input" value={f.department}
             onChange={e => setF({ ...f, department: e.target.value })} /></Field>

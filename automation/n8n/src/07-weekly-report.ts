@@ -1,0 +1,87 @@
+import { workflow, node, trigger, ifElse, newCredential, expr, sticky } from '@n8n/workflow-sdk';
+
+const API = 'http://backend:8000/api/automation';
+
+const when = trigger({
+  type: 'n8n-nodes-base.scheduleTrigger',
+  version: 1.4,
+  config: { name: 'Mondays 07:00', parameters: { rule: { interval: [{ field: 'weeks', weeksInterval: 1, triggerAtDay: [1], triggerAtHour: 7 }] } } },
+  output: [{}]
+});
+
+const report = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Build Report In Backend',
+    parameters: {
+      method: 'GET',
+      url: API + '/reports/weekly',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+    },
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
+  },
+  output: [{"title": "Weekly lab report - 2026-09-20 to 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "weekly-report:2026-09-26"}]
+});
+
+const aiSummary = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'AI Summary (optional)', executeOnce: true, onError: 'continueRegularOutput',
+    parameters: {
+      method: 'GET',
+      url: API + '/ai/weekly-summary',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+    },
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
+  },
+  output: [{"available": true, "summary": "Usage rose 20% on last week...", "dedupe_key": "ai-weekly:2026-09-28"}]
+});
+
+const send = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Send To Administrators', executeOnce: true,
+    parameters: {
+      method: 'POST',
+      url: API + '/notify',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ JSON.stringify({ audience: "admins", kind: "WEEKLY_REPORT", title: String($("Build Report In Backend").item.json.title).slice(0, 160), body: String(($json.available && $json.summary ? $json.summary + " | " : "") + $("Build Report In Backend").item.json.lines.join(" ")).slice(0, 500), link: "/admin/operations", severity: "info", dedupe_key: $("Build Report In Backend").item.json.dedupe_key }) }}')
+    },
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
+  },
+  output: [{"created": 1, "duplicate": false}]
+});
+
+const recordRun = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'Record Run', executeOnce: true, onError: 'continueRegularOutput',
+    parameters: {
+      method: 'POST',
+      url: API + '/runs',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendBody: true,
+      contentType: 'json',
+      specifyBody: 'json',
+      jsonBody: expr('{{ JSON.stringify({ workflow: "07-weekly-report", status: "success", summary: $("Build Report In Backend").item.json.title, execution_id: $execution.id }) }}')
+    },
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
+  },
+  output: [{"recorded": true}]
+});
+
+const note = sticky("## Weekly lab report\nFigures come from the backend (recorded rows only, previous week for comparison). If an AI key is configured, the backend adds a short AI-written summary that explains the same figures; without one the report is sent unchanged. Idempotent per week.", [], { color: 4 });
+
+export default workflow('smartlab-07', 'Smart Lab 07 - Weekly lab report')
+  .add(when).to(report).to(aiSummary).to(send).to(recordRun).add(note);

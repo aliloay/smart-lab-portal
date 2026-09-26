@@ -292,6 +292,13 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_staff)):
     return db.scalars(select(User).order_by(User.full_name)).all()
 
 
+@router.get("/users/next-auth-subject")
+def next_subject(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """The door identity the next account would get (USERn = fingerprint slot n)."""
+    from app.services.identity import next_auth_subject
+    return {"auth_subject": next_auth_subject(db)}
+
+
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                 admin: User = Depends(require_admin)):
@@ -299,6 +306,10 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
     if u is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     changes = req.model_dump(exclude_unset=True)
+    enrol = {f: changes.pop(f"{f}_enrolled") for f in ("fingerprint", "face")
+             if f"{f}_enrolled" in changes and changes[f"{f}_enrolled"] is not None}
+    changes.pop("fingerprint_enrolled", None)
+    changes.pop("face_enrolled", None)
 
     # An administrator cannot lock the system out of administration.
     if u.id == admin.id and (changes.get("is_active") is False or
@@ -315,6 +326,10 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
 
     for k, v in changes.items():
         setattr(u, k, v)
+    from app.services import enrolment
+    for factor, done in enrol.items():
+        if enrolment.mark(db, u, factor, done):
+            changes[f"{factor}_enrolled"] = done
     db.add(AuditLog(actor_user_id=admin.id, action="USER_UPDATED",
                     entity_type="user", entity_id=str(u.id),
                     detail={k: (v.value if hasattr(v, "value") else v)
@@ -322,6 +337,16 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(u)
     return u
+
+
+@router.get("/users/{user_id}/access-setup")
+def user_access_setup(user_id: int, db: Session = Depends(get_db),
+                      _: User = Depends(require_admin)):
+    from app.services import enrolment
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    return enrolment.status(u)
 
 
 @router.post("/users/{user_id}/rfid", status_code=status.HTTP_201_CREATED)

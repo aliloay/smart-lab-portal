@@ -8,9 +8,11 @@ import { roleLabel, useAuth } from '../lib/auth'
 import { fmtDate } from '../lib/time'
 import { Avatar, Chip, KV, MetricCard, Notice, PageHeader, SectionTitle } from '../components/ui'
 import { Bloom, GridField } from '../components/visual'
+import { AccessSetupChecklist, useAccessSetup } from '../components/AccessSetup'
 
 export default function Profile() {
   const { user } = useAuth()
+  const setup = useAccessSetup()
   const [bookings, setBookings] = useState<Booking[] | null>(null)
   const [issues, setIssues] = useState<Issue[] | null>(null)
   useEffect(() => {
@@ -63,23 +65,17 @@ export default function Profile() {
           </dl></div>
         </section>
         <section>
-          <SectionTitle icon={<ShieldCheck size={15} />}>Door access enrolment</SectionTitle>
+          <SectionTitle icon={<ShieldCheck size={15} />}>Lab access setup</SectionTitle>
           <div className="card p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <span className={`grid place-items-center w-11 h-11 rounded-xl border ${enrolled
-                ? 'border-ok/40 bg-ok/10 text-ok-soft' : 'border-warn/40 bg-warn/10 text-warn-soft'}`}>
-                <Fingerprint size={20} /></span>
-              <div>
-                <div className="text-[14px] text-white">{enrolled ? 'Enrolled for two-factor entry' : 'Not enrolled yet'}</div>
-                <div className="text-[12.5px] text-slate-400">
-                  {enrolled ? <>Your identity at the door is <span className="mono text-accent-200">{user.auth_subject}</span>.</>
-                    : 'You can book laboratories, but the door cannot verify you until staff enrol your fingerprint or face.'}
-                </div>
-              </div>
-            </div>
+            {setup ? <>
+              <p className={`text-[13px] ${setup.complete ? 'text-ok-soft' : 'text-amber-100/90'}`}>{setup.summary}</p>
+              <AccessSetupChecklist setup={setup} />
+            </> : <div className="text-[13px] text-slate-400">Loading…</div>}
             <Notice icon={<ScanFace size={15} />}>
-              Your fingerprint template stays inside the door's sensor and face images stay on the
-              face server. The portal stores only the identity label and the outcome of each attempt.
+              At the door: first your booking QR code or RFID card, then your fingerprint or face,
+              which must belong to the same person. Your fingerprint stays inside the door's sensor
+              and face images stay on the face server; the portal stores only whether they are
+              registered.
             </Notice>
             <Link to="/bookings" className="btn-ghost btn-sm">View my bookings and entries</Link>
           </div>

@@ -1,15 +1,16 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  Camera, Clock, Filter, Plus, Search, TriangleAlert, UserCheck, Wrench, X,
+  Camera, Clock, Filter, ListOrdered, Plus, Search, TriangleAlert, UserCheck, Wrench, X,
 } from 'lucide-react'
 import { Issue, IssueSummary, Lab, User, api } from '../../lib/api'
 import { isAdmin, isStaff, useAuth } from '../../lib/auth'
+import { PriorityList } from '../../components/ai'
 import { useLiveMessages } from '../../lib/live'
 import { ISSUE_CATEGORIES, SEVERITIES, STATUS_LABEL, categoryLabel } from '../../lib/labels'
 import { relative } from '../../lib/time'
 import {
-  EmptyState, ErrorBanner, IssueStatusChip, MetricCard, PageHeader, Select, SeverityBadge,
+  EmptyState, ErrorBanner, IssueStatusChip, MetricCard, PageHeader, SectionTitle, Select, SeverityBadge,
   Skeleton, Spinner, Tabs,
 } from '../../components/ui'
 
@@ -155,6 +156,13 @@ function MaintenanceQueuePage({ admin }: { admin: boolean }) {
                     hint={summary?.avg_resolution_hours != null
                       ? `avg ${summary.avg_resolution_hours} h to resolve` : 'No resolution data yet'} />
       </div>
+
+      <section className="card p-5 mb-6">
+        <SectionTitle icon={<ListOrdered size={15} />}
+          sub="Ranked by severity, SLA, safety, assignment and upcoming bookings. AI summary optional.">
+          What to fix first</SectionTitle>
+        <PriorityList limit={5} />
+      </section>
 
       <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 mb-3">
         {QUICK.map(t => (

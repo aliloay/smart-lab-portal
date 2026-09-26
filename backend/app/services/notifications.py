@@ -22,19 +22,27 @@ def notify(db: Session, user_ids: Iterable[int], kind: str, title: str, *,
            body: str = "", link: Optional[str] = None, severity: str = "info",
            issue_id: Optional[int] = None,
            booking_id: Optional[int] = None,
-           exclude: Optional[int] = None) -> list[Notification]:
+           exclude: Optional[int] = None,
+           dedupe_key: Optional[str] = None) -> list[Notification]:
     """
     Stage one notification per recipient. `exclude` drops the person who
     caused the change - nobody needs to be told about their own action.
+    With `dedupe_key`, a recipient who already has a notification with that
+    key is skipped, so a retried automation run delivers exactly once.
     """
     rows: list[Notification] = []
+    already: set[int] = set()
+    if dedupe_key:
+        already = set(db.scalars(select(Notification.user_id).where(
+            Notification.dedupe_key == dedupe_key)).all())
     for uid in dict.fromkeys(user_ids):      # de-duplicate, keep order
-        if uid is None or uid == exclude:
+        if uid is None or uid == exclude or uid in already:
             continue
         n = Notification(user_id=uid, kind=kind, title=title[:160],
                          body=body[:500], link=link, severity=severity,
                          issue_id=issue_id, booking_id=booking_id,
-                         created_at=datetime.now(timezone.utc))
+                         created_at=datetime.now(timezone.utc),
+                         dedupe_key=dedupe_key)
         db.add(n)
         rows.append(n)
     if rows:
@@ -65,6 +73,31 @@ def admin_ids(db: Session) -> list[int]:
         User.role == Role.ADMIN, User.is_active.is_(True))).all())
 
 
+def booking_reminder(db: Session, b: Booking,
+                     now: Optional[datetime] = None) -> bool:
+    """
+    Raise the reminder for one booking, once. Shared by the lazy path below
+    and by the automation API, so n8n and the portal can never both send it.
+    """
+    now = now or datetime.now(timezone.utc)
+    exists = db.scalar(select(Notification.id).where(
+        Notification.user_id == b.user_id,
+        Notification.kind == "BOOKING_REMINDER",
+        Notification.booking_id == b.id))
+    if exists:
+        return False
+    lab = db.get(Lab, b.lab_id)
+    start = b.start_time if b.start_time.tzinfo else \
+        b.start_time.replace(tzinfo=timezone.utc)
+    minutes = max(1, int((start - now).total_seconds() // 60))
+    return bool(notify(db, [b.user_id], "BOOKING_REMINDER",
+                       f"Your booking starts in {minutes} min",
+                       body=f"{lab.name if lab else 'Laboratory'} - your access "
+                            f"code becomes valid when the window opens.",
+                       link=f"/bookings/{b.id}/qr", booking_id=b.id,
+                       dedupe_key=f"booking-reminder:{b.id}"))
+
+
 def ensure_booking_reminders(db: Session, user: User) -> int:
     """
     "Your booking starts in 15 minutes."
@@ -81,24 +114,7 @@ def ensure_booking_reminders(db: Session, user: User) -> int:
         Booking.status == BookingStatus.CONFIRMED,
         Booking.start_time > now,
         Booking.start_time <= horizon)).all()
-    created = 0
-    for b in soon:
-        exists = db.scalar(select(Notification.id).where(
-            Notification.user_id == user.id,
-            Notification.kind == "BOOKING_REMINDER",
-            Notification.booking_id == b.id))
-        if exists:
-            continue
-        lab = db.get(Lab, b.lab_id)
-        start = b.start_time if b.start_time.tzinfo else \
-            b.start_time.replace(tzinfo=timezone.utc)
-        minutes = max(1, int((start - now).total_seconds() // 60))
-        notify(db, [user.id], "BOOKING_REMINDER",
-               f"Your booking starts in {minutes} min",
-               body=f"{lab.name if lab else 'Laboratory'} - your access code "
-                    f"becomes valid when the window opens.",
-               link=f"/bookings/{b.id}/qr", booking_id=b.id)
-        created += 1
+    created = sum(1 for b in soon if booking_reminder(db, b, now))
     if created:
         db.commit()
     return created

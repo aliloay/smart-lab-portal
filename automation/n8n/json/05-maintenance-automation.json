@@ -1,0 +1,350 @@
+{
+  "id": "zXZvJP5vAQbPtAG6",
+  "name": "Smart Lab 05 - Maintenance automation",
+  "active": false,
+  "nodes": [
+    {
+      "id": "aa3650e6-1391-5304-a6ba-54604cf3cc9e",
+      "name": "Issue Created Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlab-issue-created",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "webhookId": "46708782-0bd7-5121-aa05-229865547598",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab webhook token"
+        }
+      }
+    },
+    {
+      "id": "3ab24a1a-0a7b-50a7-aee2-19954a0faac4",
+      "name": "Get Issue Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://backend:8000/api/automation/issues/{{ $json.body.object.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "b3735fd3-45ed-5699-a7b9-fb451c502d6c",
+      "name": "Urgent And Lab In Use?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.severity }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "rightValue": "LOW"
+            },
+            {
+              "leftValue": "={{ $json.severity }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "rightValue": "MEDIUM"
+            },
+            {
+              "leftValue": "={{ $json.bookings_next_24h }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "1394cee0-1743-5c8b-ad39-0089eb43ca82",
+      "name": "Notify Staff Of Impact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String($json.severity + \" issue in a booked lab: \" + $json.ticket).slice(0, 160), body: String($json.title + \" - \" + $json.bookings_next_24h + \" booking(s) in \" + $json.lab_code + \" in the next 24 h.\").slice(0, 500), link: $json.link, severity: $json.severity === \"CRITICAL\" ? \"critical\" : \"warning\", dedupe_key: \"issue-impact:\" + $json.issue_id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "79406b5a-a01e-5087-a627-144df0211195",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"05-maintenance-automation\", status: \"success\", summary: \"Maintenance notification sent\", execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "91aa8dd5-db4b-5f05-aaa1-7e8f5e852f30",
+      "name": "Daily 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "8b4c019a-1f66-53a8-ae18-ec39175b9d04",
+      "name": "Get Maintenance Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        450
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/maintenance",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "1f8d8836-a5aa-5668-acb6-b6f5d4131dc7",
+      "name": "Anything Needs Attention?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        500,
+        450
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.overdue.length + $json.unassigned_urgent.length + $json.assets_due.length }}",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "738582e5-7bef-5046-a04f-3c49752f8c3c",
+      "name": "Send Maintenance Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        450
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String(\"Maintenance digest: \" + $json.overdue.length + \" overdue, \" + $json.unassigned_urgent.length + \" urgent unassigned\").slice(0, 160), body: String([...$json.overdue.map(i => i.ticket + \" overdue\"), ...$json.unassigned_urgent.map(i => i.ticket + \" unassigned\"), ...$json.assets_due.map(a => a.name + (a.overdue ? \" maintenance overdue\" : \" maintenance due\"))].join(\"; \")).slice(0, 500), link: \"/issues\", severity: \"warning\", dedupe_key: \"maintenance-digest:\" + $json.dedupe_day }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "45d03deb-fcc0-58de-a636-b36214cc9dcf",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        600
+      ],
+      "parameters": {
+        "content": "## Maintenance automation\nEvent path: a HIGH/CRITICAL issue in a lab with bookings in the next 24 h is flagged to staff at once.\nDaily path: overdue (per published SLA), urgent unassigned, and equipment due for maintenance within 7 days.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Issue Created Event": {
+      "main": [
+        [
+          {
+            "node": "Get Issue Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Issue Context": {
+      "main": [
+        [
+          {
+            "node": "Urgent And Lab In Use?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Urgent And Lab In Use?": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff Of Impact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff Of Impact": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 08:00": {
+      "main": [
+        [
+          {
+            "node": "Get Maintenance Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Maintenance Digest": {
+      "main": [
+        [
+          {
+            "node": "Anything Needs Attention?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything Needs Attention?": {
+      "main": [
+        [
+          {
+            "node": "Send Maintenance Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Maintenance Digest": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

@@ -1,0 +1,209 @@
+{
+  "id": "A5830NbRFGNlx8l1",
+  "name": "Smart Lab 04 - Device offline alert with escalation",
+  "active": false,
+  "nodes": [
+    {
+      "id": "50cc4153-4335-5168-ad4c-82eff11f3caa",
+      "name": "Device Offline Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlab-device-offline",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "webhookId": "fabb03f6-79f5-5454-a7d9-45ebc5b622ae",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab webhook token"
+        }
+      }
+    },
+    {
+      "id": "36517b13-c200-5384-a703-08423bdd904b",
+      "name": "Get Offline Devices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/devices/offline",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "8d325a64-f757-5d68-a83b-c71439e0bc0e",
+      "name": "One Item Per Device",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "offline"
+      }
+    },
+    {
+      "id": "b1afdc40-776e-5b22-a747-2820ea6b583e",
+      "name": "Notify By Escalation Level",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: $json.audience, kind: \"DEVICE_OFFLINE\", title: $json.title, body: $json.body, link: \"/admin/devices\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "81e72f28-a093-5333-a2ab-58fc7c7965da",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"04-device-offline-escalation\", status: \"success\", summary: \"Offline devices: \" + $(\"Get Offline Devices\").first().json.offline.length, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "04011fb5-b844-508e-a074-f8d41f3eb6a3",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "efdd92ba-94b1-51d2-ad26-0228edf5d917",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        600
+      ],
+      "parameters": {
+        "content": "## Device offline escalation\nLevel 1 at the stale threshold -> staff; level 2 at 15 min -> staff again; level 3 at 60 min -> administrators, critical. One notification per outage per level (dedupe key).\nThe scheduled scan also makes the backend record new outages when nobody has the portal open.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Device Offline Event": {
+      "main": [
+        [
+          {
+            "node": "Get Offline Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Offline Devices": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Device",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Device": {
+      "main": [
+        [
+          {
+            "node": "Notify By Escalation Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify By Escalation Level": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Offline Devices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

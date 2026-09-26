@@ -86,6 +86,132 @@ class Settings(BaseSettings):
     ISSUE_SLA_HOURS_MEDIUM: int = 168
     ISSUE_SLA_HOURS_LOW: int = 336
 
+    # --- automation (n8n) ---------------------------------------------------
+    # Everything here is optional. With these unset the portal behaves exactly
+    # as before: events are still recorded in the outbox (so a consumer added
+    # later can read the history), nothing is pushed, and /api/automation/*
+    # answers 503. n8n is never on the door path - it cannot lock or unlock.
+    #
+    # Key n8n presents in X-Automation-Key when it calls /api/automation/*.
+    AUTOMATION_API_KEY: str = ""
+    # Base URL of the n8n webhooks, e.g. http://n8n:5678/webhook. Each pushed
+    # event goes to {base}/smartlab-{event.type with . -> -}.
+    AUTOMATION_WEBHOOK_BASE: str = ""
+    # Sent as X-Smartlab-Token on every push; the n8n Webhook nodes check it
+    # with a Header Auth credential.
+    AUTOMATION_WEBHOOK_TOKEN: str = ""
+    # Which event types are pushed. The rest stay in the pull feed only.
+    AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
+                                  "issue.created,device.offline,door.alarm")
+    AUTOMATION_MAX_ATTEMPTS: int = 6
+    # Delivered/skipped outbox rows older than this are pruned.
+    AUTOMATION_RETENTION_DAYS: int = 30
+
+    # Rule thresholds the automation API evaluates. Rules live here, in the
+    # backend, so n8n never re-implements them.
+    DENIAL_WINDOW_MINUTES: int = 10
+    DENIAL_WARNING_COUNT: int = 3
+    # Offline escalation, minutes since the last heartbeat: level 1 at the
+    # stale threshold, level 2 and 3 at these.
+    DEVICE_ESCALATE_L2_MINUTES: int = 15
+    DEVICE_ESCALATE_L3_MINUTES: int = 60
+    # Hours per day a laboratory is bookable - the denominator of the
+    # utilisation percentage, stated on the chart rather than hidden.
+    LAB_OPEN_HOURS_PER_DAY: int = 10
+    # Hours considered "out of hours" by the anomaly rules, in this zone.
+    LOCAL_TIMEZONE: str = "Africa/Cairo"
+    AFTER_HOURS_START: int = 22
+    AFTER_HOURS_END: int = 6
+    # metric=min:max, comma separated. Empty side = unbounded.
+    SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
+                              "co2=:1000,noise=:85")
+
+    # --- AI assistant (optional) --------------------------------------------
+    # Two providers:
+    #   ollama    - free, runs on your own computer (https://ollama.com).
+    #               The portal talks to it at OLLAMA_URL; nothing leaves the
+    #               machine and there is no per-question cost.
+    #   anthropic - Claude via the Claude API; needs ANTHROPIC_API_KEY and is
+    #               billed per use.
+    # AI_PROVIDER=auto picks anthropic when a key is set, else ollama when
+    # OLLAMA_URL is set, else the assistant is off and every AI endpoint says
+    # so; nothing else changes. Keys are read here only, never sent to the
+    # browser.
+    AI_PROVIDER: str = "auto"
+    OLLAMA_URL: str = ""
+    # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
+    OLLAMA_MODEL: str = "qwen2.5:3b"
+    # Student helper: answers from a small, pre-fetched context - no tools.
+    # A separate, smaller model so both stay loaded side by side and neither
+    # chat waits for the other's model to be swapped in. Empty = share the
+    # staff model (use on GPUs with less than 4 GB).
+    OLLAMA_STUDENT_MODEL: str = "qwen2.5:1.5b"
+    # The student context is small, so a smaller window keeps GPU memory free
+    # for the staff model. Each model always gets the same size (a change
+    # would make Ollama reload it).
+    OLLAMA_STUDENT_NUM_CTX: int = 4096
+    # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
+    # 4k by itself if Ollama's engine crashes.
+    OLLAMA_NUM_CTX: int = 8192
+    # true = never use the graphics card (slower, but works when the GPU
+    # driver cannot run Ollama's CUDA code).
+    OLLAMA_CPU_ONLY: bool = False
+    ANTHROPIC_API_KEY: str = ""
+    AI_MODEL: str = "claude-opus-5"
+    AI_STUDENT_MODEL: str = "claude-haiku-4-5"
+    # Analytics Q&A is not a hard reasoning task; medium keeps it quick and
+    # cheap. Raise to "high" if answers feel shallow.
+    AI_EFFORT: str = "medium"
+    AI_MAX_TOOL_ROUNDS: int = 6
+    AI_QUESTIONS_PER_HOUR: int = 30
+    AI_STUDENT_ENABLED: bool = True
+    AI_STUDENT_QUESTIONS_PER_HOUR: int = 20
+
+    # --- Self-service sign-up -----------------------------------------------
+    # The login page offers "Create account". Sign-up only ever creates a
+    # STUDENT with no fingerprint/RFID enrolment, so it grants no door access
+    # by itself: an administrator still enrols the person at the reader.
+    SIGNUP_ENABLED: bool = True
+    # Comma-separated allowed email domains, e.g. "giu-uni.de". Empty = any.
+    SIGNUP_EMAIL_DOMAINS: str = ""
+    # True = new accounts start disabled until an administrator activates
+    # them on Users & roles.
+    SIGNUP_REQUIRES_APPROVAL: bool = False
+    SIGNUPS_PER_IP_PER_HOUR: int = 10
+    # Give every new account (admin-created or signed up) the next door
+    # identity USERn = fingerprint slot n. It opens nothing until staff enrol
+    # that person's fingerprint/face under the same number.
+    AUTO_ASSIGN_AUTH_SUBJECT: bool = True
+
+    @property
+    def ollama_student_model(self) -> str:
+        return self.OLLAMA_STUDENT_MODEL.strip() or self.OLLAMA_MODEL
+
+    @property
+    def signup_domains(self) -> list[str]:
+        return [d.strip().lower().lstrip("@") for d in
+                self.SIGNUP_EMAIL_DOMAINS.split(",") if d.strip()]
+
+    @property
+    def automation_push_types(self) -> set[str]:
+        return {t.strip() for t in self.AUTOMATION_PUSH_TYPES.split(",")
+                if t.strip()}
+
+    @property
+    def sensor_thresholds(self) -> dict[str, tuple[float | None, float | None]]:
+        out: dict[str, tuple[float | None, float | None]] = {}
+        for part in self.SENSOR_THRESHOLDS.split(","):
+            if "=" not in part:
+                continue
+            metric, _, rng = part.partition("=")
+            lo, _, hi = rng.partition(":")
+            try:
+                out[metric.strip()] = (float(lo) if lo.strip() else None,
+                                       float(hi) if hi.strip() else None)
+            except ValueError:
+                continue
+        return out
+
     @property
     def cors_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

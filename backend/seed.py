@@ -73,6 +73,17 @@ ramy, _ = get_or_create(
         "department": "Robotics & Automation Engineering",
     }, email="ramy@giu-uni.de")
 
+# USER1 and USER2 are the two people physically enrolled on the door today:
+# fingerprint slots 1 and 2 on the sensor, face labels USER1/USER2 on the
+# face server. Record that (only if not recorded yet) so they are not told
+# to "finish their lab access setup". Everyone else starts as pending.
+from datetime import datetime, timezone  # noqa: E402
+for enrolled in (ali, ramy):
+    if enrolled.fingerprint_enrolled_at is None:
+        enrolled.fingerprint_enrolled_at = datetime.now(timezone.utc)
+    if enrolled.face_enrolled_at is None:
+        enrolled.face_enrolled_at = datetime.now(timezone.utc)
+
 # --- labs -------------------------------------------------------------------
 # The real GIU laboratories.
 #
