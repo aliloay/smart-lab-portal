@@ -37,6 +37,7 @@ class FakeOllama:
 def ollama(monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(settings, "OLLAMA_URL", "http://ollama:11434")
+    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "qwen2.5:1.5b")
     ai._health.update(at=0.0, value=None)
 
     def install(replies, **kw):
@@ -212,3 +213,18 @@ def test_ollama_cuda_failure_falls_back_to_processor(db, monkeypatch, ollama):
     monkeypatch.setattr(settings, "OLLAMA_CPU_ONLY", True)
     assert ai.ask(db, "q")["answer"] == "cpu ok"
     assert seen == [0]                       # straight to the processor
+
+
+def test_student_model_defaults_to_staff_model(monkeypatch):
+    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "")
+    assert settings.ollama_student_model == settings.OLLAMA_MODEL
+
+
+def test_warm_up_loads_each_model_once(monkeypatch, ollama):
+    ollama([])
+    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "")
+    loaded = []
+    monkeypatch.setattr(ai.httpx, "post", lambda url, json=None, timeout=None: loaded.append(
+        (url.rsplit("/", 1)[-1], json["model"], json["options"]["num_ctx"])))
+    ai.warm_up()
+    assert loaded == [("generate", settings.OLLAMA_MODEL, settings.OLLAMA_NUM_CTX)]

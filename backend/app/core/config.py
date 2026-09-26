@@ -142,7 +142,10 @@ class Settings(BaseSettings):
     # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
     OLLAMA_MODEL: str = "qwen2.5:3b"
     # Student helper: answers from a small, pre-fetched context - no tools.
-    OLLAMA_STUDENT_MODEL: str = "qwen2.5:1.5b"
+    # Empty = the same model as staff. On a 4 GB GPU two different models do
+    # not fit together, so Ollama would unload one and load the other every
+    # time the staff and student chats alternate (slow). One model stays put.
+    OLLAMA_STUDENT_MODEL: str = ""
     # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
     # 4k by itself if Ollama's engine crashes.
     OLLAMA_NUM_CTX: int = 8192
@@ -175,6 +178,10 @@ class Settings(BaseSettings):
     # identity USERn = fingerprint slot n. It opens nothing until staff enrol
     # that person's fingerprint/face under the same number.
     AUTO_ASSIGN_AUTH_SUBJECT: bool = True
+
+    @property
+    def ollama_student_model(self) -> str:
+        return self.OLLAMA_STUDENT_MODEL.strip() or self.OLLAMA_MODEL
 
     @property
     def signup_domains(self) -> list[str]:

@@ -87,7 +87,7 @@ def model_name(student: bool = False) -> Optional[str]:
     if p == "anthropic":
         return settings.AI_STUDENT_MODEL if student else settings.AI_MODEL
     if p == "ollama":
-        return settings.OLLAMA_STUDENT_MODEL if student else settings.OLLAMA_MODEL
+        return settings.ollama_student_model if student else settings.OLLAMA_MODEL
     return None
 
 
@@ -113,7 +113,7 @@ def health() -> dict:
         r.raise_for_status()
         have = {m.get("name", "") for m in r.json().get("models", [])}
         have |= {n.removesuffix(":latest") for n in have}
-        missing = [m for m in {settings.OLLAMA_MODEL, settings.OLLAMA_STUDENT_MODEL}
+        missing = [m for m in {settings.OLLAMA_MODEL, settings.ollama_student_model}
                    if m not in have]
         extra = {"reachable": True, "missing_models": sorted(missing)}
     except (httpx.HTTPError, ValueError):
@@ -374,6 +374,7 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 OLLAMA_RESULT_CHARS = 6_000
 # Retry size when the engine crashes: 4k tokens fits any GPU.
 OLLAMA_FALLBACK_CTX = 4096
+OLLAMA_KEEP_ALIVE = "2h"
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
 OLLAMA_EXTRA = """
@@ -406,8 +407,9 @@ def _ollama_chat(model: str, messages: list[dict],
         body: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
             "options": options,
-            # Keep the model loaded between questions (first load takes seconds).
-            "keep_alive": "30m",
+                # Keep the model on the GPU between questions: loading it again
+            # takes seconds. The same num_ctx everywhere avoids reloads too.
+            "keep_alive": OLLAMA_KEEP_ALIVE,
         }
         if tools:
             body["tools"] = tools
@@ -449,6 +451,27 @@ def _ollama_chat(model: str, messages: list[dict],
             "or make Ollama use the processor instead - see "
             "docs/AI_ASSISTANT.md, 'If Ollama crashes'.")
     raise AIUnavailable(f"The local model returned an error. {detail}".strip())
+
+
+def warm_up() -> None:
+    """
+    Load the local model(s) at portal start-up so the first question does not
+    wait for it. Runs in a background thread; failures are only logged.
+    """
+    if provider() != "ollama":
+        return
+    options: dict[str, Any] = {"num_ctx": settings.OLLAMA_NUM_CTX}
+    if settings.OLLAMA_CPU_ONLY:
+        options["num_gpu"] = 0
+    for model in dict.fromkeys([settings.OLLAMA_MODEL, settings.ollama_student_model]):
+        try:
+            httpx.post(settings.OLLAMA_URL.rstrip("/") + "/api/generate",
+                       json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE,
+                             "options": options},
+                       timeout=httpx.Timeout(180.0, connect=3.0))
+            log.info("Ollama model %s loaded", model)
+        except httpx.HTTPError as exc:
+            log.info("Ollama warm-up skipped for %s: %s", model, exc)
 
 
 def _ollama_tools() -> list[dict]:
@@ -581,7 +604,7 @@ def ask_student(db: Session, user: User, question: str,
               + _json(student_context(db, user)))
     messages = _history(question, history)
     if p == "ollama":
-        model = settings.OLLAMA_STUDENT_MODEL
+        model = settings.ollama_student_model
         msg = _ollama_chat(model, [{"role": "system", "content": system}]
                            + messages).get("message") or {}
         text = (msg.get("content") or "").strip()

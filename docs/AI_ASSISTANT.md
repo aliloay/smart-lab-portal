@@ -23,7 +23,7 @@ The AI part runs on either:
 |---|---|---|
 | Who | Lab staff, administrators | Any signed-in user |
 | Sees | Analytics through 8 read-only tools | Only the caller's own bookings and reports, plus the lab list with booked time slots (never who booked) |
-| Free model (Ollama) | `qwen2.5:3b` (can call tools) | `qwen2.5:1.5b` (lighter, no tools) |
+| Free model (Ollama) | `qwen2.5:3b` (can call tools) | same model by default (`OLLAMA_STUDENT_MODEL` to change) |
 | Claude model | `claude-opus-5` | `claude-haiku-4-5` |
 | Limit per user | 30 questions/hour | 20 questions/hour |
 | Audit action | `AI_QUESTION` | `AI_STUDENT_QUESTION` |
@@ -98,7 +98,6 @@ the GPU. Without a GPU they still run on the CPU, just slower.
 2. In PowerShell, download the two models (about 3 GB in total, one time):
    ```
    ollama pull qwen2.5:3b
-   ollama pull qwen2.5:1.5b
    ```
 3. Restart the portal (`launch.bat`). From then on `launch.bat` starts Ollama
    if it is not already running, and downloads any missing model in a
@@ -111,8 +110,12 @@ the GPU. Without a GPU they still run on the CPU, just slower.
 If you also have `ANTHROPIC_API_KEY` in `.env` but want the free model, add
 `AI_PROVIDER=ollama`.
 
-The first question after a restart takes 5–20 s while the model loads; after
-that answers take a few seconds. Small local models are less precise than
+The portal loads the model when it starts and keeps it on the GPU for 2 hours
+after the last question, so answers normally take a few seconds. Both chats
+share one model by default: on a 4 GB GPU two different models do not fit
+together and would be swapped in and out on every switch. Check with
+`ollama ps` while a question runs: `100% GPU` is the fast case; a CPU share
+means the model did not fit and runs partly on the processor. Small local models are less precise than
 Claude: the numbers still come from the database, but check important figures
 on the charts. For better staff answers on a stronger PC, set
 `OLLAMA_MODEL=qwen2.5:7b` (and `ollama pull qwen2.5:7b`).
@@ -126,7 +129,7 @@ only** (`num_gpu: 0`), so the chat usually still answers, just more slowly.
 `CUDA error: device kernel image is invalid` means the NVIDIA driver is too old
 for Ollama's GPU code. To fix it at the source:
 
-1. Test Ollama alone: `ollama run qwen2.5:1.5b "say hi"`. If this also
+1. Test Ollama alone: `ollama run qwen2.5:3b "say hi"`. If this also
    crashes, the problem is Ollama/driver, not the portal.
 2. Update the NVIDIA driver (GeForce Experience or nvidia.com) and Ollama
    (download the latest installer), then restart the laptop.

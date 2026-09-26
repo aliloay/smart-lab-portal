@@ -5,6 +5,7 @@ Boot order matters: the configuration check runs before anything binds, so a
 production deployment cannot start with the development secret key.
 """
 import asyncio
+import threading
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -49,6 +50,9 @@ async def lifespan(_: FastAPI):
     # its failures stay in its own thread - see app/services/integration.py.
     integration.dispatcher = integration.Dispatcher(SessionLocal)
     integration.dispatcher.start()
+    # Optional local AI: load the model now so the first question is quick.
+    from app.services import ai
+    threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
     log.info("Smart Lab Portal started (%s)", settings.ENVIRONMENT)
     yield
     integration.dispatcher.stop()

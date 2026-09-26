@@ -232,21 +232,40 @@ export function PriorityList({ limit = 5, withSummary = true }: { limit?: number
  * at all while no AI is set up. The panel stays mounted when closed so the
  * conversation survives navigation.
  */
+const OPEN_CHAT = 'smartlab:open-chat'
+/** Open the chat panel from anywhere (e.g. the sidebar button). */
+export const openChat = () => window.dispatchEvent(new Event(OPEN_CHAT))
+
+/** Whether this user has a chat at all: staff always, students once AI is set up. */
+export function useChatAvailable(): boolean {
+  const { user } = useAuth()
+  const staff = isStaff(user)
+  const [available, setAvailable] = useState(false)
+  useEffect(() => {
+    if (!user) { setAvailable(false); return }
+    if (staff) { setAvailable(true); return }
+    api.studentAiStatus().then(s => setAvailable(s.configured)).catch(() => setAvailable(false))
+  }, [user, staff])
+  return available
+}
+
 export function ChatBubble() {
   const { user } = useAuth()
   const loc = useLocation()
   const staff = isStaff(user)
   const [open, setOpen] = useState(false)
-  const [available, setAvailable] = useState(false)
+  const available = useChatAvailable()
 
   useEffect(() => {
-    if (!user) return
-    if (staff) { setAvailable(true); return }
-    api.studentAiStatus().then(s => setAvailable(s.configured)).catch(() => setAvailable(false))
-  }, [user, staff])
+    const show = () => setOpen(true)
+    window.addEventListener(OPEN_CHAT, show)
+    return () => window.removeEventListener(OPEN_CHAT, show)
+  }, [])
 
-  // The Operations Center already shows the full panel.
-  if (!user || !available || loc.pathname === '/admin/operations') return null
+  if (!user || !available) return null
+  // The Operations Center already shows the full panel; the bubble appears
+  // there only when opened from the sidebar.
+  if (loc.pathname === '/admin/operations' && !open) return null
   return (
     <>
       <div className={`fixed z-40 bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[410px]

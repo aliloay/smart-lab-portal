@@ -4,10 +4,10 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
   Gauge, LayoutDashboard, LogOut, Menu, Radar, Settings, ShieldCheck, TriangleAlert,
-  UserRound, Users, Wrench, X,
+  Sparkles, UserRound, Users, Wrench, X,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
-import { ChatBubble } from './ai'
+import { ChatBubble, openChat, useChatAvailable } from './ai'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
@@ -90,6 +90,24 @@ function navFor(role: string | undefined): Section[] {
   if (role === 'ADMIN') return ADMIN_NAV
   if (role === 'LAB_STAFF') return STAFF_NAV
   return STUDENT_NAV
+}
+
+/** Sidebar entry for the AI chat: opens the same panel as the round button. */
+function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
+  const { user } = useAuth()
+  if (!useChatAvailable()) return null
+  return (
+    <div>
+      <div className="label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5 pt-5">Assistant</div>
+      <button type="button" onClick={() => { openChat(); onNavigate() }}
+        className="group w-full flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+                   text-slate-300 hover:text-white hover:bg-white/[0.04] transition-colors">
+        <span className="text-violet-300 group-hover:text-violet-200"><Sparkles size={17} /></span>
+        <span className="flex-1 text-left">{isStaff(user) ? 'Ask the lab' : 'Ask Smart Lab'}</span>
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-200">AI</span>
+      </button>
+    </div>
+  )
 }
 
 function NavItem({ item, badge, onNavigate }: {
@@ -245,6 +263,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </div>
             </div>
           ))}
+          <AssistantNav onNavigate={() => setOpen(false)} />
         </nav>
 
         <div className="mt-auto pt-2">
