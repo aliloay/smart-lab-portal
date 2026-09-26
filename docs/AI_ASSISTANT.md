@@ -117,6 +117,23 @@ Claude: the numbers still come from the database, but check important figures
 on the charts. For better staff answers on a stronger PC, set
 `OLLAMA_MODEL=qwen2.5:7b` (and `ollama pull qwen2.5:7b`).
 
+### If Ollama crashes ("llama-server process has terminated", 0xc0000409)
+
+The portal reaches Ollama, but Ollama's engine crashes while answering. The
+portal already retries once with a smaller context. If it still fails:
+
+1. Test Ollama alone: `ollama run qwen2.5:1.5b "say hi"`. If this also
+   crashes, the problem is Ollama/driver, not the portal.
+2. Update the NVIDIA driver (GeForce Experience or nvidia.com) and Ollama
+   (download the latest installer), then restart the laptop.
+3. Still crashing: make Ollama use the processor instead of the GPU. It is
+   slower (10–30 s per answer) but reliable:
+   ```
+   setx CUDA_VISIBLE_DEVICES -1
+   ```
+   Quit Ollama from the tray, start it again, and retry. Undo later with
+   `reg delete HKCU\Environment /v CUDA_VISIBLE_DEVICES /f`.
+
 ## Setup — Claude (paid, optional)
 
 1. Create a key at https://console.anthropic.com (pay-per-use; a lab-scale
@@ -128,7 +145,7 @@ on the charts. For better staff answers on a stronger PC, set
 3. Restart: `launch.bat` (or `docker compose up -d --build`).
 
 Optional settings (backend env): `AI_PROVIDER` (`auto`/`ollama`/`anthropic`),
-`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL`, `OLLAMA_NUM_CTX` (16384),
+`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL`, `OLLAMA_NUM_CTX` (8192; the portal retries at 4096 if Ollama crashes),
 `AI_MODEL` (default `claude-opus-5`), `AI_STUDENT_MODEL` (`claude-haiku-4-5`),
 `AI_EFFORT` (default `medium`), `AI_MAX_TOOL_ROUNDS` (6),
 `AI_QUESTIONS_PER_HOUR` (30), `AI_STUDENT_ENABLED` (true),

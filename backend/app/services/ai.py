@@ -371,7 +371,9 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 
 
 # ---------------------------------------------------------------- ollama ---
-OLLAMA_RESULT_CHARS = 12_000
+OLLAMA_RESULT_CHARS = 6_000
+# Retry size when the engine crashes: 4k tokens fits any GPU.
+OLLAMA_FALLBACK_CTX = 4096
 OLLAMA_EXTRA = """
 - Only call the tools listed. Call a tool before answering any question
   about numbers, labs, issues or devices.
@@ -380,38 +382,53 @@ OLLAMA_EXTRA = """
 
 def _ollama_chat(model: str, messages: list[dict],
                  tools: Optional[list[dict]] = None) -> dict:
-    body: dict[str, Any] = {
-        "model": model, "messages": messages, "stream": False,
-        "options": {"temperature": 0.2, "num_ctx": settings.OLLAMA_NUM_CTX},
-        # Keep the model loaded between questions (first load takes seconds).
-        "keep_alive": "30m",
-    }
-    if tools:
-        body["tools"] = tools
+    """
+    One /api/chat call. If Ollama's engine crashes (seen on Windows with
+    small GPUs: "llama-server process has terminated"), retry once with a
+    smaller context window, which needs much less graphics memory.
+    """
     url = settings.OLLAMA_URL.rstrip("/") + "/api/chat"
-    try:
-        r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
-    except httpx.ConnectError as exc:
-        raise AIUnavailable(
-            "Ollama is not running. Install it from ollama.com, start it, "
-            "and try again.") from exc
-    except httpx.TimeoutException as exc:
-        raise AIUnavailable("The local model took too long to answer - "
-                            "try a shorter question.") from exc
-    except httpx.HTTPError as exc:
-        raise AIUnavailable("Ollama could not be reached.") from exc
-    if r.status_code == 404:
-        raise AIUnavailable(f"The model {model} is not downloaded yet. "
-                            f"On the computer running Ollama, run: ollama pull {model}")
-    if r.status_code >= 400:
-        detail = ""
+    sizes = list(dict.fromkeys([settings.OLLAMA_NUM_CTX, OLLAMA_FALLBACK_CTX]))
+    detail = ""
+    for num_ctx in sizes:
+        body: dict[str, Any] = {
+            "model": model, "messages": messages, "stream": False,
+            "options": {"temperature": 0.2, "num_ctx": num_ctx},
+            # Keep the model loaded between questions (first load takes seconds).
+            "keep_alive": "30m",
+        }
+        if tools:
+            body["tools"] = tools
         try:
-            detail = str(r.json().get("error", ""))[:200]
+            r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
+        except httpx.ConnectError as exc:
+            raise AIUnavailable(
+                "Ollama is not running. Install it from ollama.com, start it, "
+                "and try again.") from exc
+        except httpx.TimeoutException as exc:
+            raise AIUnavailable("The local model took too long to answer - "
+                                "try a shorter question.") from exc
+        except httpx.HTTPError as exc:
+            raise AIUnavailable("Ollama could not be reached.") from exc
+        if r.status_code == 404:
+            raise AIUnavailable(f"The model {model} is not downloaded yet. "
+                                f"On the computer running Ollama, run: ollama pull {model}")
+        if r.status_code < 400:
+            return r.json()
+        try:
+            detail = str(r.json().get("error", ""))[:300]
         except ValueError:
-            pass
-        log.warning("Ollama error %s: %s", r.status_code, detail)
-        raise AIUnavailable(f"The local model returned an error ({r.status_code}). {detail}".strip())
-    return r.json()
+            detail = ""
+        log.warning("Ollama error %s (num_ctx=%s): %s", r.status_code, num_ctx, detail)
+        if r.status_code < 500:
+            break
+    if "terminated" in detail or "memory" in detail.lower():
+        raise AIUnavailable(
+            "The local AI engine (Ollama) crashed on this computer. This is "
+            "usually the graphics driver: update the NVIDIA driver and Ollama, "
+            "or make Ollama use the processor instead - see "
+            "docs/AI_ASSISTANT.md, 'If Ollama crashes'.")
+    raise AIUnavailable(f"The local model returned an error. {detail}".strip())
 
 
 def _ollama_tools() -> list[dict]:

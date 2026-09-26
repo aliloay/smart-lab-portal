@@ -161,3 +161,27 @@ def test_student_helper_on_claude(db, alice, monkeypatch):
     out = ai.ask_student(db, alice, "hello", client=NS(messages=NS(create=create)))
     assert out["answer"] == "Hi Alice." and seen["model"] == settings.AI_STUDENT_MODEL
     assert "tools" not in seen and "DATA:" in seen["system"]
+
+
+def test_ollama_crash_retries_with_smaller_context(db, monkeypatch, ollama):
+    ollama([])
+    seen = []
+
+    def post(url, json=None, timeout=None):
+        seen.append(json["options"]["num_ctx"])
+        req = httpx.Request("POST", url)
+        if len(seen) == 1:
+            return httpx.Response(500, request=req, json={
+                "error": "llama-server process has terminated: exit status 0xc0000409"})
+        return httpx.Response(200, request=req,
+                              json={"message": {"role": "assistant", "content": "ok"}})
+    monkeypatch.setattr(ai.httpx, "post", post)
+    assert ai.ask(db, "q")["answer"] == "ok"
+    assert seen == [settings.OLLAMA_NUM_CTX, ai.OLLAMA_FALLBACK_CTX]
+
+    def always_crash(url, json=None, timeout=None):
+        return httpx.Response(500, request=httpx.Request("POST", url), json={
+            "error": "llama-server process has terminated"})
+    monkeypatch.setattr(ai.httpx, "post", always_crash)
+    with pytest.raises(ai.AIUnavailable, match="crashed on this computer"):
+        ai.ask(db, "q")

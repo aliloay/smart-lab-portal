@@ -143,7 +143,9 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "qwen2.5:3b"
     # Student helper: answers from a small, pre-fetched context - no tools.
     OLLAMA_STUDENT_MODEL: str = "qwen2.5:1.5b"
-    OLLAMA_NUM_CTX: int = 16384
+    # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
+    # 4k by itself if Ollama's engine crashes.
+    OLLAMA_NUM_CTX: int = 8192
     ANTHROPIC_API_KEY: str = ""
     AI_MODEL: str = "claude-opus-5"
     AI_STUDENT_MODEL: str = "claude-haiku-4-5"
