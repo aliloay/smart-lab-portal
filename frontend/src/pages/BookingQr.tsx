@@ -13,29 +13,55 @@
  *
  * Outside its window the code is dimmed and the reason is shown ABOVE it,
  * never on top of it.
+ *
+ * States, in the order they are decided:
+ *   CANCELLED / REJECTED  the booking is dead; the code is revoked
+ *   NOT ACTIVE YET        before the window
+ *   EXPIRED               after the window
+ *   ACCESS GRANTED        the door recorded an entry on this booking (live,
+ *                         from the WebSocket, or from the booking's last
+ *                         entry) - the code still works for re-entry
+ *   EXPIRING SOON         inside the window, under EXPIRING_MS left
+ *   VALID                 inside the window
  */
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  ArrowLeft, Clock, Fingerprint, MonitorSmartphone, QrCode, ScanFace, ShieldCheck, Sun,
+  ArrowLeft, CheckCircle2, Clock, Fingerprint, MonitorSmartphone, QrCode, ScanFace,
+  ShieldCheck, Sun,
 } from 'lucide-react'
 import { QrPayload, api } from '../lib/api'
+import { useLiveMessages } from '../lib/live'
 import { fmtDateLong, fmtTime } from '../lib/time'
 import { Dot, ErrorBanner, Skeleton } from '../components/ui'
 import { AccessFlow } from '../components/visual'
 
 type Phase = 'before' | 'open' | 'closed' | 'dead'
+type State = 'CANCELLED' | 'REJECTED' | 'NOT_ACTIVE_YET' | 'EXPIRED' | 'ACCESS_GRANTED'
+  | 'EXPIRING_SOON' | 'VALID'
+
+const EXPIRING_MS = 10 * 60 * 1000
 
 export default function BookingQr() {
   const { id } = useParams()
   const [qr, setQr] = useState<QrPayload | null>(null)
   const [error, setError] = useState('')
+  const [grantedAt, setGrantedAt] = useState<string | null>(null)
   const [, tick] = useState(0)
 
   useEffect(() => {
     api.qr(Number(id)).then(setQr)
       .catch(e => setError(e?.message ?? 'Could not load the access code'))
+    // An entry already recorded on this booking (e.g. the page was reopened).
+    api.booking(Number(id)).then(b => setGrantedAt(b.last_entry_at ?? b.first_entry_at ?? null))
+      .catch(() => {})
   }, [id])
+
+  // The door grants: the page confirms it the moment the event commits.
+  useLiveMessages(m => {
+    if (m.type === 'access_event' && m.event.booking_id === Number(id)
+        && m.event.event_type === 'ACCESS_GRANTED') setGrantedAt(m.event.created_at)
+  })
 
   // One-second tick: the countdown and the phase flip the moment the window
   // opens or closes, with no refresh.
@@ -51,6 +77,11 @@ export default function BookingQr() {
     : qr.status === 'CANCELLED' || qr.status === 'REJECTED' ? 'dead'
     : now < from ? 'before' : now <= until ? 'open' : 'closed'
   const live = phase === 'open'
+  const state: State = !qr ? 'NOT_ACTIVE_YET'
+    : qr.status === 'CANCELLED' ? 'CANCELLED' : qr.status === 'REJECTED' ? 'REJECTED'
+    : phase === 'before' ? 'NOT_ACTIVE_YET' : phase === 'closed' ? 'EXPIRED'
+    : grantedAt && new Date(grantedAt).getTime() >= from ? 'ACCESS_GRANTED'
+    : until - now <= EXPIRING_MS ? 'EXPIRING_SOON' : 'VALID'
 
   // Keep the phone screen awake while the code is usable at the door.
   useEffect(() => {
@@ -73,12 +104,19 @@ export default function BookingQr() {
     </div>
   )
 
-  const banner = {
-    open: { cls: 'bg-ok/10 border-ok/40 text-ok-soft', text: 'Access window open' },
-    before: { cls: 'bg-warn/10 border-warn/35 text-warn-soft', text: `Opens in ${precise(from - now)}` },
-    closed: { cls: 'bg-bad/10 border-bad/35 text-bad-soft', text: 'Access window closed' },
-    dead: { cls: 'bg-bad/10 border-bad/35 text-bad-soft', text: 'Booking cancelled · code revoked' },
-  }[phase]
+  const banner: Record<State, { cls: string; text: string; tone: 'ok' | 'warn' | 'bad' | 'info' }> = {
+    VALID: { cls: 'bg-ok/10 border-ok/40 text-ok-soft', text: 'Valid · access window open', tone: 'ok' },
+    EXPIRING_SOON: { cls: 'bg-warn/10 border-warn/40 text-warn-soft',
+                     text: `Expiring soon · ${precise(until - now)} left`, tone: 'warn' },
+    ACCESS_GRANTED: { cls: 'bg-ok/15 border-ok/50 text-ok-soft',
+                      text: `Access granted${grantedAt ? ` at ${fmtTime(grantedAt)}` : ''}`, tone: 'ok' },
+    NOT_ACTIVE_YET: { cls: 'bg-accent-500/10 border-accent-400/35 text-accent-200',
+                      text: `Not active yet · opens in ${precise(from - now)}`, tone: 'info' },
+    EXPIRED: { cls: 'bg-bad/10 border-bad/35 text-bad-soft', text: 'Expired · access window closed', tone: 'bad' },
+    CANCELLED: { cls: 'bg-bad/10 border-bad/35 text-bad-soft', text: 'Cancelled · code revoked', tone: 'bad' },
+    REJECTED: { cls: 'bg-bad/10 border-bad/35 text-bad-soft', text: 'Booking rejected · code revoked', tone: 'bad' },
+  }
+  const b = banner[state]
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -97,11 +135,13 @@ export default function BookingQr() {
 
       <div className="mt-5 grid md:grid-cols-[minmax(0,1fr)_320px] gap-5 items-start">
         {/* ------------------------------------------------------ the code */}
-        <section className={`card p-3 sm:p-4 ${live ? 'border-ok/45 shadow-glow-ok' : ''}`}>
+        <section className={`card p-3 sm:p-4 ${state === 'EXPIRING_SOON' ? 'border-warn/45'
+          : live ? 'border-ok/45 shadow-glow-ok' : ''}`}>
           <div className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-[14px]
-                           font-semibold mb-3 ${banner.cls}`} role="status" aria-live="polite">
-            <Dot tone={phase === 'open' ? 'ok' : phase === 'before' ? 'warn' : 'bad'} live={live} />
-            <span className="tnum">{banner.text}</span>
+                           font-semibold mb-3 ${b.cls}`} role="status" aria-live="polite"
+               data-state={state}>
+            {state === 'ACCESS_GRANTED' ? <CheckCircle2 size={17} /> : <Dot tone={b.tone} live={live} />}
+            <span className="tnum">{b.text}</span>
           </div>
           {/* THE SCANNABLE AREA. White, square, nothing on top of it. */}
           <div className={`rounded-lg bg-white p-1.5 sm:p-2 transition-opacity duration-300
@@ -111,7 +151,9 @@ export default function BookingQr() {
                  style={{ imageRendering: 'pixelated' }} />
           </div>
           <p className="mt-3 text-center text-[12.5px] text-slate-400">
-            {live ? 'Hold the screen 15–25 cm from the camera at full brightness.'
+            {state === 'ACCESS_GRANTED'
+              ? 'You are in. The code still works for re-entry until the window closes.'
+              : live ? 'Hold the screen 15–25 cm from the camera at full brightness.'
               : phase === 'before' ? 'The door will refuse this code until the window opens.'
               : 'This code no longer opens the door.'}
           </p>
@@ -125,11 +167,12 @@ export default function BookingQr() {
             <div className={`mt-2 font-display text-[40px] leading-none tnum ${live ? 'text-ok-soft'
               : phase === 'before' ? 'text-white' : 'text-slate-400'}`}>
               {phase === 'open' ? precise(until - now) : phase === 'before' ? precise(from - now)
-                : phase === 'dead' ? 'Revoked' : 'Closed'}
+                : phase === 'dead' ? 'Revoked' : 'Expired'}
             </div>
             {phase === 'open' && (
               <div className="mt-4 h-1.5 rounded-full bg-ink-700 overflow-hidden">
-                <div className="h-full bg-ok rounded-full transition-[width] duration-700"
+                <div className={`h-full rounded-full transition-[width] duration-700
+                                 ${state === 'EXPIRING_SOON' ? 'bg-warn' : 'bg-ok'}`}
                      style={{ width: `${(100 * (now - from)) / (until - from)}%` }} />
               </div>
             )}

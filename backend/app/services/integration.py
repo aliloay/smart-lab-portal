@@ -62,6 +62,7 @@ EVENT_NAMES: dict[EventType, str] = {
 # Every name the portal can emit - documented in docs/AUTOMATION.md.
 ALL_TYPES = sorted(set(EVENT_NAMES.values()) | {
     "issue.created", "issue.status_changed", "session.ended",
+    "device.component_fault",
 })
 
 
@@ -95,6 +96,10 @@ def emit_for_access_event(db: Session, ev) -> None:
     name = EVENT_NAMES.get(ev.event_type)
     if name is None:
         return
+    # ALARM covers both the door (forced, held open) and a reader or sensor
+    # that stopped answering; consumers route them very differently.
+    if ev.event_type == EventType.ALARM and ev.reason == "COMPONENT_FAULT":
+        name = "device.component_fault"
     if ev.booking_id:
         obj, oid, corr = "booking", ev.booking_id, f"booking:{ev.booking_id}"
     elif ev.device_id:

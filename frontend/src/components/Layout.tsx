@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
-  Gauge, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, TriangleAlert,
+  Gauge, LayoutDashboard, LogOut, Menu, Radar, Settings, ShieldCheck, TriangleAlert,
   UserRound, Users, Wrench, X,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
@@ -51,6 +51,7 @@ const STAFF_NAV: Section[] = [
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
@@ -69,6 +70,7 @@ const ADMIN_NAV: Section[] = [
   { title: 'Access & audit', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
   ]},
   { title: 'Facility', items: [

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  ArrowRight, CalendarCheck, CalendarPlus, Clock, DoorOpen, FlaskConical, History,
+  ArrowRight, BarChart3, CalendarCheck, CalendarPlus, Clock, DoorOpen, FlaskConical, History,
   QrCode, ShieldCheck, Wrench,
 } from 'lucide-react'
-import { AccessEvent, Booking, Issue, LabOverview, api } from '../../lib/api'
+import { AccessEvent, Booking, Issue, LabOverview, MyStats, api } from '../../lib/api'
 import { firstName, useAuth } from '../../lib/auth'
 import { useLiveMessages } from '../../lib/live'
 import { eventLabel, eventTone, denialShort, ACTIVE_ISSUE } from '../../lib/labels'
@@ -147,6 +147,7 @@ export default function StudentDashboard() {
 
         {/* ----------------------------------------------------- my reports */}
         <section className="lg:col-span-2 space-y-6">
+          <MyUsage />
           <div>
             <SectionTitle icon={<Wrench size={15} />}
               action={<Link to="/issues" className="text-xs link">My reports</Link>}>
@@ -316,6 +317,59 @@ function QuickBooking({ labs }: { labs: LabOverview[] }) {
                 className="btn-primary w-full">
           Choose a time <ArrowRight size={15} />
         </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The student's own usage over 90 days - their bookings only, never other
+ * people's and never lab-wide analytics.
+ */
+function MyUsage() {
+  const [s, setS] = useState<MyStats | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { api.myStats(90).then(setS).catch(() => setFailed(true)) }, [])
+  const max = Math.max(1, ...(s?.weekly_hours ?? []).map(w => w.hours))
+  return (
+    <div>
+      <SectionTitle icon={<BarChart3 size={15} />} sub="Your own bookings over the last 90 days.">
+        My lab time</SectionTitle>
+      <div className="card p-4">
+        {failed ? <p className="text-[13px] text-slate-400">Usage could not be loaded right now.</p>
+          : !s ? <Skeleton className="h-28" />
+          : !s.sessions_finished ? (
+            <EmptyState compact icon={<BarChart3 size={18} />} title="No finished sessions yet"
+              detail="Your weekly lab time and attendance appear after your first booking ends." />
+          ) : <>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="well py-2.5"><div className="font-display text-xl text-white tnum">{s.booked_hours}h</div>
+                <div className="text-[11px] text-slate-400">booked</div></div>
+              <div className="well py-2.5"><div className="font-display text-xl text-white tnum">
+                {s.attendance_rate === null ? '–' : `${Math.round(s.attendance_rate * 100)}%`}</div>
+                <div className="text-[11px] text-slate-400">attended</div></div>
+              <div className="well py-2.5"><div className="font-display text-xl text-white tnum">{s.upcoming}</div>
+                <div className="text-[11px] text-slate-400">upcoming</div></div>
+            </div>
+            <div className="mt-4 flex items-end gap-1 h-16" role="img"
+                 aria-label="Booked hours per week, last 12 weeks">
+              {s.weekly_hours.map(w => (
+                <div key={w.week} className="flex-1 flex flex-col justify-end h-full"
+                     title={`Week of ${w.week}: ${w.hours} h`}>
+                  <div className="rounded-t-[3px] bg-gradient-to-t from-accent-500/70 to-teal-400/80"
+                       style={{ height: `${w.hours ? Math.max((w.hours / max) * 100, 6) : 0}%` }} />
+                  <div className="h-[2px] bg-ink-600/60 mt-0.5" />
+                </div>))}
+            </div>
+            <div className="mt-1 text-[10.5px] text-slate-500 flex justify-between">
+              <span>12 weeks ago</span><span>this week</span></div>
+            {s.by_lab.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {s.by_lab.map(l => <Chip key={l.lab_code}>{l.lab_code} · {l.count}</Chip>)}
+              </div>)}
+            <p className="mt-2 text-[11.5px] text-slate-500">
+              Attended = the door recorded your entry during the booking.</p>
+          </>}
       </div>
     </div>
   )

@@ -268,7 +268,13 @@ def operations(db: Session, days: int, lab_id: Optional[int] = None) -> dict:
         "denial_reasons": [{"reason": r, "count": n} for r, n in reasons],
         "security": {
             "identity_mismatch": c(EventType.IDENTITY_MISMATCH),
-            "alarms": c(EventType.ALARM),
+            # Door alarms only - a component fault is also an ALARM row.
+            "alarms": db.scalar(scoped(select(func.count()).select_from(
+                AccessEvent).where(AccessEvent.created_at >= since,
+                                   AccessEvent.event_type == EventType.ALARM,
+                                   AccessEvent.reason.in_(["FORCED_ENTRY",
+                                                           "DOOR_HELD_OPEN"])),
+                AccessEvent.lab_id)) or 0,
         },
         "sessions": session_block,
         "devices": device_rows,

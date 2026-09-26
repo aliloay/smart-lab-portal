@@ -477,6 +477,74 @@ export interface ReportsOverview {
   asset_checkouts: { label: string; count: number }[]
 }
 
+// --- analytics (Operations Center, lab twin, my usage) ----------------------
+export interface EnvSeries {
+  metric: string; unit: string; min: number | null; max: number | null
+  latest: number; latest_at: string
+  points: { t: string; v: number; lab_id: number }[]
+}
+export interface EnvironmentBlock {
+  hours: number; has_data: boolean; message: string | null; series: EnvSeries[]
+}
+export interface AutomationStatus {
+  api_enabled: boolean; push_enabled: boolean; dispatcher_running: boolean
+  push_types: string[]
+  outbox: { PENDING: number; DELIVERED: number; FAILED: number; SKIPPED: number }
+  last_delivered_at: string | null
+  last_error: { event_type: string; error: string; at: string } | null
+  recent_runs: { workflow: string; status: string; summary: string; at: string }[]
+}
+export interface OpsDevice {
+  device_id: number; name: string; type: string; lab_code: string | null
+  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'; last_seen_at: string | null
+  components: Record<string, boolean> | null
+  offline_events: number; offline_minutes: number | null
+  outages: { from: string; to: string }[]
+}
+export interface Operations {
+  period_days: number; lab_id: number | null; generated_at: string
+  timezone: string; open_hours_per_day: number
+  utilisation: { lab_id: number; lab_code: string; lab_name: string; booked_hours: number
+                 available_hours: number; utilisation: number | null; bookings: number
+                 used: number }[]
+  booked_heatmap: number[][]
+  entry_heatmap: number[][]
+  funnel: { step: string; count: number }[]
+  granted_by_method: { method: string; count: number }[]
+  access_outcomes: { day: string; granted: number; denied: number }[]
+  denial_reasons: { reason: string; count: number }[]
+  security: { identity_mismatch: number; alarms: number }
+  sessions: {
+    started: number; open_now: number; end_reasons: Record<string, number>
+    exit_recorded: number; median_minutes: number | null
+    duration_buckets: { label: string; count: number }[]
+    second_factor: { entry: string; second: string; count: number }[]
+  }
+  devices: OpsDevice[]
+  maintenance: {
+    open: number; overdue: number; unassigned: number
+    by_severity: { severity: string; count: number }[]
+    flow: { day: string; opened: number; resolved: number }[]
+    median_hours_to_resolve: { severity: string; hours: number; resolved: number }[]
+    sla_hours: Record<string, number>
+  }
+  automation: AutomationStatus
+  environment: EnvironmentBlock
+}
+export interface LabTwin {
+  lab_id: number; days: number; timezone: string; open_hours_per_day: number
+  heatmap: number[][]; heatmap_unit: string
+  days_strip: { day: string; booked_hours: number }[]
+  has_bookings: boolean
+  environment: EnvironmentBlock
+}
+export interface MyStats {
+  period_days: number; booked_hours: number; sessions_finished: number
+  attended: number; attendance_rate: number | null; upcoming: number
+  cancelled: number; by_lab: { lab_code: string; count: number }[]
+  weekly_hours: { week: string; hours: number }[]
+}
+
 // ---------------------------------------------------------------------------
 const TOKEN_KEY = 'slp.token'
 
@@ -662,6 +730,10 @@ export const api = {
     request<{ lab: string; day: string; event: string; count: number }[]>(
       `/reports/access?days=${days}`),
   reports: (days = 30) => request<ReportsOverview>(`/reports/overview?days=${days}`),
+  operations: (days = 30, labId?: number) =>
+    request<Operations>(`/analytics/operations${qs({ days, lab_id: labId })}`),
+  labTwin: (id: number) => request<LabTwin>(`/analytics/labs/${id}`),
+  myStats: (days = 90) => request<MyStats>(`/analytics/me?days=${days}`),
 
   // --- issues
   issues: (q: Record<string, string | number | boolean | string[] | undefined> = {}) =>

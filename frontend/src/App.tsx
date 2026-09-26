@@ -33,6 +33,7 @@ import Profile from './pages/Profile'
 
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))
+const Operations = lazy(() => import('./pages/Operations'))
 
 function Chunk({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="/admin/equipment" element={staffOnly(<Equipment />)} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
+          <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/admin/users" element={adminOnly(<Users />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />

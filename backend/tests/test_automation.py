@@ -319,3 +319,11 @@ def test_run_is_recorded(client, db):
     assert client.post("/api/automation/runs", headers=KEY, json={
         "workflow": "daily-report", "status": "success",
         "summary": "sent"}).json()["recorded"]
+
+
+def test_component_fault_is_not_a_door_alarm(client, db, lab, device_headers):
+    client.post("/api/access/heartbeat", headers=device_headers, json={
+        "device_uid": "MASTER_LAB01", "lab_id": lab.code, "door_closed": True,
+        "components": {"rfid": False, "fingerprint": True, "camera": True}})
+    types = {r.event_type for r in db.query(IntegrationEvent).all()}
+    assert "device.component_fault" in types and "door.alarm" not in types
