@@ -20,3 +20,5 @@ httpx==0.28.1
 pytest==8.3.4
 pytest-asyncio==0.25.0
 email-validator==2.2.0
+# IANA time zones for LOCAL_TIMEZONE: the slim image has no system tz database.
+tzdata==2024.2

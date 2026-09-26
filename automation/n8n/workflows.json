@@ -1,0 +1,17 @@
+{
+  "_comment": "Workflows created in n8n Cloud (personal project) from src/*.ts. IDs are for reference; a self-hosted instance assigns its own on import.",
+  "workflows": [
+    {"file": "src/01-booking-confirmation.ts",        "id": "kGJmLTC5T0fuQvQN", "trigger": "webhook smartlab-booking-confirmed"},
+    {"file": "src/02-booking-reminders.ts",           "id": "wb24O1Xymccm2Lw4", "trigger": "every 5 min"},
+    {"file": "src/03-access-denial-intelligence.ts",  "id": "ZhcCkMf7KgQDfmSh", "trigger": "webhook smartlab-access-denied"},
+    {"file": "src/04-device-offline-escalation.ts",   "id": "A5830NbRFGNlx8l1", "trigger": "webhook smartlab-device-offline + every 5 min"},
+    {"file": "src/05-maintenance-automation.ts",      "id": "zXZvJP5vAQbPtAG6", "trigger": "webhook smartlab-issue-created + daily 08:00"},
+    {"file": "src/06-daily-report.ts",                "id": "OzSJhnKihJQBDP5P", "trigger": "daily 20:00"},
+    {"file": "src/07-weekly-report.ts",               "id": "qgr1MGUZJBo0icgw", "trigger": "Mondays 07:00"},
+    {"file": "src/08-sensor-thresholds.ts",           "id": "SmZcJv5WrtpyOZIr", "trigger": "every 10 min"},
+    {"file": "src/09-pre-booking-check.ts",           "id": "BEoxaJKi19VheL3G", "trigger": "every 15 min"},
+    {"file": "src/10-post-session.ts",                "id": "9lJpTc93G2Hl4YKH", "trigger": "every 30 min"},
+    {"file": "src/11-data-quality.ts",                "id": "kQ26kzclkT47uNaB", "trigger": "daily 06:00"},
+    {"file": "src/12-anomaly-detection.ts",           "id": "DrfbU4VJiQPIEmpK", "trigger": "hourly"}
+  ]
+}

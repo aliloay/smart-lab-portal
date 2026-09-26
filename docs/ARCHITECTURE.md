@@ -131,3 +131,20 @@ the issue.
 - Without Docker: `uvicorn` + `vite` as in the README.
 - The face server runs on the laptop next to the door and keeps working when
   the portal is down.
+
+## Automation and analytics
+
+An optional layer beside the chain, never inside it; details in
+[AUTOMATION.md](AUTOMATION.md).
+
+```
+change ─► same transaction: state + access_events + integration_events
+                                                    │
+               dispatcher thread ──(push)──► n8n webhooks
+               n8n ──(X-Automation-Key)──► /api/automation/*  (rules live here)
+               n8n ──► /notify, /alerts (idempotent on dedupe_key)
+browser ─► /api/analytics/*  (Operations Center, lab twin, my usage)
+```
+
+n8n decides *when* and *where*; the backend decides *what*. Nothing reachable
+from n8n can open or lock a door or cancel a booking.

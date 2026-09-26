@@ -34,6 +34,12 @@ Research Laboratory Management System*, German International University, Cairo.
 - **Role-specific experiences** for students, laboratory staff and administrators
 - **Live operations**: authenticated WebSocket stream, device heartbeats with automatic
   offline alerts, and in-portal notifications
+- **Operations Center**: utilisation heatmaps, access funnel, refusal reasons, sessions,
+  device outage history, maintenance flow vs SLA, environment and automation status - all
+  counted from recorded rows, with explicit empty states instead of invented values
+- **n8n automation (optional)**: a transactional event outbox and a key-protected automation
+  API drive 12 workflows (reminders, denial bursts, offline escalation, reports, data quality,
+  rule-based anomalies...). n8n never touches the door - see [AUTOMATION.md](docs/AUTOMATION.md)
 - **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV
 - **Fails closed**: if the backend is down, a booking QR opens nothing
 
@@ -67,6 +73,7 @@ photographs of the rooms.
 | [MAINTENANCE.md](docs/MAINTENANCE.md) | issue workflow, permissions, photos, dashboards, equipment lifecycle |
 | [DEMO.md](docs/DEMO.md) | a 15-minute demonstration script, with and without hardware |
 | [DOOR_SYSTEM.md](docs/DOOR_SYSTEM.md) | firmware, wiring, launch order, troubleshooting |
+| [AUTOMATION.md](docs/AUTOMATION.md) | event outbox, automation API, the 12 n8n workflows, analytics rules, failure modes |
 
 ---
 
@@ -522,9 +529,10 @@ state machine, neither reachable from network code.
    specific person.
 2. **Recognition depends on the laptop.** By design — the classic ESP32 cannot
    run face recognition at usable speed.
-3. **Sensor data is structure only.** `sensor_readings` exists and the lab page
-   renders it, but nothing writes to it until a real sensor node is deployed.
-   The UI shows "No live sensor data" rather than inventing values.
+3. **No sensor node yet.** `POST /api/access/telemetry` accepts readings and
+   the lab page, Operations Center and threshold workflow use them, but no
+   sensor hardware posts yet. The UI shows "Awaiting sensor data" rather
+   than inventing values.
 4. **No exit detection.** The door reports entries, not exits, so time spent
    inside is only measured once an exit reader or button reports
    `EXIT_RECORDED`. Until then the portal says an exit was not recorded.
@@ -532,8 +540,9 @@ state machine, neither reachable from network code.
    volume in compose). Back it up with the database, or move to object
    storage via the storage interface.
 6. **Device history.** The portal keeps each device's latest heartbeat and
-   its online/offline events, not a heartbeat time series, so uptime is not
-   charted.
+   its online/offline events, not a heartbeat time series. The Operations
+   Center draws only the outages it observed; it does not claim an uptime
+   percentage.
 7. **Denial buzzer disabled in firmware.** Energizing it sags the 12V rail
    enough to drop the relay. Fix is a 470–1000 µF capacitor across the rail;
    see `docs/DOOR_SYSTEM.md`.
@@ -550,17 +559,20 @@ smart-lab-portal/
 ├── backend/          FastAPI, SQLAlchemy, Alembic, tests
 │   ├── app/
 │   │   ├── api/routes/    auth, labs, bookings, access (device), admin,
-│   │   │                  issues, notifications, system
+│   │   │                  issues, notifications, system, analytics,
+│   │   │                  automation (n8n)
 │   │   ├── core/          config, security
-│   │   ├── models/        21 tables
+│   │   ├── models/        22 tables
 │   │   ├── services/      access, booking, sessions, issues, storage,
-│   │   │                  notifications, devices  ← the rules live here
+│   │   │                  notifications, devices, automation, analytics,
+│   │   │                  integration (outbox)  ← the rules live here
 │   │   └── ws/            authenticated live stream
 │   ├── alembic/      migrations (checked against the models in CI)
 │   └── tests/        157 tests + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
 │   └── e2e/          real-browser navigation and workflow tests
 ├── firmware/         master (portal), camera, face server
+├── automation/n8n/   12 workflow sources (n8n SDK), manifest, export script
 ├── docs/             architecture, database, access flow, maintenance,
 │                     demo script, door subsystem, screenshots
 ├── .github/workflows CI: backend tests, migrations, build, browser test
