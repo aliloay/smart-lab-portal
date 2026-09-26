@@ -203,6 +203,10 @@ def test_ollama_cuda_failure_falls_back_to_processor(db, monkeypatch, ollama):
     monkeypatch.setattr(ai.httpx, "post", post)
     assert ai.ask(db, "q")["answer"] == "cpu ok"
     assert seen == [None, None, 0]
+    seen.clear()                             # remembered: no GPU retries now
+    assert ai.ask(db, "q")["answer"] == "cpu ok"
+    assert seen == [0]
+    ai._ollama_state["cpu"] = False
 
     seen.clear()
     monkeypatch.setattr(settings, "OLLAMA_CPU_ONLY", True)

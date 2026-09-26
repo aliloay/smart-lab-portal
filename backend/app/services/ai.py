@@ -374,6 +374,8 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 OLLAMA_RESULT_CHARS = 6_000
 # Retry size when the engine crashes: 4k tokens fits any GPU.
 OLLAMA_FALLBACK_CTX = 4096
+# Set once the GPU has failed and the processor worked (until restart).
+_ollama_state = {"cpu": False}
 OLLAMA_EXTRA = """
 - Only call the tools listed. Call a tool before answering any question
   about numbers, labs, issues or devices.
@@ -391,8 +393,9 @@ def _ollama_chat(model: str, messages: list[dict],
     # (context size, run on the processor?) - tried in order until one works.
     # A GPU whose driver cannot run Ollama's CUDA code ("device kernel image
     # is invalid") still answers on the processor, just more slowly.
-    attempts = [(settings.OLLAMA_NUM_CTX, settings.OLLAMA_CPU_ONLY)]
-    if not settings.OLLAMA_CPU_ONLY:
+    cpu_only = settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]
+    attempts = [(settings.OLLAMA_NUM_CTX, cpu_only)]
+    if not cpu_only:
         attempts += [(OLLAMA_FALLBACK_CTX, False), (OLLAMA_FALLBACK_CTX, True)]
     attempts = list(dict.fromkeys(attempts))
     detail = ""
@@ -423,9 +426,13 @@ def _ollama_chat(model: str, messages: list[dict],
             raise AIUnavailable(f"The model {model} is not downloaded yet. "
                                 f"On the computer running Ollama, run: ollama pull {model}")
         if r.status_code < 400:
-            if cpu and not settings.OLLAMA_CPU_ONLY:
-                log.warning("Ollama answered only on the processor; set "
-                            "OLLAMA_CPU_ONLY=true to skip the GPU attempts.")
+            if cpu and not cpu_only:
+                # Remember it: later questions go straight to the processor
+                # instead of crashing the GPU engine twice first.
+                _ollama_state["cpu"] = True
+                log.warning("Ollama works only on the processor here; using "
+                            "it from now on (OLLAMA_CPU_ONLY=true makes this "
+                            "permanent).")
             return r.json()
         try:
             detail = str(r.json().get("error", ""))[:300]
