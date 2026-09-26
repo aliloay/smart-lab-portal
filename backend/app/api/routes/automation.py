@@ -144,6 +144,27 @@ def quality(db: Session = Depends(get_db)):
     return rules.data_quality(db)
 
 
+@router.get("/maintenance/priorities", dependencies=guard)
+def maintenance_ranked(limit: int = Query(10, ge=1, le=50),
+                       db: Session = Depends(get_db)):
+    return rules.maintenance_priorities(db, limit)
+
+
+@router.get("/ai/weekly-summary", dependencies=guard)
+def ai_weekly(db: Session = Depends(get_db)):
+    """AI-written weekly summary for the n8n weekly report. Optional."""
+    from app.services import ai
+    if not ai.configured():
+        return {"available": False, "summary": None,
+                "reason": "AI assistant not configured"}
+    try:
+        out = ai.ask(db, ai.WEEKLY_PROMPT)
+    except ai.AIUnavailable as exc:
+        return {"available": False, "summary": None, "reason": str(exc)}
+    return {"available": True, "summary": out["answer"][:1500],
+            "dedupe_key": f"ai-weekly:{date.today().isoformat()}"}
+
+
 @router.get("/anomalies", dependencies=guard)
 def anomaly_scan(hours: int = Query(24, ge=1, le=24 * 14),
                  db: Session = Depends(get_db)):

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.routes import (access, admin, analytics, auth, automation,
+from app.api.routes import (access, admin, ai, analytics, auth, automation,
                             bookings, issues, labs, notifications, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -79,7 +79,7 @@ app.add_middleware(
 
 for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
-          automation.router, analytics.router):
+          automation.router, analytics.router, ai.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

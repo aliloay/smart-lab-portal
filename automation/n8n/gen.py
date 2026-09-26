@@ -221,21 +221,30 @@ W["05-maintenance-automation"] = (
     ".add(created).to(issue).to(urgent.onTrue(tellUrgent.to(recordRun))).add(daily).to(digest).to(anything.onTrue(tellDigest.to(recordRun))).add(note)")
 
 # 06 / 07 ------------------------------------------------------------------
-for key, title, sched, url, kind, link in (
-        ("06-daily-report", "Smart Lab 06 - Daily lab report", "{ field: 'days', triggerAtHour: 20 }", "/reports/daily", "DAILY_REPORT", "Daily 20:00"),
-        ("07-weekly-report", "Smart Lab 07 - Weekly lab report", "{ field: 'weeks', weeksInterval: 1, triggerAtDay: [1], triggerAtHour: 7 }", "/reports/weekly", "WEEKLY_REPORT", "Mondays 07:00")):
-    W[key] = (title,
-        schedule("when", link, sched)
-        + get("report", "Build Report In Backend", url,
-              ({"title": "Weekly lab report - 2026-09-20 to 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "weekly-report:2026-09-26"} if key.startswith("07") else {"title": "Daily lab report - 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "daily-report:2026-09-26"}))
-        + notify("send", "Send To Administrators", "admins", kind, "$json.title", '$json.lines.join(" ")',
-                 '"/admin/operations"', '"info"', "$json.dedupe_key")
-        + run(key, '$("Build Report In Backend").item.json.title')
-        + note(f"## {title.split(' - ', 1)[1]}\nThe backend computes every figure from recorded rows (no estimates)"
-               + (", including the previous week for comparison" if key.startswith("07") else "")
-               + "; n8n only schedules and delivers. Idempotent per period via dedupe key."
-               + ("" if key.startswith("07") else " Add an Email/Slack node in parallel to Send To Administrators for an external channel.")),
-        ".add(when).to(report).to(send).to(recordRun).add(note)")
+W["06-daily-report"] = ("Smart Lab 06 - Daily lab report",
+    schedule("when", "Daily 20:00", "{ field: 'days', triggerAtHour: 20 }")
+    + get("report", "Build Report In Backend", "/reports/daily",
+          {"title": "Daily lab report - 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "daily-report:2026-09-26"})
+    + notify("send", "Send To Administrators", "admins", "DAILY_REPORT", "$json.title", '$json.lines.join(" ")',
+             '"/admin/operations"', '"info"', "$json.dedupe_key")
+    + run("06-daily-report", '$("Build Report In Backend").item.json.title')
+    + note("## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per day via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel."),
+    ".add(when).to(report).to(send).to(recordRun).add(note)")
+
+W["07-weekly-report"] = ("Smart Lab 07 - Weekly lab report",
+    schedule("when", "Mondays 07:00", "{ field: 'weeks', weeksInterval: 1, triggerAtDay: [1], triggerAtHour: 7 }")
+    + get("report", "Build Report In Backend", "/reports/weekly",
+          {"title": "Weekly lab report - 2026-09-20 to 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "weekly-report:2026-09-26"})
+    + get("aiSummary", "AI Summary (optional)", "/ai/weekly-summary",
+          {"available": True, "summary": "Usage rose 20% on last week...", "dedupe_key": "ai-weekly:2026-09-28"}, once=True)
+      .replace("executeOnce: true,", "executeOnce: true, onError: 'continueRegularOutput',")
+    + notify("send", "Send To Administrators", "admins", "WEEKLY_REPORT",
+             '$("Build Report In Backend").item.json.title',
+             '($json.available && $json.summary ? $json.summary + " | " : "") + $("Build Report In Backend").item.json.lines.join(" ")',
+             '"/admin/operations"', '"info"', '$("Build Report In Backend").item.json.dedupe_key', once=True)
+    + run("07-weekly-report", '$("Build Report In Backend").item.json.title')
+    + note("## Weekly lab report\nFigures come from the backend (recorded rows only, previous week for comparison). If an AI key is configured, the backend adds a short AI-written summary that explains the same figures; without one the report is sent unchanged. Idempotent per week."),
+    ".add(when).to(report).to(aiSummary).to(send).to(recordRun).add(note)")
 
 # 08 ------------------------------------------------------------------------
 W["08-sensor-thresholds"] = (

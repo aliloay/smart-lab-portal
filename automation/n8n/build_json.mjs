@@ -34,7 +34,10 @@ for (const file of readdirSync(here + 'src').filter(f => f.endsWith('.ts')).sort
   const code = readFileSync(here + 'src/' + file, 'utf8').replace(/^import .*\n/m, '')
   const wf = parseWorkflowCode(code)
   const entry = manifest.find(m => m.file === 'src/' + file)
+  let notes = 0
   for (const n of wf.nodes) {
+    // Sticky notes get a random name from the SDK; fix it so rebuilds diff cleanly.
+    if (n.type === 'n8n-nodes-base.stickyNote') n.name = notes++ ? `Sticky Note ${notes}` : 'Sticky Note'
     n.id = uuid(file + '/' + n.name)
     for (const type of Object.keys(n.credentials ?? {})) {
       n.credentials[type] = { name: credentialName(n) }

@@ -126,6 +126,17 @@ class Settings(BaseSettings):
     SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
                               "co2=:1000,noise=:85")
 
+    # --- AI assistant (optional) --------------------------------------------
+    # Unset = the assistant is off and every AI endpoint says so; nothing else
+    # changes. The key is read here only and never sent to the browser.
+    ANTHROPIC_API_KEY: str = ""
+    AI_MODEL: str = "claude-opus-5"
+    # Analytics Q&A is not a hard reasoning task; medium keeps it quick and
+    # cheap. Raise to "high" if answers feel shallow.
+    AI_EFFORT: str = "medium"
+    AI_MAX_TOOL_ROUNDS: int = 6
+    AI_QUESTIONS_PER_HOUR: int = 30
+
     @property
     def automation_push_types(self) -> set[str]:
         return {t.strip() for t in self.AUTOMATION_PUSH_TYPES.split(",")

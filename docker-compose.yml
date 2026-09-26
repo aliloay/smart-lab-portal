@@ -38,6 +38,8 @@ services:
       AUTOMATION_API_KEY: ${AUTOMATION_API_KEY:-}
       AUTOMATION_WEBHOOK_BASE: ${AUTOMATION_WEBHOOK_BASE:-}
       AUTOMATION_WEBHOOK_TOKEN: ${AUTOMATION_WEBHOOK_TOKEN:-}
+      # AI assistant - optional; empty = off. See docs/AI_ASSISTANT.md.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     # Migrations run before the API accepts traffic, so a fresh volume comes
     # up with the right schema without a manual step. seed.py only creates
     # what is missing (accounts, laboratories, devices, equipment) and never

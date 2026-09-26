@@ -1,7 +1,11 @@
 """Aggregates for the Operations Center, the lab digital twin and "my usage"."""
-from typing import Optional
+import csv
+import io
+from datetime import datetime, timezone
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_staff
@@ -34,3 +38,26 @@ def me(days: int = Query(90, ge=7, le=365), db: Session = Depends(get_db),
        user: User = Depends(get_current_user)):
     """The caller's own bookings only - never anyone else's."""
     return analytics.my_stats(db, user.id, days)
+
+
+@router.get("/trends")
+def trends(weeks: int = Query(8, ge=2, le=52), lab_id: Optional[int] = None,
+           db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    return analytics.trends(db, weeks, lab_id)
+
+
+@router.get("/export.csv")
+def export_csv(kind: Literal["bookings", "sessions", "events", "weekly"] = "bookings",
+               days: int = Query(90, ge=1, le=730),
+               db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Recorded rows as CSV, for spreadsheets and the thesis appendix."""
+    head, rows = analytics.export_rows(db, kind, days)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(head)
+    w.writerows(rows)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition":
+                 f'attachment; filename="smartlab-{kind}-{days}d-{stamp}.csv"'})

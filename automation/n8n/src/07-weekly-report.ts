@@ -25,11 +25,27 @@ const report = node({
   output: [{"title": "Weekly lab report - 2026-09-20 to 2026-09-26", "lines": ["Bookings: none in this period."], "dedupe_key": "weekly-report:2026-09-26"}]
 });
 
+const aiSummary = node({
+  type: 'n8n-nodes-base.httpRequest',
+  version: 4.5,
+  config: {
+    name: 'AI Summary (optional)', executeOnce: true, onError: 'continueRegularOutput',
+    parameters: {
+      method: 'GET',
+      url: API + '/ai/weekly-summary',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+    },
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
+  },
+  output: [{"available": true, "summary": "Usage rose 20% on last week...", "dedupe_key": "ai-weekly:2026-09-28"}]
+});
+
 const send = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.5,
   config: {
-    name: 'Send To Administrators',
+    name: 'Send To Administrators', executeOnce: true,
     parameters: {
       method: 'POST',
       url: API + '/notify',
@@ -38,7 +54,7 @@ const send = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ JSON.stringify({ audience: "admins", kind: "WEEKLY_REPORT", title: String($json.title).slice(0, 160), body: String($json.lines.join(" ")).slice(0, 500), link: "/admin/operations", severity: "info", dedupe_key: $json.dedupe_key }) }}')
+      jsonBody: expr('{{ JSON.stringify({ audience: "admins", kind: "WEEKLY_REPORT", title: String($("Build Report In Backend").item.json.title).slice(0, 160), body: String(($json.available && $json.summary ? $json.summary + " | " : "") + $("Build Report In Backend").item.json.lines.join(" ")).slice(0, 500), link: "/admin/operations", severity: "info", dedupe_key: $("Build Report In Backend").item.json.dedupe_key }) }}')
     },
     credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
@@ -65,7 +81,7 @@ const recordRun = node({
   output: [{"recorded": true}]
 });
 
-const note = sticky("## Weekly lab report\nThe backend computes every figure from recorded rows (no estimates), including the previous week for comparison; n8n only schedules and delivers. Idempotent per period via dedupe key.", [], { color: 4 });
+const note = sticky("## Weekly lab report\nFigures come from the backend (recorded rows only, previous week for comparison). If an AI key is configured, the backend adds a short AI-written summary that explains the same figures; without one the report is sent unchanged. Idempotent per week.", [], { color: 4 });
 
 export default workflow('smartlab-07', 'Smart Lab 07 - Weekly lab report')
-  .add(when).to(report).to(send).to(recordRun).add(note);
+  .add(when).to(report).to(aiSummary).to(send).to(recordRun).add(note);

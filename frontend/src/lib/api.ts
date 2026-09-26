@@ -545,6 +545,25 @@ export interface MyStats {
   weekly_hours: { week: string; hours: number }[]
 }
 
+export interface TrendWeek {
+  week: string; partial: boolean; bookings: number; booked_hours: number
+  finished: number; no_shows: number; late: number; entries: number
+  granted: number; denied: number; no_show_rate: number | null; late_rate: number | null
+}
+export interface Trends {
+  weeks: number; timezone: string; late_minutes: number; series: TrendWeek[]
+  week_over_week: Record<string, { current: number; previous: number | null; change: number | null }>
+  by_lab: { lab_code: string; finished: number; no_shows: number; late: number; attended: number
+            no_show_rate: number | null; late_rate: number | null }[]
+}
+export interface Priority {
+  issue_id: number; ticket: string; title: string; lab_code: string | null
+  severity: string; category: string; status: string; assigned: boolean
+  age_hours: number; sla_hours: number | null; overdue: boolean
+  bookings_next_24h: number; score: number; reasons: string[]; link: string
+}
+export interface AiAnswer { answer: string; tools_used: string[]; model: string }
+
 // ---------------------------------------------------------------------------
 const TOKEN_KEY = 'slp.token'
 
@@ -732,6 +751,17 @@ export const api = {
   reports: (days = 30) => request<ReportsOverview>(`/reports/overview?days=${days}`),
   operations: (days = 30, labId?: number) =>
     request<Operations>(`/analytics/operations${qs({ days, lab_id: labId })}`),
+  trends: (weeks = 8, labId?: number) =>
+    request<Trends>(`/analytics/trends${qs({ weeks, lab_id: labId })}`),
+  exportCsvPath: (kind: 'bookings' | 'sessions' | 'events' | 'weekly', days = 90) =>
+    `/analytics/export.csv${qs({ kind, days })}`,
+  aiStatus: () => request<{ configured: boolean; model: string | null; questions_per_hour: number }>('/ai/status'),
+  aiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
+    post<AiAnswer>('/ai/ask', { question, history }),
+  aiSummary: (kind: 'issues' | 'weekly') => post<AiAnswer>(`/ai/summaries/${kind}`),
+  priorities: (limit = 20) =>
+    request<{ open_issues: number; scoring: string[]; priorities: Priority[] }>(
+      `/ai/maintenance-priorities${qs({ limit })}`),
   labTwin: (id: number) => request<LabTwin>(`/analytics/labs/${id}`),
   myStats: (days = 90) => request<MyStats>(`/analytics/me?days=${days}`),
 

@@ -708,3 +708,65 @@ def anomalies(db: Session, hours: int = 24) -> dict:
                       "after_hours_access", "forced_entry", "door_held_open",
                       "device_flapping", "denials_above_baseline"],
             "anomalies": found, "count": len(found)}
+
+
+# ---------------------------------------------------- maintenance priorities --
+SEVERITY_POINTS = {IssueSeverity.CRITICAL: 100, IssueSeverity.HIGH: 60,
+                   IssueSeverity.MEDIUM: 30, IssueSeverity.LOW: 10}
+
+
+def maintenance_priorities(db: Session, limit: int = 20) -> dict:
+    """
+    Rank open issues by a transparent score. Deterministic on purpose: the
+    order is reproducible and explainable without AI, and the AI assistant
+    only explains or summarises it - it never invents the ranking.
+
+      severity          CRITICAL 100 / HIGH 60 / MEDIUM 30 / LOW 10
+      overdue (SLA)     +40, plus up to +20 for how far past the SLA
+      safety category   +20
+      unassigned        +10
+      lab in use soon   +5 per confirmed booking in the next 24 h (max +25)
+    """
+    from app.models import IssueCategory
+    from app.services.issues import sla_hours
+    now = _now()
+    labs = _labs(db)
+    sla = sla_hours()
+    rows = []
+    for i in db.scalars(select(Issue).where(Issue.status.in_(ISSUE_ACTIVE))).all():
+        reasons = [f"{i.severity.value.lower()} severity (+{SEVERITY_POINTS[i.severity]})"]
+        score = SEVERITY_POINTS[i.severity]
+        age_h = (now - _utc(i.created_at)).total_seconds() / 3600
+        limit_h = sla.get(i.severity.value)
+        if is_overdue(i, now):
+            over = min(20, int(20 * (age_h - limit_h) / max(limit_h, 1))) if limit_h else 0
+            score += 40 + over
+            reasons.append(f"overdue: open {int(age_h)} h vs SLA {limit_h} h (+{40 + over})")
+        if i.category == IssueCategory.SAFETY:
+            score += 20
+            reasons.append("safety issue (+20)")
+        if i.assigned_to_id is None:
+            score += 10
+            reasons.append("nobody assigned (+10)")
+        soon = db.scalar(select(func.count()).select_from(Booking).where(
+            Booking.lab_id == i.lab_id, Booking.status == BookingStatus.CONFIRMED,
+            Booking.start_time >= now,
+            Booking.start_time <= now + timedelta(hours=24))) or 0
+        if soon:
+            pts = min(25, 5 * soon)
+            score += pts
+            reasons.append(f"{soon} booking(s) in this lab within 24 h (+{pts})")
+        rows.append({"issue_id": i.id, "ticket": i.ticket_number, "title": i.title,
+                     "lab_code": labs[i.lab_id].code if i.lab_id in labs else None,
+                     "severity": i.severity.value, "category": i.category.value,
+                     "status": i.status.value, "assigned": i.assigned_to_id is not None,
+                     "age_hours": int(age_h), "sla_hours": limit_h,
+                     "overdue": is_overdue(i, now), "bookings_next_24h": soon,
+                     "score": score, "reasons": reasons,
+                     "link": f"/issues/{i.id}"})
+    rows.sort(key=lambda r: (-r["score"], -r["age_hours"]))
+    return {"generated_at": now.isoformat(), "open_issues": len(rows),
+            "scoring": ["severity CRITICAL 100 / HIGH 60 / MEDIUM 30 / LOW 10",
+                        "overdue vs SLA +40 (+ up to 20 more)", "safety +20",
+                        "unassigned +10", "+5 per booking in the next 24 h (max 25)"],
+            "priorities": rows[:limit]}

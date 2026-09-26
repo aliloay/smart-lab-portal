@@ -97,8 +97,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "fed4dbe0-26c3-5889-a57c-d22a4ef17bc0",
-      "name": "Sticky Note c9e9b94d",
+      "id": "c8e00926-0d05-5aa0-aba4-bb736152a2af",
+      "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -106,7 +106,7 @@
         450
       ],
       "parameters": {
-        "content": "## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per period via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel.",
+        "content": "## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per day via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel.",
         "color": 4
       }
     }

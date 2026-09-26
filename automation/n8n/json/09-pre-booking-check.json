@@ -165,8 +165,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "c8497357-cea2-5631-acea-0605532df387",
-      "name": "Sticky Note c1f6c1a9",
+      "id": "c50af46f-95eb-502a-aa72-4c812620308f",
+      "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

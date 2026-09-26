@@ -241,8 +241,8 @@
       }
     },
     {
-      "id": "a3de26c6-b778-5961-a8f4-9353e3ede309",
-      "name": "Sticky Note 3cc86393",
+      "id": "45d03deb-fcc0-58de-a636-b36214cc9dcf",
+      "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

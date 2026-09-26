@@ -413,3 +413,165 @@ def my_stats(db: Session, user_id: int, days: int = 90) -> dict:
                              if b.status == BookingStatus.CANCELLED),
             "by_lab": [{"lab_code": k, "count": v} for k, v in by_lab.most_common()],
             "weekly_hours": weekly if past else []}
+
+
+# -------------------------------------------------------------------- trends --
+LATE_MINUTES = 15
+
+
+def trends(db: Session, weeks: int = 8, lab_id: Optional[int] = None) -> dict:
+    """
+    Week-over-week series (weeks start Monday, LOCAL_TIMEZONE). Only weeks that
+    have started are listed; the current week is marked partial.
+
+    no_show  = a finished confirmed booking with no recorded entry
+    late     = first entry more than LATE_MINUTES after the booking start
+    """
+    now = datetime.now(timezone.utc)
+    today = _local(now).date()
+    this_monday = today - timedelta(days=today.weekday())
+    first = this_monday - timedelta(weeks=weeks - 1)
+    tz = _tz()
+    start_utc = datetime(first.year, first.month, first.day, tzinfo=tz).astimezone(timezone.utc)
+
+    def week_of(dt: datetime) -> str:
+        d = _local(dt).date()
+        return (d - timedelta(days=d.weekday())).isoformat()
+
+    rows = {(first + timedelta(weeks=i)).isoformat(): {
+        "week": (first + timedelta(weeks=i)).isoformat(), "bookings": 0,
+        "booked_hours": 0.0, "finished": 0, "no_shows": 0, "late": 0,
+        "entries": 0, "granted": 0, "denied": 0,
+        "partial": (first + timedelta(weeks=i)) == this_monday}
+        for i in range(weeks)}
+
+    q = select(Booking).where(Booking.start_time >= start_utc,
+                              Booking.start_time < now,
+                              Booking.status.in_(LIVE))
+    if lab_id:
+        q = q.where(Booking.lab_id == lab_id)
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    per_lab: dict[str, dict] = defaultdict(lambda: {"finished": 0, "no_shows": 0,
+                                                    "late": 0, "attended": 0})
+    for b in db.scalars(q).all():
+        r = rows.get(week_of(b.start_time))
+        if r is None:
+            continue
+        r["bookings"] += 1
+        r["booked_hours"] += (_utc(b.end_time) - _utc(b.start_time)).total_seconds() / 3600
+        if _utc(b.end_time) > now:
+            continue                       # still running: not a no-show yet
+        lab = per_lab[labs.get(b.lab_id, str(b.lab_id))]
+        r["finished"] += 1
+        lab["finished"] += 1
+        if b.first_entry_at is None:
+            r["no_shows"] += 1
+            lab["no_shows"] += 1
+        else:
+            lab["attended"] += 1
+            if (_utc(b.first_entry_at) - _utc(b.start_time)) > timedelta(minutes=LATE_MINUTES):
+                r["late"] += 1
+                lab["late"] += 1
+
+    sq = select(AccessSession.started_at).where(AccessSession.started_at >= start_utc)
+    if lab_id:
+        sq = sq.where(AccessSession.lab_id == lab_id)
+    for (started,) in db.execute(sq).all():
+        r = rows.get(week_of(started))
+        if r:
+            r["entries"] += 1
+
+    eq = select(AccessEvent.created_at, AccessEvent.event_type).where(
+        AccessEvent.created_at >= start_utc,
+        AccessEvent.event_type.in_([EventType.ACCESS_GRANTED, EventType.ACCESS_DENIED]))
+    if lab_id:
+        eq = eq.where(AccessEvent.lab_id == lab_id)
+    for created, et in db.execute(eq).all():
+        r = rows.get(week_of(created))
+        if r:
+            r["granted" if et == EventType.ACCESS_GRANTED else "denied"] += 1
+
+    series = list(rows.values())
+    for r in series:
+        r["booked_hours"] = round(r["booked_hours"], 1)
+        r["no_show_rate"] = round(r["no_shows"] / r["finished"], 3) if r["finished"] else None
+        r["late_rate"] = (round(r["late"] / (r["finished"] - r["no_shows"]), 3)
+                          if r["finished"] - r["no_shows"] else None)
+
+    def delta(key: str) -> dict:
+        cur, prev = series[-1][key], series[-2][key] if len(series) > 1 else None
+        if prev in (None, 0):
+            return {"current": cur, "previous": prev, "change": None}
+        return {"current": cur, "previous": prev,
+                "change": round((cur - prev) / prev, 3)}
+
+    return {
+        "weeks": weeks, "timezone": settings.LOCAL_TIMEZONE,
+        "late_minutes": LATE_MINUTES, "series": series,
+        "week_over_week": {k: delta(k) for k in
+                           ("bookings", "booked_hours", "entries", "granted",
+                            "denied", "no_shows")},
+        "by_lab": sorted([{"lab_code": k, **v,
+                           "no_show_rate": round(v["no_shows"] / v["finished"], 3)
+                           if v["finished"] else None,
+                           "late_rate": round(v["late"] / v["attended"], 3)
+                           if v["attended"] else None}
+                          for k, v in per_lab.items()],
+                         key=lambda r: -(r["no_show_rate"] or 0)),
+    }
+
+
+# -------------------------------------------------------------------- export --
+def export_rows(db: Session, kind: str, days: int) -> tuple[list[str], list[list]]:
+    """Plain rows for CSV. Recorded values only; empty cells stay empty."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
+    if kind == "bookings":
+        head = ["booking_id", "lab", "user_id", "status", "start_utc", "end_utc",
+                "booked_hours", "first_entry_utc", "entries", "no_show",
+                "minutes_late"]
+        out = []
+        for b in db.scalars(select(Booking).where(Booking.start_time >= since)
+                            .order_by(Booking.start_time)).all():
+            finished = _utc(b.end_time) <= datetime.now(timezone.utc)
+            late = (int((_utc(b.first_entry_at) - _utc(b.start_time)).total_seconds() // 60)
+                    if b.first_entry_at else "")
+            out.append([b.id, labs.get(b.lab_id), b.user_id, b.status.value,
+                        _iso(b.start_time), _iso(b.end_time),
+                        round((_utc(b.end_time) - _utc(b.start_time)).total_seconds() / 3600, 2),
+                        _iso(b.first_entry_at) or "", b.entry_count,
+                        "yes" if finished and b.status in LIVE and not b.first_entry_at
+                        else ("no" if finished else ""), late])
+        return head, out
+    if kind == "sessions":
+        head = ["session_id", "lab", "user_id", "booking_id", "entry_method",
+                "second_factor", "started_utc", "ended_utc", "end_reason",
+                "minutes_inside"]
+        out = [[s.id, labs.get(s.lab_id), s.user_id, s.booking_id or "",
+                s.entry_method.value, s.second_factor.value if s.second_factor else "",
+                _iso(s.started_at), _iso(s.ended_at) or "",
+                s.end_reason.value if s.end_reason else "",
+                duration_minutes(s) if duration_minutes(s) is not None else ""]
+               for s in db.scalars(select(AccessSession).where(
+                   AccessSession.started_at >= since).order_by(AccessSession.started_at)).all()]
+        return head, out
+    if kind == "events":
+        head = ["event_id", "time_utc", "lab", "type", "method", "result", "reason",
+                "user_id", "booking_id", "device_id"]
+        out = [[e.id, _iso(e.created_at), labs.get(e.lab_id) or "", e.event_type.value,
+                e.method.value if e.method else "", e.result.value if e.result else "",
+                e.reason or "", e.user_id or "", e.booking_id or "", e.device_id or ""]
+               for e in db.scalars(select(AccessEvent).where(
+                   AccessEvent.created_at >= since).order_by(AccessEvent.id)).all()]
+        return head, out
+    if kind == "weekly":
+        t = trends(db, max(1, min(52, days // 7 or 1)))
+        head = ["week_start", "partial", "bookings", "booked_hours", "finished",
+                "no_shows", "no_show_rate", "late", "late_rate", "entries",
+                "granted", "denied"]
+        return head, [[r["week"], r["partial"], r["bookings"], r["booked_hours"],
+                       r["finished"], r["no_shows"],
+                       "" if r["no_show_rate"] is None else r["no_show_rate"],
+                       r["late"], "" if r["late_rate"] is None else r["late_rate"],
+                       r["entries"], r["granted"], r["denied"]] for r in t["series"]]
+    raise ValueError(kind)

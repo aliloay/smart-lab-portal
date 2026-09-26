@@ -10,13 +10,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip,
+  XAxis, YAxis,
 } from 'recharts'
 import {
-  Activity, Bot, CalendarRange, Cpu, DoorOpen, Gauge, RefreshCw, ShieldCheck, Thermometer,
-  Timer, Workflow, Wrench,
+  Activity, Bot, CalendarRange, Cpu, Download, DoorOpen, Gauge, ListOrdered, Printer, RefreshCw,
+  ShieldCheck, Thermometer, Timer, TrendingDown, TrendingUp, Workflow, Wrench,
 } from 'lucide-react'
-import { Lab, Operations as Ops, api } from '../lib/api'
+import { Lab, Operations as Ops, Trends, api, fetchBlob } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { denialShort, methodLabel } from '../lib/labels'
 import { fmtDateTime, fmtDuration, relative } from '../lib/time'
@@ -25,6 +26,7 @@ import {
 } from '../components/ui'
 import { C, ChartCard, PALETTE, axisProps, tooltipProps } from '../components/charts'
 import { EnvironmentPanel, Funnel, Heatmap, OutageStrip } from '../components/analytics'
+import { AskTheLab, PriorityList } from '../components/ai'
 
 const PERIODS = [7, 30, 90]
 const END_REASON: Record<string, string> = {
@@ -42,12 +44,14 @@ export default function Operations() {
   const [labId, setLabId] = useState<number | undefined>()
   const [labs, setLabs] = useState<Lab[]>([])
   const [d, setD] = useState<Ops | null>(null)
+  const [trend, setTrend] = useState<Trends | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const timer = useRef<number>()
 
   const load = useCallback(() => {
     setLoading(true)
+    api.trends(Math.max(4, Math.min(26, Math.ceil(days / 7))), labId).then(setTrend).catch(() => setTrend(null))
     api.operations(days, labId)
       .then(r => { setD(r); setError('') })
       .catch(e => setError(e.message))
@@ -97,6 +101,7 @@ export default function Operations() {
                   ? 'bg-accent-500/20 text-white' : 'text-slate-400 hover:text-white'}`}>{p} days</button>
             ))}
           </div>
+          <ExportMenu days={days} />
           <button onClick={load} className="btn-ghost !px-2.5" aria-label="Refresh">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -138,6 +143,20 @@ export default function Operations() {
               hint={`${d.devices.length - kpi.reporting} never reported`} />
           </div>
 
+          {/* ------------------------------------------------ AI + priorities */}
+          <section className="grid xl:grid-cols-2 gap-4 print:hidden">
+            <div className="card p-5">
+              <SectionTitle icon={<Bot size={15} />} sub="Answers from the portal's records, through read-only tools.">
+                Ask the lab</SectionTitle>
+              <AskTheLab />
+            </div>
+            <div className="card p-5">
+              <SectionTitle icon={<ListOrdered size={15} />}
+                sub="Official order: severity, SLA, safety, assignment, upcoming bookings.">What to fix first</SectionTitle>
+              <PriorityList limit={5} />
+            </div>
+          </section>
+
           {/* ------------------------------------------------ utilisation */}
           <section>
             <SectionTitle icon={<CalendarRange size={15} />}
@@ -169,6 +188,9 @@ export default function Operations() {
               </div>
             </div>
           </section>
+
+          {/* ------------------------------------------------ trends */}
+          <TrendsSection t={trend} />
 
           {/* ------------------------------------------------ access */}
           <section>
@@ -449,5 +471,121 @@ function Flag({ on, label }: { on: boolean; label: string }) {
     <div className="flex items-center gap-2 text-slate-300">
       <Dot tone={on ? 'ok' : 'idle'} />{label}
     </div>
+  )
+}
+
+function pct(v: number | null) { return v === null ? null : Math.round(v * 1000) / 10 }
+
+function TrendsSection({ t }: { t: Trends | null }) {
+  if (!t) return null
+  const data = t.series.map(w => ({ ...w, label: w.week.slice(5) + (w.partial ? '*' : ''),
+    no_show_pct: pct(w.no_show_rate), late_pct: pct(w.late_rate) }))
+  const chips: [string, string][] = [['bookings', 'Bookings'], ['entries', 'Entries'],
+    ['booked_hours', 'Booked hours'], ['denied', 'Refusals'], ['no_shows', 'No-shows']]
+  return (
+    <section>
+      <SectionTitle icon={<TrendingUp size={15} />}
+        sub={`Monday weeks in ${t.timezone}; * = week in progress. Late = entry more than ${t.late_minutes} min after the start.`}>
+        Trends</SectionTitle>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {chips.map(([k, label]) => {
+          const w = t.week_over_week[k]
+          if (!w) return null
+          const up = (w.change ?? 0) > 0
+          const bad = k === 'denied' || k === 'no_shows'
+          return (
+            <div key={k} className="rounded-xl border border-ink-600/70 bg-ink-800/40 px-3 py-2 text-[12.5px]">
+              <span className="text-slate-400">{label} this week </span>
+              <span className="text-white tnum">{w.current}</span>
+              {w.change === null ? <span className="text-slate-500"> · no previous week to compare</span> : (
+                <span className={`ml-1.5 inline-flex items-center gap-0.5 tnum ${
+                  w.change === 0 ? 'text-slate-400' : (up !== bad) ? 'text-ok-soft' : 'text-bad-soft'}`}>
+                  {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                  {up ? '+' : ''}{Math.round(w.change * 100)}% vs {w.previous}
+                </span>)}
+            </div>)
+        })}
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <ChartCard title="Week over week" sub="Bookings, door entries and refusals per week"
+          empty={!t.series.some(w => w.bookings || w.entries || w.denied)}>
+          <ResponsiveContainer>
+            <LineChart data={data}>
+              <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
+              <XAxis dataKey="label" {...axisProps} />
+              <YAxis {...axisProps} allowDecimals={false} width={28} />
+              <Tooltip {...tooltipProps} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="bookings" name="Bookings" stroke={C.accent} strokeWidth={2.2} dot={{ r: 2.5 }} />
+              <Line type="monotone" dataKey="entries" name="Entries" stroke={C.teal} strokeWidth={2.2} dot={{ r: 2.5 }} />
+              <Line type="monotone" dataKey="denied" name="Refusals" stroke={C.bad} strokeWidth={2} dot={{ r: 2.5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+        <ChartCard title="No-shows and late arrivals" sub="Share of finished bookings (%) - gaps = nothing finished that week"
+          empty={!t.series.some(w => w.finished)}>
+          <ResponsiveContainer>
+            <LineChart data={data}>
+              <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
+              <XAxis dataKey="label" {...axisProps} />
+              <YAxis {...axisProps} unit="%" width={36} />
+              <Tooltip {...tooltipProps} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="no_show_pct" name="No-show %" stroke={C.warn} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
+              <Line type="monotone" dataKey="late_pct" name="Late %" stroke={C.violet} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+      {t.by_lab.length > 0 && (
+        <div className="card p-4 mt-4 overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead><tr className="text-slate-500 text-left">
+              <th className="py-1.5 font-normal">Lab</th><th className="font-normal">Finished</th>
+              <th className="font-normal">No-shows</th><th className="font-normal">No-show %</th>
+              <th className="font-normal">Late</th><th className="font-normal">Late % (of attended)</th></tr></thead>
+            <tbody className="divide-y divide-ink-700/60">
+              {t.by_lab.map(r => (
+                <tr key={r.lab_code} className="text-slate-200 tnum">
+                  <td className="py-1.5 mono">{r.lab_code}</td><td>{r.finished}</td><td>{r.no_shows}</td>
+                  <td className={(r.no_show_rate ?? 0) >= 0.3 ? 'text-warn-soft' : ''}>{pct(r.no_show_rate) ?? '–'}</td>
+                  <td>{r.late}</td><td>{pct(r.late_rate) ?? '–'}</td>
+                </tr>))}
+            </tbody>
+          </table>
+        </div>)}
+    </section>
+  )
+}
+
+function ExportMenu({ days }: { days: number }) {
+  const [busy, setBusy] = useState('')
+  const download = async (kind: 'bookings' | 'sessions' | 'events' | 'weekly') => {
+    setBusy(kind)
+    try {
+      const blob = await fetchBlob(api.exportCsvPath(kind, kind === 'weekly' ? Math.max(days, 56) : days))
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `smartlab-${kind}-${days}d.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally { setBusy('') }
+  }
+  return (
+    <details className="relative print:hidden">
+      <summary className="btn-ghost !px-2.5 list-none cursor-pointer" aria-label="Export"><Download size={15} /></summary>
+      <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-ink-600 bg-ink-850 p-1.5 shadow-lift">
+        {([['bookings', 'Bookings (CSV)'], ['sessions', 'Sessions (CSV)'], ['events', 'Access events (CSV)'],
+           ['weekly', 'Weekly trends (CSV)']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => download(k)} disabled={!!busy}
+            className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-slate-300 hover:bg-ink-700 hover:text-white">
+            {busy === k ? 'Preparing…' : label}</button>))}
+        <button onClick={() => window.print()}
+          className="w-full text-left px-3 py-2 rounded-lg text-[13px] text-slate-300 hover:bg-ink-700 hover:text-white flex items-center gap-2">
+          <Printer size={13} />Print / save as PDF</button>
+        <div className="px-3 pt-1 pb-1.5 text-[11px] text-slate-500">Last {days} days, recorded rows only.</div>
+      </div>
+    </details>
   )
 }

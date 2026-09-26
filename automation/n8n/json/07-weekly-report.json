@@ -49,12 +49,35 @@
       }
     },
     {
+      "id": "10f7a4c4-4cce-5637-a516-1965b9dc74c0",
+      "name": "AI Summary (optional)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/ai/weekly-summary",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
       "id": "aa29e03e-c400-5d46-a3ec-4da9a10836ab",
       "name": "Send To Administrators",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        500,
+        700,
         300
       ],
       "parameters": {
@@ -65,13 +88,14 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"WEEKLY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"WEEKLY_REPORT\", title: String($(\"Build Report In Backend\").item.json.title).slice(0, 160), body: String(($json.available && $json.summary ? $json.summary + \" | \" : \"\") + $(\"Build Report In Backend\").item.json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $(\"Build Report In Backend\").item.json.dedupe_key }) }}"
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "executeOnce": true
     },
     {
       "id": "91433411-4b62-5909-aae4-a441f8664057",
@@ -79,7 +103,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        700,
+        900,
         300
       ],
       "parameters": {
@@ -101,8 +125,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "f92ce917-c0ff-54dc-a7f3-80993139ab28",
-      "name": "Sticky Note baa82433",
+      "id": "3a353cce-895c-5eb9-a00d-cbc8f1712f98",
+      "name": "Sticky Note",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -110,7 +134,7 @@
         450
       ],
       "parameters": {
-        "content": "## Weekly lab report\nThe backend computes every figure from recorded rows (no estimates), including the previous week for comparison; n8n only schedules and delivers. Idempotent per period via dedupe key.",
+        "content": "## Weekly lab report\nFigures come from the backend (recorded rows only, previous week for comparison). If an AI key is configured, the backend adds a short AI-written summary that explains the same figures; without one the report is sent unchanged. Idempotent per week.",
         "color": 4
       }
     }
@@ -128,6 +152,17 @@
       ]
     },
     "Build Report In Backend": {
+      "main": [
+        [
+          {
+            "node": "AI Summary (optional)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summary (optional)": {
       "main": [
         [
           {

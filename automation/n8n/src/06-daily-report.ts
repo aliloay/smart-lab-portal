@@ -65,7 +65,7 @@ const recordRun = node({
   output: [{"recorded": true}]
 });
 
-const note = sticky("## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per period via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel.", [], { color: 4 });
+const note = sticky("## Daily lab report\nThe backend computes every figure from recorded rows (no estimates); n8n only schedules and delivers. Idempotent per day via dedupe key. Add an Email/Slack node in parallel to Send To Administrators for an external channel.", [], { color: 4 });
 
 export default workflow('smartlab-06', 'Smart Lab 06 - Daily lab report')
   .add(when).to(report).to(send).to(recordRun).add(note);

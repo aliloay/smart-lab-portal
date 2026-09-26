@@ -40,6 +40,10 @@ Research Laboratory Management System*, German International University, Cairo.
 - **n8n automation (optional)**: a transactional event outbox and a key-protected automation
   API drive 12 workflows (reminders, denial bursts, offline escalation, reports, data quality,
   rule-based anomalies...). n8n never touches the door - see [AUTOMATION.md](docs/AUTOMATION.md)
+- **AI lab assistant (optional)**: staff ask questions in plain language ("which lab has the
+  most no-shows?"). Answers come from the portal's own records through read-only tools. Also
+  a ranked "what to fix first" maintenance list, week-over-week trends and CSV/PDF export -
+  see [AI_ASSISTANT.md](docs/AI_ASSISTANT.md)
 - **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV
 - **Fails closed**: if the backend is down, a booking QR opens nothing
 
@@ -73,6 +77,7 @@ photographs of the rooms.
 | [MAINTENANCE.md](docs/MAINTENANCE.md) | issue workflow, permissions, photos, dashboards, equipment lifecycle |
 | [DEMO.md](docs/DEMO.md) | a 15-minute demonstration script, with and without hardware |
 | [DOOR_SYSTEM.md](docs/DOOR_SYSTEM.md) | firmware, wiring, launch order, troubleshooting |
+| [AI_ASSISTANT.md](docs/AI_ASSISTANT.md) | AI assistant, maintenance priority score, trends, CSV export |
 | [AUTOMATION.md](docs/AUTOMATION.md) | event outbox, automation API, the 12 n8n workflows, analytics rules, failure modes |
 
 ---
