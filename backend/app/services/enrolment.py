@@ -44,7 +44,8 @@ def status(user: User) -> dict:
         summary = "Your fingerprint and Face ID are confirmed. You are ready for lab access."
     else:
         summary = ("Please visit the lab staff or an administrator to confirm your "
-                   + " and ".join(p for p in pending if p != "Door identity")
+                   + " and ".join(p.replace("Fingerprint", "fingerprint")
+                                  for p in pending if p != "Door identity")
                    + ". You can already book a lab and pass the first check at the "
                      "door (QR code or RFID card), but the door cannot complete the "
                      "second check (fingerprint or face) until they are registered.")

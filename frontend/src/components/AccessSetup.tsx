@@ -69,7 +69,8 @@ export function AccessSetupBanner() {
       <TriangleAlert size={18} className="text-warn-soft shrink-0 mt-0.5" />
       <div className="min-w-0 flex-1 text-[13px] text-amber-100/90">
         <div className="font-medium text-white">
-          Action needed: confirm your {setup.pending.filter(p => p !== 'Door identity').join(' and ')}
+          Action needed: confirm your {setup.pending.filter(p => p !== 'Door identity')
+            .map(p => p === 'Fingerprint' ? 'fingerprint' : p).join(' and ')}
         </div>
         <div className="mt-0.5">{setup.summary}</div>
         <Link to="/profile" className="inline-flex items-center gap-1 mt-1.5 text-[12.5px] link">

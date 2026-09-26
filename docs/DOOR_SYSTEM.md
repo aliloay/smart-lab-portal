@@ -8,9 +8,9 @@ Full system: RFID **or** QR → fingerprint **or** face → door.
 
 | # | Device | Sketch / script | Folder |
 |---|--------|-----------------|--------|
-| 1 | **Laptop** | `face_server.py` | `draft_codes\face_server\` |
-| 2 | **ESP32-CAM** (AI Thinker) | `ESP32CAM_Vision_FAST.ino` | `draft_codes\ESP32CAM_Vision_FAST\` |
-| 3 | **Master ESP32** (LCD, RFID, fingerprint, relay) | `SmartLab_Master_Stage5.ino` | `draft_codes\SmartLab_Master_Stage5\` |
+| 1 | **Laptop** | `face_server.py` | `firmware\face_server\` |
+| 2 | **ESP32-CAM** (AI Thinker) | `ESP32CAM_Vision_FAST.ino` | `firmware\ESP32CAM_Vision_FAST\` |
+| 3 | **Master ESP32** (LCD, RFID, fingerprint, relay) | `SmartLab_Master_Portal.ino` | `firmware\SmartLab_Master_Portal\` |
 
 Nothing is wired between the two boards. They talk over WiFi.
 

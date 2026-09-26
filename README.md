@@ -3,7 +3,12 @@
 [![CI](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml)
 
 Booking, time-bound QR credentials, and the audit trail for the physical
-two-factor access-control system.
+two-factor access-control system - plus analytics dashboards, n8n automation
+and free local AI assistants.
+
+**New here? Start with [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md)** - every
+layer from the two ESP32 boards to n8n and the AI chat, and how a student gets
+from sign-up to inside the lab.
 
 Bachelor thesis — *Design and Development of an Intelligent IoT-Based Smart
 Research Laboratory Management System*, German International University, Cairo.
@@ -32,6 +37,11 @@ Research Laboratory Management System*, German International University, Cairo.
 - **Simulation mode** for demonstrations without hardware, clearly labelled and entirely in the
   browser - it never writes to the audit trail
 - **Role-specific experiences** for students, laboratory staff and administrators
+- **Accounts**: students sign up on the login page; admins add students, staff and admins.
+  Every account gets its door identity (`USER3`, `USER4`, ...) automatically
+- **Lab access setup reminder**: a person whose fingerprint or Face ID is not registered
+  yet is told so on sign-in (notification, banner, Profile checklist) until staff confirm
+  it - information only, the door logic is unchanged
 - **Live operations**: authenticated WebSocket stream, device heartbeats with automatic
   offline alerts, and in-portal notifications
 - **Operations Center**: utilisation heatmaps, access funnel, refusal reasons, sessions,
@@ -42,8 +52,10 @@ Research Laboratory Management System*, German International University, Cairo.
   rule-based anomalies...). n8n never touches the door - see [AUTOMATION.md](docs/AUTOMATION.md)
 - **AI lab assistant (optional)**: staff ask questions in plain language ("which lab has the
   most no-shows?"). Answers come from the portal's own records through read-only tools.
-  Students get their own helper for their bookings, reports and free labs. Runs **free on your
-  own computer with Ollama**, or on Claude if you add a key. Also
+  Students get their own helper for their bookings, reports, door refusals and free labs.
+  Both know how the whole system works. Open it from the round chat button or the sidebar.
+  Runs **free on your own computer with Ollama** (two small models, one per chat), or on
+  Claude if you add a key. Also
   a ranked "what to fix first" maintenance list, week-over-week trends and CSV/PDF export -
   see [AI_ASSISTANT.md](docs/AI_ASSISTANT.md)
 - **Full audit trail** of every attempt, with the reason it was allowed or refused, exportable to CSV
@@ -51,35 +63,45 @@ Research Laboratory Management System*, German International University, Cairo.
 
 ## Screenshots
 
-Demo data. The door events are simulated through the same device API the ESP32
-master uses. Laboratory images are illustrations of each discipline, not
-photographs of the rooms.
+Demo data on a fresh instance: the door events come from the real end-to-end
+test (booking → QR decoded by OpenCV → device API) plus a few weeks of
+generated history. Laboratory images are illustrations, not photographs. The
+two chat screenshots are from the owner's laptop with the free local models.
 
-| Sign in | Student dashboard |
+| Sign in | Sign up |
 |---|---|
-| ![Sign in](docs/screenshots/login.png) | ![Student dashboard](docs/screenshots/student-dashboard.png) |
+| ![Sign in](docs/screenshots/login.png) | ![Sign up](docs/screenshots/signup.png) |
+| **Student dashboard** | **New student: lab access setup reminder** |
+| ![Student dashboard](docs/screenshots/student-dashboard.png) | ![Setup banner](docs/screenshots/access-setup-banner.png) |
+| **Profile: what is still pending** | **Time-bound access QR** |
+| ![Setup checklist](docs/screenshots/access-setup-profile.png) | ![Access QR](docs/screenshots/access-qr.png) |
+| **System overview (admin)** | **Operations Center** |
+| ![Admin overview](docs/screenshots/admin-overview.png) | ![Operations Center](docs/screenshots/operations-center.png) |
+| **Reports** | **Access monitor** |
+| ![Reports](docs/screenshots/reports.png) | ![Access monitor](docs/screenshots/access-monitor.png) |
+| **Booking traced end to end** | **Users & roles (door identity, biometrics pending)** |
+| ![Booking trace](docs/screenshots/booking-trace.png) | ![Users & roles](docs/screenshots/users-roles.png) |
+| **AI: staff "Ask the lab"** | **AI: student "Ask Smart Lab"** |
+| ![Staff chat](docs/screenshots/chat-staff.png) | ![Student chat](docs/screenshots/chat-student.png) |
 | **Laboratory network** | **A laboratory's control panel** |
 | ![Laboratories](docs/screenshots/laboratories.png) | ![Lab control panel](docs/screenshots/lab-control-panel.png) |
-| **Booking traced end to end** | **Time-bound access QR** |
-| ![Booking trace](docs/screenshots/booking-trace.png) | ![Access QR](docs/screenshots/access-qr.png) |
 | **Report an issue** | **Maintenance queue** |
 | ![Report an issue](docs/screenshots/report-issue.png) | ![Maintenance queue](docs/screenshots/maintenance-queue.png) |
-| **Issue workflow** | **Access monitor** |
-| ![Issue detail](docs/screenshots/issue-detail.png) | ![Access monitor](docs/screenshots/access-monitor.png) |
-| **System overview (admin)** | |
-| ![Admin overview](docs/screenshots/admin-overview.png) | |
+| **Issue workflow** | **Devices** |
+| ![Issue detail](docs/screenshots/issue-detail.png) | ![Devices](docs/screenshots/devices.png) |
 
 ## Documentation
 
 | Document | What it covers |
 |---|---|
+| [SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) | **start here** - every layer (ESP32s, face server, laptop/Docker, backend, database, portal, n8n, AI), journeys, security, ports |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | components, responsibilities, the guarantees, code layout |
 | [DATABASE.md](docs/DATABASE.md) | every table, indexes, migrations, safe upgrade with a backup |
 | [ACCESS_FLOW.md](docs/ACCESS_FLOW.md) | booking → QR → step 1 → step 2 → relay → audit, fail-closed paths |
 | [MAINTENANCE.md](docs/MAINTENANCE.md) | issue workflow, permissions, photos, dashboards, equipment lifecycle |
 | [DEMO.md](docs/DEMO.md) | a 15-minute demonstration script, with and without hardware |
 | [DOOR_SYSTEM.md](docs/DOOR_SYSTEM.md) | firmware, wiring, launch order, troubleshooting |
-| [AI_ASSISTANT.md](docs/AI_ASSISTANT.md) | AI assistant, maintenance priority score, trends, CSV export |
+| [AI_ASSISTANT.md](docs/AI_ASSISTANT.md) | the two AI assistants (free Ollama or Claude), what they know, speed, maintenance priority score, trends, CSV export |
 | [AUTOMATION.md](docs/AUTOMATION.md) | event outbox, automation API, the 12 n8n workflows, analytics rules, failure modes |
 
 ---
@@ -105,37 +127,43 @@ become an open door because a laptop crashed.
 ## Architecture
 
 ```
-  Student's phone                Laboratory door
-  ┌──────────────┐               ┌─────────────────────────────────┐
-  │  Portal      │               │  ESP32-CAM ──── JPEG ───┐       │
-  │  /bookings/  │  shows QR     │   (QR + frames)         │       │
-  │     :id/qr   │ ────────────► │                         ▼       │
-  └──────────────┘               │              Face server (Flask)│
-         ▲                       │              OpenCV LBPH        │
-         │ books                 │                         │       │
-         │                       │  Master ESP32 ◄──────────┘       │
-  ┌──────┴───────┐               │   ├── RFID  (step 1)             │
-  │  FastAPI     │◄──────────────┤   ├── QR    (step 1)             │
-  │  PostgreSQL  │ validate-qr   │   ├── Finger(step 2)             │
-  │              │──────────────►│   ├── Face  (step 2)             │
-  └──────────────┘  identity     │   └── RELAY ◄── only the master  │
-         │                       └─────────────────────────────────┘
-         │ events
-         ▼
-   Admin dashboard (live WebSocket timeline)
+  Student / staff browser             Laboratory door (LAB_01)
+  ┌────────────────────┐              ┌──────────────────────────────────┐
+  │ Portal (React)     │  shows QR    │  ESP32-CAM ── JPEG ──┐            │
+  │ bookings · QR ·    │ ───────────► │  (camera)            ▼            │
+  │ dashboards · chat  │              │          Face server (laptop,     │
+  └─────────┬──────────┘              │          Flask · OpenCV LBPH)     │
+            │ /api (JWT)              │                      │            │
+  ┌─────────▼──────────┐ validate-qr  │  Master ESP32 ◄──────┘ /status    │
+  │ FastAPI backend    │◄─────────────┤   ├── RFID   (step 1)             │
+  │ rules · audit ·    │─────────────►│   ├── QR     (step 1)             │
+  │ analytics · AI     │  identity    │   ├── Finger (step 2)             │
+  └──┬──────┬──────┬───┘  events,     │   ├── Face   (step 2)             │
+     │      │      │      heartbeats  │   └── RELAY ◄── only the master   │
+     │      │      │                  └──────────────────────────────────┘
+     ▼      │      ▼
+ PostgreSQL │   Ollama (free local AI: staff + student models)
+            ▼
+   n8n automation - outbox events in, rules/notify/alerts back
+   (12 workflows; can never touch the door)
 ```
 
-Four services, deliberately separate:
+Services, all started by `launch.bat` on the lab laptop:
 
 | Service | Role | Runs on |
 |---|---|---|
-| **PostgreSQL** | bookings, credentials, audit trail | server / laptop |
-| **FastAPI backend** | authorization and logging | server / laptop |
-| **React frontend** | student and admin portal | browser |
-| **Flask face server** | LBPH recognition (unchanged) | the laptop by the door |
+| **PostgreSQL** | bookings, credentials, audit trail, enrolment status | Docker |
+| **FastAPI backend** | authorization, logging, analytics, automation API, AI | Docker (port 8000 for the door) |
+| **React portal** | student, staff and admin screens, behind nginx | Docker (port 80) |
+| **n8n** (optional) | 12 automation workflows | Docker, profile `automation` (localhost:5678) |
+| **Ollama** (optional) | free local models for the two chats | the laptop (localhost:11434) |
+| **Flask face server** | QR decoding and LBPH face recognition | the laptop, its own window |
+| **Master ESP32 + ESP32-CAM** | the door: both factors, identity match, the lock | the door |
 
 The face server stays a separate process on purpose: it is proven, it is
-latency-critical, and it must keep working if the portal is down.
+latency-critical, and it must keep working if the portal is down. The full
+walkthrough, with diagrams and journeys, is in
+[docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md).
 
 ---
 
@@ -291,8 +319,14 @@ system. It must be identical in three places:
 | Where | What it is |
 |---|---|
 | `users.auth_subject` in PostgreSQL | `USER1` |
-| `authorizedUsers[].name` in the master firmware | `"USER1"` |
+| `authorizedUsers[].name` in the master firmware | `"USER1"` (fixed users with an RFID card) |
+| the fingerprint slot on the sensor | `1` - for portal identities `USERn` the slot is `n` |
 | the label in `dataset/` on the face server | `USER1` |
+
+New accounts get the next `USERn` automatically (never reused). The person
+then needs their finger stored in slot *n* and face photos under `USERn`; until
+staff confirm both on *Users & roles*, the portal reminds them on every
+sign-in.
 
 If these drift, step 2 can never be matched against step 1 and every entry is
 refused. That is the correct failure direction, but it is confusing to debug —
@@ -405,7 +439,7 @@ DATABASE_URL=postgresql+psycopg://postgres:<password>@localhost:5432/smartlab_te
 Use a dedicated test database, never your real one. GitHub Actions runs the
 same suite against a PostgreSQL service container on every push.
 
-**157 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
+**232 tests, against real PostgreSQL** — not SQLite, because `TIMESTAMPTZ`
 comparison is precisely what must not be tested on a different engine than
 production runs.
 
@@ -581,7 +615,14 @@ state machine, neither reachable from network code.
 7. **Denial buzzer disabled in firmware.** Energizing it sags the 12V rail
    enough to drop the relay. Fix is a 470–1000 µF capacitor across the rail;
    see `docs/DOOR_SYSTEM.md`.
-8. **Development server.** `uvicorn` directly and Flask's dev server are fine
+8. **Biometric enrolment is confirmed by staff.** The door does not report
+   enrolments to the portal, so the "fingerprint / Face ID registered"
+   ticks on *Users & roles* are set by hand. They drive only the reminder
+   people see - never the door.
+9. **Local AI quality and speed depend on the laptop.** Small free models are
+   less precise than Claude and need a GPU for quick answers; the numbers
+   they quote still come from the database.
+10. **Development server.** `uvicorn` directly and Flask's dev server are fine
    for a laboratory on a private LAN. A public deployment wants a proper WSGI
    or ASGI server behind TLS.
 
@@ -593,24 +634,30 @@ state machine, neither reachable from network code.
 smart-lab-portal/
 ├── backend/          FastAPI, SQLAlchemy, Alembic, tests
 │   ├── app/
-│   │   ├── api/routes/    auth, labs, bookings, access (device), admin,
-│   │   │                  issues, notifications, system, analytics,
-│   │   │                  automation (n8n)
+│   │   ├── api/routes/    auth (+ sign-up), labs, bookings, access (device),
+│   │   │                  admin, issues, notifications, system, analytics,
+│   │   │                  automation (n8n), ai
 │   │   ├── core/          config, security
 │   │   ├── models/        22 tables
 │   │   ├── services/      access, booking, sessions, issues, storage,
 │   │   │                  notifications, devices, automation, analytics,
-│   │   │                  integration (outbox)  ← the rules live here
+│   │   │                  integration (outbox), ai + ai_guide (assistants),
+│   │   │                  identity (USERn), enrolment (setup reminder)
+│   │   │                  ← the rules live here
 │   │   └── ws/            authenticated live stream
 │   ├── alembic/      migrations (checked against the models in CI)
-│   └── tests/        157 tests + 30 end-to-end assertions
+│   └── tests/        232 tests + 30 end-to-end assertions
 ├── frontend/         React 18, TypeScript, Vite, Tailwind
 │   └── e2e/          real-browser navigation and workflow tests
 ├── firmware/         master (portal), camera, face server
-├── automation/n8n/   12 workflow sources (n8n SDK), manifest, export script
-├── docs/             architecture, database, access flow, maintenance,
-│                     demo script, door subsystem, screenshots
+├── automation/n8n/   12 workflows: SDK sources, importable JSON, self-test
+├── scripts/          ollama_models.bat (first-run AI model download)
+├── docs/             system overview, architecture, database, access flow,
+│                     maintenance, demo, door subsystem, automation, AI,
+│                     screenshots
 ├── .github/workflows CI: backend tests, migrations, build, browser test
+├── launch.bat        one-click start (Docker, face server, Ollama, n8n)
+├── test_automation.bat  checks the n8n automation end to end
 └── docker-compose.yml
 ```
 
