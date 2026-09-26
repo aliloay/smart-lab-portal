@@ -7,6 +7,7 @@ import {
   UserRound, Users, Wrench, X,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
+import { ChatBubble } from './ai'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
@@ -351,6 +352,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             </ErrorBoundary>
           </div>
         </main>
+        <ChatBubble />
       </div>
 
       {/* phone quick action - hidden where it could cover the entry QR */}

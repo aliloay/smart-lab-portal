@@ -47,9 +47,12 @@ export default function Users() {
       </div>
 
       <div className="mb-4"><Notice icon={<ShieldCheck size={15} />}>
-        The <b>auth subject</b> (e.g. <span className="mono">USER1</span>) must match the label enrolled in
-        the fingerprint sensor and the face server. If it does not, step 2 can never be matched to step 1
-        and every entry is refused - the safe failure, but check it first when a valid booking is denied.
+        Every new account gets the next <b>door identity</b> automatically (<span className="mono">USER3</span>,{' '}
+        <span className="mono">USER4</span>, …). <span className="mono">USERn</span> means fingerprint slot{' '}
+        <b>n</b> and face label <span className="mono">USERn</span>. It opens nothing until lab staff enrol
+        that person: type <span className="mono">enroll n</span> in the door controller's serial monitor and
+        place the finger twice, and add ~20 face photos with <span className="mono">/enroll?name=USERn</span> on
+        the camera. Their booking QR then works with their own fingerprint or face.
       </Notice></div>
 
       <div className="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
@@ -82,7 +85,7 @@ export default function Users() {
                           <div className="text-[12px] text-slate-400">{u.email}</div></div></div></td>
                       <td className="td"><Chip tone={ROLE_TONE[u.role]}>{roleLabel(u.role)}</Chip></td>
                       <td className="td">{u.auth_subject ? <span className="mono text-accent-200">{u.auth_subject}</span>
-                        : <span className="text-[12px] text-slate-500">not enrolled</span>}</td>
+                        : <span className="text-[12px] text-slate-500">no door identity</span>}</td>
                       <td className="td text-slate-300">{u.department ?? '—'}</td>
                       <td className="td"><Chip tone={u.is_active ? 'ok' : 'bad'} dot>{u.is_active ? 'Active' : 'Disabled'}</Chip></td>
                       <td className="td text-right"><button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
@@ -127,9 +130,16 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
                 onChange={e => setF({ ...f, role: e.target.value as Role })}>
           <option value="STUDENT">Student</option><option value="LAB_STAFF">Laboratory staff</option>
           <option value="ADMIN">Administrator</option></select></Field>
-      <Field label="Auth subject" hint="Must match the enrolled fingerprint / face label, e.g. USER1.">
-        <input className="input mono" value={f.auth_subject} maxLength={32}
-               onChange={e => setF({ ...f, auth_subject: e.target.value })} /></Field>
+      <Field label="Door identity (auth subject)"
+             hint="USERn = fingerprint slot n and face label USERn. Numbers are never reused.">
+        <div className="flex gap-2">
+          <input className="input mono flex-1" value={f.auth_subject} maxLength={32}
+                 onChange={e => setF({ ...f, auth_subject: e.target.value })} />
+          {!f.auth_subject.trim() && (
+            <button type="button" className="btn-ghost btn-sm"
+              onClick={() => api.nextAuthSubject().then(r => r.auth_subject && setF(x => ({ ...x, auth_subject: r.auth_subject! })))
+                .catch(e => setError(e.message))}>Assign next</button>)}
+        </div></Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Department"><input className="input" value={f.department}
           onChange={e => setF({ ...f, department: e.target.value })} /></Field>
@@ -150,6 +160,8 @@ function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => voi
     auth_subject: '', department: '', student_id: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [nextSubject, setNextSubject] = useState('')
+  useEffect(() => { api.nextAuthSubject().then(r => setNextSubject(r.auth_subject ?? '')).catch(() => {}) }, [])
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
     try {
@@ -176,7 +188,8 @@ function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => voi
           type="password" minLength={8} required value={f.password}
           onChange={e => setF({ ...f, password: e.target.value })} /></Field>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Auth subject"><input className="input mono" value={f.auth_subject} placeholder="USER3"
+          <Field label="Door identity" hint={nextSubject ? `Blank = ${nextSubject} (automatic)` : undefined}>
+            <input className="input mono" value={f.auth_subject} placeholder={nextSubject || 'auto'}
             onChange={e => setF({ ...f, auth_subject: e.target.value })} /></Field>
           <Field label="Department"><input className="input" value={f.department}
             onChange={e => setF({ ...f, department: e.target.value })} /></Field>

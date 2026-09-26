@@ -15,7 +15,8 @@ def test_signup_creates_student_and_logs_in(client, db, admin):
     assert body["pending_approval"] is False and body["access_token"]
     assert body["role"] == "STUDENT"
     u = db.scalar(select(User).where(User.email == "new.student@example.com"))
-    assert u.role == Role.STUDENT and u.auth_subject is None and u.is_active
+    # Next door identity; opens nothing until a fingerprint/face is enrolled.
+    assert u.role == Role.STUDENT and u.auth_subject == "USER1" and u.is_active
     me = client.get("/api/auth/me",
                     headers={"Authorization": f"Bearer {body['access_token']}"})
     assert me.json()["email"] == "new.student@example.com"
@@ -29,7 +30,7 @@ def test_signup_cannot_choose_role_or_enrolment(client, db):
                     json={**NEW, "role": "ADMIN", "auth_subject": "USER9"})
     assert r.status_code == 201
     u = db.scalar(select(User).where(User.email == "new.student@example.com"))
-    assert u.role == Role.STUDENT and u.auth_subject is None
+    assert u.role == Role.STUDENT and u.auth_subject == "USER1"   # not USER9
 
 
 def test_signup_duplicate_email(client, alice):
@@ -73,3 +74,27 @@ def test_signup_rate_limited_per_ip(client, monkeypatch):
 def test_signup_weak_password(client):
     assert client.post("/api/auth/signup",
                        json={**NEW, "password": "short"}).status_code == 422
+
+
+def test_auth_subjects_are_sequential_and_never_reused(client, db, admin, alice, bob,
+                                                       monkeypatch):
+    # alice=USER1, bob=USER2 in the fixtures.
+    h = {"Authorization": "Bearer " + client.post(
+        "/api/auth/login", json={"email": admin.email, "password": "Password123"}
+    ).json()["access_token"]}
+    assert client.get("/api/users/next-auth-subject", headers=h).json() == {"auth_subject": "USER3"}
+    r = client.post("/api/auth/register", headers=h, json={
+        "email": "staff2@example.com", "full_name": "New Staff", "password": "Password123",
+        "role": "LAB_STAFF"})
+    assert r.json()["auth_subject"] == "USER3"
+    # Clearing the highest number must not hand it out again.
+    h_patch = client.patch(f"/api/users/{r.json()['id']}", headers=h,
+                           json={"auth_subject": None})
+    assert h_patch.status_code == 200 and h_patch.json()["auth_subject"] is None
+    assert client.post("/api/auth/signup", json=NEW).status_code == 201
+    u = db.scalar(select(User).where(User.email == "new.student@example.com"))
+    assert u.auth_subject == "USER4"
+    monkeypatch.setattr(settings, "AUTO_ASSIGN_AUTH_SUBJECT", False)
+    r = client.post("/api/auth/signup", json={**NEW, "email": "x@example.com"})
+    x = db.scalar(select(User).where(User.email == "x@example.com"))
+    assert x.auth_subject is None

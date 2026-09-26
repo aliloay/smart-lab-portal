@@ -212,11 +212,25 @@ struct AuthorizedUser {
   const char *displayName;  // What the LCD shows. Change this freely.
 };
 
+// Portal users beyond this list (USER3, USER4, ... created in the portal)
+// need no change here: for a booking QR the portal names the identity, and
+// the number in USERn IS the fingerprint slot (enrol with "enroll n" on the
+// serial monitor) and the face label. They are loaded into the last entry,
+// PORTAL_SLOT, for the duration of one entry attempt. RFID cards stay local:
+// only the two users above have a card.
+char portalUserName[16]    = "";
+char portalUserDisplay[16] = "";
+
 AuthorizedUser authorizedUsers[] = {
   {4, {0x89, 0x52, 0xFF, 0x1F, 0, 0, 0, 0, 0, 0}, 1, "USER1", "ALI"},
-  {4, {0xF5, 0x77, 0x30, 0x8E, 0, 0, 0, 0, 0, 0}, 2, "USER2", "DR. RAMY"}
+  {4, {0xF5, 0x77, 0x30, 0x8E, 0, 0, 0, 0, 0, 0}, 2, "USER2", "DR. RAMY"},
+  {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 0, portalUserName, portalUserDisplay}  // PORTAL_SLOT
 };
-constexpr size_t AUTHORIZED_USER_COUNT = sizeof(authorizedUsers) / sizeof(authorizedUsers[0]);
+// Lookups by card / by name cover the fixed users only, never the portal slot.
+constexpr size_t AUTHORIZED_USER_COUNT =
+    sizeof(authorizedUsers) / sizeof(authorizedUsers[0]) - 1;
+constexpr int    PORTAL_SLOT    = (int)AUTHORIZED_USER_COUNT;
+constexpr uint8_t MAX_FINGER_SLOT = 127;   // AS608 capacity on common modules
 
 // Result of asking the portal about a booking QR.
 // Defined up here (not next to validateQrWithBackend) because the Arduino IDE
@@ -1083,6 +1097,39 @@ int findUserByName(const String &n) {
   return -1;
 }
 
+// "USER7" -> 7, anything else -> 0.
+uint8_t slotFromSubject(const String &subject) {
+  if (!subject.startsWith("USER") || subject.length() < 5 || subject.length() > 7) return 0;
+  long n = 0;
+  for (size_t i = 4; i < subject.length(); i++) {
+    char c = subject[i];
+    if (c < '0' || c > '9') return 0;
+    n = n * 10 + (c - '0');
+  }
+  return (n >= 1 && n <= MAX_FINGER_SLOT) ? (uint8_t)n : 0;
+}
+
+// A portal-authorized identity that is not in the fixed table: load it into
+// PORTAL_SLOT so step 2 checks fingerprint slot n / face label USERn.
+// Returns PORTAL_SLOT, or -1 if the subject is not of the USERn form.
+int usePortalIdentity(const String &subject, const String &fullName) {
+  uint8_t slot = slotFromSubject(subject);
+  if (slot == 0) return -1;
+  strncpy(portalUserName, subject.c_str(), sizeof(portalUserName) - 1);
+  portalUserName[sizeof(portalUserName) - 1] = '\0';
+  // LCD: first name in capitals, as for the fixed users.
+  String first = fullName;
+  first.trim();
+  int sp = first.indexOf(' ');
+  if (sp > 0) first = first.substring(0, sp);
+  first.toUpperCase();
+  if (first.length() == 0) first = subject;
+  strncpy(portalUserDisplay, first.c_str(), sizeof(portalUserDisplay) - 1);
+  portalUserDisplay[sizeof(portalUserDisplay) - 1] = '\0';
+  authorizedUsers[PORTAL_SLOT].fingerprintId = slot;
+  return PORTAL_SLOT;
+}
+
 // ===========================================================================
 // State transitions
 // ===========================================================================
@@ -1243,6 +1290,99 @@ int tryReadFingerprint() {
 }
 
 // ===========================================================================
+// Fingerprint enrolment from the serial monitor (maintenance, door locked)
+//   enroll 5        store a finger in slot 5  (= portal identity USER5)
+//   enroll 5 force  overwrite slot 5
+//   delete 5        remove slot 5
+//   count           how many fingerprints are stored
+// Serial monitor: 115200 baud, line ending "Newline". Only accepted while
+// the door is idle; the lock stays locked throughout.
+// ===========================================================================
+bool waitFingerImage(uint32_t timeoutMs) {
+  uint32_t start = millis();
+  while (millis() - start < timeoutMs) {
+    uint8_t p = finger.getImage();
+    if (p == FINGERPRINT_OK) return true;
+    delay(60);
+  }
+  return false;
+}
+
+void waitFingerRemoved(uint32_t timeoutMs) {
+  uint32_t start = millis();
+  while (millis() - start < timeoutMs && finger.getImage() != FINGERPRINT_NOFINGER) delay(60);
+}
+
+void enrollFinger(uint8_t id, bool force) {
+  if (!fpOk) { Serial.println("[ENROLL] Fingerprint sensor not available."); return; }
+  if (!force && finger.loadModel(id) == FINGERPRINT_OK) {
+    Serial.printf("[ENROLL] Slot %u is already used. Type \"enroll %u force\" to overwrite.\n", id, id);
+    return;
+  }
+  Serial.printf("[ENROLL] Slot %u (portal identity USER%u): place the finger on the sensor...\n", id, id);
+  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
+  if (finger.image2Tz(1) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
+  Serial.println("[ENROLL] OK. Remove the finger.");
+  delay(800);
+  waitFingerRemoved(10000);
+  Serial.println("[ENROLL] Place the SAME finger again...");
+  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
+  if (finger.image2Tz(2) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
+  if (finger.createModel() != FINGERPRINT_OK) {
+    Serial.println("[ENROLL] The two scans did not match - try again.");
+    return;
+  }
+  if (finger.storeModel(id) != FINGERPRINT_OK) { Serial.println("[ENROLL] Could not store - try again."); return; }
+  Serial.printf("[ENROLL] Stored in slot %u. USER%u can now use this fingerprint with their booking QR.\n", id, id);
+}
+
+void runSerialCommand(String line) {
+  line.trim();
+  line.toLowerCase();
+  if (line.length() == 0) return;
+  if (state != STATE_IDLE) { Serial.println("[CMD] Busy - try again when the door is idle."); return; }
+
+  if (line == "count") {
+    if (fpOk && finger.getTemplateCount() == FINGERPRINT_OK)
+      Serial.printf("[CMD] %u fingerprints stored.\n", finger.templateCount);
+    else
+      Serial.println("[CMD] Fingerprint sensor not available.");
+    return;
+  }
+  bool isEnroll = line.startsWith("enroll ");
+  bool isDelete = line.startsWith("delete ");
+  if (isEnroll || isDelete) {
+    String rest = line.substring(7);
+    rest.trim();
+    bool force = rest.endsWith(" force");
+    if (force) { rest = rest.substring(0, rest.length() - 6); rest.trim(); }
+    long id = rest.toInt();
+    if (id < 1 || id > MAX_FINGER_SLOT) { Serial.printf("[CMD] Slot must be 1-%u.\n", MAX_FINGER_SLOT); return; }
+    if (isEnroll) {
+      enrollFinger((uint8_t)id, force);
+    } else if (!fpOk) {
+      Serial.println("[CMD] Fingerprint sensor not available.");
+    } else {
+      Serial.println(finger.deleteModel((uint16_t)id) == FINGERPRINT_OK
+                     ? "[CMD] Deleted." : "[CMD] Could not delete (empty slot?).");
+    }
+    goIdle();                      // redraw the idle screen
+    return;
+  }
+  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count");
+}
+
+void pollSerialCommands() {
+  static String line;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') { runSerialCommand(line); line = ""; }
+    else if (line.length() < 40) line += c;
+  }
+}
+
+// ===========================================================================
 // Door polling — debounced, runs every loop so state never goes stale
 // GPIO27 LOW = CLOSED, HIGH = OPEN (confirmed inversion)
 // ===========================================================================
@@ -1371,6 +1511,8 @@ void setup() {
   Serial.println("=================================================");
   Serial.println("USER1 (ALI)      -> RFID 89:52:FF:1F (TAG)  + Fingerprint ID 1 (THUMB)");
   Serial.println("USER2 (DR. RAMY) -> RFID F5:77:30:8E (CARD) + Fingerprint ID 2 (INDEX)");
+  Serial.println("USER3+ (portal)  -> booking QR + fingerprint slot n / face USERn");
+  Serial.println("[READY] Enrol a finger: type \"enroll 5\" (Newline) for USER5. \"help\" lists commands.");
   Serial.println("[READY] STEP 1 (identity) : RFID tag/card  OR  QR code");
   Serial.println("[READY] STEP 2 (biometric): fingerprint    OR  face");
   Serial.println("[READY] Step 2 identity must MATCH step 1 - stolen card is denied.");
@@ -1384,6 +1526,7 @@ void setup() {
 // ===========================================================================
 void loop() {
   pollDoor();
+  pollSerialCommands();
 
   // Forced entry: the door opened while the relay was locked and no door
   // cycle was in progress.
@@ -1503,6 +1646,7 @@ void loop() {
 
           // The portal names ONE identity. The biometric must match it.
           int qrUser = findUserByName(auth.authSubject);
+          if (qrUser < 0) qrUser = usePortalIdentity(auth.authSubject, auth.displayName);
           if (qrUser < 0) {
             Serial.printf("[QR][DENIED] '%s' authorized by portal but not "
                           "enrolled on this reader\n", auth.authSubject.c_str());

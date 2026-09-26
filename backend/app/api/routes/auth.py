@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models import AuditLog, Role, User
 from app.schemas import (LoginRequest, SignupRequest, TokenResponse,
                          UserCreate, UserOut)
+from app.services.identity import next_auth_subject
 from app.services.notifications import admin_ids, notify
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -56,15 +57,18 @@ def register(req: UserCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "auth_subject already assigned")
 
+    subject = req.auth_subject or (
+        next_auth_subject(db) if settings.AUTO_ASSIGN_AUTH_SUBJECT else None)
     user = User(email=req.email.lower(), full_name=req.full_name,
                 hashed_password=hash_password(req.password), role=req.role,
-                auth_subject=req.auth_subject, student_id=req.student_id,
+                auth_subject=subject, student_id=req.student_id,
                 department=req.department)
     db.add(user)
     db.flush()
     db.add(AuditLog(actor_user_id=admin.id, action="USER_CREATED",
                     entity_type="user", entity_id=str(user.id),
-                    detail={"email": user.email, "role": user.role.value}))
+                    detail={"email": user.email, "role": user.role.value,
+                            "auth_subject": user.auth_subject}))
     db.commit()
     db.refresh(user)
     return user
@@ -81,9 +85,10 @@ def signup_config():
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
 def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
     """
-    Self-service sign-up. Always creates a STUDENT with no auth_subject, so
-    the account can book labs but cannot pass a door until an administrator
-    enrols a fingerprint/card. Admins are notified of every new account.
+    Self-service sign-up. Always creates a STUDENT. With
+    AUTO_ASSIGN_AUTH_SUBJECT it gets the next door identity (USERn), which
+    opens nothing until staff enrol that person's fingerprint/face under the
+    same number. Admins are notified of every new account.
     """
     if not settings.SIGNUP_ENABLED:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
@@ -112,17 +117,23 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
     user = User(email=email, full_name=req.full_name.strip(),
                 hashed_password=hash_password(req.password),
                 role=Role.STUDENT, student_id=req.student_id or None,
+                auth_subject=(next_auth_subject(db)
+                              if settings.AUTO_ASSIGN_AUTH_SUBJECT else None),
                 department=req.department or None, is_active=not pending)
     db.add(user)
     db.flush()
     db.add(AuditLog(actor_user_id=user.id, action="USER_SIGNUP",
                     entity_type="user", entity_id=str(user.id), ip_address=ip,
-                    detail={"email": email, "pending": pending}))
+                    detail={"email": email, "pending": pending,
+                            "auth_subject": user.auth_subject}))
     notify(db, admin_ids(db), "USER_SIGNUP",
            f"New sign-up: {user.full_name}",
            body=(f"{email} created a student account."
-                 + (" It is waiting for your approval." if pending else
-                    " Enrol a fingerprint/card to give door access.")),
+                 + (" It is waiting for your approval." if pending else "")
+                 + (f" Door identity {user.auth_subject}: enrol fingerprint "
+                    f"slot {user.auth_subject[4:]} and face label "
+                    f"{user.auth_subject} to give door access."
+                    if user.auth_subject else "")),
            link="/admin/users", severity="warning" if pending else "info")
     db.commit()
 

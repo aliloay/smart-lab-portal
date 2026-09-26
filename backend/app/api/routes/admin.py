@@ -292,6 +292,13 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_staff)):
     return db.scalars(select(User).order_by(User.full_name)).all()
 
 
+@router.get("/users/next-auth-subject")
+def next_subject(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """The door identity the next account would get (USERn = fingerprint slot n)."""
+    from app.services.identity import next_auth_subject
+    return {"auth_subject": next_auth_subject(db)}
+
+
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                 admin: User = Depends(require_admin)):

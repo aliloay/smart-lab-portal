@@ -232,6 +232,19 @@ Verified on the real Docker Compose stack (db, backend, frontend, n8n 2.40.7):
   and the Operations Center all worked; the event stayed PENDING and was
   DELIVERED on the retry after n8n came back.
 
+### Testing your own installation
+
+With the portal and n8n running, double-click **`test_automation.bat`** in the
+project folder. It checks the automation key, that n8n is up, sends one event
+to each event workflow (01, 03, 04, 05) using the latest real booking/issue,
+and lists which workflows reported a run back to the portal. It is safe to
+repeat because every notification and alert has a dedupe key. Scheduled
+workflows (02, 06–12): open each in n8n and click **Execute workflow**.
+
+"Authorization failed / Invalid automation key" on a node means that globe
+(HTTP) node uses the wrong credential: set it to **Smart Lab automation key**.
+Only the first (webhook) node of 01/03/04/05 uses **Smart Lab webhook token**.
+
 ## 6. Failure modes
 
 | Failure | Effect |

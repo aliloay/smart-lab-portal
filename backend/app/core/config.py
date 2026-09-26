@@ -166,6 +166,10 @@ class Settings(BaseSettings):
     # them on Users & roles.
     SIGNUP_REQUIRES_APPROVAL: bool = False
     SIGNUPS_PER_IP_PER_HOUR: int = 10
+    # Give every new account (admin-created or signed up) the next door
+    # identity USERn = fingerprint slot n. It opens nothing until staff enrol
+    # that person's fingerprint/face under the same number.
+    AUTO_ASSIGN_AUTH_SUBJECT: bool = True
 
     @property
     def signup_domains(self) -> list[str]:

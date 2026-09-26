@@ -9,9 +9,10 @@
  * always works.
  */
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Bot, ListOrdered, Send, Sparkles, TriangleAlert } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { Bot, ListOrdered, MessageCircle, Send, Sparkles, TriangleAlert, X } from 'lucide-react'
 import { AiAnswer, AiStatus, Priority, api } from '../lib/api'
+import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
 type Turn = { role: 'user' | 'assistant'; content: string; tools?: string[] }
@@ -222,5 +223,51 @@ export function PriorityList({ limit = 5, withSummary = true }: { limit?: number
           {ai.error && <div className="text-[12.5px] text-bad-soft">{ai.error}</div>}
         </div>)}
     </div>
+  )
+}
+
+/**
+ * Chat bubble on every page. Staff get the lab assistant (with setup hints
+ * if the model is not ready); students get their helper, and see no bubble
+ * at all while no AI is set up. The panel stays mounted when closed so the
+ * conversation survives navigation.
+ */
+export function ChatBubble() {
+  const { user } = useAuth()
+  const loc = useLocation()
+  const staff = isStaff(user)
+  const [open, setOpen] = useState(false)
+  const [available, setAvailable] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    if (staff) { setAvailable(true); return }
+    api.studentAiStatus().then(s => setAvailable(s.configured)).catch(() => setAvailable(false))
+  }, [user, staff])
+
+  // The Operations Center already shows the full panel.
+  if (!user || !available || loc.pathname === '/admin/operations') return null
+  return (
+    <>
+      <div className={`fixed z-40 bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[410px]
+                       card p-4 shadow-2xl ${open ? '' : 'hidden'}`}
+           role="dialog" aria-label="AI assistant">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/15 text-violet-300">
+            <Sparkles size={14} /></span>
+          <div className="flex-1 text-sm font-medium text-white">
+            {staff ? 'Ask the lab' : 'Ask Smart Lab'}</div>
+          <button onClick={() => setOpen(false)} aria-label="Close" className="p-1 text-slate-400 hover:text-white">
+            <X size={16} /></button>
+        </div>
+        <AskTheLab mode={staff ? 'staff' : 'student'} />
+      </div>
+      <button onClick={() => setOpen(o => !o)} aria-label={open ? 'Close assistant' : 'Open AI assistant'}
+        className="fixed z-40 bottom-5 right-4 sm:right-6 w-14 h-14 rounded-full grid place-items-center
+                   bg-gradient-to-br from-accent-500 to-violet-500 text-white shadow-lg
+                   hover:scale-105 transition-transform">
+        {open ? <X size={22} /> : <MessageCircle size={22} />}
+      </button>
+    </>
   )
 }

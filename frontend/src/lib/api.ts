@@ -732,6 +732,7 @@ export const api = {
   users: () => request<User[]>('/users'),
   createUser: (u: Partial<User> & { password: string }) =>
     post<User>('/auth/register', u),
+  nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   updateUser: (id: number, u: Partial<User>) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),

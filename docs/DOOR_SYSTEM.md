@@ -278,6 +278,27 @@ The **internal name** must stay identical in the master sketch, the face
 server enrollment, and the QR payloads — that is what lets step 2 be checked
 against step 1. The **display name** is cosmetic and safe to change.
 
+### Adding a person (USER3, USER4, …) — no firmware edit
+
+The portal gives every new account the next door identity automatically
+(`USER3`, `USER4`, …; numbers are never reused). The number **is** the
+fingerprint slot, and the same label is the face name. For that person:
+
+1. **Fingerprint** — Arduino IDE → Serial Monitor on the master (115200 baud,
+   line ending *Newline*), door idle. Type `enroll 5` for USER5 and place the
+   same finger twice when asked. Other commands: `enroll 5 force`
+   (overwrite), `delete 5`, `count`.
+2. **Face (optional)** — about 20 times, with the person in front of the
+   camera: `http://<esp32cam-ip>/enroll?name=USER5`, then open
+   `http://<laptop-ip>:5000/train` once.
+3. They book a lab in the portal and show the booking QR. The portal names
+   `USER5`, and the master then accepts only fingerprint slot 5 or face
+   `USER5`. Anyone else's finger or face is refused as an identity mismatch.
+
+RFID cards are still listed in the sketch (only USER1 and USER2 have one);
+new people use the booking QR as step 1. Enrolment blocks the master for up
+to ~40 s; do it outside lab hours.
+
 ---
 
 ## Hardware reference (Master ESP32)
