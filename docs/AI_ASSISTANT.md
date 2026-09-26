@@ -120,7 +120,11 @@ on the charts. For better staff answers on a stronger PC, set
 ### If Ollama crashes ("llama-server process has terminated", 0xc0000409)
 
 The portal reaches Ollama, but Ollama's engine crashes while answering. The
-portal already retries once with a smaller context. If it still fails:
+portal retries by itself with a smaller context and then **on the processor
+only** (`num_gpu: 0`), so the chat usually still answers, just more slowly.
+`OLLAMA_CPU_ONLY=true` in `.env` skips the GPU attempts. `server.log` showing
+`CUDA error: device kernel image is invalid` means the NVIDIA driver is too old
+for Ollama's GPU code. To fix it at the source:
 
 1. Test Ollama alone: `ollama run qwen2.5:1.5b "say hi"`. If this also
    crashes, the problem is Ollama/driver, not the portal.

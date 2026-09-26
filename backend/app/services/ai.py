@@ -384,16 +384,25 @@ def _ollama_chat(model: str, messages: list[dict],
                  tools: Optional[list[dict]] = None) -> dict:
     """
     One /api/chat call. If Ollama's engine crashes (seen on Windows with
-    small GPUs: "llama-server process has terminated"), retry once with a
-    smaller context window, which needs much less graphics memory.
+    small or unsupported GPUs: "llama-server process has terminated"),
+    retry with a smaller context window, then on the processor only.
     """
     url = settings.OLLAMA_URL.rstrip("/") + "/api/chat"
-    sizes = list(dict.fromkeys([settings.OLLAMA_NUM_CTX, OLLAMA_FALLBACK_CTX]))
+    # (context size, run on the processor?) - tried in order until one works.
+    # A GPU whose driver cannot run Ollama's CUDA code ("device kernel image
+    # is invalid") still answers on the processor, just more slowly.
+    attempts = [(settings.OLLAMA_NUM_CTX, settings.OLLAMA_CPU_ONLY)]
+    if not settings.OLLAMA_CPU_ONLY:
+        attempts += [(OLLAMA_FALLBACK_CTX, False), (OLLAMA_FALLBACK_CTX, True)]
+    attempts = list(dict.fromkeys(attempts))
     detail = ""
-    for num_ctx in sizes:
+    for num_ctx, cpu in attempts:
+        options: dict[str, Any] = {"temperature": 0.2, "num_ctx": num_ctx}
+        if cpu:
+            options["num_gpu"] = 0          # no layers on the graphics card
         body: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
-            "options": {"temperature": 0.2, "num_ctx": num_ctx},
+            "options": options,
             # Keep the model loaded between questions (first load takes seconds).
             "keep_alive": "30m",
         }
@@ -414,12 +423,16 @@ def _ollama_chat(model: str, messages: list[dict],
             raise AIUnavailable(f"The model {model} is not downloaded yet. "
                                 f"On the computer running Ollama, run: ollama pull {model}")
         if r.status_code < 400:
+            if cpu and not settings.OLLAMA_CPU_ONLY:
+                log.warning("Ollama answered only on the processor; set "
+                            "OLLAMA_CPU_ONLY=true to skip the GPU attempts.")
             return r.json()
         try:
             detail = str(r.json().get("error", ""))[:300]
         except ValueError:
             detail = ""
-        log.warning("Ollama error %s (num_ctx=%s): %s", r.status_code, num_ctx, detail)
+        log.warning("Ollama error %s (num_ctx=%s, cpu=%s): %s",
+                    r.status_code, num_ctx, cpu, detail)
         if r.status_code < 500:
             break
     if "terminated" in detail or "memory" in detail.lower():

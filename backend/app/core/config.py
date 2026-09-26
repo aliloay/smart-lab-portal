@@ -146,6 +146,9 @@ class Settings(BaseSettings):
     # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
     # 4k by itself if Ollama's engine crashes.
     OLLAMA_NUM_CTX: int = 8192
+    # true = never use the graphics card (slower, but works when the GPU
+    # driver cannot run Ollama's CUDA code).
+    OLLAMA_CPU_ONLY: bool = False
     ANTHROPIC_API_KEY: str = ""
     AI_MODEL: str = "claude-opus-5"
     AI_STUDENT_MODEL: str = "claude-haiku-4-5"

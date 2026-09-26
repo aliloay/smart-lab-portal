@@ -48,6 +48,7 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
+      OLLAMA_CPU_ONLY: ${OLLAMA_CPU_ONLY:-false}
       AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
       # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the
       # free model even when this key is present.

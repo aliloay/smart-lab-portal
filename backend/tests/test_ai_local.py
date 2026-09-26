@@ -185,3 +185,26 @@ def test_ollama_crash_retries_with_smaller_context(db, monkeypatch, ollama):
     monkeypatch.setattr(ai.httpx, "post", always_crash)
     with pytest.raises(ai.AIUnavailable, match="crashed on this computer"):
         ai.ask(db, "q")
+
+
+def test_ollama_cuda_failure_falls_back_to_processor(db, monkeypatch, ollama):
+    ollama([])
+    seen = []
+
+    def post(url, json=None, timeout=None):
+        seen.append(json["options"].get("num_gpu"))
+        req = httpx.Request("POST", url)
+        if json["options"].get("num_gpu") != 0:
+            return httpx.Response(500, request=req, json={
+                "error": "llama-server process has terminated: CUDA error: "
+                         "device kernel image is invalid"})
+        return httpx.Response(200, request=req,
+                              json={"message": {"role": "assistant", "content": "cpu ok"}})
+    monkeypatch.setattr(ai.httpx, "post", post)
+    assert ai.ask(db, "q")["answer"] == "cpu ok"
+    assert seen == [None, None, 0]
+
+    seen.clear()
+    monkeypatch.setattr(settings, "OLLAMA_CPU_ONLY", True)
+    assert ai.ask(db, "q")["answer"] == "cpu ok"
+    assert seen == [0]                       # straight to the processor
