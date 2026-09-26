@@ -22,9 +22,9 @@ const burst = node({
       method: 'GET',
       url: expr(API + '/access/denials{{ $json.body.lab_id ? "?lab_id=" + $json.body.lab_id : "" }}'),
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"level": "warning", "count": 3, "lab_code": "LAB_01", "lab_id": 1, "message": "3 refusals at LAB_01 in 10 min", "by_reason": {"TOKEN_UNKNOWN": 3}, "dedupe_key": "denial-burst:1:1"}]
 });
@@ -43,13 +43,13 @@ const raiseAlert = node({
       method: 'POST',
       url: API + '/alerts',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ severity: "WARNING", title: "Repeated refusals at " + $json.lab_code, detail: $json.message + ". Reasons: " + Object.entries($json.by_reason).map(([k, v]) => k + " x" + v).join(", "), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": true, "alert_id": 1}]
 });
@@ -63,13 +63,13 @@ const tellStaff = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "SECURITY_EVENT", title: String("Repeated refusals at " + $("Evaluate Denial Burst").item.json.lab_code).slice(0, 160), body: String($("Evaluate Denial Burst").item.json.message + " - check the camera and who is at the door.").slice(0, 500), link: "/admin/access", severity: "warning", dedupe_key: $("Evaluate Denial Burst").item.json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -83,13 +83,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "03-access-denial-intelligence", status: "success", summary: "Burst at " + $("Evaluate Denial Burst").item.json.lab_code, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

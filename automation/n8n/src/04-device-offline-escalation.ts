@@ -29,9 +29,9 @@ const scan = node({
       method: 'GET',
       url: API + '/devices/offline',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"offline": [{"device_id": 1, "name": "Master", "level": 2, "audience": "staff", "severity": "warning", "title": "Master offline for 20 min - escalated", "body": "LAB_01", "dedupe_key": "device-offline:1:1:L2"}]}]
 });
@@ -52,13 +52,13 @@ const tell = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: $json.audience, kind: "DEVICE_OFFLINE", title: $json.title, body: $json.body, link: "/admin/devices", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1}]
 });
@@ -72,13 +72,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "04-device-offline-escalation", status: "success", summary: "Offline devices: " + $("Get Offline Devices").first().json.offline.length, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

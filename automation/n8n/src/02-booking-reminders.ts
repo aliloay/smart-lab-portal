@@ -18,9 +18,9 @@ const upcoming = node({
       method: 'GET',
       url: API + '/bookings/upcoming?within_minutes=20',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"bookings": [{"booking_id": 42, "reminder_sent": false}]}]
 });
@@ -48,13 +48,13 @@ const remind = node({
       method: 'POST',
       url: expr(API + '/bookings/{{ $json.booking_id }}/remind'),
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({}) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": true}]
 });
@@ -68,13 +68,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "02-booking-reminders", status: "success", summary: "Reminders raised: " + $input.all().filter(i => i.json.created).length, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

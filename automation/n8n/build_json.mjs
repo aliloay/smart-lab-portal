@@ -18,10 +18,11 @@ const { parseWorkflowCode } = require('@n8n/workflow-sdk')
 const here = new URL('.', import.meta.url).pathname
 const manifest = JSON.parse(readFileSync(here + 'workflows.json', 'utf8')).workflows
 
-const CREDENTIAL_NAMES = {
-  httpTemplatedCustomAuth: 'Smart Lab automation key',   // X-Automation-Key
-  httpHeaderAuth: 'Smart Lab webhook token',              // X-Smartlab-Token
-}
+// Both credentials are Header Auth; the node kind tells them apart: webhook
+// triggers check the token n8n receives, HTTP Request nodes send the key.
+const credentialName = n => n.type === 'n8n-nodes-base.webhook'
+  ? 'Smart Lab webhook token'      // X-Smartlab-Token
+  : 'Smart Lab automation key'     // X-Automation-Key
 
 const uuid = s => {
   const h = createHash('sha1').update(s).digest('hex')
@@ -36,7 +37,7 @@ for (const file of readdirSync(here + 'src').filter(f => f.endsWith('.ts')).sort
   for (const n of wf.nodes) {
     n.id = uuid(file + '/' + n.name)
     for (const type of Object.keys(n.credentials ?? {})) {
-      n.credentials[type] = { name: CREDENTIAL_NAMES[type] }
+      n.credentials[type] = { name: credentialName(n) }
     }
     if (n.webhookId !== undefined) n.webhookId = uuid('webhook/' + file + '/' + n.name)
   }

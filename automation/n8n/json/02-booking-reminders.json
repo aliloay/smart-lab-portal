@@ -36,10 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/bookings/upcoming?within_minutes=20",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth"
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -99,14 +99,14 @@
         "method": "POST",
         "url": "=http://backend:8000/api/automation/bookings/{{ $json.booking_id }}/remind",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({}) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -124,14 +124,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/runs",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"02-booking-reminders\", status: \"success\", summary: \"Reminders raised: \" + $input.all().filter(i => i.json.created).length, execution_id: $execution.id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
@@ -139,8 +139,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "88e015d6-ded1-5747-abe5-16c704ecda00",
-      "name": "Sticky Note 4aac5dfc",
+      "id": "aeea16e4-e367-5ead-adbe-735286a84684",
+      "name": "Sticky Note b6143f53",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

@@ -18,9 +18,9 @@ const upcoming = node({
       method: 'GET',
       url: API + '/bookings/upcoming?within_minutes=60',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"bookings": [{"booking_id": 42, "user_id": 2, "lab_code": "LAB_01", "link": "/bookings/42/qr", "readiness": {"level": "warning", "warnings": ["Controller offline"]}}]}]
 });
@@ -48,13 +48,13 @@ const tellStudent = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "user", user_id: $json.user_id, kind: "PRE_BOOKING_CHECK", title: String("Heads-up for your " + $json.lab_code + " booking").slice(0, 160), body: String($json.readiness.warnings.join(" ") + " Your booking is unchanged.").slice(0, 500), link: $json.link, severity: "warning", dedupe_key: "pre-booking:" + $json.booking_id, booking_id: $json.booking_id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -68,13 +68,13 @@ const tellStaff = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "PRE_BOOKING_CHECK", title: String("Lab not ready for booking #" + $("Lab Not Ready").item.json.booking_id).slice(0, 160), body: String($("Lab Not Ready").item.json.lab_code + ": " + $("Lab Not Ready").item.json.readiness.warnings.join(" ")).slice(0, 500), link: "/admin/bookings", severity: "warning", dedupe_key: "pre-booking-staff:" + $("Lab Not Ready").item.json.booking_id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -88,13 +88,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "09-pre-booking-check", status: "success", summary: "Warnings sent", execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

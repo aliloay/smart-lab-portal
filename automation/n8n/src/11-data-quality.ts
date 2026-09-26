@@ -18,9 +18,9 @@ const check = node({
       method: 'GET',
       url: API + '/data-quality',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"failing": 1, "summary": "1 check(s) need attention", "dedupe_key": "data-quality:2026-09-26"}]
 });
@@ -39,13 +39,13 @@ const tell = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "admins", kind: "DATA_QUALITY", title: String("Data quality: " + $json.failing + " check(s) need attention").slice(0, 160), body: String($json.summary).slice(0, 500), link: "/admin/operations", severity: "info", dedupe_key: $json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -59,13 +59,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "11-data-quality", status: "success", summary: $("Run Checks In Backend").item.json.summary, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

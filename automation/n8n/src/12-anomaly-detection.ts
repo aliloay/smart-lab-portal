@@ -18,9 +18,9 @@ const scan = node({
       method: 'GET',
       url: API + '/anomalies?hours=24',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"count": 1, "anomalies": [{"rule": "denial_burst", "severity": "warning", "lab_code": "LAB_01", "count": 4, "detail": "4 refusals within 10 min.", "dedupe_key": "anomaly:denial_burst:1:2026-09-26"}]}]
 });
@@ -41,13 +41,13 @@ const tell = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "ANOMALY", title: String("Anomaly: " + $json.rule.replaceAll("_", " ") + ($json.lab_code ? " at " + $json.lab_code : "")).slice(0, 160), body: String($json.detail).slice(0, 500), link: "/admin/access", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -61,13 +61,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "12-anomaly-detection", status: "success", summary: "Anomalies: " + $("Run Anomaly Rules").first().json.count, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

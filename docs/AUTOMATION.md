@@ -182,7 +182,7 @@ names must match exactly:
 
 | Name | Type | Setting |
 |---|---|---|
-| `Smart Lab automation key` | Simplified Custom Auth (`httpTemplatedCustomAuth`) | template `{"headers":{"X-Automation-Key":"{{automation_key}}"}}`, value = `AUTOMATION_API_KEY` |
+| `Smart Lab automation key` | Header Auth | name `X-Automation-Key`, value = `AUTOMATION_API_KEY` |
 | `Smart Lab webhook token` | Header Auth | name `X-Smartlab-Token`, value = `AUTOMATION_WEBHOOK_TOKEN` |
 
 Open each workflow, select these credentials on the nodes that ask for them

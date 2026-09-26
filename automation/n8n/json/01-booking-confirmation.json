@@ -38,10 +38,10 @@
         "method": "GET",
         "url": "=http://backend:8000/api/automation/bookings/{{ $json.body.object.id }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth"
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -89,14 +89,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/notify",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"BOOKING_BRIEFING\", title: \"Before your \" + $json.lab_code + \" session\", body: [...$json.readiness.warnings, ...$json.readiness.notes].join(\" \").slice(0, 490), link: $json.link, severity: $json.readiness.level === \"warning\" ? \"warning\" : \"info\", booking_id: $json.booking_id, dedupe_key: \"booking-briefing:\" + $json.booking_id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -114,14 +114,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/runs",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"01-booking-confirmation\", status: \"success\", summary: \"Briefing for booking \" + $(\"Get Booking Readiness\").item.json.booking_id, execution_id: $execution.id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
@@ -129,8 +129,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "4cc0cfc5-930e-5baa-a48a-ff2fc4a3553e",
-      "name": "Sticky Note 6efc4898",
+      "id": "d63b54ff-b2a8-5e5f-a7fa-ad878c1d4086",
+      "name": "Sticky Note d7ce109c",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

@@ -22,9 +22,9 @@ const issue = node({
       method: 'GET',
       url: expr(API + '/issues/{{ $json.body.object.id }}'),
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"issue_id": 7, "ticket": "ISS-2026-000007", "title": "Scope dead", "severity": "HIGH", "lab_code": "LAB_01", "assigned": false, "link": "/issues/7", "bookings_next_24h": 2}]
 });
@@ -43,13 +43,13 @@ const tellUrgent = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "MAINTENANCE_DIGEST", title: String($json.severity + " issue in a booked lab: " + $json.ticket).slice(0, 160), body: String($json.title + " - " + $json.bookings_next_24h + " booking(s) in " + $json.lab_code + " in the next 24 h.").slice(0, 500), link: $json.link, severity: $json.severity === "CRITICAL" ? "critical" : "warning", dedupe_key: "issue-impact:" + $json.issue_id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -70,9 +70,9 @@ const digest = node({
       method: 'GET',
       url: API + '/maintenance',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"open_issues": 3, "overdue": [{"ticket": "ISS-1"}], "unassigned_urgent": [], "assets_due": [], "dedupe_day": "2026-09-26"}]
 });
@@ -91,13 +91,13 @@ const tellDigest = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "MAINTENANCE_DIGEST", title: String("Maintenance digest: " + $json.overdue.length + " overdue, " + $json.unassigned_urgent.length + " urgent unassigned").slice(0, 160), body: String([...$json.overdue.map(i => i.ticket + " overdue"), ...$json.unassigned_urgent.map(i => i.ticket + " unassigned"), ...$json.assets_due.map(a => a.name + (a.overdue ? " maintenance overdue" : " maintenance due"))].join("; ")).slice(0, 500), link: "/issues", severity: "warning", dedupe_key: "maintenance-digest:" + $json.dedupe_day }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -111,13 +111,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "05-maintenance-automation", status: "success", summary: "Maintenance notification sent", execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });

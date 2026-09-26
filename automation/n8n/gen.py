@@ -5,8 +5,8 @@ API = "http://backend:8000/api/automation"
 HEAD = ("import { workflow, node, trigger, ifElse, newCredential, expr, sticky } "
         "from '@n8n/workflow-sdk';\n\nconst API = '%s';\n" % API)
 AUTH = ("      authentication: 'genericCredentialType',\n"
-        "      genericAuthType: 'httpTemplatedCustomAuth',\n")
-CRED = "    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }\n"
+        "      genericAuthType: 'httpHeaderAuth',\n")
+CRED = "    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }\n"
 
 
 def webhook(var, name, path, sample):

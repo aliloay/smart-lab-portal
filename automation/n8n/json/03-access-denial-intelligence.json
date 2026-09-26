@@ -38,10 +38,10 @@
         "method": "GET",
         "url": "=http://backend:8000/api/automation/access/denials{{ $json.body.lab_id ? \"?lab_id=\" + $json.body.lab_id : \"\" }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth"
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -89,14 +89,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/alerts",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: \"Repeated refusals at \" + $json.lab_code, detail: $json.message + \". Reasons: \" + Object.entries($json.by_reason).map(([k, v]) => k + \" x\" + v).join(\", \"), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -114,14 +114,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/notify",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SECURITY_EVENT\", title: String(\"Repeated refusals at \" + $(\"Evaluate Denial Burst\").item.json.lab_code).slice(0, 160), body: String($(\"Evaluate Denial Burst\").item.json.message + \" - check the camera and who is at the door.\").slice(0, 500), link: \"/admin/access\", severity: \"warning\", dedupe_key: $(\"Evaluate Denial Burst\").item.json.dedupe_key }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -139,14 +139,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/runs",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"03-access-denial-intelligence\", status: \"success\", summary: \"Burst at \" + $(\"Evaluate Denial Burst\").item.json.lab_code, execution_id: $execution.id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
@@ -154,8 +154,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "a8085dad-84b5-5276-abaa-73c4b4092d9b",
-      "name": "Sticky Note fcf70c7b",
+      "id": "aab52454-1b39-5d66-a02e-78f4cad3874e",
+      "name": "Sticky Note b2e733e0",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

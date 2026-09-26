@@ -36,10 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/reports/daily",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth"
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -57,14 +57,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/notify",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"DAILY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -82,14 +82,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/runs",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"06-daily-report\", status: \"success\", summary: $(\"Build Report In Backend\").item.json.title, execution_id: $execution.id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
@@ -97,8 +97,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "de943726-5896-59d9-af61-7a59214df134",
-      "name": "Sticky Note 330b6e34",
+      "id": "fed4dbe0-26c3-5889-a57c-d22a4ef17bc0",
+      "name": "Sticky Note c9e9b94d",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

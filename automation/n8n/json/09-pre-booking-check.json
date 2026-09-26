@@ -36,10 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/bookings/upcoming?within_minutes=60",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth"
+        "genericAuthType": "httpHeaderAuth"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -100,14 +100,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/notify",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"PRE_BOOKING_CHECK\", title: String(\"Heads-up for your \" + $json.lab_code + \" booking\").slice(0, 160), body: String($json.readiness.warnings.join(\" \") + \" Your booking is unchanged.\").slice(0, 500), link: $json.link, severity: \"warning\", dedupe_key: \"pre-booking:\" + $json.booking_id, booking_id: $json.booking_id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -125,14 +125,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/notify",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"PRE_BOOKING_CHECK\", title: String(\"Lab not ready for booking #\" + $(\"Lab Not Ready\").item.json.booking_id).slice(0, 160), body: String($(\"Lab Not Ready\").item.json.lab_code + \": \" + $(\"Lab Not Ready\").item.json.readiness.warnings.join(\" \")).slice(0, 500), link: \"/admin/bookings\", severity: \"warning\", dedupe_key: \"pre-booking-staff:\" + $(\"Lab Not Ready\").item.json.booking_id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       }
@@ -150,14 +150,14 @@
         "method": "POST",
         "url": "http://backend:8000/api/automation/runs",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpTemplatedCustomAuth",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"09-pre-booking-check\", status: \"success\", summary: \"Warnings sent\", execution_id: $execution.id }) }}"
       },
       "credentials": {
-        "httpTemplatedCustomAuth": {
+        "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
@@ -165,8 +165,8 @@
       "onError": "continueRegularOutput"
     },
     {
-      "id": "a980d9db-cdc6-5527-a14c-158feb6e9b74",
-      "name": "Sticky Note 6bade382",
+      "id": "c8497357-cea2-5631-acea-0605532df387",
+      "name": "Sticky Note c1f6c1a9",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [

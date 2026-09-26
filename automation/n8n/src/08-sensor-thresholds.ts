@@ -18,9 +18,9 @@ const evaluate = node({
       method: 'GET',
       url: API + '/sensors/evaluate?max_age_minutes=30',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"no_data": false, "breaches": [{"lab_id": 1, "lab_code": "LAB_01", "metric": "temperature", "value": 34, "unit": "C", "status": "high", "min": 16, "max": 30, "title": "LAB_01 temperature high: 34C", "dedupe_key": "sensor:1:temperature:high:2026092610"}]}]
 });
@@ -41,13 +41,13 @@ const alert = node({
       method: 'POST',
       url: API + '/alerts',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ severity: "WARNING", title: $json.title, detail: "Allowed range " + ($json.min ?? "-") + " to " + ($json.max ?? "-") + " " + $json.unit + ".", lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": true}]
 });
@@ -61,13 +61,13 @@ const tell = node({
       method: 'POST',
       url: API + '/notify',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ audience: "staff", kind: "SENSOR_THRESHOLD", title: String($("One Item Per Breach").item.json.title).slice(0, 160), body: String("Latest reading outside the configured range.").slice(0, 500), link: "/admin/operations", severity: "warning", dedupe_key: $("One Item Per Breach").item.json.dedupe_key }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"created": 1, "duplicate": false}]
 });
@@ -81,13 +81,13 @@ const recordRun = node({
       method: 'POST',
       url: API + '/runs',
       authentication: 'genericCredentialType',
-      genericAuthType: 'httpTemplatedCustomAuth',
+      genericAuthType: 'httpHeaderAuth',
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
       jsonBody: expr('{{ JSON.stringify({ workflow: "08-sensor-thresholds", status: "success", summary: "Breaches: " + $("Evaluate Sensors In Backend").first().json.breaches.length, execution_id: $execution.id }) }}')
     },
-    credentials: { httpTemplatedCustomAuth: newCredential('Smart Lab automation key') }
+    credentials: { httpHeaderAuth: newCredential('Smart Lab automation key') }
   },
   output: [{"recorded": true}]
 });
