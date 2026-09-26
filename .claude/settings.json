@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "transport": "http",
+      "url": "https://api.graphify.net/v1",
+      "headers": {
+        "Authorization": "Bearer ${GRAPHIFY_API_KEY}"
+      }
+    }
+  }
+}
