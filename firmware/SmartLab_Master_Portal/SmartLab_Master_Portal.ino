@@ -4,10 +4,9 @@
   ===========================================================================
   Board: ESP32 Dev Module
 
-  BASE: the known-good RFID build. The entire RFID path is untouched -
-  same rfidBeginSpi()/rfidInitReader(), same rfidVersionOk() test, same
-  heartbeat, same antenna handling, same PICC_IsNewCardPresent() +
-  PICC_ReadCardSerial() polling, same timings, same user database.
+  RFID READER: HW-147 PN532 V3 over I2C (SDA=GPIO19, SCL=GPIO18, addr 0x24,
+  DIP S1=ON S2=OFF), Adafruit PN532 library. It replaces the MFRC522; the
+  UID feeds the same user database, de-dup, timings and 2-step flow.
 
   ONLY TWO THINGS CHANGED, both requested:
 
@@ -39,7 +38,8 @@
 */
 
 #include <SPI.h>
-#include <MFRC522.h>
+#include <Wire.h>
+#include <Adafruit_PN532.h>
 #include <HardwareSerial.h>
 #include <Adafruit_Fingerprint.h>
 #include <Adafruit_GFX.h>
@@ -125,12 +125,13 @@ constexpr uint32_t VISION_FRESH_MS  = 3500;
 // PIN ARCHITECTURE
 // ===========================================================================
 
-// --- RFID / MFRC522 — VSPI, exclusive use (proven: VersionReg = 0x92) ---
-constexpr uint8_t RFID_SS_PIN   = 5;
-constexpr uint8_t RFID_RST_PIN  = 22;
-constexpr uint8_t RFID_SCK_PIN  = 18;
-constexpr uint8_t RFID_MISO_PIN = 19;
-constexpr uint8_t RFID_MOSI_PIN = 23;
+// --- RFID / PN532 — I2C (address 0x24), no IRQ / RESET wires ---
+constexpr uint8_t RFID_SDA_PIN  = 19;
+constexpr uint8_t RFID_SCL_PIN  = 18;
+constexpr uint8_t PN532_NO_PIN  = 255;   // IRQ and RESET are not wired
+// How long each idle-loop poll lets the PN532 look for a card before the
+// loop moves on (QR, door, tablet). A card's reply needs well over 30 ms.
+constexpr uint16_t RFID_POLL_WINDOW_MS = 250;   // = CARD_READ_TIMEOUT_MS
 
 // --- TFT ST7735 — separate bus, physically isolated from RFID ---
 constexpr uint8_t TFT_SCK_PIN  = 13;
@@ -172,11 +173,11 @@ constexpr uint8_t RED_LED_BUZZER_PIN = 21;  // one NPN stage drives red LED + bu
 // ---------------------------------------------------------------------------
 constexpr uint8_t RED_LED_SOLO_PIN = 15;
 
-MFRC522 mfrc522(RFID_SS_PIN, RFID_RST_PIN);
+Adafruit_PN532 nfc(PN532_NO_PIN, PN532_NO_PIN, &Wire);
 HardwareSerial fingerSerial(2);
 Adafruit_Fingerprint finger(&fingerSerial);
 // The TFT runs on the ESP32's SECOND hardware SPI controller (HSPI), routed
-// to its own SCK/MOSI pins - still a separate bus from the RFID (VSPI), just
+// to its own SCK/MOSI pins - separate from the RFID (I2C), just
 // no longer bit-banged by the CPU. Bit-banging painted a full-screen photo
 // line by line; hardware SPI draws it in ~20-30 ms.
 // RST is passed as -1 and pulsed by tftInit() itself, so a light wake-up
@@ -186,15 +187,18 @@ SPIClass tftSPI(HSPI);
 Adafruit_ST7735 tft = Adafruit_ST7735(&tftSPI, TFT_CS_PIN, TFT_DC_PIN, -1);
 
 // ===========================================================================
-// Forward declarations — Arduino IDE's auto prototype generator mishandles a
-// library-class parameter type (MFRC522::Uid) and emits a broken prototype
-// above the #include that defines it. Declaring them here prevents that.
+// The UID of the card just read by the PN532, in the same shape the helpers
+// below always used (size + uidByte[]), so their logic is unchanged.
+// Forward declarations keep the Arduino prototype generator from emitting
+// prototypes above the struct definition.
 // ===========================================================================
-void printUID(const MFRC522::Uid &uid);
-bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize);
-bool isSameAsLastUID(const MFRC522::Uid &uid);
-void rememberUID(const MFRC522::Uid &uid);
-int  findAuthorizedUser(const MFRC522::Uid &uid);
+struct RfidUid { uint8_t size; uint8_t uidByte[10]; };
+RfidUid rfidUid = {0, {0}};
+void printUID(const RfidUid &uid);
+bool uidEquals(const RfidUid &uid, const uint8_t *storedUID, uint8_t storedSize);
+bool isSameAsLastUID(const RfidUid &uid);
+void rememberUID(const RfidUid &uid);
+int  findAuthorizedUser(const RfidUid &uid);
 
 // ===========================================================================
 // USER DATABASE — never silently changed
@@ -351,6 +355,7 @@ uint8_t  lastUID[10] = {0};
 uint8_t  lastUIDSize = 0;
 uint32_t lastUIDTime = 0;
 bool     haveLastUID = false;
+uint32_t lastUIDSeenMs = 0;   // last time the remembered card was in the field
 
 // RFID link health
 bool     rfidLinkDown = false;
@@ -396,7 +401,7 @@ void printHexByte(uint8_t value) {
   Serial.print(value, HEX);
 }
 
-void printUID(const MFRC522::Uid &uid) {
+void printUID(const RfidUid &uid) {
   Serial.print("[RFID][UID] ");
   for (byte i = 0; i < uid.size; i++) {
     printHexByte(uid.uidByte[i]);
@@ -405,98 +410,98 @@ void printUID(const MFRC522::Uid &uid) {
   Serial.println();
 }
 
-void printErrorRegister() {
-  byte errorReg = mfrc522.PCD_ReadRegister(mfrc522.ErrorReg);
-  Serial.print("[SPI][ERROR] ErrorReg = 0x");
-  printHexByte(errorReg);
-  Serial.println();
+// ===========================================================================
+// RFID link health + auto-recovery  —  PN532 over I2C
+// ===========================================================================
+// getFirmwareVersion() returns 0 when the PN532 does not answer. Byte 3 is
+// the IC (0x32 = PN532), bytes 2/1 are the firmware version (1.6 here).
+bool rfidFirmwareOk(uint32_t fw) {
+  return fw != 0 && ((fw >> 24) & 0xFF) == 0x32;
 }
 
-// ===========================================================================
-// RFID link health + auto-recovery  —  UNCHANGED from the working build
-// ===========================================================================
-bool rfidVersionOk(byte v) {
-  return !(v == 0x00 || v == 0xFF);
+void printFirmware(const char *tag, uint32_t fw) {
+  if (fw == 0) { Serial.printf("%s no firmware response\n", tag); return; }
+  Serial.printf("%s Chip: PN5%02X  Firmware: %u.%u\n", tag,
+                (unsigned)((fw >> 24) & 0xFF), (unsigned)((fw >> 16) & 0xFF),
+                (unsigned)((fw >> 8) & 0xFF));
 }
 
-// Brings up the SPI bus. Called ONCE, from setup() only.
-void rfidBeginSpi() {
-  SPI.begin(RFID_SCK_PIN, RFID_MISO_PIN, RFID_MOSI_PIN, RFID_SS_PIN);
+// Brings up the I2C bus. Called ONCE, from setup() only.
+void rfidBeginI2c() {
+  Wire.begin(RFID_SDA_PIN, RFID_SCL_PIN);
+  Wire.setClock(100000);                     // 100 kHz, as in the working test
   delay(20);
-  pinMode(RFID_SS_PIN, OUTPUT);
-  digitalWrite(RFID_SS_PIN, HIGH);
 }
 
-// (Re)initializes the READER only — safe to call repeatedly.
-void rfidInitReader() {
-  mfrc522.PCD_Init(RFID_SS_PIN, RFID_RST_PIN);
-  delay(50);
-  mfrc522.PCD_AntennaOn();
-  mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
-  delay(10);
-}
-
-void printAntennaState(const char *tag) {
-  byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
-  byte gain = (mfrc522.PCD_GetAntennaGain() >> 4) & 0x07;
-  Serial.printf("%s TxControlReg = 0x%02X  [RF field %s]  RxGain level = %u/7\n",
-                tag, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF/PARTIAL", gain);
+// (Re)initializes the READER only — safe to call repeatedly. Returns the
+// firmware word (0 = no answer).
+uint32_t rfidInitReader() {
+  nfc.begin();
+  uint32_t fw = nfc.getFirmwareVersion();
+  if (fw) nfc.SAMConfig();                   // normal mode, RF field on
+                                             // (same setup as the working test)
+  return fw;
 }
 
 bool rfidRecover() {
-  Serial.println("[RFID][RECOVER] Link lost - reinitializing MFRC522 (reader only)...");
-  rfidInitReader();
-  byte v = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-  bool ok = rfidVersionOk(v);
-  Serial.printf("[RFID][RECOVER] VersionReg = 0x%02X  %s\n",
-                v, ok ? "(recovered)" : "(STILL DOWN - check wiring)");
-  if (ok) printAntennaState("[RFID][RECOVER]");
+  Serial.println("[RFID][RECOVER] Link lost - reinitializing PN532 (reader only)...");
+  uint32_t fw = rfidInitReader();
+  bool ok = rfidFirmwareOk(fw);
+  printFirmware("[RFID][RECOVER]", fw);
+  Serial.printf("[RFID][RECOVER] %s\n", ok ? "(recovered)" : "(STILL DOWN - check wiring)");
   return ok;
 }
 
 // ===========================================================================
 // RFID helpers — UNCHANGED
 // ===========================================================================
-bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize) {
+bool uidEquals(const RfidUid &uid, const uint8_t *storedUID, uint8_t storedSize) {
   if (uid.size != storedSize) return false;
   for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != storedUID[i]) return false;
   return true;
 }
 
-bool isSameAsLastUID(const MFRC522::Uid &uid) {
+bool isSameAsLastUID(const RfidUid &uid) {
   if (!haveLastUID || uid.size != lastUIDSize) return false;
   for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != lastUID[i]) return false;
   return true;
 }
 
-void rememberUID(const MFRC522::Uid &uid) {
+void rememberUID(const RfidUid &uid) {
   lastUIDSize = uid.size;
   for (byte i = 0; i < uid.size && i < sizeof(lastUID); i++) lastUID[i] = uid.uidByte[i];
   lastUIDTime = millis();
   haveLastUID = true;
 }
 
-int findAuthorizedUser(const MFRC522::Uid &uid) {
+int findAuthorizedUser(const RfidUid &uid) {
   for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
     if (uidEquals(uid, authorizedUsers[i].uid, authorizedUsers[i].size)) return (int)i;
   }
   return -1;
 }
 
-bool readCardWithTimeout() {
-  uint32_t start = millis();
-  while ((millis() - start) < CARD_READ_TIMEOUT_MS) {
-    if (mfrc522.PICC_ReadCardSerial()) return true;
-    delay(POLL_DELAY_MS);
-  }
-  Serial.println("[RFID][TIMEOUT] Could not read UID within timeout.");
-  printErrorRegister();
-  return false;
+// One ISO14443A / MIFARE detection attempt. On success the UID is in
+// rfidUid. The PN532 detects and reads the UID in a single command, so this
+// replaces the old IsNewCardPresent() + ReadCardSerial() pair.
+bool rfidDetectCard(uint16_t windowMs) {
+  uint8_t len = 0;
+  if (windowMs > CARD_READ_TIMEOUT_MS) windowMs = CARD_READ_TIMEOUT_MS;
+  if (!nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, rfidUid.uidByte, &len, windowMs))
+    return false;
+  if (len == 0 || len > sizeof(rfidUid.uidByte)) return false;
+  rfidUid.size = len;
+  return true;
 }
 
-void finishRFIDTransaction() {
-  mfrc522.PICC_HaltA();
-  mfrc522.PCD_StopCrypto1();
+// A card left resting on the reader is re-detected on every poll. While the
+// remembered card is still in the field (seen again within this gap), it is
+// the SAME presentation and must not re-trigger authentication.
+constexpr uint32_t RFID_CARD_GONE_MS = 400;
+bool rfidSameCardStillPresent() {
+  bool held = isSameAsLastUID(rfidUid) && (millis() - lastUIDSeenMs) < RFID_CARD_GONE_MS;
+  if (isSameAsLastUID(rfidUid)) lastUIDSeenMs = millis();
+  return held;
 }
 
 // ===========================================================================
@@ -1404,6 +1409,9 @@ void pollDoor() {
 // ===========================================================================
 // setup()
 // ===========================================================================
+// Read-only tablet display (a second, larger view of the TFT's state).
+#include "tablet_display.h"
+
 void setup() {
   // =========================================================================
   // RELAY FIRST - driven LOCKED before anything else. This is the 21:07
@@ -1441,23 +1449,23 @@ void setup() {
   screenBoot(gfx());
   present();
 
-  // --- RFID on the proven VSPI path --- (UNCHANGED)
-  Serial.println("[RFID] Initializing the proven standalone VSPI path...");
-  rfidBeginSpi();      // ONCE only
-  rfidInitReader();
-
-  byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-  Serial.print("[RFID] VersionReg = 0x");
-  printHexByte(version);
-  Serial.println();
-  if (!rfidVersionOk(version)) {
-    Serial.println("[RFID][FAIL] MFRC522 communication check failed.");
-    printErrorRegister();
+  // --- RFID: PN532 over I2C (SDA=GPIO19, SCL=GPIO18) ---
+  Serial.println("[RFID] Initializing PN532 over I2C (SDA=GPIO19, SCL=GPIO18)...");
+  rfidBeginI2c();      // ONCE only
+  // The PN532 can still be waking when setup() gets here; give it up to
+  // ~1 s (the working test sketch waited 1 s) before calling it unavailable.
+  uint32_t fw = 0;
+  for (int attempt = 0; attempt < 5 && !rfidFirmwareOk(fw); attempt++) {
+    if (attempt) delay(200);
+    fw = rfidInitReader();
+  }
+  printFirmware("[RFID]", fw);
+  if (!rfidFirmwareOk(fw)) {
+    Serial.println("[RFID][FAIL] PN532 communication check failed - RFID unavailable, QR still works.");
     rfidLinkDown = true;
   } else {
-    Serial.println("[RFID][PASS] MFRC522 communication detected.");
+    Serial.println("[RFID][PASS] PN532 communication detected.");
     rfidLinkDown = false;
-    printAntennaState("[RFID][RF]");
   }
 
 
@@ -1504,6 +1512,7 @@ void setup() {
     Serial.println("[WIFI][WARN] Not connected - QR and FACE unavailable.");
     Serial.println("[WIFI][WARN] RFID + fingerprint continue to work normally.");
   }
+  tabletBegin();       // read-only tablet display; the door never depends on it
 
   Serial.println();
   Serial.println("=================================================");
@@ -1525,6 +1534,7 @@ void setup() {
 // loop() — logic identical to the working build
 // ===========================================================================
 void loop() {
+  tabletLoop();        // serve the tablet, if one is asking (non-blocking)
   pollDoor();
   pollSerialCommands();
 
@@ -1587,27 +1597,20 @@ void loop() {
         fpOk = finger.verifyPassword();
       }
 
-      // Periodic SPI link self-test with automatic recovery.
+      // Periodic I2C link self-test (PN532 firmware query) with recovery.
       if (millis() - lastHeartbeatMs > RFID_HEARTBEAT_MS) {
         lastHeartbeatMs = millis();
-        byte v  = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-        byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
-        Serial.printf("[RFID][HEARTBEAT] VersionReg = 0x%02X   TxControlReg = 0x%02X [RF %s]\n",
-                      v, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF");
+        uint32_t fw = nfc.getFirmwareVersion();
+        printFirmware("[RFID][HEARTBEAT]", fw);
 
-        // RF field went down while the SPI link is still fine -> re-arm it.
-        if (rfidVersionOk(v) && (tx & 0x03) != 0x03) {
-          Serial.println("[RFID][RF] Antenna field is OFF - re-enabling...");
-          mfrc522.PCD_AntennaOn();
-          mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
-          printAntennaState("[RFID][RF]");
-        }
-
-        if (!rfidVersionOk(v)) {
+        if (!rfidFirmwareOk(fw)) {
           bool ok = rfidRecover();
           if (!ok && !rfidLinkDown) { rfidLinkDown = true;  displayDirty = true; }
           if ( ok &&  rfidLinkDown) { rfidLinkDown = false; displayDirty = true; }
         } else if (rfidLinkDown) {
+          // It answers now but was never configured (boot init failed):
+          // run SAMConfig, or it replies to firmware queries yet reads no card.
+          nfc.SAMConfig();
           rfidLinkDown = false;
           displayDirty = true;
           Serial.println("[RFID] Link restored.");
@@ -1678,29 +1681,29 @@ void loop() {
         else             { goAccessDenied("UNKNOWN QR");  break; }
       }
 
-      if (!mfrc522.PICC_IsNewCardPresent()) {
+      if (rfidLinkDown || !rfidDetectCard(RFID_POLL_WINDOW_MS)) {
         delay(POLL_DELAY_MS);
         break;
       }
-      if (!readCardWithTimeout()) {
-        finishRFIDTransaction();
+
+      // Same card still resting on the reader: not a new presentation.
+      if (rfidSameCardStillPresent()) {
         delay(20);
         break;
       }
 
-      printUID(mfrc522.uid);
+      printUID(rfidUid);
 
-      bool duplicate = isSameAsLastUID(mfrc522.uid) &&
+      bool duplicate = isSameAsLastUID(rfidUid) &&
                        ((millis() - lastUIDTime) < DUPLICATE_IGNORE_MS);
       if (duplicate) {
-        finishRFIDTransaction();
         delay(20);
         break;
       }
-      rememberUID(mfrc522.uid);
+      rememberUID(rfidUid);
+      lastUIDSeenMs = millis();
 
-      int userIndex = findAuthorizedUser(mfrc522.uid);
-      finishRFIDTransaction();
+      int userIndex = findAuthorizedUser(rfidUid);
 
       if (userIndex >= 0) { step1Label = "RFID OK"; goWaitFingerprint(userIndex); }
       else                goAccessDenied("UNKNOWN CARD");
