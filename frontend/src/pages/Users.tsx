@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
+import { Fingerprint, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { Role, User, api } from '../lib/api'
 import FaceEnrollment from '../components/FaceEnrollment'
 import FingerprintEnrollment from '../components/FingerprintEnrollment'
@@ -17,6 +17,7 @@ export default function Users() {
   const [q, setQ] = useState('')
   const [role, setRole] = useState('')
   const [editing, setEditing] = useState<User | null>(null)
+  const [enrolling, setEnrolling] = useState<User | null>(null)
   const [creating, setCreating] = useState<Role | null>(null)
   const [error, setError] = useState('')
 
@@ -94,8 +95,14 @@ export default function Users() {
                               .filter(Boolean).join(' + ')} pending</div>)}</td>
                       <td className="td text-slate-300">{u.department ?? '—'}</td>
                       <td className="td"><Chip tone={u.is_active ? 'ok' : 'bad'} dot>{u.is_active ? 'Active' : 'Disabled'}</Chip></td>
-                      <td className="td text-right"><button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
-                        <Pencil size={13} />Edit</button></td>
+                      <td className="td text-right whitespace-nowrap">
+                        {u.auth_subject && (
+                          <button className={`btn-sm mr-1 ${u.fingerprint_enrolled_at && u.face_enrolled_at
+                                    ? 'btn-quiet' : 'btn-primary'}`}
+                                  title="Register fingerprint and Face ID" onClick={() => setEnrolling(u)}>
+                            <Fingerprint size={13} />Enroll</button>)}
+                        <button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
+                          <Pencil size={13} />Edit</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -103,6 +110,21 @@ export default function Users() {
             </div>
           )}
       </div>
+
+      <Drawer open={!!enrolling} onClose={() => { setEnrolling(null); load() }}
+              title={`Door enrollment - ${enrolling?.full_name ?? ''}`}
+              subtitle={enrolling?.auth_subject ? `${enrolling.auth_subject}: fingerprint slot ${enrolling.auth_subject.replace(/^USER/, '')} and face label ${enrolling.auth_subject}` : undefined}>
+        {enrolling && (
+          <div className="space-y-4">
+            <p className="text-[12.5px] text-slate-400">
+              Fingerprint: the person and you go to the door; press Enroll and follow the door screen.
+              Face ID: the person stands in front of the door camera.
+            </p>
+            <FingerprintEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject}
+                                   enrolledAt={enrolling.fingerprint_enrolled_at ?? null} onEnrolled={() => load()} />
+            <FaceEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject} onEnrolled={() => load()} />
+          </div>)}
+      </Drawer>
 
       <Drawer open={!!editing} onClose={() => setEditing(null)} title="Edit user" subtitle={editing?.email}>
         {editing && <EditUser u={editing} self={editing.id === me?.id}
