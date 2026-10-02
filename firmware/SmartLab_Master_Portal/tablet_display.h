@@ -222,6 +222,21 @@ footer span{font-size:clamp(14px,1.9vw,22px);font-weight:600}
 letter-spacing:.14em;font-size:clamp(12px,1.6vw,18px);display:none;z-index:5}
 #conn.down{display:block;background:#7f1d1d;border:1px solid #f87171}
 #conn.up{display:block;background:#065f46;border:1px solid #34d399}
+.card.withlive{padding-top:2vh;padding-bottom:2vh}
+.card.withlive .hdr{margin-bottom:1vh;font-size:clamp(11px,2vh,18px)}
+.card.withlive h1{font-size:clamp(28px,7.5vh,64px)}
+.card.withlive .name{margin-top:.6vh;font-size:clamp(20px,4.6vh,44px)}
+.card.withlive .lines{margin-top:.8vh;font-size:clamp(15px,3vh,26px);line-height:1.25}
+.card.withlive .note{margin-top:.6vh;font-size:clamp(14px,2.6vh,22px)}
+.card.withlive .icon{display:none}
+.live{position:relative;height:min(34vh,345px);aspect-ratio:4/3;max-width:80vw;margin:1.4vh auto 0;border-radius:18px;overflow:hidden;
+border:2px solid rgba(148,184,226,.35);background:#050b16}
+.live img{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block}
+.live .box{position:absolute;border:3px solid var(--cy);border-radius:14px;transition:all .15s linear}
+.live .box.ok{border-color:var(--ok)}.live .box.warn{border-color:var(--warn)}
+.live .off{position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:clamp(14px,1.8vw,20px)}
+.hint{margin-top:1vh;font-size:clamp(18px,4vh,34px);font-weight:700;color:var(--cy)}
+.hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <div id="conn"></div>
@@ -234,6 +249,8 @@ letter-spacing:.14em;font-size:clamp(12px,1.6vw,18px);display:none;z-index:5}
 <div class="name" id="name" hidden></div>
 <div class="lines" id="lines"></div>
 <div class="note" id="note" hidden></div>
+<div id="liveWrap" hidden><div class="live"><img id="liveImg" alt="Camera view"><div class="box" id="liveBox" hidden></div>
+<div class="off" id="liveOff">Camera view starting&hellip;</div></div><div class="hint" id="liveHint"></div></div>
 <div class="bar" id="bar" hidden><i id="barFill"></i></div>
 <div class="step" id="step" hidden></div>
 </div></main>
@@ -267,11 +284,14 @@ function showPhoto(s){var cv=$('photo');
 var BUILD=null,logoTried=false;
 function render(s){
  if(BUILD===null)BUILD=s.build;else if(s.build&&s.build!==BUILD){location.reload();return}
+ PORTAL=s.portal||null;
+ LIVE=!!PORTAL&&(s.screen==='idle'||s.screen==='verify'||s.screen==='step1ok');
+ $('liveWrap').hidden=!LIVE;
  if(!logoTried&&s.portal){logoTried=true;var im=$('logo');
   im.onload=function(){im.hidden=false;$('sep').hidden=false;$('brandTxt').innerHTML='SMART <b>LAB</b>'};
   im.onerror=function(){setTimeout(function(){logoTried=false},30000)};
   im.src='http://'+s.portal+'/brand/giu-logo.png'}
- var c=$('card');c.className='card'+(s.tone==='ok'?' ok':s.tone==='bad'?' bad':'');
+ var c=$('card');c.className='card'+(s.tone==='ok'?' ok':s.tone==='bad'?' bad':'')+(LIVE?' withlive':'');
  $('hdr').textContent=s.header;$('lab').textContent=s.lab+' · ACCESS STATION';
  $('title').textContent=s.title;
  var ic=$('icon');
@@ -300,6 +320,25 @@ function conn(down){
  if(down){e.className='down';e.textContent='TABLET DISCONNECTED · RECONNECTING';wasDown=true;return}
  if(wasDown){wasDown=false;e.className='up';e.textContent='TABLET CONNECTED';clearTimeout(upTimer);upTimer=setTimeout(function(){e.className=''},3000)}
 }
+// Live camera view. The frames come from the face server on the laptop -
+// the very frames the camera already sends for QR/face analysis - so the
+// camera and this board do no extra work. Shown on the scan / verify steps.
+var LIVE=false,PORTAL=null,liveBusy=false;
+function liveTick(){
+ if(!LIVE||!PORTAL||liveBusy){return}
+ liveBusy=true;var im=new Image(),done=function(){liveBusy=false};
+ im.onload=function(){$('liveImg').src=im.src;$('liveOff').hidden=true;done()};
+ im.onerror=function(){$('liveOff').hidden=false;$('liveOff').textContent='Camera view unavailable';done()};
+ im.src='http://'+PORTAL+':5000/preview.jpg?t='+Date.now();
+ fetch('http://'+PORTAL+':5000/preview/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(p){
+  var h=$('liveHint'),b=$('liveBox');h.textContent=p.hint||'';h.className='hint '+(p.tone||'');
+  if(p.box){b.hidden=false;b.className='box '+(p.tone||'');
+   b.style.left=(100*(1-p.box.x-p.box.w))+'%';b.style.top=(100*p.box.y)+'%';
+   b.style.width=(100*p.box.w)+'%';b.style.height=(100*p.box.h)+'%'}else b.hidden=true;
+  if(!p.fresh){$('liveOff').hidden=false;$('liveOff').textContent='Camera view paused'}
+ }).catch(function(){});
+}
+setInterval(liveTick,250);
 function poll(){
  var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},2500);
  fetch('/state',{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})

@@ -354,6 +354,27 @@ tablet at ACCESS GRANTED. The door never waits for it:
 - Older enrollments (before this feature) have no colour photo: capture a few
   more samples for that person on the camera page and one is created.
 
+### Live camera view on the tablet
+
+On the Scan / Verify screens the tablet shows a small live view under the
+text, with a box around the face and a hint: *Look at the camera*, *Come a
+little closer*, *Step back a little*, *Center your face in the frame*, *Face
+the camera straight*, *Keep your head level*, *Recognised - hold still*.
+
+It costs the camera nothing. The ESP32-CAM already POSTs every frame to the
+face server's `/analyze`. The face server keeps the last frame and the face
+box it found anyway, and the tablet fetches them from the laptop
+(`http://<laptop>:5000/preview.jpg` and `/preview/state`, about 4 times a
+second). The camera is never asked for anything extra, and the door decision
+path is unchanged. Measured `/analyze` median was about 35 ms with the
+preview on vs about 37 ms with it off, i.e. no slowdown.
+
+- A frame older than 2 s is not shown (`/preview.jpg` returns 204), so a
+  stale picture never stays on the screen when the camera stops.
+- Turn it off with `PREVIEW=off` in the face server's environment; the
+  tablet then shows no live box.
+- The view is mirrored so it behaves like a mirror for the person in front of it.
+
 ---
 
 ## Hardware reference (Master ESP32)

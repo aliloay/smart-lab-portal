@@ -219,14 +219,14 @@ def rebuild_templates(only=None):
 
 
 def sface_identify(img):
-    """(name or None, cosine or None, face found?) for one BGR frame."""
+    """(name or None, cosine or None, face found?, YuNet row or None)."""
     face = yunet_face(img)
     if face is None or not templates:
-        return None, None, face is not None
+        return None, None, face is not None, face
     q = _unit(sface.feature(sface.alignCrop(img, face)))
     name, score = max(((n, float(np.dot(q, t))) for n, t in templates.items()),
                       key=lambda x: x[1])
-    return (name if score >= SFACE_THRESHOLD else None), score, True
+    return (name if score >= SFACE_THRESHOLD else None), score, True, face
 
 
 def sface_distance(score):
@@ -605,7 +605,7 @@ def recognize():
     if ENGINE == "sface":
         if not templates:
             return jsonify({"error": "nobody enrolled"}), 400
-        name, score, found = sface_identify(img)
+        name, score, found, _ = sface_identify(img)
         if not found:
             return jsonify({"name": None, "access": False, "reason": "no face in frame"})
         distance = sface_distance(score)
@@ -649,7 +649,8 @@ def analyze():
     Returns:
       {"qr": "USER1"|null, "face": "USER2"|null, "distance": float|null}
     """
-    img = decode_jpeg(request.get_data())
+    raw = request.get_data()
+    img = decode_jpeg(raw)
     if img is None:
         return jsonify({"error": "no image received"}), 400
 
@@ -668,8 +669,9 @@ def analyze():
         # --- Face ---
         face_name, face_distance = None, None
         face = None
+        face_row = None
         if ENGINE == "sface":
-            name, score, found = sface_identify(img)
+            name, score, found, face_row = sface_identify(img)
             face = True if found else None     # only "was there a face" is used below
             face_name, face_distance = name, sface_distance(score)
         elif model_trained:
@@ -681,6 +683,9 @@ def analyze():
                     face_name = label_to_name.get(label)
 
         t_face = time.perf_counter()
+        # The tablet's live view: keep THIS frame and where the face is.
+        # A reference and a few numbers - the camera does nothing extra.
+        set_preview(raw, img.shape, face_row, face is not None, face_name)
 
         # --- QR, second chance ---
         # The slow WeChat decoder only runs when the fast one found nothing AND
@@ -745,6 +750,78 @@ def analyze():
             "face": face_name,
             "distance": face_distance
         })
+
+
+# ---------------------------------------------------------------------------
+# Tablet live view - the frame the camera ALREADY sent for analysis
+# ---------------------------------------------------------------------------
+# The tablet shows the latest analysed frame and a hint ("come a little
+# closer", "face the camera"...). Nothing is asked of the camera: it keeps
+# its own pace and detection is unchanged; this only keeps a reference to
+# the last frame. Frames older than PREVIEW_MAX_AGE_S are not served, and
+# PREVIEW=off (environment) switches the view off entirely.
+PREVIEW_ON = os.environ.get("PREVIEW", "on").lower() != "off"
+PREVIEW_MAX_AGE_S = 2.0
+_preview = {"jpeg": None, "at": 0.0, "state": {}}
+
+
+def guidance(shape, row, found, name):
+    """A short hint from the face box and landmarks detection already found."""
+    if not found:
+        return {"hint": "Look at the camera", "tone": "idle", "box": None}
+    if row is None:                         # LBPH mode: no box kept
+        return {"hint": "Recognised - hold still" if name else "Hold still", "tone": "ok", "box": None}
+    h, w = shape[:2]
+    x, y, bw, bh = (float(v) for v in row[:4])
+    box = {"x": x / w, "y": y / h, "w": bw / w, "h": bh / h}
+    re_x, re_y, le_x, le_y, nose_x = (float(row[i]) for i in (4, 5, 6, 7, 8))
+    eye_dx = le_x - re_x
+    size = bw / w
+    off = (x + bw / 2) / w - 0.5
+    yaw = (nose_x - (re_x + le_x) / 2) / eye_dx if abs(eye_dx) > 1 else 0.0
+    roll = abs(np.degrees(np.arctan2(le_y - re_y, eye_dx))) if abs(eye_dx) > 1 else 0.0
+    if size < 0.16:
+        hint, tone = "Come a little closer", "warn"
+    elif size > 0.55:
+        hint, tone = "Step back a little", "warn"
+    elif abs(off) > 0.2:
+        hint, tone = "Center your face in the frame", "warn"
+    elif abs(yaw) > 0.28:
+        hint, tone = "Face the camera straight", "warn"
+    elif min(roll, 180 - roll) > 15:
+        hint, tone = "Keep your head level", "warn"
+    elif name:
+        hint, tone = "Recognised - hold still", "ok"
+    else:
+        hint, tone = "Hold still", "ok"
+    return {"hint": hint, "tone": tone, "box": box}
+
+
+def set_preview(raw, shape, row, found, name):
+    if not PREVIEW_ON:
+        return
+    _preview["jpeg"], _preview["at"] = raw, time.time()
+    _preview["state"] = guidance(shape, row, found, name)
+
+
+def _cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"   # the tablet page is served by the master
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+@app.route("/preview.jpg", methods=["GET"])
+def preview_jpg():
+    if not PREVIEW_ON or _preview["jpeg"] is None or time.time() - _preview["at"] > PREVIEW_MAX_AGE_S:
+        return _cors(Response(status=204))
+    return _cors(Response(_preview["jpeg"], mimetype="image/jpeg"))
+
+
+@app.route("/preview/state", methods=["GET"])
+def preview_state():
+    fresh = PREVIEW_ON and _preview["jpeg"] is not None and time.time() - _preview["at"] <= PREVIEW_MAX_AGE_S
+    return _cors(jsonify({"enabled": PREVIEW_ON, "fresh": fresh,
+                          **(_preview["state"] if fresh else {"hint": None, "tone": "idle", "box": None})}))
 
 
 @app.route("/users", methods=["GET"])
