@@ -61,6 +61,10 @@ HAZARDS = {
 }
 
 
+HAZARD_LABEL = {"smoke": "smoke/gas indication", "flame": "flame indication",
+                "water_leak": "water leak", "emergency": "emergency signal"}
+
+
 def _key(lab: Lab, metric: str) -> str:
     return f"env:{lab.id}:{metric}"
 
@@ -134,3 +138,33 @@ def latest(db: Session, lab: Lab, now: Optional[datetime] = None) -> dict:
             "metrics": out,
             "hazards": [m for m in HAZARDS
                         if out[m]["quality"] == "VALID" and out[m]["value"] >= 0.5]}
+
+
+def history(db: Session, lab: Lab, hours: int = 24,
+            now: Optional[datetime] = None) -> dict:
+    """What the environment node recorded over a period, for the AI and
+    reports: per value metric min/mean/max and count, and every hazard
+    episode (from its alert). Only stored data; empty when none was sent."""
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+    rows = db.scalars(select(SensorReading).where(
+        SensorReading.lab_id == lab.id, SensorReading.recorded_at >= since,
+        SensorReading.metric.in_(("temperature", "humidity")))).all()
+    values = {}
+    for m in ("temperature", "humidity"):
+        v = [r.value for r in rows if r.metric == m]
+        values[m] = ({"count": len(v), "min": round(min(v), 2), "mean": round(sum(v) / len(v), 2),
+                      "max": round(max(v), 2), "unit": next(r.unit for r in rows if r.metric == m)}
+                     if v else {"count": 0})
+    episodes = []
+    for a in db.scalars(select(Alert).where(
+            Alert.lab_id == lab.id, Alert.dedupe_key.like(f"env:{lab.id}:%"),
+            Alert.created_at >= since).order_by(Alert.created_at)).all():
+        episodes.append({"hazard": a.dedupe_key.rsplit(":", 1)[-1], "title": a.title,
+                         "started": a.created_at, "cleared": a.resolved_at,
+                         "minutes": round((_utc(a.resolved_at) - _utc(a.created_at))
+                                          .total_seconds() / 60, 1) if a.resolved_at else None})
+    return {"lab": lab.code, "from": since, "to": now, "hours": hours,
+            "source": "sensor_readings and alerts written by the environment node",
+            "values": values, "hazard_episodes": episodes,
+            "now": latest(db, lab, now)}

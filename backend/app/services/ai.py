@@ -209,6 +209,15 @@ def _t_readiness(db: Session, lab_code: str = ""):
     return lab_readiness(db, lab)
 
 
+def _t_environment(db: Session, lab_code: str = "", hours: Any = 24):
+    from app.services import environment
+    lab = db.scalar(select(Lab).where(Lab.code == (lab_code or "").upper()))
+    if lab is None:
+        return {"error": f"No laboratory with code {lab_code!r}.",
+                "labs": [l.code for l in db.scalars(select(Lab)).all()]}
+    return environment.history(db, lab, _clamp(hours, 1, 24 * 90, 24))
+
+
 def _t_labs(db: Session):
     return {"labs": [{"code": l.code, "name": l.name, "category": l.category,
                       "capacity": l.capacity, "has_door_controller": l.has_controller,
@@ -254,12 +263,19 @@ TOOLS: list[dict] = [
      "input_schema": {"type": "object", "properties": {
          "lab_code": {"type": "string", "description": "Laboratory code, e.g. LAB_01."}},
          "required": ["lab_code"]}},
+    {"name": "get_environment",
+     "description": "Environment node data for one laboratory over the last N hours: temperature and humidity min/mean/max with reading counts, every smoke/flame/water-leak/emergency episode with start, end and duration, and the current value of each metric with its quality (VALID, STALE, MISSING, DEVICE_OFFLINE, OUT_OF_RANGE). Indicators only - not certified safety systems.",
+     "input_schema": {"type": "object", "properties": {
+         "lab_code": {"type": "string", "description": "Laboratory code, e.g. LAB_01."},
+         "hours": {"type": "integer", "description": "Look-back in hours (1-2160). Default 24."}},
+         "required": ["lab_code"]}},
 ]
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_labs": _t_labs, "get_operations_overview": _t_overview,
     "get_trends": _t_trends, "get_report": _t_report,
     "get_maintenance_priorities": _t_priorities, "list_open_issues": _t_issues,
     "get_anomalies": _t_anomalies, "get_lab_readiness": _t_readiness,
+    "get_environment": _t_environment,
 }
 
 

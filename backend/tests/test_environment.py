@@ -86,3 +86,35 @@ def test_monitor_tile_shows_the_hazard(client, db, staff, lab, env_node, device_
     t = next(x for x in body["labs"] if x["lab_id"] == lab.id)
     assert t["hazards"] == ["smoke"] and t["state"] == "ALERT"
     assert t["env_online"] is True and t["environment"]["temperature"]["value"] == 23.0
+
+
+def test_readiness_warns_on_hazard_and_offline_node(client, db, lab, env_node, device_headers):
+    from app.services.automation import lab_readiness
+    _post(client, device_headers, lab, smoke=0, temperature=22.0)
+    r = lab_readiness(db, lab)
+    assert r["environment"] == "ONLINE" and r["environment_hazards"] == []
+    _post(client, device_headers, lab, water_leak=1)
+    r = lab_readiness(db, lab)
+    assert r["level"] == "warning" and r["environment_hazards"] == ["water_leak"]
+    assert any("water leak" in w for w in r["warnings"])
+    env_node.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    db.commit()
+    r = lab_readiness(db, lab)
+    assert r["environment"] == "OFFLINE" and any("offline" in w for w in r["warnings"])
+
+
+def test_ai_environment_tool_reports_only_stored_data(client, db, lab, env_node, device_headers):
+    from app.services.ai import run_tool
+    import json
+    _post(client, device_headers, lab, temperature=21.0, humidity=40.0)
+    _post(client, device_headers, lab, temperature=25.0, flame=1)
+    _post(client, device_headers, lab, flame=0)
+    out, is_error = run_tool(db, "get_environment", {"lab_code": lab.code, "hours": 24})
+    assert not is_error
+    d = json.loads(out)
+    t = d["values"]["temperature"]
+    assert t["count"] == 2 and t["min"] == 21.0 and t["max"] == 25.0 and t["mean"] == 23.0
+    assert [e["hazard"] for e in d["hazard_episodes"]] == ["flame"]
+    assert d["hazard_episodes"][0]["cleared"] is not None
+    bad, _ = run_tool(db, "get_environment", {"lab_code": "NOPE"})
+    assert "No laboratory" in bad
