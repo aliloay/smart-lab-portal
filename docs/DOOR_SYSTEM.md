@@ -310,6 +310,27 @@ RFID cards are still listed in the sketch (only USER1 and USER2 have one);
 new people use the booking QR as step 1. Enrolment blocks the master for up
 to ~40 s; do it outside lab hours.
 
+### Face recognizer: SFace by default, LBPH as fallback
+
+The face server uses OpenCV's YuNet + SFace (128-d embeddings, cosine ≥
+0.363) when `firmware/face_server/models/*.onnx` are present, else LBPH.
+Every enrolled sample updates that person's template at once — no training
+step (Train still works and also retrains LBPH, so `FACE_ENGINE=lbph`
+switches back without re-enrolling). Replies to the camera are unchanged
+(`face`, `distance`; for SFace distance = 100 × (1 − cosine)).
+
+Measured offline on the enrolled samples (leave-one-out, USER1 26 + USER2
+27 samples, 2026-10-02, `py firmware/tools/eval_face_models.py`):
+
+| | identified and accepted | wrong person accepted | right person refused | CPU per face |
+|---|---|---|---|---|
+| LBPH (distance ≤ 70) | 46/53 = 86.8 % | 0 | 6 | 6.1 ms |
+| SFace (cosine ≥ 0.363) | 51/53 = 96.2 % | 0 | 1 | 18.8 ms |
+
+Limits: two people, one camera, one session each; the stored samples are
+grey crops, so SFace was measured at a disadvantage. Re-measure with more
+people before stating it as a general result.
+
 ### The photo on ACCESS GRANTED — automatic, no reflash
 
 Face enrollment also keeps the best **colour** capture of each person (the

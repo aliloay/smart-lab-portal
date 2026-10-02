@@ -10,6 +10,7 @@ firmware/**/secrets.h
 # face_server.py output: face photos and logs of real people
 dataset/
 portraits/
+dataset_sface/
 face_model_comparison.csv
 firmware/face_server/models/*.onnx
 lbph_model.yml

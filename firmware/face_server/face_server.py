@@ -11,11 +11,14 @@ camera captures and the laptop recognizes. Everything stays on your LAN; no
 cloud services are involved.
 
 WHAT THIS USES
-OpenCV's LBPH recognizer. Chosen deliberately over dlib / face_recognition:
-it installs on Windows with one pip command and no C++ compiler, and it is
-accurate enough for a handful of known users in consistent lighting. It is
-NOT as robust as a modern CNN model - state that plainly in your thesis
-rather than overclaiming.
+Default: OpenCV's YuNet detector + SFace embeddings (CNN models from the
+OpenCV model zoo, in models/ - see models/README.md). Each enrolled sample
+updates its person's template at once, so there is no separate training
+step. Fallback: OpenCV's LBPH recognizer (the original choice: one pip
+command, no C++ compiler), used when the model files are missing or when
+FACE_ENGINE=lbph is set. On this lab's own samples SFace identified 96.2 %
+vs 86.8 % for LBPH, both with no wrong person accepted (2 people, 53
+samples - small; see firmware/tools/eval_face_models.py).
 
 INSTALL
     pip install flask waitress opencv-python opencv-contrib-python numpy
@@ -108,6 +111,127 @@ if face_cascade.empty():
 recognizer    = cv2.face.LBPHFaceRecognizer_create()
 label_to_name = {}
 model_trained = False
+
+# ---------------------------------------------------------------------------
+# SFace: the default recognizer when its model files are present
+# ---------------------------------------------------------------------------
+# YuNet finds the face and five landmarks, SFace turns the aligned face into
+# a 128-number embedding, and a person is the mean embedding of their
+# samples. A match is the cosine similarity to that template.
+#
+# Measured on this lab's own enrolled samples (firmware/tools/
+# eval_face_models.py, leave-one-out, 2 people, 53 samples, 2026-10-02):
+#   LBPH  86.8 % identified and accepted, 0 wrong person accepted
+#   SFace 96.2 % identified and accepted, 0 wrong person accepted
+# "Training" is instant: each enrolled sample updates its person's template
+# at once. LBPH keeps being trained alongside, so FACE_ENGINE=lbph (an
+# environment variable) switches back without re-enrolling anyone.
+MODELS_DIR = "models"
+YUNET_PATH = os.path.join(MODELS_DIR, "face_detection_yunet_2023mar.onnx")
+SFACE_PATH = os.path.join(MODELS_DIR, "face_recognition_sface_2021dec.onnx")
+# Aligned colour faces (112x112) saved at enrollment, next to the grey LBPH
+# crops in dataset/. Gitignored with it: pictures of people.
+SFACE_DATASET_DIR = "dataset_sface"
+SFACE_THRESHOLD = 0.363          # cosine; OpenCV model zoo's value for SFace
+DETECT_WIDTH = 320               # YuNet runs on a half-size VGA frame
+
+yunet = sface = None
+if os.environ.get("FACE_ENGINE", "auto").lower() != "lbph" and \
+        os.path.isfile(YUNET_PATH) and os.path.isfile(SFACE_PATH):
+    try:
+        yunet = cv2.FaceDetectorYN.create(YUNET_PATH, "", (DETECT_WIDTH, 240), 0.6, 0.3, 5000)
+        sface = cv2.FaceRecognizerSF.create(SFACE_PATH, "")
+    except cv2.error as e:                    # pragma: no cover
+        print(f"[startup] SFace unavailable ({e}) - using LBPH")
+        yunet = sface = None
+ENGINE = "sface" if sface is not None else "lbph"
+templates = {}                   # name -> unit-length mean embedding
+_feature_cache = {}              # sample path -> (mtime, embedding)
+
+
+def yunet_face(img):
+    """Largest face in a BGR frame as YuNet's 15-value row (full-res coords)."""
+    scale = DETECT_WIDTH / img.shape[1]
+    small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) \
+        if scale < 1 else img
+    if scale >= 1:
+        scale = 1.0
+    yunet.setInputSize((small.shape[1], small.shape[0]))
+    _, faces = yunet.detect(small)
+    if faces is None or not len(faces):
+        return None
+    face = max(faces, key=lambda f: f[2] * f[3]).copy()
+    face[:14] /= scale                        # box + 5 landmarks back to full size
+    return face
+
+
+def _unit(v):
+    v = v.flatten()
+    return v / (np.linalg.norm(v) or 1.0)
+
+
+def sample_feature(path):
+    """Embedding of one stored sample, cached until the file changes."""
+    mtime = os.path.getmtime(path)
+    hit = _feature_cache.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    img = cv2.imread(path, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    if path.startswith(SFACE_DATASET_DIR):
+        feat = _unit(sface.feature(img))       # already an aligned 112x112 face
+    else:
+        # A legacy grey crop (forehead to chin): a margin lets YuNet see the
+        # whole face and return landmarks; without them, a plain resize.
+        pad = cv2.copyMakeBorder(img, 50, 50, 50, 50, cv2.BORDER_REPLICATE)
+        yunet.setInputSize((pad.shape[1], pad.shape[0]))
+        _, faces = yunet.detect(pad)
+        crop = sface.alignCrop(pad, max(faces, key=lambda f: f[2] * f[3])) \
+            if faces is not None and len(faces) else cv2.resize(img, (112, 112))
+        feat = _unit(sface.feature(crop))
+    _feature_cache[path] = (mtime, feat)
+    return feat
+
+
+def rebuild_templates(only=None):
+    """Mean embedding per person from every stored sample. Milliseconds per
+    person once cached, so it runs after every enrollment sample."""
+    names = set()
+    for d in (DATASET_DIR, SFACE_DATASET_DIR):
+        if os.path.isdir(d):
+            names.update(n for n in os.listdir(d) if os.path.isdir(os.path.join(d, n)))
+    for name in sorted(names):
+        if only and name not in only:
+            continue
+        feats = []
+        for d in (DATASET_DIR, SFACE_DATASET_DIR):
+            folder = os.path.join(d, name)
+            if os.path.isdir(folder):
+                for fn in os.listdir(folder):
+                    f = sample_feature(os.path.join(folder, fn))
+                    if f is not None:
+                        feats.append(f)
+        if feats:
+            templates[name] = _unit(np.mean(feats, axis=0))
+        else:
+            templates.pop(name, None)
+
+
+def sface_identify(img):
+    """(name or None, cosine or None, face found?) for one BGR frame."""
+    face = yunet_face(img)
+    if face is None or not templates:
+        return None, None, face is not None
+    q = _unit(sface.feature(sface.alignCrop(img, face)))
+    name, score = max(((n, float(np.dot(q, t))) for n, t in templates.items()),
+                      key=lambda x: x[1])
+    return (name if score >= SFACE_THRESHOLD else None), score, True
+
+
+def sface_distance(score):
+    """Reported in the 'distance' field like LBPH (lower = better): 100*(1-cos)."""
+    return None if score is None else round(100 * (1 - score), 1)
 
 # OpenCV's built-in QR decoder. This replaces the on-device ESP32QRCodeReader:
 # decoding here means the camera never has to switch modes, and a laptop
@@ -344,8 +468,19 @@ def enroll():
     idx = len(os.listdir(user_dir))
     cv2.imwrite(os.path.join(user_dir, f"{idx}.jpg"), face)
 
+    if ENGINE == "sface":
+        # The aligned colour face for SFace, then this person's template is
+        # rebuilt at once: no separate training step.
+        row = yunet_face(img)
+        if row is not None:
+            sdir = os.path.join(SFACE_DATASET_DIR, name)
+            os.makedirs(sdir, exist_ok=True)
+            cv2.imwrite(os.path.join(sdir, f"{idx}.png"), sface.alignCrop(img, row))
+        rebuild_templates({name})
+
     print(f"[enroll] {name}: sample {idx + 1} saved")
-    return jsonify({"status": "saved", "name": name, "samples": idx + 1})
+    return jsonify({"status": "saved", "name": name, "samples": idx + 1,
+                    "engine": ENGINE})
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +587,9 @@ def train():
     save_labels()
     model_trained = True
 
+    if ENGINE == "sface":
+        rebuild_templates()
+
     summary = {n: len(os.listdir(os.path.join(DATASET_DIR, n))) for n in names}
     print(f"[train] {len(faces)} images across {names}")
     return jsonify({"status": "trained", "users": summary, "total_images": len(faces)})
@@ -460,12 +598,25 @@ def train():
 @app.route("/recognize", methods=["POST"])
 @one_at_a_time
 def recognize():
-    if not model_trained:
-        return jsonify({"error": "model not trained"}), 400
-
     img = decode_jpeg(request.get_data())
     if img is None:
         return jsonify({"error": "no image received"}), 400
+
+    if ENGINE == "sface":
+        if not templates:
+            return jsonify({"error": "nobody enrolled"}), 400
+        name, score, found = sface_identify(img)
+        if not found:
+            return jsonify({"name": None, "access": False, "reason": "no face in frame"})
+        distance = sface_distance(score)
+        print(f"[recognize] {name or 'unknown':10s} cosine={score:.3f}  "
+              f"{'ACCESS' if name else 'reject'}  (threshold {SFACE_THRESHOLD})")
+        log_recognition(name or "unknown", distance, bool(name))
+        return jsonify({"name": name or "unknown", "distance": distance,
+                        "score": round(score, 3), "access": bool(name)})
+
+    if not model_trained:
+        return jsonify({"error": "model not trained"}), 400
 
     face = largest_face(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
     if face is None:
@@ -517,7 +668,11 @@ def analyze():
         # --- Face ---
         face_name, face_distance = None, None
         face = None
-        if model_trained:
+        if ENGINE == "sface":
+            name, score, found = sface_identify(img)
+            face = True if found else None     # only "was there a face" is used below
+            face_name, face_distance = name, sface_distance(score)
+        elif model_trained:
             face = largest_face(gray)
             if face is not None:
                 label, distance = recognizer.predict(face)
@@ -611,12 +766,22 @@ def health():
         "status": "ok",
         "model_trained": model_trained,
         "known_users": list(label_to_name.values()),
-        "threshold": CONFIDENCE_THRESHOLD
+        "threshold": SFACE_THRESHOLD if ENGINE == "sface" else CONFIDENCE_THRESHOLD,
+        "engine": ENGINE,
+        "templates": sorted(templates) if ENGINE == "sface" else None
     })
 
 
 if __name__ == "__main__":
     load_model_if_exists()
+    if ENGINE == "sface":
+        t0 = time.perf_counter()
+        rebuild_templates()
+        print(f"[startup] Recognizer: SFace (YuNet + embeddings), threshold "
+              f"cosine >= {SFACE_THRESHOLD}. Templates: {sorted(templates)} "
+              f"({1000 * (time.perf_counter() - t0):.0f} ms)")
+    else:
+        print("[startup] Recognizer: LBPH (SFace model files missing or FACE_ENGINE=lbph)")
     print()
     print("=" * 60)
     print(" SMART LAB - FACE RECOGNITION SERVER")
