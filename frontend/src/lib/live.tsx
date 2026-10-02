@@ -17,6 +17,8 @@ export type LiveMessage =
   | { type: 'access_event'; event: AccessEvent }
   | { type: 'notification'; user_id: number; notification: Notification }
   | { type: 'staff'; kind: string; issue_id?: number; event?: string }
+  /** The door sensor or lock changed: refetch the lab's status. */
+  | { type: 'door_state'; lab_id: number }
 
 type Handler = (m: LiveMessage) => void
 

@@ -60,7 +60,7 @@
 // >>>>>>>>>>>>>>>>>>>>>>>>>>> EDIT THESE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 // ===========================================================================
 
-const char *SERVER_IP   = "192.168.1.8";   // laptop running face_server.py
+const char *SERVER_IP   = "192.168.1.200";   // laptop running face_server.py
 const int   SERVER_PORT = 5000;
 
 // How often to send a frame. Faster feels more responsive at the door but
@@ -437,18 +437,39 @@ static esp_err_t index_handler(httpd_req_t *req) {
   String qrNow   = everQr   ? lastQr   : String("none");
   String faceNow = everFace ? lastFace : String("none");
   UNLOCK();
+  // No meta refresh: it would wipe the name being typed. The two values are
+  // refreshed from /status by the script instead.
+  String trainUrl = String("http://") + SERVER_IP + ":" + SERVER_PORT + "/train";
   String html =
-    "<html><head><meta http-equiv='refresh' content='2'></head>"
-    "<body style='font-family:sans-serif;background:#111;color:#eee;padding:20px'>"
+    "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>Smart Lab Camera</title></head>"
+    "<body style='font-family:sans-serif;background:#111;color:#eee;padding:20px;max-width:640px'>"
     "<h2>Smart Lab Camera - Stage 3</h2>"
-    "<p>Last QR   : <b>" + qrNow   + "</b></p>"
-    "<p>Last face : <b>" + faceNow + "</b></p>"
-    "<hr>"
-    "<p><a style='color:#6cf' href='/enroll?name=USER1'>enroll USER1</a> | "
-    "<a style='color:#6cf' href='/enroll?name=USER2'>enroll USER2</a></p>"
-    "<p><a style='color:#6cf' href='/snapshot'>snapshot</a> | "
+    "<p>Last QR   : <b id='qr'>" + qrNow   + "</b></p>"
+    "<p>Last face : <b id='face'>" + faceNow + "</b></p>"
+    "<hr><h3>Enroll a face</h3>"
+    "<p>Person: <input id='n' value='USER1' size='8' style='font-size:16px'> "
+    "<button onclick='cap()' style='font-size:16px'>Capture sample</button> "
+    "<a style='color:#6cf' href='" + trainUrl + "' target='_blank'>Train</a></p>"
+    "<p id='r' style='color:#9c9'></p>"
+    "<p style='color:#999;font-size:14px'>The name is the person's id in the portal "
+    "(USER1, USER2, USER5...). Look at the camera from about 50 cm and capture "
+    "about 20 samples, moving your head slightly between them, then press Train. "
+    "The best capture also becomes the photo on the ACCESS GRANTED screen.</p>"
+    "<hr><p><a style='color:#6cf' href='/snapshot'>snapshot</a> | "
     "<a style='color:#6cf' href='/status'>status JSON</a></p>"
-    "</body></html>";
+    "<script>"
+    "function $(i){return document.getElementById(i)}"
+    "function upd(){fetch('/status').then(function(r){return r.json()}).then(function(s){"
+    "if(s.qr)$('qr').textContent=s.qr;if(s.face)$('face').textContent=s.face}).catch(function(){})}"
+    "setInterval(upd,2000);"
+    "function cap(){var n=$('n').value.trim().toUpperCase();"
+    "if(!/^USER[0-9]{1,3}$/.test(n)){$('r').textContent='The name must look like USER5';return}"
+    "$('r').textContent='Capturing '+n+'...';"
+    "fetch('/enroll?name='+n).then(function(r){return r.json()}).then(function(j){"
+    "$('r').textContent=j.status==='saved'?n+': sample '+j.samples+' saved':(j.status||j.error)})"
+    ".catch(function(){$('r').textContent='No answer - is the face server running?'})}"
+    "</script></body></html>";
   httpd_resp_set_type(req, "text/html");
   return httpd_resp_send(req, html.c_str(), html.length());
 }
@@ -531,6 +552,10 @@ void setup() {
   }
 
   WiFi.mode(WIFI_STA);
+  // Fixed address, so the Master always finds the camera on any router
+  // that uses 192.168.1.x - no router setup needed for this board.
+  WiFi.config(IPAddress(192, 168, 1, 150), IPAddress(192, 168, 1, 1),
+              IPAddress(255, 255, 255, 0), IPAddress(192, 168, 1, 1));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("[WIFI] Connecting");
   uint32_t start = millis();

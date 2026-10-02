@@ -203,7 +203,7 @@ invents activity). Set `SEED_DEMO_DATA=false` in `.env` to skip seeding.
 | Who | Address |
 |---|---|
 | This laptop | <http://localhost> |
-| Phones and other laptops on the same Wi-Fi or hotspot | `http://<laptop LAN IP>` - e.g. `http://192.168.1.8` |
+| Phones and other laptops on the same Wi-Fi or hotspot | `http://<laptop LAN IP>` - e.g. `http://192.168.1.200` |
 | ESP32 master (`BACKEND_IP` in the firmware) | `<laptop LAN IP>`, port `8000` |
 | API documentation | <http://localhost:8000/api/docs> |
 | Database tools (pgAdmin, psql) on this laptop only | `localhost:5433`, user and database `smartlab` |
@@ -560,7 +560,7 @@ Then set these near the top of the master sketch:
 
 ```cpp
 constexpr bool BACKEND_ENABLED = true;   // false = exactly the old behaviour
-const char *BACKEND_IP   = "192.168.1.8";
+const char *BACKEND_IP   = "192.168.1.200";
 const char *LAB_ID       = "LAB_01";     // must match labs.code
 const char *DEVICE_ID    = "MASTER_LAB01";
 ```

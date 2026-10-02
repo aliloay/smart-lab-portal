@@ -112,3 +112,26 @@ def test_other_alarm_reasons_do_not_create_door_alerts(client, db, staff, lab,
     _event(client, device_headers, lab, "ALARM", "SOMETHING_ELSE", "x")
     db.expire_all()
     assert db.query(Alert).count() == 0
+
+
+def test_door_or_lock_change_pushes_live_refresh(client, lab, device_headers,
+                                                 monkeypatch):
+    """Open pages refetch the door at once instead of waiting for their poll."""
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", sent.append)
+
+    def beat(door_closed=True, relay_locked=True):
+        return client.post("/api/access/heartbeat", headers=device_headers, json={
+            "device_uid": "MASTER_LAB01", "lab_id": lab.code,
+            "door_closed": door_closed,
+            "components": {"rfid": True, "fingerprint": True, "camera": True,
+                           "relay_locked": relay_locked}})
+
+    beat()
+    sent.clear()
+    beat()                                   # nothing changed: no push
+    assert sent == []
+    beat(door_closed=False)                  # door opened
+    beat(door_closed=False, relay_locked=False)   # lock released
+    assert sent == [{"type": "door_state", "lab_id": lab.id}] * 2

@@ -248,6 +248,13 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
         db.add(device)
         db.flush()
 
+    # The firmware sends a heartbeat the moment the door or lock changes;
+    # tell open pages at once instead of waiting for their 30 s refresh.
+    lock_before = (device.component_state or {}).get("relay_locked")
+    door_changed = req.door_closed is not None and req.door_closed != device.door_closed
+    lock_changed = (req.components is not None and "relay_locked" in req.components
+                    and req.components["relay_locked"] != lock_before)
+
     device.ip_address = req.ip_address or device.ip_address
     device.firmware_version = req.firmware_version or device.firmware_version
     device.last_seen_at = datetime.now(timezone.utc)
@@ -263,6 +270,15 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
                   device_id=device.id, message=f"{device.name} online")
         resolve_offline_alerts(db, device)
     db.commit()
+    if door_changed or lock_changed:
+        # Best effort and after the commit: pages refetch over REST, so the
+        # database stays the only source of truth. Guarded like events.py:
+        # a dashboard must never affect a device request.
+        try:
+            from app.ws.manager import manager
+            manager.publish({"type": "door_state", "lab_id": lab.id})
+        except Exception:
+            pass
     return {"status": "ok", "lab": lab.code, "device_id": device.id}
 
 

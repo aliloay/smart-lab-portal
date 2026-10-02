@@ -9,6 +9,7 @@ dist/
 firmware/**/secrets.h
 # face_server.py output: face photos and logs of real people
 dataset/
+portraits/
 lbph_model.yml
 labels.txt
 recognition_log.csv

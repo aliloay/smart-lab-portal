@@ -62,6 +62,10 @@ class ConnectionManager:
             return client.is_staff or ev.get("user_id") == client.user_id
         if kind == "staff":
             return client.is_staff
+        if kind == "door_state":
+            # Door open/closed and lock state: the same facts GET /labs/{id}
+            # already shows any signed-in user. Only a "refetch" hint.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
         return False
 
     async def _send(self, message: dict[str, Any]) -> None:

@@ -90,7 +90,7 @@ const char *CAMERA_IP = "192.168.1.150";
 // demonstration, and it is why the original file is left untouched on disk.
 constexpr bool BACKEND_ENABLED = true;
 
-const char *BACKEND_IP   = "192.168.1.8";   // laptop running the portal API
+const char *BACKEND_IP   = "192.168.1.200";   // laptop running the portal API
 constexpr uint16_t BACKEND_PORT = 8000;
 
 // Must match a lab 'code' in the portal database, and a device_uid.
@@ -120,6 +120,7 @@ constexpr uint32_t CAMERA_TIMEOUT_MS = 800; // keep it short: a slow reply
 // minute ago could let the next person through. This is the single most
 // important security constant in the integration.
 constexpr uint32_t VISION_FRESH_MS  = 3500;
+
 
 // ===========================================================================
 // PIN ARCHITECTURE
@@ -348,6 +349,8 @@ bool        fpOk = false;
 uint32_t    lastFpCheckMs = 0;
 uint32_t    lastCameraOkMs = 0;
 uint8_t     lastComponentBits = 0xFF;   // forces a report on the first loop
+bool        heartbeatNow = false;       // a change to report at the end of loop()
+bool        grantScreenHasPhoto = false; // false = redraw if the photo arrives late
 float       visionDistance = 0;
 
 // RFID de-dup tracking (from the proven standalone implementation)
@@ -505,12 +508,132 @@ bool rfidSameCardStillPresent() {
 }
 
 // ===========================================================================
+// PORTRAITS - the photo on the ACCESS GRANTED screen (LCD and tablet)
+// ===========================================================================
+// Every person whose face is enrolled gets a colour photo on the face server
+// (the laptop, port 5000). When step 1 names a person, a background task on
+// the other core fetches theirs into RAM, so a newly enrolled person appears
+// with no reflash. The door never waits for it: if the photo is not here by
+// the grant (or the laptop is off) the screen uses the compiled-in
+// user_photos.h photo, else the text screen, and redraws if it arrives.
+constexpr uint16_t FACE_SERVER_PORT    = 5000;
+constexpr uint32_t PORTRAIT_TIMEOUT_MS = 1500;
+constexpr uint32_t PORTRAIT_REUSE_MS   = 5UL * 60 * 1000;  // refetch after 5 min
+constexpr size_t   PORTRAIT_BYTES      = 160 * 128 * 2;    // RGB565, LCD size
+
+uint16_t     *portraitBuf = nullptr;           // PORTRAIT_BYTES, heap
+char          portraitHave[33] = "";           // whose photo is in it; "" = none / being written
+volatile uint32_t portraitFetchedMs = 0;
+portMUX_TYPE  portraitMux = portMUX_INITIALIZER_UNLOCKED;
+QueueHandle_t portraitQueue = nullptr;         // names to fetch, from loop()
+
+// The fetched photo for this internal name (USERn), or nullptr while it is
+// missing or still downloading. Safe from either core.
+const uint16_t *serverPortrait(const char *name) {
+  if (!portraitBuf || !name || !*name) return nullptr;
+  portENTER_CRITICAL(&portraitMux);
+  bool ok = portraitHave[0] && strcmp(portraitHave, name) == 0;
+  portEXIT_CRITICAL(&portraitMux);
+  return ok ? portraitBuf : nullptr;
+}
+
+void setPortraitHave(const char *name) {
+  portENTER_CRITICAL(&portraitMux);
+  strlcpy(portraitHave, name, sizeof(portraitHave));
+  portEXIT_CRITICAL(&portraitMux);
+}
+
+// Runs on the portrait task only. Writes straight into portraitBuf, which is
+// safe because portraitHave is "" for the whole download.
+bool fetchPortrait(const char *name) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  WiFiClient client;
+  HTTPClient http;
+  String url = String("http://") + BACKEND_IP + ":" + FACE_SERVER_PORT +
+               "/portrait/" + name + ".rgb565";
+  if (!http.begin(client, url)) return false;
+  http.setConnectTimeout(PORTRAIT_TIMEOUT_MS);
+  http.setTimeout(PORTRAIT_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  size_t got = 0;
+  if (code == 200 && http.getSize() == (int)PORTRAIT_BYTES) {
+    WiFiClient *s = http.getStreamPtr();
+    uint8_t *dst = (uint8_t *)portraitBuf;
+    uint32_t start = millis();
+    while (got < PORTRAIT_BYTES && millis() - start < 4000 &&
+           (http.connected() || s->available())) {
+      size_t n = s->available();
+      if (n) got += s->readBytes(dst + got, min(n, PORTRAIT_BYTES - got));
+      else delay(2);
+    }
+  }
+  http.end();
+  if (got == PORTRAIT_BYTES) return true;
+  Serial.printf("[PHOTO] %s: no photo from the face server (HTTP %d)\n", name, code);
+  return false;
+}
+
+void portraitTask(void *) {
+  char name[33];
+  for (;;) {
+    if (xQueueReceive(portraitQueue, name, portMAX_DELAY) != pdTRUE) continue;
+    char newer[33];                       // only the latest request matters
+    while (xQueueReceive(portraitQueue, newer, 0) == pdTRUE) memcpy(name, newer, sizeof(name));
+    setPortraitHave("");
+    if (fetchPortrait(name)) {
+      portraitFetchedMs = millis();
+      setPortraitHave(name);
+      Serial.printf("[PHOTO] %s: photo ready for the grant screen\n", name);
+    }
+  }
+}
+
+void portraitBegin() {
+  portraitBuf = (uint16_t *)malloc(PORTRAIT_BYTES);
+  portraitQueue = xQueueCreate(4, 33);
+  if (!portraitBuf || !portraitQueue) {
+    Serial.println("[PHOTO][WARN] No memory for portraits - compiled-in photos only.");
+    free(portraitBuf); portraitBuf = nullptr;
+    return;
+  }
+  // Core 0, low priority: never competes with the access logic on core 1.
+  xTaskCreatePinnedToCore(portraitTask, "portrait", 8192, nullptr, 1, nullptr, 0);
+}
+
+// From loop(): ask for this person's photo. Non-blocking.
+void requestPortrait(const char *name) {
+  if (!portraitBuf || !name || !*name) return;
+  if (serverPortrait(name) && millis() - portraitFetchedMs < PORTRAIT_REUSE_MS) return;
+  char n[33];
+  strlcpy(n, name, sizeof(n));
+  xQueueSend(portraitQueue, n, 0);
+}
+
+// The photo for the grant screen: the face server's, else the compiled one.
+const uint16_t *grantPhoto(const char *name) {
+  const uint16_t *p = serverPortrait(name);
+  return p ? p : userPhoto(name);
+}
+
+// ===========================================================================
 // Actuators
 // ===========================================================================
 // CHANGE 2: the relay is written ONLY when the state actually changes.
 // A denied attempt never reaches this function at all, and the goIdle() call
 // that follows a denial finds the relay already locked, so it returns
 // immediately without touching the pin.
+// One line with BOTH facts. The lock (relay) and the door position (reed
+// switch) are independent: unlocked-but-closed means nobody went in yet;
+// locked-but-open means the lock shut onto an open door.
+void printDoorStatus() {
+  const char *note = "";
+  if (!doorClosed && !relayUnlocked)    note = "  <- lock engaged but door is OPEN";
+  else if (doorClosed && relayUnlocked) note = "  (unlocked, not opened yet)";
+  Serial.printf("[STATUS] Door %s | Lock %s%s\n", doorClosed ? "CLOSED" : "OPEN",
+                relayUnlocked ? "UNLOCKED" : "LOCKED", note);
+}
+
 void setRelay(bool unlock) {
   if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
   pinMode(RELAY_PIN, OUTPUT);
@@ -518,6 +641,7 @@ void setRelay(bool unlock) {
   relayUnlocked   = unlock;
   relayEverDriven = true;
   Serial.printf("[RELAY] %s\n", unlock ? "UNLOCKED (GPIO26 LOW)" : "LOCKED (GPIO26 HIGH)");
+  printDoorStatus();
   // Switching the coil is the biggest current step in the system and is what
   // resets the TFT to white. Flag it; the refresh happens later, in IDLE only.
   tftRefreshWanted = true;
@@ -780,7 +904,8 @@ void screenVerify(Adafruit_GFX &g) {
 // between the two changes nothing on the panel.
 void screenGranted(Adafruit_GFX &g) {
   const char *name = authorizedUsers[pendingUserIndex].displayName;
-  const uint16_t *photo = userPhoto(authorizedUsers[pendingUserIndex].name);
+  const uint16_t *photo = grantPhoto(authorizedUsers[pendingUserIndex].name);
+  grantScreenHasPhoto = (photo != nullptr);
   if (photo) {
     // Photo full screen; the name on a green band at the top, ACCESS
     // GRANTED on a green band below the chin.
@@ -1159,6 +1284,9 @@ void goIdle() {
 
 void goWaitFingerprint(int userIndex) {
   pendingUserIndex = userIndex;
+  // Fetch the grant-screen photo now, in the background, while the person
+  // does step 2 - so it is usually here before the door opens.
+  requestPortrait(authorizedUsers[userIndex].name);
   Serial.printf("[STATE] -> WAIT_FINGERPRINT (%s / %s)\n",
                 authorizedUsers[userIndex].displayName,
                 authorizedUsers[userIndex].name);
@@ -1251,11 +1379,12 @@ void goAccessDenied(const char *reason) {
 
 void goDoorOpenWaitClose() {
   Serial.println("[DOOR] Door OPEN detected");
+  heldOpenAlarmed = false;
+  enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
+  updateDisplay();   // screen first; the report below is a network round trip
   reportEvent("DOOR_OPENED",
               pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
               pendingBookingId, "", "", "", "Door opened");
-  heldOpenAlarmed = false;
-  enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
 }
 
 // The door opened although nobody was granted access: the relay was locked,
@@ -1276,12 +1405,16 @@ void goDoorAlarm() {
 
 void goRelockAndIdle() {
   Serial.println("[DOOR] Door CLOSED - relocking");
-  // Reported BEFORE goIdle(), which clears the portal context - otherwise
-  // the closure would be logged with no booking attached.
-  reportEvent("DOOR_CLOSED",
-              pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
-              pendingBookingId, "", "", "", "Door closed - relocked");
+  // Lock and redraw FIRST, report after: the lock must never wait on a
+  // network round trip. goIdle() clears the portal context, so the person
+  // and booking are saved here - otherwise the closure would be logged with
+  // no booking attached.
+  String who = pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "";
+  long booking = pendingBookingId;
   goIdle();
+  updateDisplay();
+  reportEvent("DOOR_CLOSED", who.c_str(), booking, "", "", "",
+              "Door closed - relocked");
 }
 
 // ===========================================================================
@@ -1400,6 +1533,7 @@ void pollDoor() {
       doorLastChangeMs = millis();
       doorChangedThisLoop = true;
       Serial.printf("[DOOR] State change -> %s\n", doorClosed ? "CLOSED" : "OPEN");
+      printDoorStatus();
     }
   } else {
     doorLastChangeMs = millis();
@@ -1488,6 +1622,7 @@ void setup() {
   doorClosed = (raw == LOW);
   Serial.printf("[DOOR] GPIO27 raw = %s\n", raw == LOW ? "LOW" : "HIGH");
   Serial.printf("[DOOR] Initial state = %s\n", doorClosed ? "CLOSED" : "OPEN");
+  printDoorStatus();
   doorLastChangeMs = millis();
 
   // --- WiFi, for polling the camera board ---------------------------------
@@ -1496,6 +1631,9 @@ void setup() {
   // so a failed connection is a warning, never a fatal error.
   Serial.println("[WIFI] Connecting (camera integration)...");
   WiFi.mode(WIFI_STA);
+  // Fixed address, so the tablet URL (http://192.168.1.151) never changes.
+  WiFi.config(IPAddress(192, 168, 1, 151), IPAddress(192, 168, 1, 1),
+              IPAddress(255, 255, 255, 0), IPAddress(192, 168, 1, 1));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 12000) {
@@ -1513,6 +1651,7 @@ void setup() {
     Serial.println("[WIFI][WARN] RFID + fingerprint continue to work normally.");
   }
   tabletBegin();       // read-only tablet display; the door never depends on it
+  portraitBegin();     // grant-screen photos from the face server, in the background
 
   Serial.println();
   Serial.println("=================================================");
@@ -1548,7 +1687,10 @@ void loop() {
 
   // Component health: report a change at once rather than at the next
   // 30 s heartbeat, so a failure reaches the admin view immediately.
-  uint8_t bits = (rfidLinkDown ? 0 : 1) | (fpOk ? 2 : 0) | (cameraHealthy() ? 4 : 0);
+  // Door (reed switch) and lock (relay) are in here too, so the website
+  // shows the door opening or the lock releasing at once, not 30 s later.
+  uint8_t bits = (rfidLinkDown ? 0 : 1) | (fpOk ? 2 : 0) | (cameraHealthy() ? 4 : 0) |
+                 (doorClosed ? 8 : 0) | (relayUnlocked ? 0 : 16);
   if (bits != lastComponentBits) {
     if (lastComponentBits != 0xFF) {
       Serial.printf("[HEALTH] rfid=%s fingerprint=%s camera=%s\n",
@@ -1556,8 +1698,7 @@ void loop() {
                     bits & 4 ? "ok" : "DOWN");
     }
     lastComponentBits = bits;
-    lastHeartbeatSentMs = millis();
-    sendHeartbeat();
+    heartbeatNow = true;   // sent at the end of loop(), after the screen
     if (state == STATE_IDLE) displayDirty = true;   // idle screen notes it
   }
 
@@ -1567,6 +1708,13 @@ void loop() {
   if (millis() - lastHeartbeatSentMs > HEARTBEAT_PERIOD_MS) {
     lastHeartbeatSentMs = millis();
     sendHeartbeat();
+  }
+
+  // The photo arrived after the grant screen was drawn without it: redraw.
+  if ((state == STATE_ACCESS_GRANTED || state == STATE_DOOR_UNLOCKED_WAIT_OPEN) &&
+      !grantScreenHasPhoto && pendingUserIndex >= 0 &&
+      serverPortrait(authorizedUsers[pendingUserIndex].name)) {
+    displayDirty = true;
   }
 
   // Refresh the vision result on a timer. Runs in every state so a QR seen
@@ -1826,9 +1974,10 @@ void loop() {
     case STATE_DOOR_ALARM: {
       if (doorChangedThisLoop && doorClosed) {
         Serial.println("[ALARM] Door closed again");
+        goIdle();
+        updateDisplay();   // screen first, then the network report
         reportEvent("DOOR_CLOSED", "", -1, "", "", "",
                     "Door closed after forced entry");
-        goIdle();
       }
       break;
     }
@@ -1857,4 +2006,13 @@ void loop() {
   }
 
   updateDisplay();
+
+  // A component, door or lock change is reported only now, once the state
+  // machine has acted and the screen is drawn: the report is a network
+  // round trip and must never delay the door or the display.
+  if (heartbeatNow) {
+    heartbeatNow = false;
+    lastHeartbeatSentMs = millis();
+    sendHeartbeat();
+  }
 }

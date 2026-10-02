@@ -34,7 +34,10 @@ export default function Devices() {
     const t = window.setInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'access_event' && m.event.event_type.startsWith('DEVICE')) load() })
+  useLiveMessages(m => {
+    if (m.type === 'access_event' && m.event.event_type.startsWith('DEVICE')) load()
+    if (m.type === 'door_state') load()
+  })
 
   const byLab = useMemo(() => {
     const m = new Map<number, Device[]>()

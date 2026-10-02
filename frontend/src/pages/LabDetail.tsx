@@ -48,6 +48,7 @@ export default function LabDetail() {
       if (/^(DOOR|ACCESS|DEVICE|EXIT)/.test(m.event.event_type)) loadStatus()
     }
     if (m.type === 'staff' && m.kind === 'issue') loadStatus()
+    if (m.type === 'door_state' && m.lab_id === labId) loadStatus()
   })
 
   if (error) {

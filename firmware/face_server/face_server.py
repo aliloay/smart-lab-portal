@@ -60,14 +60,22 @@ import logging
 import datetime
 import functools
 import threading
+import json
+import hmac
+import sys
 import cv2
 import numpy as np
-from flask import Flask, request, jsonify
+from flask import Flask, Response, request, jsonify
 
 DATASET_DIR = "dataset"
 MODEL_PATH  = "lbph_model.yml"
 LABELS_PATH = "labels.txt"
 LOG_PATH    = "recognition_log.csv"
+# One colour photo per person for the ACCESS GRANTED screen (LCD + tablet).
+# Kept automatically from enrollment: the frame with the largest face wins.
+# A photo put here BY HAND (USER2.jpg with no USER2.json next to it) is
+# never replaced by enrollment.
+PORTRAIT_DIR = "portraits"
 
 # LBPH predict() returns a DISTANCE: LOWER means a BETTER match.
 # 70 is a reasonable starting point. Tune it with real data - watch the
@@ -226,8 +234,8 @@ def decode_jpeg(data):
 DETECT_SCALE = 0.5
 
 
-def largest_face(gray):
-    """Haar cascade finds WHERE the face is. LBPH then decides WHO it is."""
+def largest_face_box(gray):
+    """Haar cascade finds WHERE the face is: (x, y, w, h) or None."""
     small = cv2.resize(gray, None, fx=DETECT_SCALE, fy=DETECT_SCALE,
                        interpolation=cv2.INTER_AREA)
 
@@ -257,6 +265,15 @@ def largest_face(gray):
     w, h = min(w, W - x), min(h, H - y)
     if w <= 0 or h <= 0:
         return None
+    return x, y, w, h
+
+
+def largest_face(gray):
+    """Haar cascade finds WHERE the face is. LBPH then decides WHO it is."""
+    box = largest_face_box(gray)
+    if box is None:
+        return None
+    x, y, w, h = box
 
     # NO equalizeHist here, deliberately.
     #
@@ -313,10 +330,14 @@ def enroll():
     if img is None:
         return jsonify({"error": "no image received"}), 400
 
-    face = largest_face(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
-    if face is None:
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    box = largest_face_box(gray)
+    if box is None:
         print(f"[enroll] {name}: no face found in frame")
         return jsonify({"status": "no face found - try again"}), 200
+    x, y, w, h = box
+    face = cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE)
+    keep_best_portrait(name, img, w * h)
 
     user_dir = os.path.join(DATASET_DIR, name)
     os.makedirs(user_dir, exist_ok=True)
@@ -325,6 +346,83 @@ def enroll():
 
     print(f"[enroll] {name}: sample {idx + 1} saved")
     return jsonify({"status": "saved", "name": name, "samples": idx + 1})
+
+
+# ---------------------------------------------------------------------------
+# Portraits: the photo on the ACCESS GRANTED screen
+# ---------------------------------------------------------------------------
+# The master ESP32 fetches the granted person's photo from here, so a newly
+# enrolled person appears on the LCD and tablet without reflashing it. Only
+# a device with the device key may fetch one: these are photos of people.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "tools"))
+import make_lcd_photo as lcd  # noqa: E402  (same crop as the old header tool)
+
+
+def _device_key():
+    """DEVICE_API_KEY as the portal uses it: environment, then the repo's
+    .env, then the same development default as docker-compose.yml."""
+    key = os.environ.get("DEVICE_API_KEY")
+    env = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
+    if not key and os.path.isfile(env):
+        with open(env, encoding="utf-8") as f:
+            for line in f:
+                if line.strip().startswith("DEVICE_API_KEY="):
+                    key = line.split("=", 1)[1].strip().strip('"').strip("'")
+    return key or "dev-device-key-change-me"
+
+
+DEVICE_KEY = _device_key()
+_portrait_cache = {}            # name -> (mtime, rgb565 bytes)
+_portrait_lock = threading.Lock()
+
+
+def keep_best_portrait(name, img, face_area):
+    """Keep the enrollment frame with the largest (closest, sharpest) face."""
+    os.makedirs(PORTRAIT_DIR, exist_ok=True)
+    jpg = os.path.join(PORTRAIT_DIR, f"{name}.jpg")
+    meta = os.path.join(PORTRAIT_DIR, f"{name}.json")
+    if os.path.exists(jpg) and not os.path.exists(meta):
+        return                                  # chosen by hand: keep it
+    best = 0
+    if os.path.exists(meta):
+        try:
+            with open(meta, encoding="utf-8") as f:
+                best = json.load(f).get("face_area", 0)
+        except (OSError, ValueError):
+            best = 0
+    if face_area <= best:
+        return
+    cv2.imwrite(jpg, img)
+    with open(meta, "w", encoding="utf-8") as f:
+        json.dump({"face_area": int(face_area), "source": "enrollment"}, f)
+    print(f"[portrait] {name}: new photo for the ACCESS GRANTED screen")
+
+
+@app.route("/portrait/<name>.rgb565", methods=["GET"])
+def portrait_rgb565(name):
+    """160x128 RGB565, little-endian - the LCD's own pixel format."""
+    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+        return jsonify({"error": "device key required"}), 403
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+        return jsonify({"error": "bad name"}), 400
+    path = os.path.join(PORTRAIT_DIR, f"{name}.jpg")
+    if not os.path.isfile(path):
+        return jsonify({"error": f"no portrait for {name}"}), 404
+    mtime = os.path.getmtime(path)
+    with _portrait_lock:
+        cached = _portrait_cache.get(name)
+        if cached is None or cached[0] != mtime:
+            # cv2 directly, not lcd.load(): that one exits the process on
+            # an unreadable file, which here would take the server down.
+            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return jsonify({"error": f"unreadable portrait for {name}"}), 500
+            pixels = lcd.to_rgb565(lcd.crop_around_face(img))
+            cached = (mtime, pixels.astype("<u2").tobytes())
+            _portrait_cache[name] = cached
+    return Response(cached[1], mimetype="application/octet-stream",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.route("/train", methods=["GET", "POST"])

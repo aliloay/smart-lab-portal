@@ -18,6 +18,10 @@ Nothing is wired between the two boards. They talk over WiFi.
 
 ## Board settings
 
+**ESP32 core (Boards Manager → esp32 by Espressif): `3.3.11`. Do not update to
+3.3.12** - with 3.3.12 the ESP32-CAM fails at boot with `frame buffer malloc
+failed` / `Camera init failed` (same board, same settings; 3.3.11 works).
+
 **ESP32-CAM**
 - Board: `AI Thinker ESP32-CAM`
 - PSRAM: `Enabled`
@@ -51,7 +55,7 @@ Leave the window open. Expect:
 ```
  SMART LAB - FACE RECOGNITION SERVER
  Listening on port 5000, all interfaces.
- * Running on http://192.168.1.8:5000
+ * Running on http://192.168.1.200:5000
 ```
 
 If it exits complaining about the face detector, the OpenCV version is wrong:
@@ -65,7 +69,7 @@ pip install "opencv-python==4.10.0.84" "opencv-contrib-python==4.10.0.84"
 Check line 61 points at the laptop:
 
 ```cpp
-const char *SERVER_IP = "192.168.1.8";
+const char *SERVER_IP = "192.168.1.200";
 ```
 
 Flash, then read Serial at 115200:
@@ -125,9 +129,9 @@ That is the security property worth demonstrating in the defence.
 The camera cannot open a TCP connection to the laptop. `HTTP -1` is a
 connection failure, not a bad request. Check in this order:
 
-1. `ipconfig` on the laptop — if the IPv4 address is no longer `192.168.1.8`,
-   DHCP moved it. Update `SERVER_IP` (line 61) in the camera sketch and reflash.
-2. `http://192.168.1.8:5000/health` in the laptop's own browser. This goes over
+1. `ipconfig` on the laptop — if the IPv4 address is no longer `192.168.1.200`,
+   the manual IP was lost. Set it back (Wi-Fi > IP assignment > Manual) or update `SERVER_IP` (line 61) in the camera sketch and reflash.
+2. `http://192.168.1.200:5000/health` in the laptop's own browser. This goes over
    loopback and bypasses the firewall, so it working proves nothing about the
    network — it only proves the server is alive.
 3. Same URL **from a phone on the same WiFi**. If the laptop works and the
@@ -288,9 +292,9 @@ fingerprint slot, and the same label is the face name. For that person:
    line ending *Newline*), door idle. Type `enroll 5` for USER5 and place the
    same finger twice when asked. Other commands: `enroll 5 force`
    (overwrite), `delete 5`, `count`.
-2. **Face (optional)** — about 20 times, with the person in front of the
-   camera: `http://<esp32cam-ip>/enroll?name=USER5`, then open
-   `http://<laptop-ip>:5000/train` once.
+2. **Face (optional)** — open the camera page `http://192.168.1.150`, type
+   `USER5` under *Enroll a face*, press **Capture sample** about 20 times
+   with the person in front of the camera, then press **Train**.
 3. They book a lab in the portal and show the booking QR. The portal names
    `USER5`, and the master then accepts only fingerprint slot 5 or face
    `USER5`. Anyone else's finger or face is refused as an identity mismatch.
@@ -298,6 +302,29 @@ fingerprint slot, and the same label is the face name. For that person:
 RFID cards are still listed in the sketch (only USER1 and USER2 have one);
 new people use the booking QR as step 1. Enrolment blocks the master for up
 to ~40 s; do it outside lab hours.
+
+### The photo on ACCESS GRANTED — automatic, no reflash
+
+Face enrollment also keeps the best **colour** capture of each person (the
+frame with the largest face) as `firmware/face_server/portraits/USERn.jpg`.
+When step 1 names a person, the master fetches that photo from the face
+server in a background task (other core), so it is shown on the LCD and the
+tablet at ACCESS GRANTED. The door never waits for it:
+
+| Situation | Grant screen shows |
+|---|---|
+| Photo on the face server | that photo (redrawn if it arrives a moment after the grant) |
+| Laptop off / no photo, but the person is in `user_photos.h` | the compiled-in photo |
+| Neither | the text screen |
+
+- The face server hands a photo only to a device with the device key
+  (`DEVICE_API_KEY`, same as the portal) — these are pictures of people.
+  `portraits/` is gitignored for the same reason.
+- To use a specific photo instead, put it in `portraits/` as `USERn.jpg` and
+  delete `USERn.json`. A photo placed by hand is never replaced by
+  enrollment.
+- Older enrollments (before this feature) have no colour photo: capture a few
+  more samples for that person on the camera page and one is created.
 
 ---
 

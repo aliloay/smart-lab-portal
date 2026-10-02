@@ -184,7 +184,7 @@ get_or_create(Device, {
     "name": "Face Recognition Server",
     "device_type": DeviceType.FACE_SERVER,
     "lab_id": robotics.id,
-    "ip_address": "192.168.1.8",
+    "ip_address": "192.168.1.200",
 }, device_uid="FACESRV_01")
 
 # --- equipment ---------------------------------------------------------------

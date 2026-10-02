@@ -21,7 +21,7 @@ phone hotspot. Then, on the laptop:
 
 1. Double-click `launch.bat`. It starts Docker Desktop if needed, opens the
    face server in its own window, starts the portal and opens it in the
-   browser. Note the address it prints, e.g. `http://192.168.1.8`.
+   browser. Note the address it prints, e.g. `http://192.168.1.200`.
 2. If the network changed since the boards were flashed, set the camera's
    `SERVER_IP` and the master's `BACKEND_IP` to the printed address, and the
    master's `CAMERA_IP` to the address the camera prints on its Serial.

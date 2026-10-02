@@ -4,7 +4,7 @@ rem   1. starts Docker Desktop if it is not running yet
 rem   2. opens the face server (firmware\face_server) in its own window
 rem   3. starts the free local AI (Ollama) if it is installed, and downloads
 rem      its two models the first time
-rem   4. runs "docker compose up --build" here: portal, API and database
+rem   4. builds (when it can) and runs "docker compose up": portal, API and database
 rem      (docker-compose.yml is the single definition of the system), plus
 rem      n8n when automation is configured in .env (AUTOMATION_WEBHOOK_BASE)
 rem   5. opens the portal in the browser as soon as it answers
@@ -81,6 +81,12 @@ if defined LANIP (
   echo    Phones, same Wi-Fi : http://%LANIP%
   echo    ESP32 master       : BACKEND_IP = %LANIP%   ^(API on port 8000^)
   echo    ESP32-CAM          : SERVER_IP  = %LANIP%   ^(face server, port 5000^)
+  echo    Tablet             : http://192.168.1.151
+  if not "%LANIP%"=="192.168.1.200" (
+    echo.
+    echo    WARNING: this laptop is %LANIP%, but the ESP32 boards expect 192.168.1.200.
+    echo             Settings ^> Wi-Fi ^> IP assignment ^> Manual: 192.168.1.200, gateway 192.168.1.1
+  )
 ) else (
   echo    No network with a gateway found - connect to the Wi-Fi or hotspot.
 )
@@ -98,7 +104,24 @@ echo.
 rem Open the browser once the portal answers; this window keeps the logs.
 start "" /b powershell -NoProfile -WindowStyle Hidden -Command "$null = 'smartlab-open-browser'; for ($i = 0; $i -lt 150; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://localhost/api/health).StatusCode -eq 200) { Start-Process 'http://localhost'; break } } catch {} ; Start-Sleep 2 }" >nul 2>&1
 
-docker compose %PROFILE% up --build
+rem Build first, separately. A build needs the internet (Docker checks the base
+rem images online), and the Smart_Lab router has none. Offline, skip it and
+rem start the last version that was built - the lab must run offline.
+powershell -NoProfile -Command "try { $null = [Net.Dns]::GetHostEntry('registry-1.docker.io'); exit 0 } catch { exit 1 }" >nul 2>&1
+if errorlevel 1 (
+  echo  No internet - starting the last built version ^(no rebuild^).
+  echo  Code changes since that build need one launch with internet.
+  echo.
+  goto start_portal
+)
+docker compose %PROFILE% build
+if errorlevel 1 (
+  echo.
+  echo  Could not rebuild - starting the last built version.
+  echo.
+)
+:start_portal
+docker compose %PROFILE% up --no-build
 
 rem ---- Stopped: close the face server we opened -----------------------------
 if defined FACE_STARTED taskkill /fi "WINDOWTITLE eq Smart Lab - Face server*" /t /f >nul 2>&1

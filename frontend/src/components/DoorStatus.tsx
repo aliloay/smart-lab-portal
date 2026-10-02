@@ -38,6 +38,7 @@ export default function DoorStatus({ onNavigate }: { onNavigate?: () => void }) 
   // Door and access events for this laboratory refresh it immediately.
   useLiveMessages(m => {
     if (m.type === 'access_event' && m.event.lab_id === labId) load()
+    if (m.type === 'door_state' && m.lab_id === labId) load()
   })
 
   if (labId === null || !s) return null

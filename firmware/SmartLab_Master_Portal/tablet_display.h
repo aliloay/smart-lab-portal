@@ -10,7 +10,7 @@
 //     http://<Master ESP32 IP>/state   the current state as JSON
 //
 // Guarantees:
-//   - Two GET routes, nothing else (anything else is a 404). No route writes
+//   - Three GET routes (/, /state, /photo), nothing else (anything else is a 404). No route writes
 //     a variable, calls a state transition or touches the relay/lock, so no
 //     request - including one from a modified page - can open the door.
 //   - handleClient() is non-blocking and a /state reply is ~1 KB, so the
@@ -42,6 +42,22 @@ static void tjKey(String &o, const char *k) { tjStr(o, k); o += ':'; }
 static void tjKV(String &o, const char *k, const char *v) { tjKey(o, k); tjStr(o, v); o += ','; }
 static void tjKV(String &o, const char *k, bool v) { tjKey(o, k); o += v ? "true" : "false"; o += ','; }
 static void tjKV(String &o, const char *k, long v) { tjKey(o, k); o += String(v); o += ','; }
+
+// The granted user's LCD photo (RGB565, 160x128), or nullptr.
+static const uint16_t *tabletPhoto() {
+  if (pendingUserIndex < 0) return nullptr;
+  return grantPhoto(authorizedUsers[pendingUserIndex].name);
+}
+
+// Raw RGB565 pixels, little-endian, 40 KB - the page turns them into an
+// image. Read-only like /state; 404 when there is no photo to show.
+static void tabletHandlePhoto() {
+  const uint16_t *p = tabletPhoto();
+  if (!p) { tabletServer.send(404, "text/plain", "No photo"); return; }
+  tabletServer.sendHeader("Cache-Control", "no-store");
+  tabletServer.send_P(200, "application/octet-stream", (PGM_P)p,
+                      USER_PHOTO_W * USER_PHOTO_H * 2);
+}
 
 // Mirrors updateDisplay(): same states, same branches, same words.
 static void tabletHandleState() {
@@ -95,7 +111,7 @@ static void tabletHandleState() {
       break;
   }
 
-  String o; o.reserve(900);
+  String o; o.reserve(1200);
   o += '{';
   tjKV(o, "screen", screen); tjKV(o, "tone", tone); tjKV(o, "header", header);
   tjKV(o, "title", title); tjKV(o, "name", name);
@@ -109,8 +125,19 @@ static void tabletHandleState() {
   tjKV(o, "totalMs", (long)FINGERPRINT_TIMEOUT_MS);
   tjKV(o, "method", (state == STATE_WAIT_FINGERPRINT) ? step1Label : "");
   tjKV(o, "viaPortal", (bool)(pendingViaPortal && pendingUserIndex >= 0));
+  // Same photo the LCD shows on ACCESS GRANTED; the page fetches /photo.
+  tjKV(o, "photo", (bool)(!strcmp(screen, "granted") && tabletPhoto() != nullptr));
+  // Changes when the face server's photo replaces the compiled-in one, so
+  // the page fetches it again.
+  tjKV(o, "photoSrc", (pendingUserIndex >= 0 &&
+                       serverPortrait(authorizedUsers[pendingUserIndex].name)) ? "server" : "local");
   // Station facts the ESP32 already tracks (read-only).
   tjKV(o, "lab", LAB_ID); tjKV(o, "device", DEVICE_ID);
+  // A page left open across a reflash reloads itself when this changes.
+  tjKV(o, "build", __DATE__ " " __TIME__);
+  // Where the portal is: the page shows the GIU logo from it (cosmetic only;
+  // the page works the same if the laptop is off).
+  tjKV(o, "portal", BACKEND_IP);
   tjKV(o, "doorClosed", doorClosed);
   tjKV(o, "lockReleased", relayUnlocked);
   tjKV(o, "camera", cameraHealthy());
@@ -150,6 +177,10 @@ header{display:flex;align-items:center;justify-content:space-between;padding:2.2
 background:rgba(13,26,46,.55);backdrop-filter:blur(12px);position:relative}
 .brand{font-weight:800;letter-spacing:.18em;font-size:clamp(16px,2.4vw,28px)}
 .brand b{color:var(--cy)}
+.brand{display:flex;align-items:center;gap:1.4vw}
+#logo{height:clamp(34px,6vh,64px);width:auto;
+filter:drop-shadow(0 0 .8px rgba(241,245,249,1)) drop-shadow(0 0 .8px rgba(241,245,249,.85)) drop-shadow(0 0 3px rgba(241,245,249,.22))}
+.sep{width:1px;align-self:stretch;background:var(--line)}
 .lab{font-family:ui-monospace,Consolas,monospace;color:var(--sub);font-size:clamp(13px,1.8vw,20px);letter-spacing:.1em}
 main{flex:1;display:flex;align-items:center;justify-content:center;padding:3vh 4vw;position:relative}
 .card{width:min(1100px,100%);border-radius:28px;border:1px solid var(--line);background:var(--glass);
@@ -161,6 +192,8 @@ padding:5vh 5vw;text-align:center;transition:background .3s,border-color .3s}
 .icon{width:clamp(80px,13vh,150px);height:clamp(80px,13vh,150px);margin:0 auto 2.5vh;border-radius:50%;display:grid;place-items:center;
 border:2px solid rgba(255,255,255,.5)}
 .icon svg{width:55%;height:55%}
+#photo{display:block;margin:0 auto 2.5vh;height:clamp(160px,34vh,380px);aspect-ratio:160/128;border-radius:20px;
+border:3px solid rgba(52,211,153,.7);image-rendering:auto}
 h1{font-size:clamp(40px,8vw,104px);line-height:1.02;font-weight:800;letter-spacing:.02em}
 .name{margin-top:1.6vh;font-size:clamp(26px,4.6vw,60px);font-weight:700;color:#a7f3d0}
 .card:not(.ok) .name{color:#bae6fd}
@@ -183,10 +216,11 @@ letter-spacing:.14em;font-size:clamp(12px,1.6vw,18px);display:none;z-index:5}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <div id="conn"></div>
-<header><div class="brand">GIU &middot; SMART <b>LAB</b></div><div class="lab" id="lab">ACCESS STATION</div></header>
+<header><div class="brand"><img id="logo" alt="German International University" hidden><i class="sep" id="sep" hidden></i><span id="brandTxt">GIU &middot; SMART <b>LAB</b></span></div><div class="lab" id="lab">ACCESS STATION</div></header>
 <main><div class="card" id="card">
 <div class="hdr" id="hdr">SMART LAB</div>
 <div class="icon" id="icon" hidden></div>
+<canvas id="photo" width="160" height="128" hidden></canvas>
 <h1 id="title">CONNECTING&hellip;</h1>
 <div class="name" id="name" hidden></div>
 <div class="lines" id="lines"></div>
@@ -208,8 +242,26 @@ var CROSS='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" s
 var WARN='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/></svg>';
 function $(i){return document.getElementById(i)}
 function set(el,txt,cls){el.textContent=txt;el.className=cls||''}
-var fails=0,wasDown=false,upTimer=null;
+var fails=0,wasDown=false,upTimer=null,photoFor=null;
+function showPhoto(s){var cv=$('photo');
+ if(!s.photo){cv.hidden=true;photoFor=null;return false}
+ var key=s.name+'|'+s.photoSrc;
+ if(photoFor===key)return !cv.hidden;
+ photoFor=key;
+ fetch('/photo',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.arrayBuffer()}).then(function(b){
+  var v=new DataView(b),x=cv.getContext('2d'),im=x.createImageData(160,128),d=im.data;
+  for(var i=0;i<160*128;i++){var c=v.getUint16(i*2,true);
+   d[i*4]=(c>>11&31)*255/31;d[i*4+1]=(c>>5&63)*255/63;d[i*4+2]=(c&31)*255/31;d[i*4+3]=255}
+  x.putImageData(im,0,0);cv.hidden=false;$('icon').hidden=true;
+ }).catch(function(){photoFor=null});
+ return !cv.hidden}
+var BUILD=null,logoTried=false;
 function render(s){
+ if(BUILD===null)BUILD=s.build;else if(s.build&&s.build!==BUILD){location.reload();return}
+ if(!logoTried&&s.portal){logoTried=true;var im=$('logo');
+  im.onload=function(){im.hidden=false;$('sep').hidden=false;$('brandTxt').innerHTML='SMART <b>LAB</b>'};
+  im.onerror=function(){setTimeout(function(){logoTried=false},30000)};
+  im.src='http://'+s.portal+'/brand/giu-logo.png'}
  var c=$('card');c.className='card'+(s.tone==='ok'?' ok':s.tone==='bad'?' bad':'');
  $('hdr').textContent=s.header;$('lab').textContent=s.lab+' · ACCESS STATION';
  $('title').textContent=s.title;
@@ -218,6 +270,7 @@ function render(s){
  else if(s.screen==='denied'){ic.innerHTML=CROSS;ic.hidden=false}
  else if(s.screen==='alarm'||s.screen==='heldopen'){ic.innerHTML=WARN;ic.hidden=false}
  else ic.hidden=true;
+ if(showPhoto(s))ic.hidden=true;
  var n=$('name');n.textContent=s.name;n.hidden=!s.name;
  var L=$('lines');L.innerHTML='';s.lines.forEach(function(t){var d=document.createElement('div');d.textContent=t;L.appendChild(d)});
  if(s.viaPortal&&s.screen!=='idle'){var d=document.createElement('div');d.className='m';d.textContent='Booking verified by the portal';L.appendChild(d)}
@@ -258,6 +311,7 @@ static void tabletHandlePage() {
 void tabletBegin() {
   tabletServer.on("/", HTTP_GET, tabletHandlePage);
   tabletServer.on("/state", HTTP_GET, tabletHandleState);
+  tabletServer.on("/photo", HTTP_GET, tabletHandlePhoto);
   tabletServer.onNotFound([]() { tabletServer.send(404, "text/plain", "Not found"); });
   tabletServer.begin();
   Serial.print("[TABLET] Read-only display at http://");
