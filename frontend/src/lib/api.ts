@@ -59,6 +59,11 @@ export interface MonitorTile {
   last_event: { type: string; result: string | null; who: string | null;
                 reason: string | null; at: string } | null
   environment: Partial<Record<'temperature' | 'humidity', { value: number; unit: string; at: string }>>
+  /** Active hazard states: smoke, flame, water_leak, emergency. */
+  hazards: string[]
+  /** Environment node reporting? null = the lab has none. */
+  env_online: boolean | null
+  motion: boolean
 }
 
 /** A request the door controller fetches and carries out (fingerprint enrollment). */
@@ -530,6 +535,15 @@ export interface EnvSeries {
   latest: number; latest_at: string
   points: { t: string; v: number; lab_id: number }[]
 }
+/** Latest environment value per metric with its quality (System 1). */
+export type EnvQuality = 'VALID' | 'STALE' | 'MISSING' | 'DEVICE_OFFLINE' | 'OUT_OF_RANGE'
+export interface LabEnvironment {
+  node: { device_uid: string; online: boolean | null; last_seen_at: string | null } | null
+  metrics: Record<'temperature' | 'humidity' | 'smoke' | 'flame' | 'water_leak' | 'motion' | 'emergency',
+                  { value: number | null; unit: string | null; at: string | null; quality: EnvQuality }>
+  hazards: string[]
+}
+
 export interface EnvironmentBlock {
   hours: number; has_data: boolean; message: string | null; series: EnvSeries[]
 }
@@ -744,6 +758,7 @@ export const api = {
   labActivity: (id: number, limit = 80) =>
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),
   labSensors: (id: number) => request<unknown[]>(`/labs/${id}/sensors`),
+  labEnvironment: (id: number) => request<LabEnvironment>(`/labs/${id}/environment`),
   labIssues: (id: number) => request<LabIssueBrief[]>(`/labs/${id}/issues`),
   availability: (id: number, start: string, end: string) =>
     request<BookingSlot[]>(`/labs/${id}/availability${qs({ start, end })}`),

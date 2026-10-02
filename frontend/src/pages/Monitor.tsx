@@ -247,6 +247,9 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
         {offline && (
           <div className="flex items-center gap-1.5 text-warn-soft font-semibold truncate">
             <WifiOff className="w-[1em] h-[1em] shrink-0" /> Door controller offline</div>)}
+        {t.env_online === false && (
+          <div className="flex items-center gap-1.5 text-warn-soft font-semibold truncate">
+            <WifiOff className="w-[1em] h-[1em] shrink-0" /> Environment node offline</div>)}
         {top ? (
           <div className={`flex items-center gap-1.5 font-semibold min-w-0
                            ${top.severity === 'CRITICAL' ? 'text-bad-soft' : 'text-warn-soft'}`}>
@@ -258,7 +261,7 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
         ) : t.faults.length ? (
           <div className="flex items-center gap-1.5 text-warn-soft truncate">
             <TriangleAlert className="w-[1em] h-[1em] shrink-0" /> {t.faults[0]} not responding</div>
-        ) : !offline && (
+        ) : !offline && t.env_online !== false && (
           <div className="flex items-center gap-1.5 text-slate-500">
             <ShieldCheck className="w-[1em] h-[1em] shrink-0" /> No alarms</div>
         )}

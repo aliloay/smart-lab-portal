@@ -134,6 +134,8 @@ export function Sparkline({ s, height = 46 }: { s: EnvSeries; height?: number })
   )
 }
 
+const STATE_METRICS = new Set(['smoke', 'flame', 'water_leak', 'motion', 'emergency'])
+
 const METRIC_LABEL: Record<string, string> = {
   temperature: 'Temperature', humidity: 'Humidity', co2: 'CO₂', noise: 'Noise',
 }
@@ -149,7 +151,8 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
   }
   return (
     <div className={`grid gap-3 ${compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>
-      {env.series.map(s => {
+      {/* Hazard states (0/1) have their own row - see SafetyStates. */}
+      {env.series.filter(s => !STATE_METRICS.has(s.metric)).map(s => {
         const out = (s.max !== null && s.latest > s.max) || (s.min !== null && s.latest < s.min)
         return (
           <div key={s.metric} className={`rounded-xl border p-3.5 ${out

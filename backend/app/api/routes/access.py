@@ -299,10 +299,11 @@ class TelemetryRequest(BaseModel):
 def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
               _: str = Depends(require_device)):
     """
-    Environmental readings from a sensor node (temperature, humidity, CO2,
-    ...). Stored as reported; nothing is interpolated. No sensor node is
-    installed yet, so until one posts here every environment view says
-    "Awaiting sensor data" - this endpoint is the contract it will use.
+    Environmental readings from a sensor node (temperature, humidity, and
+    the hazard states smoke / flame / water_leak / emergency, plus motion).
+    Stored as reported with the server's UTC time; nothing is interpolated.
+    A hazard state raises (or clears) its alert at once - see
+    services/environment.py.
     """
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
@@ -316,5 +317,8 @@ def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
                              recorded_at=now))
     if device is not None:
         device.last_seen_at = now
+    from app.services import environment
+    environment.record_hazards(db, lab, device,
+                               [(r.metric, r.value) for r in req.readings])
     db.commit()
     return {"status": "recorded", "count": len(req.readings)}

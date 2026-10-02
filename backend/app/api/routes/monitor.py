@@ -9,13 +9,13 @@ A value the hardware never reported stays null and the screen says "no
 data"; nothing is guessed. Lab state:
   ALERT - an unresolved CRITICAL alert (forced door, held open, ...)
   WARN  - any other unresolved alert, a faulty component, or the door
-          controller offline
+          controller or the environment node offline
   OK    - none of those
 """
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import desc, select
@@ -25,7 +25,8 @@ from app.api.deps import require_staff
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessSession, Alert, AlertSeverity,
                         Booking, BookingStatus, Device, DeviceType, EventType,
-                        Lab, SensorReading, User)
+                        Lab, User)
+from app.services import environment
 from app.services.devices import is_fresh, refresh_liveness
 from app.services.sessions import close_expired
 
@@ -36,8 +37,6 @@ router = APIRouter(prefix="/monitor", tags=["monitor"])
 _DOOR_EVENTS = (EventType.ACCESS_GRANTED, EventType.ACCESS_DENIED,
                 EventType.IDENTITY_MISMATCH, EventType.DOOR_OPENED,
                 EventType.DOOR_CLOSED, EventType.EXIT_RECORDED, EventType.ALARM)
-# Older environment readings are not shown as current.
-_SENSOR_FRESH = timedelta(minutes=10)
 _COMPONENT_NAMES = {"rfid": "RFID reader", "fingerprint": "Fingerprint sensor",
                     "camera": "Camera"}
 _SEVERITY_RANK = {AlertSeverity.CRITICAL: 0, AlertSeverity.WARNING: 1,
@@ -100,13 +99,11 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         people.append({"name": u.full_name if u else None,
                        "role": u.role.value if u else None, "since": s.started_at})
 
-    env = {}
-    for metric in ("temperature", "humidity"):
-        r = db.scalar(select(SensorReading).where(
-            SensorReading.lab_id == lab.id, SensorReading.metric == metric)
-            .order_by(desc(SensorReading.recorded_at)))
-        if r is not None and now - _utc(r.recorded_at) <= _SENSOR_FRESH:
-            env[metric] = {"value": r.value, "unit": r.unit, "at": r.recorded_at}
+    # Environment (System 1): only fresh, valid values are shown as current.
+    envd = environment.latest(db, lab, now)
+    env = {m: {"value": v["value"], "unit": v["unit"], "at": v["at"]}
+           for m, v in envd["metrics"].items()
+           if m in ("temperature", "humidity") and v["quality"] == "VALID"}
 
     # Only while the controller is reporting: an offline controller's last
     # component report is history, not a current fault.
@@ -115,7 +112,8 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
 
     if any(a.severity == AlertSeverity.CRITICAL for a in alerts):
         state = "ALERT"
-    elif alerts or faults or controller_online is False:
+    elif alerts or faults or controller_online is False or (
+            envd["node"] is not None and envd["node"]["online"] is False):
         state = "WARN"
     else:
         state = "OK"
@@ -144,6 +142,12 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
                        "who": _name(db, last.user_id), "reason": last.reason,
                        "at": last.created_at} if last else None,
         "environment": env,
+        # Active hazard states (smoke, flame, water_leak, emergency) and
+        # whether the environment node is reporting (None = no node).
+        "hazards": envd["hazards"],
+        "env_online": envd["node"]["online"] if envd["node"] else None,
+        "motion": envd["metrics"]["motion"]["value"] == 1
+                  and envd["metrics"]["motion"]["quality"] == "VALID",
     }
 
 

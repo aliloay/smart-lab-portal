@@ -188,6 +188,19 @@ def _brief(db: Session, i: Issue, viewer: User) -> LabIssueBrief:
                          is_mine=i.reporter_id == viewer.id)
 
 
+@router.get("/{lab_id}/environment")
+def lab_environment(lab_id: int, db: Session = Depends(get_db),
+                    _: User = Depends(get_current_user)):
+    """Latest environment reading per metric, each with its quality
+    (VALID / STALE / MISSING / DEVICE_OFFLINE / OUT_OF_RANGE)."""
+    from app.services import environment
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    refresh_liveness(db)
+    return environment.latest(db, lab)
+
+
 @router.get("/{lab_id}/availability", response_model=list[BookingSlot])
 def lab_availability(lab_id: int, start: datetime, end: datetime,
                      db: Session = Depends(get_db),

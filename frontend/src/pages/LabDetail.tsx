@@ -17,6 +17,7 @@ import {
 import { LabArt, categoryMeta } from '../components/labArt'
 import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
+import SafetyStates from '../components/SafetyStates'
 
 export default function LabDetail() {
   const { id } = useParams()
@@ -342,6 +343,7 @@ export default function LabDetail() {
             <SectionTitle icon={<Gauge size={15} />}
               sub="Real sensor readings only - nothing is estimated.">Environment</SectionTitle>
             <div className="card p-4 space-y-3">
+              <SafetyStates labId={labId} />
               <EnvironmentPanel env={twin?.environment ?? null} compact />
               <div className="well px-3 py-2.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[12px] text-slate-400"><Users size={14} />Occupancy</span>
