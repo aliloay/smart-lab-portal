@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { Role, User, api } from '../lib/api'
+import FaceEnrollment from '../components/FaceEnrollment'
 import { roleLabel, useAuth } from '../lib/auth'
 import {
   Avatar, Chip, Drawer, EmptyState, ErrorBanner, Field, MetricCard, Modal, Notice, PageHeader,
@@ -51,8 +52,8 @@ export default function Users() {
         <span className="mono">USER4</span>, …). <span className="mono">USERn</span> means fingerprint slot{' '}
         <b>n</b> and face label <span className="mono">USERn</span>. It opens nothing until lab staff enrol
         that person: type <span className="mono">enroll n</span> in the door controller's serial monitor and
-        place the finger twice, and add ~20 face photos with <span className="mono">/enroll?name=USERn</span> on
-        the camera. Their booking QR then works with their own fingerprint or face.
+        place the finger twice, and enroll the face with the door camera under <b>Edit → Face ID</b>.
+        Their booking QR then works with their own fingerprint or face.
       </Notice></div>
 
       <div className="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
@@ -154,11 +155,14 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
       <fieldset className="rounded-xl border border-ink-600/70 p-3 space-y-2">
         <legend className="label px-1">Biometrics registered at the door</legend>
         <p className="text-[12px] text-slate-400">
-          Tick once this person's finger is stored on the door sensor
-          {f.auth_subject.trim() ? <> (<span className="mono">enroll {f.auth_subject.replace(/^USER/, '')}</span>)</> : null}
-          {' '}and their face photos are on the face server. This only updates the reminder they
-          see in the portal; it does not change what the door accepts.
+          Enroll the face below with the door camera; finishing ticks Face ID for you. Tick
+          the fingerprint once the finger is stored on the door sensor
+          {f.auth_subject.trim() ? <> (<span className="mono">enroll {f.auth_subject.replace(/^USER/, '')}</span>)</> : null}.
+          These ticks only update the reminder the person sees in the portal; they do not
+          change what the door accepts.
         </p>
+        <FaceEnrollment userId={u.id} savedSubject={u.auth_subject}
+                        onEnrolled={() => setF(x => ({ ...x, face_enrolled: true }))} />
         <label className="flex items-center gap-2.5 text-sm text-slate-200">
           <input type="checkbox" checked={f.fingerprint_enrolled} className="accent-sky-500"
                  onChange={e => setF({ ...f, fingerprint_enrolled: e.target.checked })} />

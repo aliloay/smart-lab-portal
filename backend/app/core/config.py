@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
                               "co2=:1000,noise=:85")
 
+    # --- face enrollment from the portal ------------------------------------
+    # Staff enroll a person's face from Users & roles: the portal asks the
+    # door camera for a frame and the face server (on this laptop) keeps the
+    # samples and the photo. The portal itself stores no biometric.
+    CAMERA_URL: str = "http://192.168.1.150"
+    FACE_SERVER_URL: str = "http://127.0.0.1:5000"
+
     # --- AI assistant (optional) --------------------------------------------
     # Two providers:
     #   ollama    - free, runs on your own computer (https://ollama.com).

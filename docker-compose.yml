@@ -46,6 +46,10 @@ services:
       # just says so; nothing else is affected.
       AI_PROVIDER: ${AI_PROVIDER:-auto}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Face enrollment from the portal: the door camera on the lab Wi-Fi and
+      # the face server running on this laptop (outside Docker).
+      CAMERA_URL: ${CAMERA_URL:-http://192.168.1.150}
+      FACE_SERVER_URL: ${FACE_SERVER_URL:-http://host.docker.internal:5000}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       # Smaller student model, loaded next to the staff one (empty = share it).
       OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}

@@ -41,6 +41,13 @@ export interface AccessSetupItem {
   label: string; done: boolean; how: string
   value?: string | null; at?: string | null
 }
+/** Face enrollment status (Users & roles -> Edit user -> Face ID). */
+export interface FaceStatus {
+  auth_subject: string | null; face_enrolled_at: string | null
+  samples: number; has_photo: boolean; face_server_online: boolean
+  camera_page_url: string; target_samples: number; min_samples: number
+}
+
 export interface AccessSetup {
   complete: boolean; needed: boolean; auth_subject: string | null
   items: AccessSetupItem[]; summary: string; pending: string[]
@@ -747,6 +754,12 @@ export const api = {
   myAccessSetup: () => request<AccessSetup>('/auth/me/access-setup'),
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
+  faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),
+  faceCapture: (id: number) =>
+    post<{ saved: boolean; samples: number | null; message: string }>(`/users/${id}/face/capture`),
+  faceFinish: (id: number) =>
+    post<{ trained: boolean; samples: number; has_photo: boolean; face_enrolled_at: string }>(
+      `/users/${id}/face/finish`),
   updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),

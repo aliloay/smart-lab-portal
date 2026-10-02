@@ -17,7 +17,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
-                            bookings, issues, labs, notifications, system)
+                            bookings, enrollment, issues, labs, notifications,
+                            system)
 from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.schema_check import check_schema, is_alembic_managed
@@ -83,7 +84,7 @@ app.add_middleware(
 
 for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
-          automation.router, analytics.router, ai.router):
+          automation.router, analytics.router, ai.router, enrollment.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

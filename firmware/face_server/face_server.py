@@ -594,12 +594,15 @@ def analyze():
 
 @app.route("/users", methods=["GET"])
 def users():
+    # "portraits": who has a grant-screen photo (names only, never the image).
+    portraits = sorted(f[:-4] for f in os.listdir(PORTRAIT_DIR)
+                       if f.endswith(".jpg")) if os.path.isdir(PORTRAIT_DIR) else []
     if not os.path.exists(DATASET_DIR):
-        return jsonify({"users": {}})
+        return jsonify({"users": {}, "portraits": portraits})
     return jsonify({"users": {
         n: len(os.listdir(os.path.join(DATASET_DIR, n)))
         for n in sorted(os.listdir(DATASET_DIR))
-    }})
+    }, "portraits": portraits})
 
 
 @app.route("/health", methods=["GET"])
