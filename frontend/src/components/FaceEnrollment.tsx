@@ -12,6 +12,7 @@ import { Camera, CheckCircle2, ExternalLink, Pause, Play, ScanFace } from 'lucid
 import { FaceStatus, api, fetchBlob } from '../lib/api'
 import { fmtDateTime } from '../lib/time'
 import { ErrorBanner, ProgressBar, Spinner } from './ui'
+import { FaceSubmissionReview } from './FaceSubmission'
 
 // Pause between automatic captures: time to turn the head slightly, so the
 // samples differ (angle, expression) instead of being one frame 20 times.
@@ -145,6 +146,9 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
           {st.face_enrolled_at && <> · registered {fmtDateTime(st.face_enrolled_at)}</>}
         </p>
       )}
+
+      {/* Photos the person sent themselves, waiting for staff approval. */}
+      <FaceSubmissionReview userId={userId} onEnrolled={() => { load(); onEnrolled() }} />
 
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
       {msg && !error && (

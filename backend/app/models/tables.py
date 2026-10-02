@@ -701,3 +701,33 @@ class DeviceCommand(Base):
     expires_at: Mapped[datetime] = mapped_column(TS)
     sent_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FaceSubmission(Base):
+    """
+    Face photos a person sends from the portal to be enrolled for the door.
+
+    They are NOT used until staff approve them: staff confirm the photos
+    show the account holder (otherwise anyone could register someone else's
+    face under their own door identity). On approval the photos go to the
+    face server as samples; on approval or rejection the portal deletes its
+    copies - it keeps only this record, never the images.
+
+    PENDING -> APPROVED | REJECTED ; PENDING -> WITHDRAWN (by the person)
+    """
+    __tablename__ = "face_submissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", index=True)
+    # Storage keys while PENDING; emptied when the images are deleted.
+    photo_keys: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    thumb_keys: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    photo_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),
+                                                       nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # How many photos the face server accepted as samples (a face found).
+    samples_saved: Mapped[int | None] = mapped_column(Integer, nullable=True)

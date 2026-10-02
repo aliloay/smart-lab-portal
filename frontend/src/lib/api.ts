@@ -74,6 +74,14 @@ export interface DeviceCommand {
   created_at: string; expires_at: string; sent_at: string | null; completed_at: string | null
 }
 
+/** Face photos a person sent for review (Profile -> Face ID). */
+export interface FaceSubmission {
+  id: number; user_id: number; user_name: string | null; auth_subject: string | null
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'
+  photo_count: number; has_photos: boolean; created_at: string; reviewed_at: string | null
+  reason: string | null; samples_saved: number | null; min_samples: number
+}
+
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
 export interface FaceStatus {
   auth_subject: string | null; face_enrolled_at: string | null
@@ -798,6 +806,18 @@ export const api = {
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
+  myFaceSubmission: () => request<FaceSubmission | null>('/auth/me/face-submission'),
+  submitFacePhotos: (files: File[], onProgress?: (f: number) => void) => {
+    const form = new FormData()
+    files.forEach(f => form.append('files', f))
+    return upload<FaceSubmission>('/auth/me/face-submission', form, onProgress)
+  },
+  withdrawFaceSubmission: () => post<FaceSubmission>('/auth/me/face-submission/withdraw'),
+  pendingFaceSubmission: (userId: number) =>
+    request<FaceSubmission | null>(`/users/${userId}/face/submission`),
+  approveFaceSubmission: (id: number) => post<FaceSubmission>(`/face-submissions/${id}/approve`),
+  rejectFaceSubmission: (id: number, reason: string) =>
+    post<FaceSubmission>(`/face-submissions/${id}/reject`, { reason }),
   fingerprintEnroll: (id: number, force: boolean) =>
     post<DeviceCommand>(`/users/${id}/fingerprint/enroll`, { force }),
   deviceCommand: (id: number) => request<DeviceCommand>(`/device-commands/${id}`),
