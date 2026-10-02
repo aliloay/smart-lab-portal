@@ -41,18 +41,22 @@ def test_tile_shows_door_lock_and_who_is_inside(client, db, staff, alice, lab):
     t = _tile(client, auth_headers(client, staff.email), lab)
     assert t["door_closed"] is False and t["locked"] is False
     assert [p["name"] for p in t["people"]] == ["Alice"]
+    assert t["people_by_role"] == {"STUDENT": 1} and t["in_use"] is True
     assert t["state"] == "OK"
 
 
-def test_critical_alert_puts_the_lab_first_in_alert_state(client, db, staff, lab):
+def test_critical_alert_puts_the_lab_in_alert_state(client, db, staff, lab):
     _master(db, lab)
-    db.add(Alert(lab_id=lab.id, severity=AlertSeverity.CRITICAL,
-                 title="Forced entry", detail=""))
+    for _ in range(3):
+        db.add(Alert(lab_id=lab.id, severity=AlertSeverity.CRITICAL,
+                     title="Forced entry", detail=""))
     db.commit()
-    body = client.get("/api/monitor", headers=auth_headers(client, staff.email)).json()
-    assert body["labs"][0]["lab_id"] == lab.id
-    assert body["labs"][0]["state"] == "ALERT"
-    assert body["labs"][0]["alerts"][0]["title"] == "Forced entry"
+    t = _tile(client, auth_headers(client, staff.email), lab)
+    assert t["state"] == "ALERT"
+    # Repeats are one line with a count, not three lines.
+    assert t["alerts"] == [{"severity": "CRITICAL", "title": "Forced entry",
+                            "at": t["alerts"][0]["at"], "count": 3}]
+    assert t["alert_count"] == 3
 
 
 def test_faulty_component_is_a_warning(client, db, staff, lab):
@@ -65,4 +69,4 @@ def test_never_reported_values_stay_null(client, db, staff, lab):
     t = _tile(client, auth_headers(client, staff.email), lab)
     assert t["has_door"] is False
     assert t["door_closed"] is None and t["locked"] is None
-    assert t["environment"] == {}
+    assert t["environment"] == {} and t["in_use"] is False and t["people_by_role"] == {}

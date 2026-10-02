@@ -47,7 +47,11 @@ export interface MonitorTile {
   state: 'OK' | 'WARN' | 'ALERT'
   controller_online: boolean | null; camera_online: boolean | null
   door_closed: boolean | null; locked: boolean | null; faults: string[]
-  people: { name: string | null; since: string }[]
+  people: { name: string | null; role: Role | null; since: string }[]
+  /** Head count per role, e.g. { STUDENT: 2, LAB_STAFF: 1 }. */
+  people_by_role: Partial<Record<Role, number>>
+  /** Someone inside or booked right now. */
+  in_use: boolean
   booking: { name: string | null; until: string } | null
   next_booking_at: string | null
   alerts: { severity: 'INFO' | 'WARNING' | 'CRITICAL'; title: string; at: string; count: number }[]

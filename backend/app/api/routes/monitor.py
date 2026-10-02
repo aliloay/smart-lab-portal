@@ -14,6 +14,7 @@ data"; nothing is guessed. Lab state:
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -93,6 +94,12 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         AccessEvent.lab_id == lab.id, AccessEvent.event_type.in_(_DOOR_EVENTS))
         .order_by(desc(AccessEvent.created_at)))
 
+    people = []
+    for s in inside:
+        u = db.get(User, s.user_id)
+        people.append({"name": u.full_name if u else None,
+                       "role": u.role.value if u else None, "since": s.started_at})
+
     env = {}
     for metric in ("temperature", "humidity"):
         r = db.scalar(select(SensorReading).where(
@@ -122,8 +129,11 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         "door_closed": controller.door_closed if controller else None,
         "locked": comp.get("relay_locked") if controller else None,
         "faults": faults,
-        "people": [{"name": _name(db, s.user_id), "since": s.started_at}
-                   for s in inside],
+        "people": people,
+        # How many of each role are inside: "2 students, 1 staff".
+        "people_by_role": dict(Counter(p["role"] for p in people if p["role"])),
+        # In use = someone is inside or the lab is booked right now.
+        "in_use": bool(people) or current is not None,
         "booking": {"name": _name(db, current.user_id), "until": current.end_time}
                    if current else None,
         "next_booking_at": upcoming.start_time if upcoming else None,
@@ -145,7 +155,6 @@ def wall_screen(db: Session = Depends(get_db), _: User = Depends(require_staff))
     labs = db.scalars(select(Lab).where(Lab.is_active.is_(True))
                       .order_by(Lab.code)).all()
     tiles = [_tile(db, lab, now) for lab in labs]
-    # Labs with something wrong first, so they are seen first.
-    order = {"ALERT": 0, "WARN": 1, "OK": 2}
-    tiles.sort(key=lambda t: (order[t["state"]], not t["has_door"], t["code"]))
+    # Every lab gets a tile, in a fixed order (by code) so each lab keeps its
+    # place on the wall screen; the colour shows which needs attention.
     return {"generated_at": now, "labs": tiles}
