@@ -111,6 +111,15 @@ static void tabletHandleState() {
       break;
   }
 
+  // Fingerprint enrollment (serial monitor or portal request) runs while the
+  // state machine is idle; show its prompts instead of the welcome screen.
+  if (enrollActive) {
+    screen = "enroll"; tone = "idle"; header = "FINGERPRINT ENROLLMENT";
+    title = enrollLine1; name = enrollWho; step = 0; note = nullptr;
+    for (auto &l : lines) l = nullptr;
+    lines[0] = enrollLine2;
+  }
+
   String o; o.reserve(1200);
   o += '{';
   tjKV(o, "screen", screen); tjKV(o, "tone", tone); tjKV(o, "header", header);

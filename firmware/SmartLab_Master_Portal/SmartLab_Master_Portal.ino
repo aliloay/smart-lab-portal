@@ -508,6 +508,116 @@ bool rfidSameCardStillPresent() {
 }
 
 // ===========================================================================
+// PORTAL REQUESTS - fingerprint enrollment started from the portal
+// ===========================================================================
+// Staff press "Enroll fingerprint" in Users & roles; the portal stores a
+// request. This board FETCHES it (the portal never pushes into it) and only
+// while the door is idle, carries it out itself, and reports each step. It
+// stays the final authority: a request arriving at any other time is
+// refused, and nothing here touches the relay.
+//
+// A background task on core 0 does the network part - polling every 2 s and
+// posting progress - so the access logic on core 1 never waits on Wi-Fi.
+constexpr uint32_t COMMAND_POLL_MS = 2000;
+
+struct PortalCommand {          // what the task hands to loop()
+  long    id;
+  uint8_t slot;
+  bool    force;
+  char    who[16];              // first name for the LCD / tablet
+};
+
+struct CommandProgress {        // what loop() hands back to the task
+  long id;
+  char status[8];               // RUNNING / DONE / FAILED
+  char step[24];
+  char message[96];
+};
+
+QueueHandle_t commandQueue  = nullptr;   // task -> loop
+QueueHandle_t progressQueue = nullptr;   // loop -> task
+volatile bool enrollActive  = false;     // an enrollment is running
+
+// From loop(): report a step. Never blocks; dropped if the queue is full.
+void queueProgress(long id, const char *status, const char *step, const char *message) {
+  if (!progressQueue || id <= 0) return;
+  CommandProgress p = {};
+  p.id = id;
+  strlcpy(p.status, status, sizeof(p.status));
+  strlcpy(p.step, step, sizeof(p.step));
+  strlcpy(p.message, message ? message : "", sizeof(p.message));
+  xQueueSend(progressQueue, &p, 0);
+}
+
+// Plain arguments, not the struct: the Arduino IDE puts its generated
+// prototypes above the struct definitions.
+void postProgress(long id, const char *status, const char *step, const char *message) {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/commands/" + id + "/progress")) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"status\":\"" + status +
+                "\",\"step\":\"" + step + "\",\"message\":\"" + message + "\"}";
+  int code = http.POST(body);
+  if (code != 200) Serial.printf("[PORTAL] progress for request %ld not recorded (HTTP %d)\n", id, code);
+  http.end();
+}
+
+void fetchCommand() {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/commands/next?device_uid=" + DEVICE_ID)) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  String reply = code == 200 ? http.getString() : String();
+  http.end();
+  if (code != 200 || reply.indexOf("\"id\":") < 0) return;
+
+  PortalCommand c = {};
+  c.id = jsonLong(reply, "id");
+  if (jsonStr(reply, "command") != "ENROLL_FINGERPRINT") {
+    postProgress(c.id, "FAILED", "UNKNOWN_COMMAND", "This firmware does not know that request");
+    return;
+  }
+  long slot = jsonLong(reply, "slot");
+  c.slot  = (slot >= 1 && slot <= MAX_FINGER_SLOT) ? (uint8_t)slot : 0;
+  c.force = reply.indexOf("\"force\":true") >= 0;
+  strlcpy(c.who, jsonStr(reply, "display_name").c_str(), sizeof(c.who));
+  xQueueSend(commandQueue, &c, 0);
+}
+
+void portalTask(void *) {
+  CommandProgress p;
+  for (;;) {
+    // Wakes at once when loop() reports a step, else every COMMAND_POLL_MS.
+    if (xQueueReceive(progressQueue, &p, pdMS_TO_TICKS(COMMAND_POLL_MS)) == pdTRUE) {
+      if (WiFi.status() == WL_CONNECTED) postProgress(p.id, p.status, p.step, p.message);
+      continue;
+    }
+    // Ask for work only while the door is idle and nothing is queued.
+    if (BACKEND_ENABLED && WiFi.status() == WL_CONNECTED && state == STATE_IDLE &&
+        !enrollActive && uxQueueMessagesWaiting(commandQueue) == 0) {
+      fetchCommand();
+    }
+  }
+}
+
+void portalTaskBegin() {
+  commandQueue  = xQueueCreate(1, sizeof(PortalCommand));
+  progressQueue = xQueueCreate(8, sizeof(CommandProgress));
+  if (!commandQueue || !progressQueue) {
+    Serial.println("[PORTAL][WARN] No memory for portal requests - serial enrollment only.");
+    return;
+  }
+  xTaskCreatePinnedToCore(portalTask, "portalcmd", 8192, nullptr, 1, nullptr, 0);
+}
+
+// ===========================================================================
 // PORTRAITS - the photo on the ACCESS GRANTED screen (LCD and tablet)
 // ===========================================================================
 // Every person whose face is enrolled gets a colour photo on the face server
@@ -1436,9 +1546,47 @@ int tryReadFingerprint() {
 // Serial monitor: 115200 baud, line ending "Newline". Only accepted while
 // the door is idle; the lock stays locked throughout.
 // ===========================================================================
+void tabletLoop();   // tablet_display.h, included further down
+
+// One enrollment, from the serial monitor ("enroll 5") or from the portal.
+// The person is guided on the LCD and the tablet; a portal request also gets
+// each step reported back. The door stays watched throughout: if it opens
+// while locked, enrollment stops and the forced-entry alarm takes over.
+char        enrollWho[16] = "";
+const char *enrollLine1 = "";
+const char *enrollLine2 = "";
+long        enrollCmdId = 0;          // 0 = from the serial monitor
+bool        enrollDoorForced = false;
+
+void enrollStep(const char *step, const char *line1, const char *line2, uint16_t tone) {
+  enrollLine1 = line1;
+  enrollLine2 = line2;
+  Serial.printf("[ENROLL] %s - %s\n", line1, line2);
+  Adafruit_GFX &g = gfx();
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, "FINGERPRINT");
+  centerText(g, enrollWho, fitFont(g, enrollWho), 30, C_ACCENT);
+  centerText(g, line1, &FreeSansBold9pt7b, 66, tone);
+  centerText(g, line2, nullptr, 96, C_SUB);
+  present();
+  if (enrollCmdId) queueProgress(enrollCmdId, "RUNNING", step, line1);
+}
+
+// Keeps the tablet and the door alive while waiting for a finger.
+bool enrollService() {
+  tabletLoop();
+  pollDoor();
+  if (doorChangedThisLoop && !doorClosed && !relayUnlocked) {
+    enrollDoorForced = true;
+    return false;
+  }
+  return true;
+}
+
 bool waitFingerImage(uint32_t timeoutMs) {
   uint32_t start = millis();
   while (millis() - start < timeoutMs) {
+    if (!enrollService()) return false;
     uint8_t p = finger.getImage();
     if (p == FINGERPRINT_OK) return true;
     delay(60);
@@ -1448,30 +1596,85 @@ bool waitFingerImage(uint32_t timeoutMs) {
 
 void waitFingerRemoved(uint32_t timeoutMs) {
   uint32_t start = millis();
-  while (millis() - start < timeoutMs && finger.getImage() != FINGERPRINT_NOFINGER) delay(60);
+  while (millis() - start < timeoutMs && finger.getImage() != FINGERPRINT_NOFINGER) {
+    if (!enrollService()) return;
+    delay(60);
+  }
 }
 
-void enrollFinger(uint8_t id, bool force) {
-  if (!fpOk) { Serial.println("[ENROLL] Fingerprint sensor not available."); return; }
+// Returns a result code: STORED, SENSOR_UNAVAILABLE, SLOT_USED, TIMEOUT,
+// UNCLEAR, MISMATCH, STORE_FAILED or DOOR_OPENED. *why = human sentence.
+const char *enrollFingerCore(uint8_t id, bool force, const char **why) {
+  enrollDoorForced = false;
+  if (!fpOk) { *why = "Fingerprint sensor not available"; return "SENSOR_UNAVAILABLE"; }
   if (!force && finger.loadModel(id) == FINGERPRINT_OK) {
-    Serial.printf("[ENROLL] Slot %u is already used. Type \"enroll %u force\" to overwrite.\n", id, id);
-    return;
+    *why = "This slot already holds a finger - choose Replace to overwrite";
+    return "SLOT_USED";
   }
-  Serial.printf("[ENROLL] Slot %u (portal identity USER%u): place the finger on the sensor...\n", id, id);
-  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
-  if (finger.image2Tz(1) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
-  Serial.println("[ENROLL] OK. Remove the finger.");
+  enrollStep("PLACE_FINGER", "PLACE FINGER", "on the sensor", C_WHITE);
+  if (!waitFingerImage(20000)) {
+    *why = enrollDoorForced ? "Stopped: door opened while locked" : "No finger placed in time";
+    return enrollDoorForced ? "DOOR_OPENED" : "TIMEOUT";
+  }
+  if (finger.image2Tz(1) != FINGERPRINT_OK) { *why = "Unclear image - try again"; return "UNCLEAR"; }
+  enrollStep("REMOVE_FINGER", "REMOVE FINGER", "", C_OK_LIGHT);
   delay(800);
   waitFingerRemoved(10000);
-  Serial.println("[ENROLL] Place the SAME finger again...");
-  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
-  if (finger.image2Tz(2) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
-  if (finger.createModel() != FINGERPRINT_OK) {
-    Serial.println("[ENROLL] The two scans did not match - try again.");
+  if (enrollDoorForced) { *why = "Stopped: door opened while locked"; return "DOOR_OPENED"; }
+  enrollStep("PLACE_AGAIN", "SAME FINGER", "place it again", C_WHITE);
+  if (!waitFingerImage(20000)) {
+    *why = enrollDoorForced ? "Stopped: door opened while locked" : "No finger placed in time";
+    return enrollDoorForced ? "DOOR_OPENED" : "TIMEOUT";
+  }
+  if (finger.image2Tz(2) != FINGERPRINT_OK) { *why = "Unclear image - try again"; return "UNCLEAR"; }
+  if (finger.createModel() != FINGERPRINT_OK) { *why = "The two scans did not match - try again"; return "MISMATCH"; }
+  if (finger.storeModel(id) != FINGERPRINT_OK) { *why = "Could not store - try again"; return "STORE_FAILED"; }
+  *why = "Stored";
+  return "STORED";
+}
+
+// Runs one enrollment end to end (idle only) and leaves the door idle again.
+void runEnrollment(uint8_t id, bool force, const char *who, long cmdId) {
+  enrollCmdId = cmdId;
+  strlcpy(enrollWho, (who && *who) ? who : "", sizeof(enrollWho));
+  if (!enrollWho[0]) snprintf(enrollWho, sizeof(enrollWho), "USER%u", id);
+  enrollActive = true;
+  if (cmdId) queueProgress(cmdId, "RUNNING", "STARTED", "Door controller started");
+
+  const char *why = "";
+  const char *result = enrollFingerCore(id, force, &why);
+  bool ok = strcmp(result, "STORED") == 0;
+  Serial.printf("[ENROLL] Slot %u: %s (%s)\n", id, result, why);
+  if (cmdId) queueProgress(cmdId, ok ? "DONE" : "FAILED", result, why);
+
+  // A short result screen, then idle - unless the door was forced, which
+  // goes straight to the alarm like any other forced entry.
+  if (!enrollDoorForced) {
+    enrollStep(result, ok ? "STORED" : "NOT STORED", ok ? "" : why, ok ? C_OK_LIGHT : C_WARN);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 1800) { if (!enrollService()) break; delay(30); }
+  }
+  enrollActive = false;
+  enrollCmdId = 0;
+  if (enrollDoorForced) goDoorAlarm(); else goIdle();
+}
+
+// A request fetched by the portal task. Taken only while idle.
+void handlePortalCommand() {
+  if (!commandQueue) return;
+  PortalCommand c;
+  if (xQueueReceive(commandQueue, &c, 0) != pdTRUE) return;
+  if (state != STATE_IDLE) {
+    queueProgress(c.id, "FAILED", "BUSY", "The door was in use - try again");
     return;
   }
-  if (finger.storeModel(id) != FINGERPRINT_OK) { Serial.println("[ENROLL] Could not store - try again."); return; }
-  Serial.printf("[ENROLL] Stored in slot %u. USER%u can now use this fingerprint with their booking QR.\n", id, id);
+  if (c.slot == 0) {
+    queueProgress(c.id, "FAILED", "BAD_SLOT", "Invalid fingerprint slot");
+    return;
+  }
+  Serial.printf("[ENROLL] Portal request %ld: slot %u (%s)%s\n", c.id, c.slot, c.who,
+                c.force ? " - replace" : "");
+  runEnrollment(c.slot, c.force, c.who, c.id);
 }
 
 void runSerialCommand(String line) {
@@ -1497,7 +1700,8 @@ void runSerialCommand(String line) {
     long id = rest.toInt();
     if (id < 1 || id > MAX_FINGER_SLOT) { Serial.printf("[CMD] Slot must be 1-%u.\n", MAX_FINGER_SLOT); return; }
     if (isEnroll) {
-      enrollFinger((uint8_t)id, force);
+      runEnrollment((uint8_t)id, force, nullptr, 0);   // ends in goIdle() itself
+      return;
     } else if (!fpOk) {
       Serial.println("[CMD] Fingerprint sensor not available.");
     } else {
@@ -1652,6 +1856,7 @@ void setup() {
   }
   tabletBegin();       // read-only tablet display; the door never depends on it
   portraitBegin();     // grant-screen photos from the face server, in the background
+  portalTaskBegin();   // portal requests (fingerprint enrollment), in the background
 
   Serial.println();
   Serial.println("=================================================");
@@ -1728,6 +1933,11 @@ void loop() {
 
     // -------------------------------------------------------------------
     case STATE_IDLE: {
+      // A fingerprint enrollment requested from the portal (fetched by the
+      // portal task). Only here, while idle.
+      handlePortalCommand();
+      if (state != STATE_IDLE) break;
+
       // Safe point to repair the display after a relay switch reset it.
       // Only ever runs here, while idle - never during a door cycle.
       // Light wake + clean repaint rather than a full tftInit(): the full

@@ -667,3 +667,37 @@ class IntegrationEvent(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class DeviceCommand(Base):
+    """
+    A request from the portal for a door controller to do something, which
+    the controller fetches and carries out itself (it polls; nothing pushes
+    into it). The controller stays the final authority: it takes a request
+    only while idle and may refuse it.
+
+    Today the only command is ENROLL_FINGERPRINT (staff enroll a finger from
+    Users & roles instead of the serial monitor). Requests are time-limited,
+    one at a time per controller, and every change is audited.
+
+    PENDING -> SENT (fetched) -> RUNNING -> DONE | FAILED
+    PENDING/SENT/RUNNING -> EXPIRED (not finished in time) ; PENDING -> CANCELLED
+    """
+    __tablename__ = "device_commands"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    command: Mapped[str] = mapped_column(String(32))
+    args: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING", index=True)
+    # The last step the controller reported, e.g. PLACE_FINGER, for the live view.
+    step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    message: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),
+                                                       nullable=True)
+    requested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),
+                                                        nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    sent_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)

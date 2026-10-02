@@ -57,6 +57,14 @@ export interface MonitorTile {
   environment: Partial<Record<'temperature' | 'humidity', { value: number; unit: string; at: string }>>
 }
 
+/** A request the door controller fetches and carries out (fingerprint enrollment). */
+export interface DeviceCommand {
+  id: number; command: string
+  status: 'PENDING' | 'SENT' | 'RUNNING' | 'DONE' | 'FAILED' | 'EXPIRED' | 'CANCELLED'
+  step: string | null; message: string | null; args: Record<string, unknown>
+  created_at: string; expires_at: string; sent_at: string | null; completed_at: string | null
+}
+
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
 export interface FaceStatus {
   auth_subject: string | null; face_enrolled_at: string | null
@@ -771,6 +779,10 @@ export const api = {
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
+  fingerprintEnroll: (id: number, force: boolean) =>
+    post<DeviceCommand>(`/users/${id}/fingerprint/enroll`, { force }),
+  deviceCommand: (id: number) => request<DeviceCommand>(`/device-commands/${id}`),
+  cancelDeviceCommand: (id: number) => post<DeviceCommand>(`/device-commands/${id}/cancel`),
   faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),
   faceCapture: (id: number) =>
     post<{ saved: boolean; samples: number | null; message: string }>(`/users/${id}/face/capture`),

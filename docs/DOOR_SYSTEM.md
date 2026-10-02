@@ -288,10 +288,17 @@ The portal gives every new account the next door identity automatically
 (`USER3`, `USER4`, …; numbers are never reused). The number **is** the
 fingerprint slot, and the same label is the face name. For that person:
 
-1. **Fingerprint** — Arduino IDE → Serial Monitor on the master (115200 baud,
-   line ending *Newline*), door idle. Type `enroll 5` for USER5 and place the
-   same finger twice when asked. Other commands: `enroll 5 force`
-   (overwrite), `delete 5`, `count`.
+1. **Fingerprint** — portal: **Users & roles → Edit → Fingerprint → Enroll
+   fingerprint at the door**. The portal only stores a request; the master
+   fetches it (it polls every 2 s, and only while the door is idle), prompts
+   the person on the LCD and the tablet — place finger, remove, same finger
+   again — and reports each step, shown live in the portal. Success ticks
+   "Fingerprint registered" and is audited. A request not taken within 90 s
+   expires; one request at a time; the door stays locked and watched (a
+   forced door stops enrollment and raises the normal alarm).
+   Or, without the portal: Arduino IDE → Serial Monitor on the master
+   (115200 baud, line ending *Newline*), door idle, `enroll 5` for USER5.
+   Other commands: `enroll 5 force` (overwrite), `delete 5`, `count`.
 2. **Face (optional)** — open the camera page `http://192.168.1.150`, type
    `USER5` under *Enroll a face*, press **Capture sample** about 20 times
    with the person in front of the camera, then press **Train**.
