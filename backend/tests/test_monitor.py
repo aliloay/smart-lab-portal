@@ -70,3 +70,18 @@ def test_never_reported_values_stay_null(client, db, staff, lab):
     assert t["has_door"] is False
     assert t["door_closed"] is None and t["locked"] is None
     assert t["environment"] == {} and t["in_use"] is False and t["people_by_role"] == {}
+
+
+def test_internet_is_reported_apart_and_never_degrades_status(client, alice, monkeypatch):
+    """Offline-first: no uplink is 'internet offline', not an unhealthy system."""
+    from app.api.routes import system
+
+    def no_uplink(*a, **k):
+        raise OSError("no route")
+
+    monkeypatch.setattr(system.socket, "create_connection", no_uplink)
+    monkeypatch.setitem(system._internet, "at", 0.0)
+    monkeypatch.setattr(system.time, "monotonic", lambda: 10_000.0)
+    s = client.get("/api/system/status", headers=auth_headers(client, alice.email)).json()
+    assert s["internet"] is False
+    assert s["status"] == "HEALTHY" and s["database"] is True

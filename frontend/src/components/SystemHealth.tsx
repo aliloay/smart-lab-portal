@@ -59,6 +59,10 @@ export default function SystemHealth() {
       value: !s ? 'Unknown' : s.controllers_total === 0 ? 'None registered'
         : `${s.controllers_online} / ${s.controllers_total} online`,
     },
+    // Optional: the lab runs offline. Never counted against "healthy".
+    { name: 'Internet', tone: !s || s.internet == null ? 'idle' : s.internet ? 'ok' : 'idle',
+      value: !s || s.internet == null ? 'Unknown'
+        : s.internet ? 'Available' : 'Offline (lab unaffected)' },
   ]
 
   return (

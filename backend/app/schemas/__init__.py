@@ -750,6 +750,10 @@ class SystemStatus(BaseModel):
     controllers_online: int
     controllers_total: int
     last_heartbeat_at: Optional[datetime] = None
+    # Internet is OPTIONAL: the lab runs on its own router. Reported apart
+    # from device health so "internet offline" never reads as a fault.
+    # None = not checked yet.
+    internet: Optional[bool] = None
     time: datetime
 
 

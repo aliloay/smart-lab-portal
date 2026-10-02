@@ -5,7 +5,10 @@ Status reports only what the API actually knows: whether its own database
 answers, how many live sockets it holds, and what the devices last said. It
 does not claim a device is healthy that has never reported.
 """
+import socket
+import time
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -22,6 +25,28 @@ from app.services.storage import get_storage
 from app.ws.manager import manager
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+# Internet reachability, cached: checked at most once a minute so a status
+# request never waits on it. A TCP connect to a public DNS resolver fails
+# within a second when the lab router has no uplink.
+_INTERNET_TTL = 60.0
+_internet = {"ok": None, "at": 0.0}
+
+
+def internet_reachable() -> Optional[bool]:
+    now = time.monotonic()
+    if now - _internet["at"] >= _INTERNET_TTL:
+        _internet["at"] = now
+        ok = False
+        for host in ("1.1.1.1", "8.8.8.8"):
+            try:
+                with socket.create_connection((host, 53), timeout=1.0):
+                    ok = True
+                    break
+            except OSError:
+                continue
+        _internet["ok"] = ok
+    return _internet["ok"]
 
 
 @router.get("/status", response_model=SystemStatus)
@@ -50,6 +75,7 @@ def system_status(db: Session = Depends(get_db),
         controllers_online=sum(1 for d in controllers if is_fresh(d, now)),
         controllers_total=len(controllers),
         last_heartbeat_at=max(seen) if seen else None,
+        internet=internet_reachable(),
         time=now,
     )
 

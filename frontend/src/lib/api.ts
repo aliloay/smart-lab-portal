@@ -494,6 +494,8 @@ export interface Notification {
 
 export interface SystemStatus {
   status: 'HEALTHY' | 'DEGRADED'
+  /** Optional uplink; null = not checked yet. Not part of 'healthy'. */
+  internet?: boolean | null
   api: boolean
   database: boolean
   websocket_clients: number
