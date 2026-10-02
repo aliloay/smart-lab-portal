@@ -8,8 +8,15 @@ the thesis only after the matching test in §X has been run.
 
 Scope: extend the working Smart Lab platform into one real Robotics
 Laboratory (`LAB_01`, *Robotics & Industrial Automation Laboratory* in the
-database) with three new ESP32 systems — environment, consumable inventory,
-reusable inventory — and networked equipment (UR5e, FANUC, PC-01, PC-02).
+database) with four systems, numbered as the project owner numbers them:
+
+| # | System | Hardware |
+|---|---|---|
+| 1 | Physical environment (temperature, humidity, smoke/gas, flame, leak, motion, emergency) | ESP32 #1 |
+| 2 | Non-consumables: robots (UR5e, FANUC) and lab PCs, with the admin's **master PC** | no ESP32 — Ethernet / LAN |
+| 3 | Consumables (resistors, capacitors) on load cells | ESP32 #2 |
+| 4 | Reusables (Arduinos, breadboards, microcontrollers) in the NFC smart bin with LCD | ESP32 #3 |
+
 The door/access-control station stays a separate subsystem and the master
 ESP32 stays the final authority for the door.
 
@@ -35,20 +42,25 @@ ESP32 stays the final authority for the door.
 ## B. Four-system Robotics Lab architecture
 
 ```
-                         ROBOTICS LAB (LAB_01)
- ┌──────────────┬──────────────┬───────────────┬──────────────────────────┐
- │ #0 DOOR      │ #1 ENVIRON-  │ #2 CONSUMABLE │ #3 REUSABLE              │
- │ (exists)     │    MENT      │    INVENTORY  │    INVENTORY             │
- │ access only  │ sense only   │ weigh only    │ NFC + lid + presence     │
- └──────┬───────┴──────┬───────┴───────┬───────┴───────────┬──────────────┘
-        │ Wi-Fi        │ Wi-Fi         │ Wi-Fi             │ Wi-Fi
-        └──────────────┴─── router ────┴───────────────────┘
-                              │ Ethernet (switch)
-          UR5e · FANUC · PC-01 · PC-02 · laptop (server: FastAPI, DB, n8n, AI, vision)
+                              ROBOTICS LAB (LAB_01)
+ ┌────────────┬──────────────┬───────────────┬───────────────┬────────────────────┐
+ │ DOOR       │ 1 ENVIRON-   │ 3 CONSUMABLES │ 4 REUSABLES   │ 2 ROBOTS & PCs     │
+ │ (exists)   │   MENT       │   ESP32 #2    │   ESP32 #3    │   no ESP32         │
+ │ access only│   ESP32 #1   │   weigh only  │   NFC + lid   │   UR5e · FANUC     │
+ │            │   sense only │               │   + LCD       │   PC-01 · PC-02    │
+ └─────┬──────┴──────┬───────┴───────┬───────┴───────┬───────┴─────────┬──────────┘
+       │ Wi-Fi       │ Wi-Fi         │ Wi-Fi         │ Wi-Fi           │ Ethernet to the
+       └─────────────┴──── router `Smart_Lab` ───────┴─────────────────┘ router's LAN ports
+                                   │                                     (switch only if
+                         laptop (server: FastAPI, DB, n8n, AI, vision)    ports run out)
+                         admin master PC (portal: lock / view / message lab PCs)
 ```
 
 Each ESP32 has one responsibility and never actuates anything outside it.
-Robots and PCs talk to the laptop over Ethernet, not through an ESP32.
+Robots and PCs talk to the laptop over the LAN, not through an ESP32. The
+robots are wired **directly to the router's LAN ports**; an unmanaged switch
+is added only if the router runs out of ports. Whether the PCs are wired or
+on Wi-Fi is still open — the agent works the same either way.
 
 ## C. Door architecture (unchanged)
 
@@ -121,13 +133,14 @@ All migrations additive; each one checked with `alembic upgrade` +
 | Node | Link | Address (fixed in firmware/OS) |
 |---|---|---|
 | Router | — | 192.168.1.1 (DHCP pool shrunk to .2–.100) |
-| Laptop (server) | Ethernet via switch (Wi-Fi today) | 192.168.1.200 |
+| Laptop (server) | Wi-Fi today (Ethernet to the router later) | 192.168.1.200 |
 | ESP32-CAM / door master | Wi-Fi | .150 / .151 |
-| Environment ESP32 (#1) | Wi-Fi | **.152** |
-| Consumable ESP32 (#2) | Wi-Fi | **.153** |
-| Reusable ESP32 (#3) | Wi-Fi | **.154** |
-| UR5e / FANUC | Ethernet | .160 / .161 (*set on the controllers*) |
-| PC-01 / PC-02 | Ethernet | .170 / .171 |
+| System 1 — environment ESP32 #1 | Wi-Fi | **.152** |
+| System 3 — consumable ESP32 #2 | Wi-Fi | **.153** |
+| System 4 — reusable ESP32 #3 | Wi-Fi | **.154** |
+| System 2 — UR5e / FANUC | Ethernet, **directly to the router** (switch only if ports run out) | .160 / .161 (*set on the controllers*) |
+| System 2 — PC-01 / PC-02 | Wi-Fi or LAN (*to decide*) | .170 / .171 |
+| Admin master PC | any (it only opens the portal) | — |
 
 Internet is optional. PCs that need internet use a second interface
 (university Wi-Fi) **without bridging** to the lab LAN; the lab server binds
@@ -135,7 +148,7 @@ its services to the lab network. The portal distinguishes **device offline**
 (no heartbeat) from **internet offline** (no route to the outside), which
 it reports separately.
 
-## I. System 1 — Environment ESP32 (first to build)
+## I. System 1 — Environment ESP32 #1 (first to build)
 
 | Signal | Sensor | Interface | Notes (*to verify on the actual module*) |
 |---|---|---|---|
@@ -178,7 +191,7 @@ water_leak, emergency) raise a CRITICAL alert at once with a dedupe key and
 resolve it when the state clears; temperature/humidity keep the threshold
 rules. Live push to pages; the monitor tiles show the hazards.
 
-## J. System 2 — Consumable smart bin
+## J. System 3 — Consumable smart bin (ESP32 #2)
 
 Path: removable bin → weighing plate → 1 kg load cell (mounted per its
 design, one end fixed, load end free) → fixed base. Nothing else touches the
@@ -199,7 +212,7 @@ step response, settling time, minimum detectable change, safe range) come
 **before** quantity estimation. Bin 1: 10 kΩ resistors; bin 2 (capacitors)
 only after bin 1 is validated.
 
-## K. System 3 — Reusable smart bin
+## K. System 4 — Reusable smart bin (ESP32 #3)
 
 PN532 (external) reads the item's NTAG213 UID → backend resolves
 `assets.nfc_uid` → checks status and the user's session/booking → lid opens
@@ -222,9 +235,9 @@ stronger actuator only if MG90S fails a measured test. The lid path is
 mechanically separate from the weighing path: no servo, lid, cable or
 housing force reaches the load cell.
 
-## M. UR5e (read-only)
+## M. System 2 — UR5e (read-only)
 
-Ethernet to the switch. Investigate **RTDE** (Universal Robots' real-time
+Ethernet directly to the router (a switch only if ports run out). Investigate **RTDE** (Universal Robots' real-time
 data exchange interface). A collector on the laptop subscribes read-only and
 writes state changes to `equipment_sessions` and numeric values to
 `sensor_readings`. The fields used (robot mode, safety mode, program state,
@@ -232,21 +245,41 @@ joint positions, I/O) are confirmed against **this controller's software
 version** before they are relied on. No commands to the robot; no AI or n8n
 path to it.
 
-## N. FANUC
+## N. System 2 — FANUC
 
 First identify: controller model and version, installed software options,
 Ethernet interface. The protocol is chosen only after that. Until then the
 equipment page shows it as *not integrated*.
 
-## O. PCs
+## O. System 2 — PCs and the admin master PC
 
-Wired to the lab LAN. A small authenticated agent (per-device key) reports
-heartbeat, CPU, RAM, disk, network, logged-in user and session state.
-Engineer actions (lock, maintenance mode, exam mode) go through
-`device_commands`, are RBAC-checked and audited. Exam mode = managed
-browser / kiosk with a configurable allow-list, violations logged and staff
-notified; no automatic penalty from a heuristic. Visible to staff only;
-retention limited (§W).
+On the lab LAN (wired or Wi-Fi, to decide). A small authenticated agent
+(`tools/pc_agent`, per-device key) reports heartbeat, CPU, RAM, disk,
+network, logged-in user and session state every 30 s, and polls the portal
+every 2 s for staff actions. Exam mode compares running program names with a
+configurable list; violations are logged and staff notified; no automatic
+penalty from a heuristic. Visible to staff only; retention limited (§W).
+
+**The admin is the master PC.** It needs nothing installed: from the
+portal (Equipment → 2 · Robots & PCs) staff can, per PC or for all PCs:
+
+| Action | How it works | Audit |
+|---|---|---|
+| **Remove access** | mode `LOCKED`: the agent locks the PC (Win+L) and locks it again within ~2 s if anyone unlocks it, until access is given back; also survives an agent restart | `PC_ACCESS_REMOVED` |
+| **Give access** | mode back to `NORMAL`; the person sees a notice | `PC_ACCESS_GIVEN` |
+| **View screen** | only while the viewer is open: the agent shows a notice on the PC and sends ~2 frames/s (1280 px JPEG) to the portal's memory; stops ~6 s after the viewer closes; nothing is stored | `PC_SCREEN_VIEWED` |
+| **Message** | a short text shown in a pop-up on the PC within ~2 s | `PC_MESSAGE_SENT` |
+
+Limits, stated rather than hidden: the agent must run **in the signed-in
+user's session** (Task Scheduler "At log on", not a service), otherwise it
+cannot lock or see the screen; a user with admin rights can stop it. Screen
+view is view-only — for full remote **control** use Windows RDP shadowing
+(`mstsc /shadow:<session> /v:<pc> /control`, needs Windows Pro on the lab
+PCs) or a VNC server; both can be launched from the master PC alongside the
+portal. Tested on the development laptop with lock and pop-ups stubbed
+(2026-10-03): lock re-applied every 2 s while LOCKED and stopped after
+NORMAL, message delivered once, screen frames ~1.5/s at ~64 KB each, stopped
+after the viewer closed.
 
 ## P. Website changes
 
@@ -256,7 +289,8 @@ retention limited (§W).
 - **Inventory**: consumable bins (mass, estimated qty with error band,
   reserved, available, reorder) and reusable assets (NFC UID, status, holder,
   booking, due back).
-- **Equipment** extended with robot/PC live state and sessions.
+- **Equipment** split into the four systems (tabs 1–4 plus the register),
+  with robot/PC live state, sessions and the master-PC controls.
 - **Live monitor** tiles gain environment hazards and readiness.
 - **Booking** gains optional resource requests.
 
@@ -370,4 +404,5 @@ every step.
 6. How many PN532 boards besides the door's?
 7. UR5e: PolyScope version; FANUC: controller model/software options.
 8. PCs: OS, and whether a managed exam browser is allowed.
-9. Ethernet switch model (unmanaged is fine for the prototype).
+9. Router LAN ports free for the robots (a switch is needed only if they run out); PCs wired or Wi-Fi?
+10. Lab PCs: Windows edition (Pro allows RDP shadowing for remote control), and may the agent start at log-on?

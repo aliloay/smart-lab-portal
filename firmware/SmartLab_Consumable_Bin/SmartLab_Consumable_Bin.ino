@@ -1,5 +1,5 @@
 // ===========================================================================
-// SMART LAB - CONSUMABLE BIN NODE (Robotics Lab, System 2)      ESP32 #2
+// SMART LAB - CONSUMABLE BIN NODE (Robotics Lab, System 3)      ESP32 #2
 // ===========================================================================
 // One weighing bin: removable bin -> plate -> 1 kg load cell -> fixed base.
 // HX711 -> ESP32 -> 16x2 I2C LCD, and over Wi-Fi to the portal:
@@ -261,7 +261,7 @@ void ensureWifi() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== SMART LAB - CONSUMABLE BIN NODE (System 2) ===");
+  Serial.println("\n=== SMART LAB - CONSUMABLE BIN NODE (System 3) ===");
   Wire.begin(I2C_SDA, I2C_SCL);
   scanI2c();
   if (lcdAddr) {

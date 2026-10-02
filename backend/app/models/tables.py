@@ -760,7 +760,7 @@ class FaceSubmission(Base):
 
 
 # ---------------------------------------------------------------------------
-# Consumable inventory (Robotics Lab, System 2): smart weighing bins
+# Consumable inventory (Robotics Lab, System 3): smart weighing bins
 # ---------------------------------------------------------------------------
 class InventoryBin(Base):
     """

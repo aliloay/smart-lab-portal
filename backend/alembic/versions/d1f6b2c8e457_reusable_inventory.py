@@ -4,7 +4,7 @@ Revision ID: d1f6b2c8e457
 Revises: c9e5a1b7d346
 Create Date: 2026-10-03 03:00:00.000000
 
-Robotics Lab System 3: assets.nfc_uid (the item's NTAG213 sticker - an
+Robotics Lab System 4: assets.nfc_uid (the item's NTAG213 sticker - an
 identifier, not authentication) and smart-bin context on asset
 transactions (booking, bin node, source). Existing transactions get
 source = STAFF, which is what they were.

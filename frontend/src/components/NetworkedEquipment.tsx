@@ -6,12 +6,17 @@
  * prohibited programs, listed here for staff - nothing is decided
  * automatically about a student. FANUC appears once its controller has been
  * identified and a collector exists.
+ *
+ * Admin master PC (System 2): from here staff remove / give access to a PC
+ * (mode LOCKED keeps it locked), view its screen while they watch, and send
+ * a message - per PC or to all PCs at once. Every action is audited.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, Monitor, ShieldAlert } from 'lucide-react'
-import { api } from '../lib/api'
+import { Bot, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
+import { api, type PcMode } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
+import { PcMessageModal, PcScreenViewer } from './PcControls'
 import { Chip, SectionTitle } from './ui'
 
 type Equip = Awaited<ReturnType<typeof api.equipment>>[number]
@@ -24,6 +29,10 @@ function hours(s: number) {
 export default function NetworkedEquipment() {
   const [items, setItems] = useState<Equip[] | null>(null)
   const [violations, setViolations] = useState<Violation[]>([])
+  const [viewing, setViewing] = useState<Equip | null>(null)
+  const [messaging, setMessaging] = useState<Equip | null>(null)
+  const [busy, setBusy] = useState(false)
+  const closeViewer = useCallback(() => setViewing(null), [])
   const load = useCallback(() => {
     api.equipment().then(setItems).catch(() => setItems([]))
     api.equipmentViolations().then(setViolations).catch(() => setViolations([]))
@@ -36,15 +45,33 @@ export default function NetworkedEquipment() {
   useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
 
   if (!items) return null
-  async function setMode(id: number, mode: 'NORMAL' | 'EXAM' | 'MAINTENANCE') {
+  async function setMode(id: number, mode: PcMode) {
     await api.setEquipmentMode(id, mode).catch(() => {})
+    load()
+  }
+  const pcs = items.filter(e => e.kind === 'PC')
+  async function setAll(mode: 'LOCKED' | 'NORMAL') {
+    const what = mode === 'LOCKED' ? 'Remove access on ALL lab PCs? They lock now and stay locked.'
+      : 'Give access back on all locked PCs?'
+    if (!window.confirm(what)) return
+    setBusy(true)
+    await Promise.all(pcs.filter(e => mode === 'LOCKED' ? e.mode !== 'LOCKED' : e.mode === 'LOCKED')
+      .map(e => api.setEquipmentMode(e.device_id, mode).catch(() => {})))
+    setBusy(false)
     load()
   }
 
   return (
     <section className="mb-6">
       <SectionTitle icon={<Bot size={15} />}
-        sub="Robots read-only over the lab LAN; PCs through the lab agent.">Networked equipment</SectionTitle>
+        sub="Robots read-only over the lab LAN; PCs through the lab agent."
+        action={pcs.length > 0 ? (
+          <div className="flex gap-2">
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => setAll('LOCKED')}>
+              <Lock size={13} /> Lock all PCs</button>
+            <button className="btn-ghost btn-sm" disabled={busy || !pcs.some(e => e.mode === 'LOCKED')}
+                    onClick={() => setAll('NORMAL')}><Unlock size={13} /> Unlock all</button>
+          </div>) : undefined}>Networked equipment</SectionTitle>
       {!items.length ? (
         <div className="card p-4 text-[13px] text-slate-400">
           No robot or PC is reporting yet. Start the UR5e collector (tools/ur5e_collector) or the PC agent
@@ -77,11 +104,27 @@ export default function NetworkedEquipment() {
                 {e.kind === 'PC' && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="text-[11.5px] text-slate-400">Mode</span>
-                    <select className="input !py-1 !text-[12.5px] w-auto" value={e.mode}
-                            onChange={ev => setMode(e.device_id, ev.target.value as 'NORMAL' | 'EXAM' | 'MAINTENANCE')}>
-                      <option value="NORMAL">Normal</option><option value="EXAM">Exam</option>
-                      <option value="MAINTENANCE">Maintenance</option></select>
+                    {e.mode === 'LOCKED'
+                      ? <Chip tone="bad" dot>Access removed</Chip>
+                      : <select className="input !py-1 !text-[12.5px] w-auto" value={e.mode}
+                                onChange={ev => setMode(e.device_id, ev.target.value as PcMode)}>
+                          <option value="NORMAL">Normal</option><option value="EXAM">Exam</option>
+                          <option value="MAINTENANCE">Maintenance</option></select>}
                     {e.open_violations > 0 && <Chip tone="warn">{e.open_violations} violation{e.open_violations > 1 ? 's' : ''}</Chip>}
+                  </div>)}
+                {e.kind === 'PC' && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {e.mode === 'LOCKED'
+                      ? <button className="btn-ghost btn-sm" onClick={() => setMode(e.device_id, 'NORMAL')}>
+                          <Unlock size={13} /> Give access</button>
+                      : <button className="btn-ghost btn-sm" onClick={() => {
+                          if (window.confirm(`Remove access on ${e.name}? It locks now and stays locked until you give access.`))
+                            setMode(e.device_id, 'LOCKED')
+                        }}><Lock size={13} /> Remove access</button>}
+                    <button className="btn-ghost btn-sm" disabled={e.online === false} onClick={() => setViewing(e)}>
+                      <MonitorPlay size={13} /> View screen</button>
+                    <button className="btn-ghost btn-sm" disabled={e.online === false} onClick={() => setMessaging(e)}>
+                      <MessageSquare size={13} /> Message</button>
                   </div>)}
               </div>)
           })}
@@ -102,6 +145,9 @@ export default function NetworkedEquipment() {
           <p className="mt-2 text-[11px] text-slate-500">A report is what the agent saw running; staff decide what it means.</p>
         </div>
       )}
+      {viewing && <PcScreenViewer deviceId={viewing.device_id} name={viewing.name} onClose={closeViewer} />}
+      <PcMessageModal deviceId={messaging?.device_id ?? 0} name={messaging?.name ?? ''}
+                      open={messaging !== null} onClose={() => setMessaging(null)} />
     </section>
   )
 }

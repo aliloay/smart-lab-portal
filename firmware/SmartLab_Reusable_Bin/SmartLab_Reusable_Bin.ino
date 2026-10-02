@@ -1,5 +1,5 @@
 // ===========================================================================
-// SMART LAB - REUSABLE BIN NODE (Robotics Lab, System 3)        ESP32 #3
+// SMART LAB - REUSABLE BIN NODE (Robotics Lab, System 4)        ESP32 #3
 // ===========================================================================
 // PN532 (outside the bin) reads the NTAG213 sticker of an item; the portal
 // decides; an MG90S servo presses the bin's own push-to-open button
@@ -208,7 +208,7 @@ void ensureWifi() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== SMART LAB - REUSABLE BIN NODE (System 3) ===");
+  Serial.println("\n=== SMART LAB - REUSABLE BIN NODE (System 4) ===");
   pinMode(REED_PIN, INPUT_PULLUP);
   servo.attach(SERVO_PIN);
   servo.write(HOME_ANGLE);

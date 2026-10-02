@@ -1,5 +1,5 @@
 """
-Consumable inventory (Robotics Lab, System 2), backend side.
+Consumable inventory (Robotics Lab, System 3), backend side.
 
 Tested: an uncalibrated bin reports mass only (no invented count); after
 calibration the estimate and its error band follow the model; stable steps

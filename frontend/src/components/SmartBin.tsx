@@ -1,5 +1,5 @@
 /**
- * The lab's reusable smart bin (System 3): its NFC-tagged items.
+ * The lab's reusable smart bin (System 4): its NFC-tagged items.
  *
  * Anyone inside the lab can take an available item: the bin opens, they
  * take it and scan its tag at the bin - only the chosen item's own tag

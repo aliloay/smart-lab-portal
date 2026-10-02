@@ -4,7 +4,7 @@ Revision ID: c9e5a1b7d346
 Revises: b7c3e9f5a124
 Create Date: 2026-10-03 02:00:00.000000
 
-Robotics Lab System 2: inventory_bins (weighing bins with their MEASURED
+Robotics Lab System 3: inventory_bins (weighing bins with their MEASURED
 calibration), inventory_measurements (stable readings) and
 inventory_transactions (withdrawals, refills, physical counts).
 

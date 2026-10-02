@@ -49,9 +49,9 @@ def expire_stale(db: Session, now: Optional[datetime] = None) -> None:
         if late:
             c.status = "EXPIRED"
             c.completed_at = now
-            c.message = ("The door controller did not take the request in time "
+            c.message = ("The device did not take the request in time "
                          "(busy or offline)." if c.sent_at is None else
-                         "The door controller did not report a result in time.")
+                         "The device did not report a result in time.")
             publish_later(db, c)
 
 

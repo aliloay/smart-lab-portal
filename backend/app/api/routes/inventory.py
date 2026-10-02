@@ -1,7 +1,7 @@
 """
 Inventory API (Robotics Lab).
 
-Consumables (System 2): bin nodes post stable masses; staff manage bins,
+Consumables (System 3): bin nodes post stable masses; staff manage bins,
 enter the MEASURED calibration and record physical counts (the data for
 measuring estimation error). See app/services/inventory.py.
 """

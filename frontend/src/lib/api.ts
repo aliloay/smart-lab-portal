@@ -74,7 +74,7 @@ export interface DeviceCommand {
   created_at: string; expires_at: string; sent_at: string | null; completed_at: string | null
 }
 
-/** A consumable weighing bin (Robotics Lab, System 2). */
+/** A consumable weighing bin (Robotics Lab, System 3). */
 export interface InventoryBin {
   id: number; code: string; item_name: string; category: string
   lab_id: number; lab_code: string | null; device_uid: string | null
@@ -92,7 +92,7 @@ export interface InventoryTx {
   booking_id: number | null; note: string; recorded_at: string
 }
 
-/** A tagged item of a lab's reusable smart bin (System 3). */
+/** A tagged item of a lab's reusable smart bin (System 4). */
 export interface BinItem {
   id: number; asset_tag: string; name: string; category: string
   status: 'AVAILABLE' | 'CHECKED_OUT' | 'MAINTENANCE' | 'RETIRED'
@@ -671,6 +671,9 @@ export interface AiStatus {
 }
 
 // ---------------------------------------------------------------------------
+/** PC mode staff set; LOCKED = access removed (the agent keeps the PC locked). */
+export type PcMode = 'NORMAL' | 'EXAM' | 'MAINTENANCE' | 'LOCKED'
+
 const TOKEN_KEY = 'slp.token'
 
 export function getToken(): string | null {
@@ -844,12 +847,16 @@ export const api = {
     device_id: number; device_uid: string; kind: 'ROBOT' | 'PC'; name: string; asset_tag: string | null
     lab_code: string | null; online: boolean | null; last_seen_at: string | null
     state: 'RUNNING' | 'IDLE' | 'FAULT' | null; since: string | null; detail: Record<string, unknown>
-    user_name: string | null; booking_id: number | null; mode: 'NORMAL' | 'EXAM' | 'MAINTENANCE'
+    user_name: string | null; booking_id: number | null; mode: PcMode
     running_today_s: number; open_violations: number }[]>('/equipment'),
   equipmentViolations: () => request<{ id: number; device_uid: string; kind: string; detail: string
     os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
-  setEquipmentMode: (id: number, mode: 'NORMAL' | 'EXAM' | 'MAINTENANCE') =>
+  setEquipmentMode: (id: number, mode: PcMode) =>
     request<{ device_id: number; mode: string }>(`/equipment/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+  // Admin master PC (System 2): screen view while staff watch, and messages.
+  pcScreenStart: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/start`),
+  pcScreenStop: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/stop`),
+  pcMessage: (id: number, text: string) => post<DeviceCommand>(`/equipment/${id}/message`, { text }),
   binItems: (labId: number) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
       `/reusable/items?lab_id=${labId}`),

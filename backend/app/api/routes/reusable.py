@@ -1,5 +1,5 @@
 """
-Reusable smart bin (Robotics Lab, System 3): NFC-tagged items.
+Reusable smart bin (Robotics Lab, System 4): NFC-tagged items.
 
 PN532 answers "which item was scanned"; this module answers "is it allowed".
 An NFC UID is an IDENTIFIER of an item, not authentication of a person.

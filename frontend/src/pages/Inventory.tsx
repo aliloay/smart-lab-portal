@@ -227,7 +227,7 @@ function CreateBin({ onDone }: { onDone: () => void }) {
 }
 
 // ------------------------------------------------------- reusable items ---
-/** Equipment with its NFC tag (System 3). Tag an item: scan the sticker at
+/** Equipment with its NFC tag (System 4). Tag an item: scan the sticker at
  *  the bin (it shows "UNKNOWN TAG"), then "Use last scanned tag" here. */
 export function ReusableItems() {
   const [assets, setAssets] = useState<Asset[] | null>(null)

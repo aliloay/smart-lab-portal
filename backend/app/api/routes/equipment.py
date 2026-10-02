@@ -8,17 +8,23 @@ liveness check and offline alerts cover it too. A state change closes the
 open equipment session and opens the next one, linked to the booking in
 force in the lab - usage per person and per booking comes from these.
 
-Nothing here commands a robot. For PCs the server only answers the agent
-with the mode an engineer set (NORMAL / EXAM / MAINTENANCE) and, in exam
+Nothing here commands a robot. For PCs the server answers the agent with
+the mode staff set (NORMAL / EXAM / MAINTENANCE / LOCKED) and, in exam
 mode, the configured list of prohibited programs; violations are logged
 and shown to staff - nothing is decided automatically about a student.
+
+Admin master PC (System 2): from the portal staff can remove access (mode
+LOCKED: the agent locks the PC and locks it again if someone unlocks it),
+give it back (NORMAL), view the screen while they watch, and send a short
+message. The agent polls for all of this; nothing pushes into a PC, and
+every action is audited.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -27,8 +33,10 @@ from app.api.deps import device_scope, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingStatus,
-                        Device, DeviceType, EquipmentSession, Lab, PolicyViolation,
-                        SensorReading, User)
+                        Device, DeviceCommand, DeviceType, EquipmentSession, Lab,
+                        PolicyViolation, SensorReading, User)
+from app.services import commands as cmds
+from app.services import pc_control
 from app.services.access import get_device, get_lab_by_code
 from app.services.devices import is_fresh, refresh_liveness
 from app.services.notifications import notify, staff_ids
@@ -36,7 +44,8 @@ from app.services.notifications import notify, staff_ids
 router = APIRouter(prefix="/equipment", tags=["equipment"])
 
 STATES = ("RUNNING", "IDLE", "FAULT")
-MODES = ("NORMAL", "EXAM", "MAINTENANCE")
+MODES = ("NORMAL", "EXAM", "MAINTENANCE", "LOCKED")
+PC_MESSAGE = "PC_MESSAGE"
 
 
 def _utc(dt: datetime) -> datetime:
@@ -216,7 +225,8 @@ def list_violations(db: Session = Depends(get_db), _: User = Depends(require_sta
 
 
 class ModeRequest(BaseModel):
-    mode: Literal["NORMAL", "EXAM", "MAINTENANCE"]
+    # LOCKED = access removed: the agent keeps the PC locked until NORMAL.
+    mode: Literal["NORMAL", "EXAM", "MAINTENANCE", "LOCKED"]
 
 
 @router.put("/{device_id}/mode")
@@ -227,8 +237,133 @@ def set_mode(device_id: int, req: ModeRequest, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "PC not found")
     old = d.mode or "NORMAL"
     d.mode = req.mode
-    db.add(AuditLog(actor_user_id=staff.id, action="PC_MODE_SET", entity_type="device",
+    action = ("PC_ACCESS_REMOVED" if req.mode == "LOCKED" else
+              "PC_ACCESS_GIVEN" if old == "LOCKED" else "PC_MODE_SET")
+    db.add(AuditLog(actor_user_id=staff.id, action=action, entity_type="device",
                     entity_id=str(d.id), detail={"from": old, "to": req.mode,
                                                  "device": d.device_uid}))
     db.commit()
     return {"device_id": d.id, "mode": d.mode}
+
+
+def _pc(db: Session, device_id: int) -> Device:
+    d = db.get(Device, device_id)
+    if d is None or d.device_type != DeviceType.PC:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "PC not found")
+    return d
+
+
+# ------------------------------------------- admin master PC: agent side ---
+@router.get("/pc/poll", tags=["devices"])
+def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db),
+            identity: str = Depends(require_device)):
+    """The PC agent asks every ~2 s: mode, whether staff are watching, and
+    one waiting message. Cheap on purpose (nothing is written unless a
+    message is handed over)."""
+    device_scope(identity, device_uid)
+    d = get_device(db, device_uid)
+    if d is None or d.device_type != DeviceType.PC:
+        return {"mode": "NORMAL", "mirror": False, "message": None}
+    c = db.scalar(select(DeviceCommand).where(
+        DeviceCommand.device_id == d.id, DeviceCommand.command == PC_MESSAGE,
+        DeviceCommand.status == "PENDING").order_by(DeviceCommand.created_at))
+    message = None
+    if c is not None:
+        now = datetime.now(timezone.utc)
+        if now > _utc(c.expires_at):
+            c.status, c.completed_at = "EXPIRED", now
+            c.message = "The PC did not take the message in time (agent off)."
+        else:
+            # Shown the moment it is handed over: nothing else to wait for.
+            c.status, c.sent_at, c.completed_at = "DONE", now, now
+            c.message = "Shown on the PC."
+            message = {"id": c.id, "text": (c.args or {}).get("text", "")}
+        cmds.publish_later(db, c)
+        db.commit()
+        cmds.flush_published(db)
+    return {"mode": d.mode or "NORMAL", "mirror": pc_control.is_watched(d.id),
+            "message": message}
+
+
+@router.post("/pc/frame", tags=["devices"], status_code=status.HTTP_204_NO_CONTENT)
+async def pc_frame(request: Request, device_uid: str = Query(max_length=64),
+                   db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """One JPEG of the PC's screen, accepted only while staff are watching."""
+    device_scope(identity, device_uid)
+    d = get_device(db, device_uid)
+    if d is None or d.device_type != DeviceType.PC:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown PC")
+    if not pc_control.is_watched(d.id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Nobody is viewing this screen")
+    body = await request.body()
+    if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
+    pc_control.put_frame(d.id, body)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ------------------------------------------- admin master PC: staff side ---
+@router.post("/{device_id}/screen/start")
+def screen_start(device_id: int, db: Session = Depends(get_db),
+                 staff: User = Depends(require_staff)):
+    d = _pc(db, device_id)
+    pc_control.touch_viewer(d.id)
+    db.add(AuditLog(actor_user_id=staff.id, action="PC_SCREEN_VIEWED", entity_type="device",
+                    entity_id=str(d.id), detail={"device": d.device_uid}))
+    db.commit()
+    return {"device_id": d.id, "watching": True}
+
+
+@router.get("/{device_id}/screen.jpg")
+def screen_frame(device_id: int, db: Session = Depends(get_db),
+                 _: User = Depends(require_staff)):
+    """Latest frame, or 204 while the agent has not sent one yet."""
+    d = _pc(db, device_id)
+    pc_control.touch_viewer(d.id)
+    jpeg = pc_control.latest_frame(d.id)
+    if jpeg is None:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return Response(content=jpeg, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{device_id}/screen/stop")
+def screen_stop(device_id: int, db: Session = Depends(get_db),
+                _: User = Depends(require_staff)):
+    d = _pc(db, device_id)
+    pc_control.stop_viewer(d.id)
+    return {"device_id": d.id, "watching": False}
+
+
+class MessageRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/{device_id}/message", status_code=status.HTTP_201_CREATED)
+def send_message(device_id: int, req: MessageRequest, db: Session = Depends(get_db),
+                 staff: User = Depends(require_staff)):
+    d = _pc(db, device_id)
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Write a message first.")
+    now = datetime.now(timezone.utc)
+    waiting = db.scalar(select(DeviceCommand).where(
+        DeviceCommand.device_id == d.id, DeviceCommand.status == "PENDING"))
+    if waiting is not None and now <= _utc(waiting.expires_at):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The previous message has not reached this PC yet.")
+    if waiting is not None:
+        waiting.status, waiting.completed_at = "EXPIRED", now
+        waiting.message = "The PC did not take the message in time (agent off)."
+    c = DeviceCommand(device_id=d.id, command=PC_MESSAGE, args={"text": text},
+                      status="PENDING", requested_by_id=staff.id, created_at=now,
+                      expires_at=now + cmds.PICKUP_WINDOW)
+    db.add(c)
+    db.flush()
+    db.add(AuditLog(actor_user_id=staff.id, action="PC_MESSAGE_SENT", entity_type="device",
+                    entity_id=str(d.id), detail={"device": d.device_uid, "command_id": c.id,
+                                                 "text": text}))
+    cmds.publish_later(db, c)
+    db.commit()
+    cmds.flush_published(db)
+    return cmds.out(c)

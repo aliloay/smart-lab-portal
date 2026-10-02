@@ -1,4 +1,4 @@
-# Reusable bin node (Robotics Lab, System 3) — bring-up
+# Reusable bin node (Robotics Lab, System 4) — bring-up
 
 Firmware `SmartLab_Reusable_Bin.ino` — compiled, **not yet run on hardware**.
 Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §K–L.

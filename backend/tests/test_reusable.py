@@ -1,5 +1,5 @@
 """
-Reusable smart bin (Robotics Lab, System 3), backend side.
+Reusable smart bin (Robotics Lab, System 4), backend side.
 
 Tested: return by scanning (recorded only after the lid opened); checkout
 only from inside the lab, completed only by the SELECTED item's own tag

@@ -1,4 +1,4 @@
-# Consumable bin node (Robotics Lab, System 2) — bring-up and calibration
+# Consumable bin node (Robotics Lab, System 3) — bring-up and calibration
 
 Firmware `SmartLab_Consumable_Bin.ino` — compiled, **not yet run on
 hardware**. Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §J.

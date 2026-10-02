@@ -1,5 +1,5 @@
 """
-Consumable inventory (Robotics Lab, System 2): weighing bins.
+Consumable inventory (Robotics Lab, System 3): weighing bins.
 
 The bin node sends the STABLE mass of each bin. Here that becomes:
   * the current stock: mass, and - only once the bin is calibrated - the
