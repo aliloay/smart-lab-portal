@@ -41,6 +41,22 @@ export interface AccessSetupItem {
   label: string; done: boolean; how: string
   value?: string | null; at?: string | null
 }
+/** One lab on the wall screen (/monitor). null = never reported. */
+export interface MonitorTile {
+  lab_id: number; code: string; name: string; has_door: boolean
+  state: 'OK' | 'WARN' | 'ALERT'
+  controller_online: boolean | null; camera_online: boolean | null
+  door_closed: boolean | null; locked: boolean | null; faults: string[]
+  people: { name: string | null; since: string }[]
+  booking: { name: string | null; until: string } | null
+  next_booking_at: string | null
+  alerts: { severity: 'INFO' | 'WARNING' | 'CRITICAL'; title: string; at: string; count: number }[]
+  alert_count: number
+  last_event: { type: string; result: string | null; who: string | null;
+                reason: string | null; at: string } | null
+  environment: Partial<Record<'temperature' | 'humidity', { value: number; unit: string; at: string }>>
+}
+
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
 export interface FaceStatus {
   auth_subject: string | null; face_enrolled_at: string | null
@@ -754,6 +770,7 @@ export const api = {
   myAccessSetup: () => request<AccessSetup>('/auth/me/access-setup'),
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
+  monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
   faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),
   faceCapture: (id: number) =>
     post<{ saved: boolean; samples: number | null; message: string }>(`/users/${id}/face/capture`),

@@ -34,6 +34,7 @@ import Profile from './pages/Profile'
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))
 const Operations = lazy(() => import('./pages/Operations'))
+const Monitor = lazy(() => import('./pages/Monitor'))
 
 function Chunk({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>
@@ -67,6 +68,11 @@ export default function App() {
   const adminOnly = (el: ReactNode) => admin ? el : <Navigate to="/" replace />
 
   const home = admin ? <AdminDashboard /> : staff ? <StaffDashboard /> : <StudentDashboard />
+
+  // The wall screen: full screen, outside the portal frame (no sidebar).
+  if (staff && loc.pathname === '/monitor') {
+    return <LiveProvider><Chunk><Monitor /></Chunk></LiveProvider>
+  }
 
   return (
     <LiveProvider>

@@ -3,7 +3,8 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
-  Gauge, LayoutDashboard, LogOut, Menu, Radar, Settings, ShieldCheck, TriangleAlert,
+  ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
+  ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
@@ -20,7 +21,11 @@ import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 
 type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
-interface Item { to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean }
+interface Item {
+  to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean
+  /** Opens in its own window (the wall screen), not in the portal frame. */
+  window?: boolean
+}
 interface Section { title: string; items: Item[] }
 
 /**
@@ -54,6 +59,7 @@ const STAFF_NAV: Section[] = [
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
+    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
@@ -73,6 +79,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
+    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
   ]},
   { title: 'Facility', items: [
@@ -114,6 +121,21 @@ function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
 function NavItem({ item, badge, onNavigate }: {
   item: Item; badge?: number; onNavigate: () => void
 }) {
+  if (item.window) {
+    // Its own window, so it can go on a second screen and full screen.
+    return (
+      <a href={item.to} onClick={e => {
+           e.preventDefault(); onNavigate()
+           window.open(item.to, 'smartlab-monitor', 'popup,width=1600,height=900')
+         }}
+         className="group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+                    transition-colors text-slate-300 hover:text-white hover:bg-white/[0.04]">
+        <span className="text-slate-400 group-hover:text-slate-200">{item.icon}</span>
+        <span className="flex-1">{item.label}</span>
+        <ExternalLink size={13} className="text-slate-500" />
+      </a>
+    )
+  }
   return (
     <NavLink to={item.to} end={item.end} onClick={onNavigate}
       className={({ isActive }) =>
