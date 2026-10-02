@@ -414,6 +414,7 @@ class AssetOut(ORM):
     maintenance_due: bool = False           # next_maintenance_at has passed
     # NFC sticker for the reusable smart bin; None = not tagged.
     nfc_uid: Optional[str] = None
+    bin_item: bool = False
 
 
 class AssetCreate(BaseModel):
@@ -424,6 +425,8 @@ class AssetCreate(BaseModel):
     notes: str = ""
     serial_number: Optional[str] = Field(default=None, max_length=64)
     next_maintenance_at: Optional[datetime] = None
+    # Kept in the reusable smart bin (Arduinos, breadboards, ...).
+    bin_item: bool = False
 
 
 class AssetUpdate(BaseModel):
@@ -433,6 +436,7 @@ class AssetUpdate(BaseModel):
     category: Optional[str] = Field(default=None, max_length=64)
     serial_number: Optional[str] = Field(default=None, max_length=64)
     next_maintenance_at: Optional[datetime] = None
+    bin_item: Optional[bool] = None
 
 
 class AssetInspect(BaseModel):

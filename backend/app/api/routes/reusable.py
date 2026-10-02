@@ -128,8 +128,9 @@ def bin_items(lab_id: int, db: Session = Depends(get_db),
     """Tagged items of a lab's smart bin. Who holds an item: staff see the
     name, the holder sees "you", everyone else only that it is out."""
     node = bin_node(db, lab_id)
-    items = db.scalars(select(Asset).where(Asset.lab_id == lab_id, Asset.nfc_uid.is_not(None))
-                       .order_by(Asset.asset_tag)).all()
+    items = db.scalars(select(Asset).where(
+        Asset.lab_id == lab_id, (Asset.bin_item.is_(True)) | (Asset.nfc_uid.is_not(None)))
+        .order_by(Asset.asset_tag)).all()
     out = []
     for a in items:
         holder = None

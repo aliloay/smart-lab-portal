@@ -347,6 +347,8 @@ export interface Asset {
   maintenance_due: boolean
   /** NFC sticker for the reusable smart bin; null = not tagged. */
   nfc_uid?: string | null
+  /** Kept in the reusable smart bin (System 4), not fixed equipment. */
+  bin_item?: boolean
 }
 
 export interface LifecycleEntry {
@@ -838,6 +840,16 @@ export const api = {
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
   inventoryBins: () => request<InventoryBin[]>('/inventory/bins'),
+  equipment: () => request<{
+    device_id: number; device_uid: string; kind: 'ROBOT' | 'PC'; name: string; asset_tag: string | null
+    lab_code: string | null; online: boolean | null; last_seen_at: string | null
+    state: 'RUNNING' | 'IDLE' | 'FAULT' | null; since: string | null; detail: Record<string, unknown>
+    user_name: string | null; booking_id: number | null; mode: 'NORMAL' | 'EXAM' | 'MAINTENANCE'
+    running_today_s: number; open_violations: number }[]>('/equipment'),
+  equipmentViolations: () => request<{ id: number; device_uid: string; kind: string; detail: string
+    os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
+  setEquipmentMode: (id: number, mode: 'NORMAL' | 'EXAM' | 'MAINTENANCE') =>
+    request<{ device_id: number; mode: string }>(`/equipment/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
   binItems: (labId: number) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
       `/reusable/items?lab_id=${labId}`),
@@ -889,7 +901,7 @@ export const api = {
                       ip_address?: string | null }) => post<Device>('/devices', d),
   createAsset: (a: { asset_tag: string; name: string; category: string; lab_id: number;
                      notes?: string; serial_number?: string | null;
-                     next_maintenance_at?: string | null }) => post<Asset>('/assets', a),
+                     next_maintenance_at?: string | null; bin_item?: boolean }) => post<Asset>('/assets', a),
   assets: (labId?: number, due?: boolean) =>
     request<Asset[]>(`/assets${qs({ lab_id: labId, due: due || undefined })}`),
   asset: (id: number) => request<AssetDetail>(`/assets/${id}`),

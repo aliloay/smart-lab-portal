@@ -1,5 +1,7 @@
 /**
- * Inventory (Robotics Lab): consumable weighing bins (System 2).
+ * Inventory (Robotics Lab): consumables (System 3, weighing bins) and
+ * reusables (System 4, the NFC smart bin). Both sections also appear as
+ * tabs on the Equipment page.
  *
  * Each bin shows its measured mass and - only once its calibration has
  * been measured and entered - the estimated quantity with its error band.
@@ -22,6 +24,18 @@ const QUALITY: Record<InventoryBin['quality'], { tone: 'ok' | 'warn' | 'idle' | 
 }
 
 export default function Inventory() {
+  return (
+    <div className="space-y-6">
+      <PageHeader eyebrow="Robotics Lab" title="Inventory"
+        sub="Consumables are weighed; reusable items live in the NFC smart bin." />
+      <ConsumableBins />
+      <ReusableItems />
+    </div>
+  )
+}
+
+/** System 3: consumable weighing bins. */
+export function ConsumableBins() {
   const [bins, setBins] = useState<InventoryBin[] | null>(null)
   const [error, setError] = useState('')
   const [open, setOpen] = useState<InventoryBin | null>(null)
@@ -38,13 +52,13 @@ export default function Inventory() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Robotics Lab" title="Inventory"
-        sub="Consumables are weighed; a quantity is shown only once the bin is calibrated."
-        actions={<button className="btn-primary" onClick={() => setCreating(true)}><Plus size={15} /> New bin</button>} />
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
 
       <section>
-        <SectionTitle icon={<Scale size={15} />}>Consumable bins</SectionTitle>
+        <SectionTitle icon={<Scale size={15} />}
+          sub="Weighed; a quantity is shown only once the bin is calibrated."
+          action={<button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} /> New bin</button>}>
+          Consumable bins</SectionTitle>
         {!bins ? <Spinner label="Loading bins" />
           : !bins.length ? <EmptyState icon={<Boxes size={18} />} title="No bins yet"
               detail="Create a bin with the same code as in the bin node's firmware (e.g. BIN-R10K)." />
@@ -81,8 +95,6 @@ export default function Inventory() {
                 </button>))}
             </div>}
       </section>
-
-      <ReusableItems />
 
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.item_name ?? ''} subtitle={open?.code}>
         {open && <BinDetail bin={open} onChanged={b => { setOpen(b); load() }} />}
@@ -217,16 +229,24 @@ function CreateBin({ onDone }: { onDone: () => void }) {
 // ------------------------------------------------------- reusable items ---
 /** Equipment with its NFC tag (System 3). Tag an item: scan the sticker at
  *  the bin (it shows "UNKNOWN TAG"), then "Use last scanned tag" here. */
-function ReusableItems() {
+export function ReusableItems() {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [editing, setEditing] = useState<Asset | null>(null)
-  const load = useCallback(() => { api.assets().then(setAssets).catch(() => setAssets([])) }, [])
+  const [adding, setAdding] = useState(false)
+  // Only what is kept in the smart bin - not fixed lab equipment.
+  const load = useCallback(() => {
+    api.assets().then(a => setAssets(a.filter(x => x.bin_item || x.nfc_uid))).catch(() => setAssets([]))
+  }, [])
   useEffect(load, [load])
   return (
     <section>
-      <SectionTitle icon={<Nfc size={15} />}>Reusable items (smart bin)</SectionTitle>
+      <SectionTitle icon={<Nfc size={15} />}
+        sub="Arduinos, breadboards, microcontrollers... each with an NFC sticker."
+        action={<button className="btn-primary btn-sm" onClick={() => setAdding(true)}><Plus size={14} /> Add bin item</button>}>
+        Reusable items (smart bin)</SectionTitle>
       {!assets ? <Spinner /> : !assets.length
-        ? <EmptyState icon={<Boxes size={18} />} title="No equipment yet" detail="Add items under Equipment first." />
+        ? <EmptyState icon={<Boxes size={18} />} title="No bin items yet"
+            detail="Add the items kept in the smart bin, e.g. ARDUINO-001, BREADBOARD-001." />
         : <div className="card divide-y divide-ink-600/50">
             {assets.map(a => (
               <div key={a.id} className="px-4 py-2.5 flex items-center gap-3 text-[13px]">
@@ -240,6 +260,9 @@ function ReusableItems() {
           </div>}
       <Drawer open={!!editing} onClose={() => setEditing(null)} title="NFC tag" subtitle={editing?.asset_tag}>
         {editing && <AssignTag asset={editing} onDone={() => { setEditing(null); load() }} />}
+      </Drawer>
+      <Drawer open={adding} onClose={() => setAdding(false)} title="Add bin item">
+        {adding && <AddBinItem onDone={() => { setAdding(false); load() }} />}
       </Drawer>
     </section>
   )
@@ -269,6 +292,40 @@ function AssignTag({ asset, onDone }: { asset: Asset; onDone: () => void }) {
       <button type="button" className="btn-ghost btn-sm" onClick={useLast}>Use last scanned unknown tag</button>
       {hint && <p className="text-[12px] text-slate-400">{hint}</p>}
       <button className="btn-primary w-full">{uid.trim() ? 'Save tag' : 'Remove tag'}</button>
+    </form>
+  )
+}
+
+const BIN_CATEGORIES = ['Microcontroller board', 'Breadboard', 'Sensor module', 'Kit', 'Tool', 'Other']
+
+function AddBinItem({ onDone }: { onDone: () => void }) {
+  const [labs, setLabs] = useState<Lab[]>([])
+  const [f, setF] = useState({ asset_tag: '', name: '', category: BIN_CATEGORIES[0], lab_id: '' })
+  const [error, setError] = useState('')
+  useEffect(() => { api.labs().then(l => { setLabs(l); if (l[0]) setF(x => ({ ...x, lab_id: String(l[0].id) })) }).catch(() => {}) }, [])
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError('')
+    try {
+      await api.createAsset({ asset_tag: f.asset_tag.trim().toUpperCase(), name: f.name, category: f.category,
+        lab_id: Number(f.lab_id), bin_item: true })
+      onDone()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
+  }
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      {error && <ErrorBanner message={error} />}
+      <Field label="Item code"><input className="input mono" required placeholder="ARDUINO-001" value={f.asset_tag}
+        onChange={e => setF({ ...f, asset_tag: e.target.value })} /></Field>
+      <Field label="Name"><input className="input" required placeholder="Arduino Uno R3" value={f.name}
+        onChange={e => setF({ ...f, name: e.target.value })} /></Field>
+      <Field label="Type">
+        <select className="input" value={f.category} onChange={e => setF({ ...f, category: e.target.value })}>
+          {BIN_CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></Field>
+      <Field label="Laboratory">
+        <select className="input" value={f.lab_id} onChange={e => setF({ ...f, lab_id: e.target.value })}>
+          {labs.map(l => <option key={l.id} value={l.id}>{l.code} - {l.name}</option>)}</select></Field>
+      <p className="text-[12px] text-slate-400">Then assign its NFC sticker (hold it at the bin's reader).</p>
+      <button className="btn-primary w-full">Add item</button>
     </form>
   )
 }

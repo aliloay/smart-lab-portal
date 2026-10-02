@@ -129,6 +129,16 @@ class Settings(BaseSettings):
     SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
                               "co2=:1000,noise=:85")
 
+    # --- PC exam mode ---------------------------------------------------------
+    # Programs (process names) the PC agent reports as a violation while a PC
+    # is in EXAM mode. Websites cannot be seen from a process list: blocking
+    # sites needs a managed / kiosk browser, which is policy, not this list.
+    EXAM_PROHIBITED_PROCESSES: str = "whatsapp.exe,telegram.exe,discord.exe"
+
+    @property
+    def exam_prohibited(self) -> list[str]:
+        return [p.strip().lower() for p in self.EXAM_PROHIBITED_PROCESSES.split(",") if p.strip()]
+
     # --- face enrollment from the portal ------------------------------------
     # Staff enroll a person's face from Users & roles: the portal asks the
     # door camera for a frame and the face server (on this laptop) keeps the

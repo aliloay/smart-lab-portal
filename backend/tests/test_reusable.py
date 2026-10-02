@@ -144,3 +144,13 @@ def test_item_list_hides_holder_names_from_other_students(client, db, staff, ali
     assert holder(staff) == ("Alice", True)
     assert holder(alice) == ("you", False)
     assert holder(bob) == (None, False)
+
+
+def test_only_bin_items_are_listed_not_fixed_equipment(client, db, staff, lab, bin_node):
+    db.add(Asset(asset_tag="BREADBOARD-009", name="Breadboard", lab_id=lab.id, bin_item=True))
+    db.add(Asset(asset_tag="AC-004", name="12V Solenoid Door Lock", lab_id=lab.id))
+    db.commit()
+    body = client.get(f"/api/reusable/items?lab_id={lab.id}",
+                      headers=auth_headers(client, staff.email)).json()
+    tags = [i["asset_tag"] for i in body["items"]]
+    assert "BREADBOARD-009" in tags and "AC-004" not in tags

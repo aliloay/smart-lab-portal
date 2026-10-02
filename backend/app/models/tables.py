@@ -19,6 +19,7 @@ from sqlalchemy import (JSON, Boolean, CheckConstraint, DateTime, Enum, Float,
                         ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.expression import false as sa_false
 
 from app.db.session import Base
 from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
@@ -172,6 +173,11 @@ class Device(Base):
     # device uses the shared DEVICE_API_KEY. The key itself is never stored.
     key_hash: Mapped[str | None] = mapped_column(String(64), unique=True,
                                                  nullable=True)
+    # Networked equipment (robot, PC): the asset this device IS, and the
+    # mode an engineer set for it (NORMAL / EXAM / MAINTENANCE; PCs).
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"),
+                                                 nullable=True)
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     lab: Mapped[Lab] = relationship(back_populates="devices")
 
@@ -390,6 +396,10 @@ class Asset(Base):
     # IDENTIFIER of the item, not an authentication of anyone.
     nfc_uid: Mapped[str | None] = mapped_column(String(32), unique=True,
                                                 nullable=True)
+    # Kept in the reusable smart bin (System 4: Arduinos, breadboards...),
+    # as opposed to fixed lab equipment such as the door lock or a robot.
+    bin_item: Mapped[bool] = mapped_column(Boolean, default=False,
+                                           server_default=sa_false())
 
 
 class AssetTransaction(Base):
@@ -820,3 +830,46 @@ class InventoryTransaction(Base):
                                                        nullable=True)
     note: Mapped[str] = mapped_column(String(255), default="")
     recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Networked equipment (Robotics Lab): robots and PCs on the lab LAN
+# ---------------------------------------------------------------------------
+class EquipmentSession(Base):
+    """
+    A period in one state (RUNNING / IDLE / FAULT) of a robot or PC, as its
+    collector or agent reported it. user/booking: the booking in force in
+    the lab at the start, if any - so usage can be read per person and per
+    booking. Closed when the state changes or the equipment goes offline.
+    """
+    __tablename__ = "equipment_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"), nullable=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    state: Mapped[str] = mapped_column(String(16))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    ended_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class PolicyViolation(Base):
+    """
+    An exam-mode policy breach a PC agent reported (e.g. a prohibited
+    program running). Logged and shown to staff; nothing is decided
+    automatically about the student.
+    """
+    __tablename__ = "policy_violations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str] = mapped_column(String(255), default="")
+    # The Windows account logged in on the PC, as the agent saw it.
+    os_user: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)

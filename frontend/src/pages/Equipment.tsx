@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
+import NetworkedEquipment from '../components/NetworkedEquipment'
 import { assetStatusLabel, assetTone } from '../lib/labels'
 import { fmtDate } from '../lib/time'
 import {
@@ -46,6 +47,8 @@ export default function Equipment() {
         sub="Every registered instrument, machine and device, with its status and maintenance record."
         actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>} />
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+
+      <NetworkedEquipment />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <MetricCard label="Registered" value={rows ? rows.length : null} icon={<Boxes size={15} />} />
