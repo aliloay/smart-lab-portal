@@ -1,0 +1,175 @@
+{
+  "id": "8R9NX3QAakjrJSai",
+  "name": "Smart Lab 13 - Environment hazard escalation",
+  "active": false,
+  "nodes": [
+    {
+      "id": "b4496e78-d1d9-5c85-ae26-b0a787b6c44c",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "2f273143-42ca-5d8a-a3d3-ccf13d66f579",
+      "name": "Check In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/robotics/hazards",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "4a231ac4-9fcf-55c0-a8e0-86d1dc95dda9",
+      "name": "One Item Per Finding",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "items"
+      }
+    },
+    {
+      "id": "e36b3c2a-d19c-586c-acee-e2454ee5145b",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"ENVIRONMENT_HAZARD\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "0040fa3d-4833-50f6-a426-f45707d1f6ba",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"13-environment-hazard-escalation\", status: \"success\", summary: \"Findings: \" + $(\"Check In Backend\").first().json.count, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "57f5c8c2-4596-53e9-a668-4128c8220554",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Environment hazard escalation\nThe backend alerts at once when smoke, flame, a leak or the emergency signal is reported; this re-notifies when it is still active after 5 min. Indicators only - not a certified fire or safety system.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Check In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check In Backend": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Finding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Finding": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

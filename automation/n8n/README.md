@@ -2,7 +2,7 @@
 
 | Path | What |
 |---|---|
-| `json/*.json` | the 12 workflows, importable into n8n: **start here** |
+| `json/*.json` | the 22 workflows (01-12 lab operations, 13-22 Robotics Lab), importable into n8n: **start here** |
 | `src/*.ts` | the same workflows as n8n Workflow SDK code (reviewable source) |
 | `gen.py` | generates `src/*.ts` |
 | `build_json.mjs` | compiles `src/*.ts` → `json/*.json` (`npm i --no-save @n8n/workflow-sdk@0.33.1` first) |

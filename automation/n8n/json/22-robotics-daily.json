@@ -1,0 +1,175 @@
+{
+  "id": "l3xYkfCjlNRy9c1d",
+  "name": "Smart Lab 22 - Robotics Lab daily summary",
+  "active": false,
+  "nodes": [
+    {
+      "id": "19898e27-b966-5d97-a6d6-62d99e1a0c39",
+      "name": "Daily 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f0cca8cb-9862-507e-ac09-a978cc9df84d",
+      "name": "Check In Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/automation/robotics/daily",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "3954030c-f1be-52c9-a731-0d2e4756c3af",
+      "name": "One Item Per Finding",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "items"
+      }
+    },
+    {
+      "id": "6e864769-c2cc-5d0f-a084-0971d5cfc335",
+      "name": "Notify Staff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"DAILY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "5fe810ac-fe28-535e-a676-5f2f300d523e",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"22-robotics-daily\", status: \"success\", summary: \"Findings: \" + $(\"Check In Backend\").first().json.count, execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "8405537c-fe1a-516b-ad16-affdbc29b43d",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Robotics Lab daily summary\nRobot run time, consumable withdrawals, items out, environment alerts - from recorded data only.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Daily 07:00": {
+      "main": [
+        [
+          {
+            "node": "Check In Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check In Backend": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Finding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Finding": {
+      "main": [
+        [
+          {
+            "node": "Notify Staff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Staff": {
+      "main": [
+        [
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

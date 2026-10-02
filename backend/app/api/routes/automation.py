@@ -8,7 +8,7 @@ computed by app.services.automation; the few writes create notifications,
 alerts and run records, each idempotent on a dedupe key.
 """
 import hmac
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -192,6 +192,20 @@ class NotifyRequest(BaseModel):
     booking_id: Optional[int] = None
     issue_id: Optional[int] = None
     dedupe_key: str = Field(min_length=3, max_length=160)
+
+
+@router.get("/robotics/{topic}", dependencies=guard)
+def robotics_topic(topic: str, db: Session = Depends(get_db)):
+    """Robotics Lab watch rules (n8n workflows 13-22): notification items."""
+    from app.services.devices import refresh_liveness
+    from app.services.robotics_watch import TOPICS
+    fn = TOPICS.get(topic)
+    if fn is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown topic. Known: {sorted(TOPICS)}")
+    refresh_liveness(db)
+    items = fn(db, datetime.now(timezone.utc))
+    db.commit()
+    return {"topic": topic, "count": len(items), "items": items}
 
 
 @router.post("/notify", dependencies=guard)
