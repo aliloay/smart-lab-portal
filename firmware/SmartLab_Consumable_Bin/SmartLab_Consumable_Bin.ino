@@ -1,0 +1,296 @@
+// ===========================================================================
+// SMART LAB - CONSUMABLE BIN NODE (Robotics Lab, System 2)      ESP32 #2
+// ===========================================================================
+// One weighing bin: removable bin -> plate -> 1 kg load cell -> fixed base.
+// HX711 -> ESP32 -> 16x2 I2C LCD, and over Wi-Fi to the portal:
+//   - STABLE masses           POST /api/inventory/measurements
+//   - heartbeat every 30 s    POST /api/access/heartbeat
+// The portal turns stable mass steps into withdrawals/refills and, once the
+// bin's calibration (empty-bin mass, unit mass) has been MEASURED and
+// entered, estimates the quantity; it replies with it for the LCD.
+//
+// Two calibrations, kept apart:
+//   1. Load cell (here, Serial commands, stored in flash):
+//        tare        - platform empty -> zero
+//        cal <g>     - a known reference mass on the platform -> scale
+//        show        - current raw / scale / mass
+//   2. Bin (in the portal, Inventory): empty-bin mass, unit mass, noise.
+// This firmware reports the mass on the PLATFORM in grams (bin included).
+//
+// STATUS: compiled, NOT yet run on hardware. Values marked VERIFY come
+// from the noise and settling tests in docs/ROBOTICS_LAB_ARCHITECTURE.md.
+// ===========================================================================
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Preferences.h>
+#include "HX711.h"
+
+#include "secrets.h"        // WIFI_SSID, WIFI_PASS, DEVICE_KEY (gitignored)
+
+// --- network ------------------------------------------------------------------
+const char *BACKEND_IP = "192.168.1.200";
+constexpr uint16_t BACKEND_PORT = 8000;
+const char *LAB_ID    = "LAB_01";
+const char *DEVICE_ID = "BIN_NODE_1";
+const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
+const char *FIRMWARE  = "bin-0.1";
+const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
+                SUBNET(255, 255, 255, 0);
+
+// --- pins -----------------------------------------------------------------------
+constexpr uint8_t HX_DT_PIN  = 25;
+constexpr uint8_t HX_SCK_PIN = 26;
+constexpr uint8_t I2C_SDA = 21, I2C_SCL = 22;   // LCD
+
+// --- measurement (VERIFY from the noise / settling tests) ----------------------
+constexpr uint8_t  SAMPLES_PER_READING = 10;    // HX711 averaging
+constexpr float    STABLE_BAND_G   = 0.5;       // max spread of the window to call it stable
+constexpr uint32_t STABLE_TIME_MS  = 1500;      // ... held for this long
+constexpr float    SEND_DELTA_G    = 0.3;       // report a stable value that moved this much
+constexpr uint32_t KEEPALIVE_MS    = 60000;     // or at least once a minute
+constexpr uint32_t HEARTBEAT_MS    = 30000;
+constexpr uint32_t HTTP_TIMEOUT_MS = 2500;
+
+HX711 scale;
+Preferences prefs;
+LiquidCrystal_I2C *lcd = nullptr;
+uint8_t lcdAddr = 0;
+
+float    scaleFactor = 0;          // counts per gram; 0 = not calibrated
+long     zeroOffset  = 0;
+float    massG = NAN;              // latest reading
+bool     stable = false;
+float    windowMin = NAN, windowMax = NAN;
+uint32_t windowStart = 0;
+float    lastSentG = NAN;
+uint32_t lastSentMs = 0, lastHeartbeatMs = 0;
+bool     netOk = false;
+String   itemName = "";
+long     qtyEst = -1, qtyErr = -1;
+
+// --- I2C: find the LCD instead of assuming its address --------------------------
+void scanI2c() {
+  Serial.println("[I2C] Scanning...");
+  for (uint8_t a = 1; a < 127; a++) {
+    Wire.beginTransmission(a);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("[I2C] Device at 0x%02X\n", a);
+      // PCF8574 (0x20-0x27) and PCF8574A (0x38-0x3F) are the usual LCD backpacks.
+      bool backpack = (a >= 0x20 && a <= 0x27) || (a >= 0x38 && a <= 0x3F);
+      if (backpack && !lcdAddr) lcdAddr = a;
+    }
+  }
+  if (lcdAddr) Serial.printf("[I2C] Using 0x%02X for the LCD\n", lcdAddr);
+  else Serial.println("[I2C] No LCD backpack found - running without the display");
+}
+
+void lcdShow(const String &l1, const String &l2) {
+  if (!lcd) return;
+  lcd->clear();
+  lcd->setCursor(0, 0); lcd->print(l1.substring(0, 16));
+  lcd->setCursor(0, 1); lcd->print(l2.substring(0, 16));
+}
+
+void drawLcd() {
+  String l1 = itemName.length() ? itemName : String(BIN_CODE);
+  String l2;
+  if (scaleFactor == 0)      l2 = "NOT CALIBRATED";
+  else if (isnan(massG))     l2 = "NO READING";
+  else {
+    l2 = String(massG, 1) + " g";
+    if (qtyEst >= 0) l2 += " ~" + String(qtyEst);
+    if (!stable) l2 += " ..";
+  }
+  if (!netOk && l2.length() <= 14) l2 += " !";
+  lcdShow(l1, l2);
+}
+
+// --- load cell ------------------------------------------------------------------
+void loadCalibration() {
+  prefs.begin("bin", true);
+  scaleFactor = prefs.getFloat("scale", 0);
+  zeroOffset  = prefs.getLong("offset", 0);
+  prefs.end();
+  if (scaleFactor != 0) {
+    scale.set_scale(scaleFactor);
+    scale.set_offset(zeroOffset);
+    Serial.printf("[CAL] Loaded: scale %.3f counts/g, offset %ld\n", scaleFactor, zeroOffset);
+  } else {
+    Serial.println("[CAL] Not calibrated: 'tare' with the platform empty, then 'cal <grams>'");
+  }
+}
+
+void saveCalibration() {
+  prefs.begin("bin", false);
+  prefs.putFloat("scale", scaleFactor);
+  prefs.putLong("offset", zeroOffset);
+  prefs.end();
+}
+
+void readScale() {
+  if (!scale.wait_ready_timeout(300)) { massG = NAN; return; }
+  if (scaleFactor == 0) return;
+  massG = scale.get_units(SAMPLES_PER_READING);
+  uint32_t now = millis();
+  // Stability: the readings stay within STABLE_BAND_G for STABLE_TIME_MS.
+  if (isnan(windowMin) || max(windowMax, massG) - min(windowMin, massG) > STABLE_BAND_G) {
+    windowMin = windowMax = massG;          // moved: start a new window
+    windowStart = now;
+  } else {
+    windowMin = min(windowMin, massG);
+    windowMax = max(windowMax, massG);
+  }
+  stable = now - windowStart >= STABLE_TIME_MS;
+}
+
+void handleSerial() {
+  static String line;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r') continue;
+    if (c != '\n') { if (line.length() < 32) line += c; continue; }
+    line.trim();
+    if (line == "tare") {
+      scale.set_scale(1);
+      scale.tare(20);
+      zeroOffset = scale.get_offset();
+      if (scaleFactor != 0) scale.set_scale(scaleFactor);
+      saveCalibration();
+      Serial.printf("[CAL] Zero set (offset %ld)\n", zeroOffset);
+    } else if (line.startsWith("cal ")) {
+      float g = line.substring(4).toFloat();
+      if (g <= 0) { Serial.println("[CAL] Usage: cal <grams of the reference mass>"); }
+      else {
+        scale.set_scale(1);
+        float raw = scale.get_units(20);       // counts above zero
+        scaleFactor = raw / g;
+        scale.set_scale(scaleFactor);
+        saveCalibration();
+        Serial.printf("[CAL] %.2f g -> scale %.3f counts/g (saved)\n", g, scaleFactor);
+      }
+    } else if (line == "show") {
+      Serial.printf("[CAL] raw %ld, offset %ld, scale %.3f, mass %.2f g, %s\n",
+                    scale.read_average(10), zeroOffset, scaleFactor, massG,
+                    stable ? "stable" : "settling");
+    } else if (line.length()) {
+      Serial.println("[CMD] tare | cal <grams> | show");
+    }
+    line = "";
+  }
+}
+
+// --- network --------------------------------------------------------------------
+String post(const char *path, const String &body, int *code) {
+  *code = -1;
+  if (WiFi.status() != WL_CONNECTED) return "";
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, String("http://") + BACKEND_IP + ":" + BACKEND_PORT + "/api" + path)) return "";
+  http.setConnectTimeout(HTTP_TIMEOUT_MS);
+  http.setTimeout(HTTP_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  *code = http.POST(body);
+  String reply = *code == 200 ? http.getString() : String();
+  http.end();
+  return reply;
+}
+
+long jsonLong(const String &s, const char *key) {
+  int i = s.indexOf(String("\"") + key + "\":");
+  if (i < 0) return -1;
+  i += strlen(key) + 3;
+  if (s.startsWith("null", i)) return -1;
+  return s.substring(i).toInt();
+}
+
+String jsonStr(const String &s, const char *key) {
+  int i = s.indexOf(String("\"") + key + "\":\"");
+  if (i < 0) return "";
+  i += strlen(key) + 4;
+  int j = s.indexOf('"', i);
+  return j > i ? s.substring(i, j) : "";
+}
+
+void sendMass() {
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"readings\":[{\"bin_code\":\"" +
+                BIN_CODE + "\",\"mass_g\":" + String(massG, 2) + "}]}";
+  int code;
+  String reply = post("/inventory/measurements", body, &code);
+  netOk = code == 200;
+  if (!netOk) { Serial.printf("[NET] measurement not recorded (HTTP %d)\n", code); return; }
+  lastSentG = massG;
+  lastSentMs = millis();
+  if (reply.indexOf("\"known\":false") >= 0) {
+    Serial.printf("[NET] The portal has no bin %s - create it under Inventory\n", BIN_CODE);
+    return;
+  }
+  itemName = jsonStr(reply, "item_name");
+  qtyEst = jsonLong(reply, "qty_est");
+  qtyErr = jsonLong(reply, "qty_err");
+  String tx = jsonStr(reply, "transaction");
+  Serial.printf("[BIN] %.2f g sent%s%s\n", massG,
+                qtyEst >= 0 ? (String(" ~") + qtyEst + " pcs").c_str() : "",
+                tx.length() ? (String(" -> ") + tx).c_str() : "");
+}
+
+void sendHeartbeat() {
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"lab_id\":\"" + LAB_ID +
+                "\",\"device_type\":\"SENSOR_NODE\",\"firmware_version\":\"" + FIRMWARE +
+                "\",\"ip_address\":\"" + WiFi.localIP().toString() + "\",\"components\":{" +
+                "\"hx711\":" + (scale.is_ready() ? "true" : "false") +
+                ",\"calibrated\":" + (scaleFactor != 0 ? "true" : "false") +
+                ",\"lcd\":" + (lcd ? "true" : "false") + "}}";
+  int code;
+  post("/access/heartbeat", body, &code);
+  netOk = code == 200;
+  lastHeartbeatMs = millis();
+}
+
+void ensureWifi() {
+  static uint32_t lastTry = 0;
+  if (WiFi.status() == WL_CONNECTED || millis() - lastTry < 10000) return;
+  lastTry = millis();
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
+// ---------------------------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+  Serial.println("\n=== SMART LAB - CONSUMABLE BIN NODE (System 2) ===");
+  Wire.begin(I2C_SDA, I2C_SCL);
+  scanI2c();
+  if (lcdAddr) {
+    lcd = new LiquidCrystal_I2C(lcdAddr, 16, 2);
+    lcd->init();
+    lcd->backlight();
+    lcdShow(BIN_CODE, "starting...");
+  }
+  scale.begin(HX_DT_PIN, HX_SCK_PIN);
+  loadCalibration();
+
+  WiFi.mode(WIFI_STA);
+  WiFi.config(LOCAL_IP, GATEWAY, SUBNET, GATEWAY);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  uint32_t start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) delay(250);
+  Serial.printf("[WIFI] %s\n", WiFi.status() == WL_CONNECTED
+                ? WiFi.localIP().toString().c_str() : "not connected yet - will retry");
+}
+
+void loop() {
+  static uint32_t lastDraw = 0;
+  ensureWifi();
+  handleSerial();
+  readScale();
+  if (lastHeartbeatMs == 0 || millis() - lastHeartbeatMs > HEARTBEAT_MS) sendHeartbeat();
+  if (stable && !isnan(massG) &&
+      (isnan(lastSentG) || fabs(massG - lastSentG) >= SEND_DELTA_G || millis() - lastSentMs > KEEPALIVE_MS)) {
+    sendMass();
+  }
+  if (millis() - lastDraw > 500) { lastDraw = millis(); drawLcd(); }
+}

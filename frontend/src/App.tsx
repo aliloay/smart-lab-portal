@@ -35,6 +35,7 @@ import Profile from './pages/Profile'
 const Reports = lazy(() => import('./pages/Reports'))
 const Operations = lazy(() => import('./pages/Operations'))
 const Monitor = lazy(() => import('./pages/Monitor'))
+const Inventory = lazy(() => import('./pages/Inventory'))
 
 function Chunk({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="/admin/access" element={staffOnly(<AccessMonitor />)} />
           <Route path="/admin/devices" element={staffOnly(<Devices />)} />
           <Route path="/admin/equipment" element={staffOnly(<Equipment />)} />
+          <Route path="/inventory" element={staffOnly(<Chunk><Inventory /></Chunk>)} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />

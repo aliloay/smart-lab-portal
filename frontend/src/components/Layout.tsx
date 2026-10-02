@@ -3,7 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
-  ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
+  ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Package, Radar, Settings,
   ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
 } from 'lucide-react'
@@ -65,6 +65,7 @@ const STAFF_NAV: Section[] = [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
     { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/inventory', label: 'Inventory', icon: <Package size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
   ]},
@@ -86,6 +87,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
     { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/inventory', label: 'Inventory', icon: <Package size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
   ]},
   { title: 'Administration', items: [

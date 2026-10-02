@@ -735,3 +735,76 @@ class FaceSubmission(Base):
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # How many photos the face server accepted as samples (a face found).
     samples_saved: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Consumable inventory (Robotics Lab, System 2): smart weighing bins
+# ---------------------------------------------------------------------------
+class InventoryBin(Base):
+    """
+    One weighing bin of a bulk consumable (e.g. 10 kOhm resistors). Mass is
+    what the load cell measures; the quantity is an ESTIMATE from the model
+    n = round((m - tare) / unit_mass), shown only once tare and unit mass
+    have been MEASURED (calibration), with +/- noise / unit_mass when the
+    noise has been measured too. Nothing here is a default guess.
+    """
+    __tablename__ = "inventory_bins"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    # The bin node that reports this bin (one node may weigh several bins).
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"),
+                                                  nullable=True)
+    item_name: Mapped[str] = mapped_column(String(64))
+    category: Mapped[str] = mapped_column(String(32), default="component")
+    # Calibration, all measured; NULL = not measured yet.
+    tare_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    noise_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    calibrated_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    # A stable change smaller than this is noise, not a transaction.
+    # NULL = 3 x noise_g, or 1 g while noise is unmeasured.
+    min_change_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reorder_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Last STABLE reading.
+    last_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_measured_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class InventoryMeasurement(Base):
+    """A stable reading reported by a bin node (raw history for analysis)."""
+    __tablename__ = "inventory_measurements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bin_id: Mapped[int] = mapped_column(ForeignKey("inventory_bins.id"), index=True)
+    mass_g: Mapped[float] = mapped_column(Float)
+    recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+
+
+class InventoryTransaction(Base):
+    """
+    A stock change. WITHDRAWAL / REFILL come from stable mass steps; COUNT is
+    a person's physical count recorded next to the estimate (the data for
+    measuring estimation error). user/booking are filled only when exactly
+    one person was inside the lab - a correlation, never an accusation.
+    """
+    __tablename__ = "inventory_transactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bin_id: Mapped[int] = mapped_column(ForeignKey("inventory_bins.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))      # WITHDRAWAL / REFILL / COUNT
+    delta_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    delta_qty_est: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    qty_est_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    attribution: Mapped[str] = mapped_column(String(24), default="NONE")
+    recorded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"),
+                                                       nullable=True)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)

@@ -74,6 +74,24 @@ export interface DeviceCommand {
   created_at: string; expires_at: string; sent_at: string | null; completed_at: string | null
 }
 
+/** A consumable weighing bin (Robotics Lab, System 2). */
+export interface InventoryBin {
+  id: number; code: string; item_name: string; category: string
+  lab_id: number; lab_code: string | null; device_uid: string | null
+  mass_g: number | null; measured_at: string | null
+  quality: 'VALID' | 'STALE' | 'MISSING' | 'DEVICE_OFFLINE'
+  calibrated: boolean; tare_g: number | null; unit_mass_g: number | null
+  noise_g: number | null; calibrated_at: string | null; min_change_g: number
+  qty_est: number | null; qty_err: number | null; reorder_qty: number | null
+  low: boolean; notes: string; is_active: boolean
+}
+export interface InventoryTx {
+  id: number; kind: 'WITHDRAWAL' | 'REFILL' | 'COUNT'
+  delta_mass_g: number | null; delta_qty_est: number | null; qty_est_after: number | null
+  actual_count: number | null; attribution: string; user_name: string | null
+  booking_id: number | null; note: string; recorded_at: string
+}
+
 /** Face photos a person sent for review (Profile -> Face ID). */
 export interface FaceSubmission {
   id: number; user_id: number; user_name: string | null; auth_subject: string | null
@@ -810,6 +828,18 @@ export const api = {
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
+  inventoryBins: () => request<InventoryBin[]>('/inventory/bins'),
+  createBin: (b: { code: string; lab_id: number; item_name: string; reorder_qty?: number | null }) =>
+    post<InventoryBin>('/inventory/bins', b),
+  updateBin: (id: number, b: Partial<Pick<InventoryBin, 'item_name' | 'tare_g' | 'unit_mass_g' |
+    'noise_g' | 'min_change_g' | 'reorder_qty' | 'notes' | 'is_active'>>) =>
+    request<InventoryBin>(`/inventory/bins/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  binHistory: (id: number, hours = 168) =>
+    request<{ bin: InventoryBin; measurements: { mass_g: number; at: string }[]; transactions: InventoryTx[] }>(
+      `/inventory/bins/${id}/history?hours=${hours}`),
+  recordBinCount: (id: number, actual_count: number, note = '') =>
+    post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null }>(
+      `/inventory/bins/${id}/count`, { actual_count, note }),
   myFaceSubmission: () => request<FaceSubmission | null>('/auth/me/face-submission'),
   submitFacePhotos: (files: File[], onProgress?: (f: number) => void) => {
     const form = new FormData()
