@@ -18,6 +18,7 @@ import { LabArt, categoryMeta } from '../components/labArt'
 import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
 import SafetyStates from '../components/SafetyStates'
+import SmartBin from '../components/SmartBin'
 
 export default function LabDetail() {
   const { id } = useParams()
@@ -337,6 +338,9 @@ export default function LabDetail() {
                 ))}
             </div>
           </section>
+
+          {/* ------------------------------------------------- smart bin */}
+          <SmartBin labId={labId} />
 
           {/* ------------------------------------------------- environment */}
           <section>

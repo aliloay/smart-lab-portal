@@ -386,6 +386,10 @@ class Asset(Base):
     last_inspected_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     next_maintenance_at: Mapped[datetime | None] = mapped_column(
         TS, nullable=True, index=True)
+    # NFC sticker (NTAG213) on the item, for the reusable smart bin. An
+    # IDENTIFIER of the item, not an authentication of anyone.
+    nfc_uid: Mapped[str | None] = mapped_column(String(32), unique=True,
+                                                nullable=True)
 
 
 class AssetTransaction(Base):
@@ -401,6 +405,14 @@ class AssetTransaction(Base):
     action: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     note: Mapped[str] = mapped_column(String(255), default="")
+    # Smart-bin context: the booking in force, the bin node, and where the
+    # transaction came from (STAFF / PORTAL / BIN).
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"),
+                                                   nullable=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"),
+                                                  nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="STAFF",
+                                        server_default="STAFF")
 
 
 # ===========================================================================

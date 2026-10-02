@@ -92,6 +92,13 @@ export interface InventoryTx {
   booking_id: number | null; note: string; recorded_at: string
 }
 
+/** A tagged item of a lab's reusable smart bin (System 3). */
+export interface BinItem {
+  id: number; asset_tag: string; name: string; category: string
+  status: 'AVAILABLE' | 'CHECKED_OUT' | 'MAINTENANCE' | 'RETIRED'
+  holder: string | null; checked_out_at: string | null; nfc_uid?: string
+}
+
 /** Face photos a person sent for review (Profile -> Face ID). */
 export interface FaceSubmission {
   id: number; user_id: number; user_name: string | null; auth_subject: string | null
@@ -338,6 +345,8 @@ export interface Asset {
   last_inspected_at?: string | null
   next_maintenance_at?: string | null
   maintenance_due: boolean
+  /** NFC sticker for the reusable smart bin; null = not tagged. */
+  nfc_uid?: string | null
 }
 
 export interface LifecycleEntry {
@@ -829,6 +838,15 @@ export const api = {
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
   inventoryBins: () => request<InventoryBin[]>('/inventory/bins'),
+  binItems: (labId: number) =>
+    request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
+      `/reusable/items?lab_id=${labId}`),
+  takeFromBin: (assetId: number) =>
+    post<DeviceCommand & { message: string }>('/reusable/checkout', { asset_id: assetId }),
+  lastUnknownTag: () => request<{ nfc_uid: string; device_uid: string; at: string } | null>('/reusable/last-unknown'),
+  assignTag: (assetId: number, nfc_uid: string | null) =>
+    request<{ asset_id: number; asset_tag: string; nfc_uid: string | null }>(
+      `/reusable/assets/${assetId}/tag`, { method: 'PUT', body: JSON.stringify({ nfc_uid }) }),
   createBin: (b: { code: string; lab_id: number; item_name: string; reorder_qty?: number | null }) =>
     post<InventoryBin>('/inventory/bins', b),
   updateBin: (id: number, b: Partial<Pick<InventoryBin, 'item_name' | 'tare_g' | 'unit_mass_g' |

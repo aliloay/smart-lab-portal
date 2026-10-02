@@ -154,7 +154,9 @@ def next_command(device_uid: str = Query(max_length=64), db: Session = Depends(g
     a = c.args or {}
     return {"id": c.id, "command": c.command, "slot": a.get("slot", 0),
             "force": bool(a.get("force")), "auth_subject": a.get("auth_subject", ""),
-            "display_name": a.get("display_name", "")}
+            "display_name": a.get("display_name", ""),
+            # OPEN_LID (reusable bin): the item the person selected.
+            "asset_tag": a.get("asset_tag", "")}
 
 
 class ProgressReport(BaseModel):

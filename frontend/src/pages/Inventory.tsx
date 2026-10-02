@@ -9,8 +9,8 @@
  * defaults.
  */
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { Boxes, Package, Plus, Scale } from 'lucide-react'
-import { InventoryBin, InventoryTx, Lab, api } from '../lib/api'
+import { Boxes, Nfc, Package, Plus, Scale } from 'lucide-react'
+import { Asset, InventoryBin, InventoryTx, Lab, api } from '../lib/api'
 import { fmtDateTime, relative } from '../lib/time'
 import {
   Chip, Drawer, EmptyState, ErrorBanner, Field, PageHeader, SectionTitle, Spinner,
@@ -81,6 +81,8 @@ export default function Inventory() {
                 </button>))}
             </div>}
       </section>
+
+      <ReusableItems />
 
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.item_name ?? ''} subtitle={open?.code}>
         {open && <BinDetail bin={open} onChanged={b => { setOpen(b); load() }} />}
@@ -208,6 +210,65 @@ function CreateBin({ onDone }: { onDone: () => void }) {
       <Field label="Reorder at (pieces, optional)"><input className="input" inputMode="numeric" value={f.reorder_qty}
         onChange={e => setF({ ...f, reorder_qty: e.target.value })} /></Field>
       <button className="btn-primary w-full">Create bin</button>
+    </form>
+  )
+}
+
+// ------------------------------------------------------- reusable items ---
+/** Equipment with its NFC tag (System 3). Tag an item: scan the sticker at
+ *  the bin (it shows "UNKNOWN TAG"), then "Use last scanned tag" here. */
+function ReusableItems() {
+  const [assets, setAssets] = useState<Asset[] | null>(null)
+  const [editing, setEditing] = useState<Asset | null>(null)
+  const load = useCallback(() => { api.assets().then(setAssets).catch(() => setAssets([])) }, [])
+  useEffect(load, [load])
+  return (
+    <section>
+      <SectionTitle icon={<Nfc size={15} />}>Reusable items (smart bin)</SectionTitle>
+      {!assets ? <Spinner /> : !assets.length
+        ? <EmptyState icon={<Boxes size={18} />} title="No equipment yet" detail="Add items under Equipment first." />
+        : <div className="card divide-y divide-ink-600/50">
+            {assets.map(a => (
+              <div key={a.id} className="px-4 py-2.5 flex items-center gap-3 text-[13px]">
+                <span className="mono text-slate-300 w-40 truncate">{a.asset_tag}</span>
+                <span className="text-white flex-1 truncate">{a.name}</span>
+                <span className="text-slate-400 w-28">{a.status.replace('_', ' ').toLowerCase()}</span>
+                <span className={`mono w-40 truncate ${a.nfc_uid ? 'text-slate-200' : 'text-slate-500'}`}>
+                  {a.nfc_uid ?? 'no tag'}</span>
+                <button className="btn-ghost btn-sm" onClick={() => setEditing(a)}>{a.nfc_uid ? 'Change tag' : 'Assign tag'}</button>
+              </div>))}
+          </div>}
+      <Drawer open={!!editing} onClose={() => setEditing(null)} title="NFC tag" subtitle={editing?.asset_tag}>
+        {editing && <AssignTag asset={editing} onDone={() => { setEditing(null); load() }} />}
+      </Drawer>
+    </section>
+  )
+}
+
+function AssignTag({ asset, onDone }: { asset: Asset; onDone: () => void }) {
+  const [uid, setUid] = useState(asset.nfc_uid ?? '')
+  const [error, setError] = useState('')
+  const [hint, setHint] = useState('')
+  async function useLast() {
+    const last = await api.lastUnknownTag().catch(() => null)
+    if (last) { setUid(last.nfc_uid); setHint(`Scanned at ${last.device_uid} ${relative(last.at)}.`) }
+    else setHint('No unknown tag scanned yet - hold the sticker at the bin reader first.')
+  }
+  async function save(e: FormEvent) {
+    e.preventDefault(); setError('')
+    try { await api.assignTag(asset.id, uid.trim() || null); onDone() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
+  }
+  return (
+    <form onSubmit={save} className="space-y-3">
+      {error && <ErrorBanner message={error} />}
+      <p className="text-[12.5px] text-slate-400">Stick an NTAG213 on {asset.name}, hold it at the smart bin's reader
+        (the bin shows UNKNOWN TAG), then use it here. The tag identifies the item; it authenticates nobody.</p>
+      <Field label="Tag UID (hex)"><input className="input mono" value={uid} onChange={e => setUid(e.target.value)}
+        placeholder="04A1B2C3D4E5F6" /></Field>
+      <button type="button" className="btn-ghost btn-sm" onClick={useLast}>Use last scanned unknown tag</button>
+      {hint && <p className="text-[12px] text-slate-400">{hint}</p>}
+      <button className="btn-primary w-full">{uid.trim() ? 'Save tag' : 'Remove tag'}</button>
     </form>
   )
 }
