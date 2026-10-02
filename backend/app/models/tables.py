@@ -168,6 +168,10 @@ class Device(Base):
     # NULL until firmware sends it; the UI then labels reader states as
     # inferred from the heartbeat rather than presenting them as measured.
     component_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # SHA-256 of this device's own key (Devices -> Issue key); NULL = the
+    # device uses the shared DEVICE_API_KEY. The key itself is never stored.
+    key_hash: Mapped[str | None] = mapped_column(String(64), unique=True,
+                                                 nullable=True)
 
     lab: Mapped[Lab] = relationship(back_populates="devices")
 

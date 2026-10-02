@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_device
+from app.api.deps import device_scope, require_device
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
                         DeviceType, EventType, Notification, SensorReading,
@@ -228,12 +228,13 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
 
 @router.post("/heartbeat", tags=["devices"])
 def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
-              _: str = Depends(require_device)):
+              identity: str = Depends(require_device)):
     """
     Device liveness and door state. Auto-registers an unknown device against
     its lab so a freshly flashed board appears in the admin view without
     manual setup.
     """
+    device_scope(identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
         return {"status": "unknown_lab"}
@@ -297,7 +298,7 @@ class TelemetryRequest(BaseModel):
 
 @router.post("/telemetry", tags=["devices"])
 def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
-              _: str = Depends(require_device)):
+              identity: str = Depends(require_device)):
     """
     Environmental readings from a sensor node (temperature, humidity, and
     the hazard states smoke / flame / water_leak / emergency, plus motion).
@@ -305,6 +306,7 @@ def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
     A hazard state raises (or clears) its alert at once - see
     services/environment.py.
     """
+    device_scope(identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
         return {"status": "unknown_lab"}

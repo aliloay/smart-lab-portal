@@ -5,11 +5,13 @@ Devices authenticate with a shared API key rather than a user JWT. An ESP32
 is not a person: it has no login, cannot refresh a token, and must keep
 working across reboots without human interaction.
 """
+import hashlib
 import hmac
 from typing import Optional
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -50,15 +52,45 @@ require_admin = require_roles(Role.ADMIN)
 require_staff = require_roles(Role.ADMIN, Role.LAB_STAFF)
 
 
-def require_device(x_device_key: Optional[str] = Header(None)) -> str:
+SHARED = "*"
+
+
+def hash_device_key(key: str) -> str:
+    """Device keys are long random tokens, so a plain SHA-256 is enough to
+    store them without keeping the key itself."""
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def require_device(x_device_key: Optional[str] = Header(None),
+                   db: Session = Depends(get_db)) -> str:
     """
-    Guards every endpoint the door hardware calls. Without it, anything on the
-    LAN could post ACCESS_GRANTED events and corrupt the audit trail - it
-    still could not open the door, because the backend never drives the relay,
-    but a trustworthy log is the whole point of the portal.
+    Guards every endpoint the hardware calls. Without it, anything on the LAN
+    could post ACCESS_GRANTED events or fake sensor readings - it still could
+    not open the door, because the backend never drives the relay, but a
+    trustworthy log is the whole point of the portal.
+
+    Two kinds of key:
+      * the shared DEVICE_API_KEY (what the door boards use) -> returns "*";
+      * a device's own key (issued on Devices) -> returns that device_uid,
+        and device_scope() then lets it report only as itself.
+    DEVICE_SHARED_KEY=false refuses the shared key once every device has its own.
     """
-    # Constant-time comparison: the key is not leaked through response timing.
-    if not x_device_key or not hmac.compare_digest(
-            x_device_key.encode(), settings.DEVICE_API_KEY.encode()):
+    if not x_device_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device key")
-    return x_device_key
+    # Constant-time comparison: the key is not leaked through response timing.
+    if settings.DEVICE_SHARED_KEY and hmac.compare_digest(
+            x_device_key.encode(), settings.DEVICE_API_KEY.encode()):
+        return SHARED
+    from app.models import Device
+    uid = db.scalar(select(Device.device_uid).where(
+        Device.key_hash == hash_device_key(x_device_key)))
+    if uid is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device key")
+    return uid
+
+
+def device_scope(identity: str, device_uid: Optional[str]) -> None:
+    """A device with its own key may only report as itself."""
+    if identity != SHARED and identity != device_uid:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "This device key belongs to another device")

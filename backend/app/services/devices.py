@@ -89,6 +89,7 @@ def device_out(d: Device, lab_code: Optional[str] = None,
     out.seconds_since_seen = (int((now - _utc(d.last_seen_at)).total_seconds())
                               if d.last_seen_at else None)
     out.lab_code = lab_code
+    out.has_own_key = d.key_hash is not None
     return out
 
 

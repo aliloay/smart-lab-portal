@@ -145,6 +145,8 @@ class DeviceOut(ORM):
     door_closed: Optional[bool]
     component_state: Optional[dict[str, Any]] = None
     lab_code: Optional[str] = None
+    # Uses its own key (True) or the shared one (False).
+    has_own_key: bool = False
     # ONLINE / OFFLINE / NO_DATA - NO_DATA means it has never reported.
     state: str = "NO_DATA"
     seconds_since_seen: Optional[int] = None

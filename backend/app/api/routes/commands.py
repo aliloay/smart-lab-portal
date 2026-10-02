@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_device, require_staff
+from app.api.deps import device_scope, require_device, require_staff
 from app.db.session import get_db
 from app.models import AuditLog, Device, DeviceCommand, DeviceType, User
 from app.services import commands as cmds
@@ -132,8 +132,9 @@ def cancel_command(command_id: int, db: Session = Depends(get_db),
 # --------------------------------------------------------- device side ---
 @router.get("/access/commands/next", tags=["devices"])
 def next_command(device_uid: str = Query(max_length=64), db: Session = Depends(get_db),
-                 _: str = Depends(require_device)):
+                 identity: str = Depends(require_device)):
     """The controller asks, while idle, whether a request is waiting for it."""
+    device_scope(identity, device_uid)
     device = get_device(db, device_uid)
     if device is None:
         return {"command": None}
@@ -165,7 +166,8 @@ class ProgressReport(BaseModel):
 
 @router.post("/access/commands/{command_id}/progress", tags=["devices"])
 def report_progress(command_id: int, req: ProgressReport, db: Session = Depends(get_db),
-                    _: str = Depends(require_device)):
+                    identity: str = Depends(require_device)):
+    device_scope(identity, req.device_uid)
     c = db.get(DeviceCommand, command_id)
     device = get_device(db, req.device_uid)
     if c is None or device is None or c.device_id != device.id:

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # The ESP32 master authenticates to the device endpoints with this key
     # rather than a user JWT: it is a device, not a person.
     DEVICE_API_KEY: str = "dev-device-key-change-me"
+    # Accept the shared key above. Set false once every device has its own
+    # key (Devices -> Issue key), so a leaked shared key opens nothing.
+    DEVICE_SHARED_KEY: bool = True
 
     # QR tokens are opaque and random.
     #

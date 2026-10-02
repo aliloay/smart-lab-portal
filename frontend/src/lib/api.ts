@@ -138,6 +138,8 @@ export interface Device {
   name: string
   device_type: 'MASTER_CONTROLLER' | 'CAMERA' | 'FACE_SERVER' | 'SENSOR_NODE'
   lab_id: number
+  /** Uses its own key (Devices -> Issue key) rather than the shared one. */
+  has_own_key?: boolean
   lab_code?: string | null
   ip_address: string | null
   firmware_version: string | null
@@ -833,6 +835,8 @@ export const api = {
   updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),
+  issueDeviceKey: (id: number) =>
+    post<{ device_uid: string; device_key: string; note: string }>(`/devices/${id}/key`),
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;
                       ip_address?: string | null }) => post<Device>('/devices', d),
   createAsset: (a: { asset_tag: string; name: string; category: string; lab_id: number;

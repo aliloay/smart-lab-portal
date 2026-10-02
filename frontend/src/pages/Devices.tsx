@@ -118,6 +118,7 @@ export default function Devices() {
                   <div className="mt-4 flex items-center justify-between">
                     <Link to={`/issues/new?lab=${d.lab_id}&device=${d.id}`} className="text-xs link inline-flex items-center gap-1">
                       <Wrench size={12} />Report a problem</Link>
+                    {isAdmin(user) && <DeviceKey id={d.id} own={!!d.has_own_key} />}
                   </div>
                 </div>
               ))}
@@ -200,4 +201,22 @@ function AddDevice({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => voi
       </form>
     </Modal>
   )
+}
+
+/** Give one device its own key. Shown once; only its hash is stored. */
+function DeviceKey({ id, own }: { id: number; own: boolean }) {
+  const [key, setKey] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  async function issue() {
+    if (own && !window.confirm('Replace the key of this device? The old key stops working at once.')) return
+    try { setKey((await api.issueDeviceKey(id)).device_key) }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed') }
+  }
+  if (key) {
+    return <div className="text-[11.5px] text-right max-w-[60%]">
+      <div className="text-warn-soft">Copy now - not shown again:</div>
+      <code className="mono text-slate-100 break-all select-all">{key}</code></div>
+  }
+  return <button className="text-xs link" onClick={issue} title={err || undefined}>
+    {own ? 'Own key ✓ · replace' : 'Issue own key'}</button>
 }

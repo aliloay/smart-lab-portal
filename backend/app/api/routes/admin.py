@@ -395,6 +395,40 @@ def create_device(req: DeviceCreate, db: Session = Depends(get_db),
     return device_out(d)
 
 
+@router.post("/devices/{device_id}/key")
+def issue_device_key(device_id: int, db: Session = Depends(get_db),
+                     admin: User = Depends(require_admin)):
+    """Give one device its own key (shown once; only its hash is kept). A
+    device using it may report only as itself. Issuing again replaces it."""
+    import secrets
+    from app.api.deps import hash_device_key
+    d = db.get(Device, device_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    key = secrets.token_urlsafe(24)
+    d.key_hash = hash_device_key(key)
+    db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_ISSUED",
+                    entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid}))
+    db.commit()
+    return {"device_uid": d.device_uid, "device_key": key,
+            "note": "Put this in the device's secrets.h as DEVICE_KEY. It is not shown again."}
+
+
+@router.delete("/devices/{device_id}/key")
+def revoke_device_key(device_id: int, db: Session = Depends(get_db),
+                      admin: User = Depends(require_admin)):
+    d = db.get(Device, device_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    d.key_hash = None
+    db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_REVOKED",
+                    entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid}))
+    db.commit()
+    return {"device_uid": d.device_uid, "has_own_key": False}
+
+
 # ---------------------------------------------------------------- assets ---
 def _asset_out(db: Session, a: Asset, labs: dict[int, Lab],
                open_counts: Counter, viewer: Optional[User] = None,
