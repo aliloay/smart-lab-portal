@@ -69,6 +69,7 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
     controller = next((d for d in devices
                        if d.device_type == DeviceType.MASTER_CONTROLLER), None)
     camera = next((d for d in devices if d.device_type == DeviceType.CAMERA), None)
+    security_cam = next((d for d in devices if d.device_type == DeviceType.SECURITY_CAMERA), None)
     comp = (controller.component_state or {}) if controller else {}
     controller_online = is_fresh(controller, now) if controller else None
 
@@ -148,7 +149,17 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         "env_online": envd["node"]["online"] if envd["node"] else None,
         "motion": envd["metrics"]["motion"]["value"] == 1
                   and envd["metrics"]["motion"]["quality"] == "VALID",
+        # The lab's security camera: the tile streams it live; people seen
+        # vs inside per the door, and who the camera could name.
+        "security_camera": _security(db, security_cam, now) if security_cam else None,
     }
+
+
+def _security(db: Session, d: Device, now: datetime) -> dict:
+    from app.api.routes.security import camera_summary
+    c = camera_summary(db, d, now)
+    return {k: c[k] for k in ("device_id", "online", "source_ok", "people", "unknown",
+                              "named", "inside", "open_events")}
 
 
 @router.get("")

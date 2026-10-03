@@ -146,6 +146,12 @@ class Settings(BaseSettings):
     CAMERA_URL: str = "http://192.168.1.150"
     FACE_SERVER_URL: str = "http://127.0.0.1:5000"
 
+    # --- security camera (tools/security_vision) ------------------------------
+    # The vision service runs on this laptop next to the face server; the
+    # portal fetches the live frames from it. Each camera's service reports
+    # its own port; this is the host part.
+    SECURITY_VISION_HOST: str = "127.0.0.1"
+
     # --- AI assistant (optional) --------------------------------------------
     # Two providers:
     #   ollama    - free, runs on your own computer (https://ollama.com).

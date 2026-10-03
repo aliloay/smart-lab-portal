@@ -13,6 +13,9 @@ portraits/
 dataset_sface/
 face_model_comparison.csv
 firmware/face_server/models/*.onnx
+tools/security_vision/models/*.onnx
+# the camera's RTSP address holds its password
+tools/security_vision/camera.env
 lbph_model.yml
 labels.txt
 recognition_log.csv

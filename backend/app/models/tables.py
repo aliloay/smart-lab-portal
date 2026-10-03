@@ -873,3 +873,57 @@ class PolicyViolation(Base):
     os_user: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+
+
+# ===========================================================================
+# Security camera (fixed, in a lab corner) - see tools/security_vision
+# ===========================================================================
+class SecurityZone(Base):
+    """
+    A box drawn on the security camera's view: a fixed item (PC, robot...)
+    watched for being moved or for motion with nobody at it, or the DOOR area
+    (people first seen there take the name of the latest door entry).
+    Coordinates are fractions of the frame (0-1) so they survive a change of
+    stream resolution. ref_version changes whenever the box moves or staff
+    accept the item's new look, which makes the camera relearn it.
+    """
+    __tablename__ = "security_zones"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    name: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(16), default="EQUIPMENT")   # EQUIPMENT / DOOR
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"), nullable=True)
+    x: Mapped[float] = mapped_column(Float)
+    y: Mapped[float] = mapped_column(Float)
+    w: Mapped[float] = mapped_column(Float)
+    h: Mapped[float] = mapped_column(Float)
+    # Alert on motion in the box while nobody is there (PCs: yes; a robot
+    # that runs programs on its own: usually no).
+    alert_on_motion: Mapped[bool] = mapped_column(Boolean, default=True)
+    ref_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class SecurityEvent(Base):
+    """
+    Something the security camera saw that staff should look at: a person
+    with no matching door entry, equipment moved or moving with nobody at
+    it. A snapshot is kept with the event (only then - no continuous video).
+    Staff acknowledge it; nothing is decided automatically.
+    """
+    __tablename__ = "security_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    zone_id: Mapped[int | None] = mapped_column(
+        ForeignKey("security_zones.id", ondelete="SET NULL"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str] = mapped_column(String(255), default="")
+    people_seen: Mapped[int] = mapped_column(Integer, default=0)
+    people_inside: Mapped[int] = mapped_column(Integer, default=0)   # per the door
+    snapshot_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    acknowledged_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

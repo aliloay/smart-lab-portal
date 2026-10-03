@@ -21,6 +21,8 @@ import {
   UsersRound, WifiOff,
 } from 'lucide-react'
 import { MonitorTile, Role, api } from '../lib/api'
+import { createPortal } from 'react-dom'
+import LiveCameraFeed from '../components/LiveCameraFeed'
 import { useLive, useLiveMessages } from '../lib/live'
 import { fmtTime, relative } from '../lib/time'
 import { InstitutionLogo } from '../components/Brand'
@@ -191,8 +193,16 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
   const top = t.alerts[0]
   const others = t.alert_count - (top?.count ?? 0)
 
+  const [big, setBig] = useState(false)
+  const cam = t.security_camera
   return (
-    <section className={`rounded-2xl border flex flex-col min-h-0 overflow-hidden ${S.pad} ${frame}`}>
+    <section className={`relative isolate rounded-2xl border flex flex-col min-h-0 overflow-hidden [&>*]:relative ${S.pad} ${frame}`}>
+      {/* The lab live, behind everything; a gradient keeps the text readable. */}
+      {cam && <>
+        <LiveCameraFeed deviceId={cam.device_id} intervalMs={250} className="!absolute inset-0 -z-0" />
+        <div className="!absolute inset-0 bg-gradient-to-b from-ink-950/80 via-ink-950/35 to-ink-950/85 pointer-events-none" />
+      </>}
+      {big && cam && <CameraFull t={t} onClose={() => setBig(false)} />}
       {/* Lab and its overall state */}
       <div className="flex items-start gap-2 min-w-0">
         <div className="min-w-0">
@@ -201,6 +211,8 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
         </div>
         <StatePill state={t.state} inUse={t.in_use} />
       </div>
+
+      {t.security_camera && <CameraBadges t={t} onOpen={() => setBig(true)} />}
 
       {/* Door and lock */}
       {t.has_door ? (
@@ -289,6 +301,43 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
       </div>
     </section>
   )
+}
+
+function CameraBadges({ t, onOpen }: { t: MonitorTile; onOpen: () => void }) {
+  const c = t.security_camera!
+  const live = c.online === true && c.source_ok !== false
+  const extra = live && c.people !== null && c.people > c.inside
+  const unknown = live && (c.unknown ?? 0) > 0
+  return (
+    <div className="relative flex flex-wrap items-center gap-1.5 text-[11.5px] font-semibold">
+      <button onClick={onOpen} title="Open this lab's camera full screen"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/70 text-[10.5px] font-bold tracking-wider text-white hover:bg-black">
+        <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-bad animate-pulse' : 'bg-slate-500'}`} />
+        {live ? 'LIVE' : 'CAMERA OFFLINE'}</button>
+      {live && <span className="px-2 py-0.5 rounded-md bg-black/70 text-white tnum">{c.people ?? 0} seen · {c.inside} entered</span>}
+      {extra && <span className="px-2 py-0.5 rounded-md bg-bad text-white">Unidentified person</span>}
+      {!extra && unknown && <span className="px-2 py-0.5 rounded-md bg-warn/90 text-black">{c.unknown} not named</span>}
+    </div>
+  )
+}
+
+function CameraFull({ t, onClose }: { t: MonitorTile; onClose: () => void }) {
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose])
+  return createPortal(
+    <div className="fixed inset-0 z-[70] bg-black flex flex-col" onClick={onClose}>
+      <div className="flex items-center gap-3 px-5 py-3 text-white">
+        <span className="text-xl font-extrabold">{t.code}</span>
+        <span className="text-slate-400 truncate">{t.name}</span>
+        <div className="ml-4"><CameraBadges t={t} onOpen={() => {}} /></div>
+        <span className="ml-auto text-slate-400 text-[13px]">Click or Esc to close</span>
+      </div>
+      <LiveCameraFeed deviceId={t.security_camera!.device_id} intervalMs={120} fit="contain" className="flex-1" />
+    </div>,
+    document.body)
 }
 
 function StatePill({ state, inUse }: { state: MonitorTile['state']; inUse: boolean }) {

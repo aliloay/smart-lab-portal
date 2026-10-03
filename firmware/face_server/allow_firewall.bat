@@ -39,9 +39,10 @@ echo Allowing incoming connections for:
 echo   %PYEXE%
 netsh advfirewall firewall delete rule name="Smart Lab face server" >nul 2>&1
 netsh advfirewall firewall add rule name="Smart Lab face server" dir=in action=allow program="%PYEXE%" enable=yes profile=any
-rem Ports too (portal on 80, API on 8000, face server on 5000), for any profile.
+rem Ports too (portal on 80, API on 8000, face server on 5000, security camera
+rem service on 5100), for any profile.
 netsh advfirewall firewall delete rule name="Smart Lab ports" >nul 2>&1
-netsh advfirewall firewall add rule name="Smart Lab ports" dir=in action=allow protocol=TCP localport=80,5000,8000 enable=yes profile=any
+netsh advfirewall firewall add rule name="Smart Lab ports" dir=in action=allow protocol=TCP localport=80,5000,5100,8000 enable=yes profile=any
 echo.
 echo Done. This does not need to be run again.
 pause

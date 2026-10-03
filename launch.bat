@@ -45,6 +45,19 @@ if not errorlevel 1 (
   set "FACE_STARTED=1"
 )
 
+rem ---- Security camera (optional): only once tools\security_vision\camera.env
+rem exists, so a webcam is never switched on by surprise ----------------------
+set "SEC_STARTED="
+set "SEC_STATE=off - see tools\security_vision\README.md"
+if exist "%~dp0tools\security_vision\camera.env" (
+  set "SEC_STATE=on (port 5100)"
+  netstat -ano | findstr /r /c:":5100 .*LISTENING" >nul
+  if errorlevel 1 (
+    start "Smart Lab - Security camera" cmd /k call "%~dp0tools\security_vision\start_security_vision.bat"
+    set "SEC_STARTED=1"
+  )
+)
+
 rem ---- Local AI (Ollama) is optional: used when installed ---------------------
 rem Ollama normally starts with Windows (tray icon). If it is not running,
 rem start it; the helper then fetches missing models in a minimized window.
@@ -97,6 +110,7 @@ if defined PROFILE (
   echo    n8n automation     : off - see docs\AUTOMATION.md to enable it
 )
 echo    AI chat            : %AI_STATE%
+echo    Security camera    : %SEC_STATE%
 echo.
 echo  Stop everything: Ctrl+C here.
 echo.
@@ -125,6 +139,7 @@ docker compose %PROFILE% up --no-build
 
 rem ---- Stopped: close the face server we opened -----------------------------
 if defined FACE_STARTED taskkill /fi "WINDOWTITLE eq Smart Lab - Face server*" /t /f >nul 2>&1
+if defined SEC_STARTED taskkill /fi "WINDOWTITLE eq Smart Lab - Security camera*" /t /f >nul 2>&1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*smartlab-open' + '-browser*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 echo.
 echo Smart Lab stopped. Your data is kept for next time.

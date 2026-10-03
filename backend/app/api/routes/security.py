@@ -1,0 +1,420 @@
+"""
+Security camera: a fixed camera in a lab corner, analysed on the laptop.
+
+tools/security_vision reads the camera (RTSP, e.g. Mercusys MC210, or a
+webcam), detects people, follows them, puts names on them from the door
+entries, and watches a box around each fixed item (PC, robot). It talks to
+the portal with a device key, like every other node:
+
+    GET  /security/config   zones + who is inside per the door (registers it)
+    POST /security/state    every ~2 s: people seen, names, zone states
+    POST /security/events   something to check, with a snapshot
+
+Staff see the live annotated view (fetched from the service through the
+portal, so the stream is never open on the network), draw the boxes, and
+acknowledge events. Nothing here locks, unlocks or moves anything; a
+camera's opinion is something for staff to check, never a decision.
+
+Privacy: no continuous recording. Frames are shown live only to staff; a
+snapshot is kept only with an event, and deleted with it.
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any, Literal, Optional
+
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import desc, select
+from sqlalchemy.orm import Session
+
+from app.api.deps import device_scope, require_device, require_staff
+from app.core.config import settings
+from app.db.session import get_db
+from app.models import (AccessSession, Alert, AlertSeverity, Asset, AuditLog, Device,
+                        DeviceType, Lab, SecurityEvent, SecurityZone, User)
+from app.services.access import get_device, get_lab_by_code
+from app.services.devices import is_fresh
+from app.services.notifications import notify, staff_ids
+from app.services.storage import get_storage, new_key
+
+router = APIRouter(prefix="/security", tags=["security camera"])
+
+KINDS = {
+    # kind: (severity, title)
+    "PERSON_NO_ENTRY": (AlertSeverity.CRITICAL, "Person in the lab with no door entry"),
+    "UNIDENTIFIED_PERSON": (AlertSeverity.WARNING, "More people seen than entered at the door"),
+    "EQUIPMENT_CHANGED": (AlertSeverity.WARNING, "Equipment moved or missing"),
+    "EQUIPMENT_MOTION": (AlertSeverity.WARNING, "Movement at equipment with nobody there"),
+}
+MAX_SNAPSHOT = 2_000_000
+
+
+def _utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def _zone_out(z: SecurityZone, db: Session) -> dict:
+    a = db.get(Asset, z.asset_id) if z.asset_id else None
+    return {"id": z.id, "name": z.name, "kind": z.kind, "asset_id": z.asset_id,
+            "asset_tag": a.asset_tag if a else None, "x": z.x, "y": z.y, "w": z.w, "h": z.h,
+            "alert_on_motion": z.alert_on_motion, "ref_version": z.ref_version}
+
+
+def occupants(db: Session, lab_id: int) -> list[dict]:
+    """Who is inside per the door: open access sessions, oldest first."""
+    out = []
+    for s in db.scalars(select(AccessSession).where(
+            AccessSession.lab_id == lab_id, AccessSession.ended_at.is_(None))
+            .order_by(AccessSession.started_at)).all():
+        u = db.get(User, s.user_id)
+        if u is None:
+            continue
+        out.append({"auth_subject": u.auth_subject or f"user-{u.id}", "name": u.full_name,
+                    "role": u.role.value, "entered_at": _utc(s.started_at).timestamp()})
+    return out
+
+
+# ------------------------------------------------------------ the service ---
+@router.get("/config", tags=["devices"])
+def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_length=32),
+           port: int = Query(5100, ge=1, le=65535), name: str = Query("Security camera", max_length=64),
+           db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    device_scope(identity, device_uid)
+    lab = get_lab_by_code(db, lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
+    d = get_device(db, device_uid)
+    now = datetime.now(timezone.utc)
+    if d is None:
+        d = Device(device_uid=device_uid, name=name, device_type=DeviceType.SECURITY_CAMERA,
+                   lab_id=lab.id)
+        db.add(d)
+        db.flush()
+    d.last_seen_at, d.is_online = now, True
+    d.component_state = {**(d.component_state or {}), "port": port}
+    zones = db.scalars(select(SecurityZone).where(SecurityZone.device_id == d.id)
+                       .order_by(SecurityZone.id)).all()
+    db.commit()
+    return {"device_id": d.id, "lab_code": lab.code, "lab_name": lab.name,
+            "zones": [_zone_out(z, db) for z in zones if z.kind == "EQUIPMENT"],
+            "door": next((_zone_out(z, db) for z in zones if z.kind == "DOOR"), None),
+            "occupants": occupants(db, lab.id), "server_time": now.timestamp()}
+
+
+class ZoneStatus(BaseModel):
+    id: int
+    name: str = ""
+    status: str = Field(max_length=16)
+    score: float = 0.0
+
+
+class StateReport(BaseModel):
+    device_uid: str = Field(max_length=64)
+    fps: float = 0.0
+    people: int = 0
+    named: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    unknown: int = 0
+    zones: list[ZoneStatus] = Field(default_factory=list, max_length=100)
+    source_ok: bool = True
+
+
+@router.post("/state", tags=["devices"])
+def report_state(req: StateReport, db: Session = Depends(get_db),
+                 identity: str = Depends(require_device)):
+    device_scope(identity, req.device_uid)
+    d = get_device(db, req.device_uid)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Call /security/config first")
+    now = datetime.now(timezone.utc)
+    d.last_seen_at, d.is_online = now, True
+    d.component_state = {"port": (d.component_state or {}).get("port", 5100),
+                         "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
+                         "named": req.named[:50], "source_ok": req.source_ok,
+                         "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
+    db.commit()
+    try:
+        from app.ws.manager import manager
+        manager.publish({"type": "staff", "kind": "security_state", "device_id": d.id,
+                         "lab_id": d.lab_id})
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@router.post("/events", tags=["devices"], status_code=status.HTTP_201_CREATED)
+async def report_event(meta: str = Form(..., max_length=2000),
+                       snapshot: Optional[UploadFile] = File(None),
+                       db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    try:
+        m = json.loads(meta)
+    except ValueError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "meta must be JSON")
+    device_scope(identity, str(m.get("device_uid", "")))
+    d = get_device(db, str(m.get("device_uid", "")))
+    kind = str(m.get("kind", ""))
+    if d is None or kind not in KINDS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown camera or event kind")
+    zone = db.get(SecurityZone, int(m["zone_id"])) if m.get("zone_id") else None
+    if zone is not None and zone.device_id != d.id:
+        zone = None
+    key = None
+    if snapshot is not None:
+        data = await snapshot.read(MAX_SNAPSHOT + 1)
+        if data[:2] == b"\xff\xd8" and len(data) <= MAX_SNAPSHOT:
+            key, _ = new_key(f"security/{d.id}", "jpg")
+            get_storage().put(key, data, "image/jpeg")
+    severity, title = KINDS[kind]
+    if zone is not None:
+        title = f"{title}: {zone.name}"
+    detail = str(m.get("detail", ""))[:255]
+    ev = SecurityEvent(device_id=d.id, lab_id=d.lab_id, zone_id=zone.id if zone else None,
+                       kind=kind, detail=detail, people_seen=int(m.get("people_seen", 0)),
+                       people_inside=int(m.get("people_inside", 0)), snapshot_key=key)
+    db.add(ev)
+    db.flush()
+    lab = db.get(Lab, d.lab_id)
+    dedupe = f"sec:{d.id}:{kind}:{zone.id if zone else 0}"
+    if db.scalar(select(Alert).where(Alert.dedupe_key == dedupe, Alert.is_resolved.is_(False))) is None:
+        db.add(Alert(lab_id=d.lab_id, device_id=d.id, severity=severity,
+                     title=f"{lab.code if lab else ''}: {title}"[:128], detail=detail,
+                     dedupe_key=dedupe))
+        notify(db, staff_ids(db), "SECURITY_CAMERA", f"{lab.code if lab else 'Lab'}: {title}",
+               body=detail + " Check the snapshot; a camera can be wrong.",
+               link="/admin/security", severity="critical" if severity == AlertSeverity.CRITICAL
+               else "warning")
+    db.commit()
+    try:
+        from app.ws.manager import manager
+        manager.publish({"type": "staff", "kind": "security_event", "event_id": ev.id,
+                         "lab_id": d.lab_id})
+    except Exception:
+        pass
+    return {"id": ev.id}
+
+
+# ------------------------------------------------------------------ staff ---
+def _camera(db: Session, device_id: int) -> Device:
+    d = db.get(Device, device_id)
+    if d is None or d.device_type != DeviceType.SECURITY_CAMERA:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Security camera not found")
+    return d
+
+
+def camera_summary(db: Session, d: Device, now: datetime) -> dict:
+    st = d.component_state or {}
+    lab = db.get(Lab, d.lab_id)
+    online = is_fresh(d, now)
+    return {"device_id": d.id, "device_uid": d.device_uid, "name": d.name,
+            "lab_id": d.lab_id, "lab_code": lab.code if lab else None,
+            "online": online, "last_seen_at": d.last_seen_at,
+            "source_ok": st.get("source_ok") if online else None,
+            "fps": st.get("fps") if online else None,
+            "people": st.get("people") if online else None,
+            "unknown": st.get("unknown") if online else None,
+            "named": st.get("named", []) if online else [],
+            "zones": st.get("zones", []) if online else [],
+            "inside": len(occupants(db, d.lab_id)),
+            "open_events": db.query(SecurityEvent).filter_by(
+                device_id=d.id, acknowledged_at=None).count()}
+
+
+@router.get("/cameras")
+def cameras(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    now = datetime.now(timezone.utc)
+    return [camera_summary(db, d, now) for d in db.scalars(select(Device).where(
+        Device.device_type == DeviceType.SECURITY_CAMERA).order_by(Device.lab_id, Device.id)).all()]
+
+
+def _service_url(d: Device, path: str) -> str:
+    port = int((d.component_state or {}).get("port", 5100))
+    return f"http://{settings.SECURITY_VISION_HOST}:{port}{path}"
+
+
+@router.get("/cameras/{device_id}/frame.jpg")
+def frame(device_id: int, raw: bool = False, db: Session = Depends(get_db),
+          _: User = Depends(require_staff)):
+    """The latest frame (annotated, or raw for drawing boxes). 204 = none."""
+    d = _camera(db, device_id)
+    try:
+        r = httpx.get(_service_url(d, "/raw.jpg" if raw else "/frame.jpg"),
+                      headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                      timeout=httpx.Timeout(3.0, connect=1.5))
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The security camera service is not reachable - start it on the laptop.")
+    if r.status_code != 200:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return Response(content=r.content, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
+class ZoneIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    kind: Literal["EQUIPMENT", "DOOR"] = "EQUIPMENT"
+    asset_id: Optional[int] = None
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0.01, le=1)
+    h: float = Field(gt=0.01, le=1)
+    alert_on_motion: bool = True
+
+
+def _check_zone(db: Session, d: Device, req: ZoneIn, zone_id: Optional[int] = None):
+    if req.x + req.w > 1.001 or req.y + req.h > 1.001:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The box must be inside the picture")
+    if req.asset_id is not None and db.get(Asset, req.asset_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    if req.kind == "DOOR" and db.scalar(select(SecurityZone).where(
+            SecurityZone.device_id == d.id, SecurityZone.kind == "DOOR",
+            SecurityZone.id != (zone_id or 0))):
+        raise HTTPException(status.HTTP_409_CONFLICT, "This camera already has a door area")
+
+
+@router.get("/cameras/{device_id}/zones")
+def list_zones(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    d = _camera(db, device_id)
+    return [_zone_out(z, db) for z in db.scalars(select(SecurityZone).where(
+        SecurityZone.device_id == d.id).order_by(SecurityZone.id)).all()]
+
+
+@router.post("/cameras/{device_id}/zones", status_code=status.HTTP_201_CREATED)
+def add_zone(device_id: int, req: ZoneIn, db: Session = Depends(get_db),
+             staff: User = Depends(require_staff)):
+    d = _camera(db, device_id)
+    _check_zone(db, d, req)
+    z = SecurityZone(device_id=d.id, **req.model_dump())
+    db.add(z)
+    db.flush()
+    db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_ZONE_ADDED", entity_type="security_zone",
+                    entity_id=str(z.id), detail={"device": d.device_uid, **req.model_dump()}))
+    db.commit()
+    return _zone_out(z, db)
+
+
+@router.put("/cameras/{device_id}/zones/{zone_id}")
+def update_zone(device_id: int, zone_id: int, req: ZoneIn, db: Session = Depends(get_db),
+                staff: User = Depends(require_staff)):
+    d = _camera(db, device_id)
+    z = db.get(SecurityZone, zone_id)
+    if z is None or z.device_id != d.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Zone not found")
+    _check_zone(db, d, req, zone_id)
+    moved = (z.x, z.y, z.w, z.h) != (req.x, req.y, req.w, req.h)
+    for k, v in req.model_dump().items():
+        setattr(z, k, v)
+    if moved:
+        z.ref_version += 1              # a different box: learn its normal look again
+    db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_ZONE_UPDATED", entity_type="security_zone",
+                    entity_id=str(z.id), detail={"device": d.device_uid, **req.model_dump()}))
+    db.commit()
+    return _zone_out(z, db)
+
+
+@router.post("/cameras/{device_id}/zones/{zone_id}/accept")
+def accept_zone(device_id: int, zone_id: int, db: Session = Depends(get_db),
+                staff: User = Depends(require_staff)):
+    """The item's new position/look is fine: the camera relearns it."""
+    d = _camera(db, device_id)
+    z = db.get(SecurityZone, zone_id)
+    if z is None or z.device_id != d.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Zone not found")
+    z.ref_version += 1
+    db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_ZONE_ACCEPTED",
+                    entity_type="security_zone", entity_id=str(z.id), detail={"name": z.name}))
+    db.commit()
+    return _zone_out(z, db)
+
+
+@router.delete("/cameras/{device_id}/zones/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_zone(device_id: int, zone_id: int, db: Session = Depends(get_db),
+                staff: User = Depends(require_staff)):
+    d = _camera(db, device_id)
+    z = db.get(SecurityZone, zone_id)
+    if z is None or z.device_id != d.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Zone not found")
+    db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_ZONE_DELETED",
+                    entity_type="security_zone", entity_id=str(z.id), detail={"name": z.name}))
+    db.delete(z)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _event_out(db: Session, e: SecurityEvent) -> dict:
+    z = db.get(SecurityZone, e.zone_id) if e.zone_id else None
+    lab = db.get(Lab, e.lab_id)
+    by = db.get(User, e.acknowledged_by_id) if e.acknowledged_by_id else None
+    return {"id": e.id, "device_id": e.device_id, "lab_code": lab.code if lab else None,
+            "kind": e.kind, "title": KINDS.get(e.kind, (None, e.kind))[1],
+            "zone_name": z.name if z else None, "detail": e.detail,
+            "people_seen": e.people_seen, "people_inside": e.people_inside,
+            "has_snapshot": bool(e.snapshot_key), "created_at": e.created_at,
+            "acknowledged_at": e.acknowledged_at, "acknowledged_by": by.full_name if by else None}
+
+
+@router.get("/events")
+def events(lab_id: Optional[int] = None, open_only: bool = False,
+           limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db),
+           _: User = Depends(require_staff)):
+    q = select(SecurityEvent).order_by(desc(SecurityEvent.created_at)).limit(limit)
+    if lab_id is not None:
+        q = q.where(SecurityEvent.lab_id == lab_id)
+    if open_only:
+        q = q.where(SecurityEvent.acknowledged_at.is_(None))
+    return [_event_out(db, e) for e in db.scalars(q).all()]
+
+
+@router.get("/events/{event_id}/snapshot.jpg")
+def event_snapshot(event_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    e = db.get(SecurityEvent, event_id)
+    if e is None or not e.snapshot_key or not get_storage().exists(e.snapshot_key):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No snapshot")
+    return StreamingResponse(get_storage().open(e.snapshot_key), media_type="image/jpeg",
+                             headers={"Cache-Control": "private, no-store"})
+
+
+@router.post("/events/{event_id}/ack")
+def acknowledge(event_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    e = db.get(SecurityEvent, event_id)
+    if e is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
+    now = datetime.now(timezone.utc)
+    if e.acknowledged_at is None:
+        e.acknowledged_at, e.acknowledged_by_id = now, staff.id
+        # The alert closes when no event of that kind/zone is left open.
+        dedupe = f"sec:{e.device_id}:{e.kind}:{e.zone_id or 0}"
+        others = db.query(SecurityEvent).filter(
+            SecurityEvent.device_id == e.device_id, SecurityEvent.kind == e.kind,
+            SecurityEvent.zone_id.is_(None) if e.zone_id is None else SecurityEvent.zone_id == e.zone_id,
+            SecurityEvent.acknowledged_at.is_(None), SecurityEvent.id != e.id).count()
+        if not others:
+            for a in db.scalars(select(Alert).where(Alert.dedupe_key == dedupe,
+                                                    Alert.is_resolved.is_(False))).all():
+                a.is_resolved, a.resolved_at = True, now
+        db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_EVENT_ACKNOWLEDGED",
+                        entity_type="security_event", entity_id=str(e.id), detail={"kind": e.kind}))
+        db.commit()
+    return _event_out(db, e)
+
+
+RETENTION_DAYS = 30
+
+
+def purge_old_snapshots(db: Session, now: Optional[datetime] = None) -> int:
+    """Snapshots of acknowledged events older than RETENTION_DAYS are deleted."""
+    now = now or datetime.now(timezone.utc)
+    n = 0
+    for e in db.scalars(select(SecurityEvent).where(
+            SecurityEvent.snapshot_key.is_not(None), SecurityEvent.acknowledged_at.is_not(None),
+            SecurityEvent.created_at < now - timedelta(days=RETENTION_DAYS))).all():
+        try:
+            get_storage().delete(e.snapshot_key)
+        except OSError:
+            pass
+        e.snapshot_key = None
+        n += 1
+    db.commit()
+    return n

@@ -6,6 +6,7 @@ import {
   ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
   ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
+  Cctv,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
@@ -60,6 +61,7 @@ const STAFF_NAV: Section[] = [
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
+    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
@@ -80,6 +82,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
+    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
   ]},
   { title: 'Facility', items: [

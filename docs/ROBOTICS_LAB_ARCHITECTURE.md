@@ -141,6 +141,7 @@ All migrations additive; each one checked with `alembic upgrade` +
 | System 2 — UR5e / FANUC | Ethernet, **directly to the router** (switch only if ports run out) | .160 / .161 (*set on the controllers*) |
 | System 2 — PC-01 / PC-02 | Wi-Fi or LAN (*to decide*) | .170 / .171 |
 | Admin master PC | any (it only opens the portal) | — |
+| Security camera (Mercusys MC210, lab corner) | Wi-Fi | **.155** (*router reservation*) |
 
 Internet is optional. PCs that need internet use a second interface
 (university Wi-Fi) **without bridging** to the lab LAN; the lab server binds
@@ -280,6 +281,19 @@ portal. Tested on the development laptop with lock and pop-ups stubbed
 (2026-10-03): lock re-applied every 2 s while LOCKED and stopped after
 NORMAL, message delivered once, screen frames ~1.5/s at ~64 KB each, stopped
 after the viewer closed.
+
+## O2. Security camera (all systems)
+
+A fixed Wi-Fi camera (Mercusys MC210, RTSP/ONVIF, 2K) high in a corner, read
+by `tools/security_vision` on the laptop: people detected (YOLOX-S, CPU) and
+tracked; a name only when the door makes it certain (first seen in the door
+area right after a door entry, or the last unnamed person), else *Unknown*;
+people seen vs inside per the door (possible tailgating / nobody entered);
+a box per fixed item (PC, robot) learnt when clear and flagged when moved or
+moving with nobody at it. Events with a snapshot, acknowledged by staff;
+no continuous recording. Each lab tile on the Live monitor streams its lab.
+Measured: face server latency 36.5 ms with it running vs 35.3 ms without.
+Details and limits: `tools/security_vision/README.md`.
 
 ## P. Website changes
 

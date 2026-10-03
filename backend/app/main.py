@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
                             bookings, commands, enrollment, equipment,
                             face_submissions, inventory, issues, labs, monitor,
-                            notifications, reusable, system)
+                            notifications, reusable, security, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.schema_check import check_schema, is_alembic_managed
@@ -87,7 +87,7 @@ for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
           automation.router, analytics.router, ai.router, enrollment.router,
           monitor.router, commands.router, face_submissions.router,
-          inventory.router, reusable.router, equipment.router):
+          inventory.router, reusable.router, equipment.router, security.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

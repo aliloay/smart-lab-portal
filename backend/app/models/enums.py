@@ -99,6 +99,7 @@ class DeviceType(str, enum.Enum):
     SENSOR_NODE = "SENSOR_NODE"
     ROBOT = "ROBOT"                # networked, read-only monitoring
     PC = "PC"                      # lab workstation with the agent
+    SECURITY_CAMERA = "SECURITY_CAMERA"   # fixed lab camera (tools/security_vision)
 
 
 class AssetStatus(str, enum.Enum):

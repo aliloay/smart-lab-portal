@@ -21,6 +21,7 @@ import Simulation from './pages/Simulation'
 import AccessMonitor from './pages/AccessMonitor'
 import Devices from './pages/Devices'
 import Equipment from './pages/Equipment'
+import Security from './pages/Security'
 import AssetDetail from './pages/AssetDetail'
 import Alerts from './pages/Alerts'
 import Users from './pages/Users'
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="/admin/access" element={staffOnly(<AccessMonitor />)} />
           <Route path="/admin/devices" element={staffOnly(<Devices />)} />
           <Route path="/admin/equipment" element={staffOnly(<Equipment />)} />
+          <Route path="/admin/security" element={staffOnly(<Security />)} />
           <Route path="/inventory" element={<Navigate to="/admin/equipment?tab=consumables" replace />} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />

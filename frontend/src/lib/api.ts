@@ -64,6 +64,33 @@ export interface MonitorTile {
   /** Environment node reporting? null = the lab has none. */
   env_online: boolean | null
   motion: boolean
+  /** The lab's fixed security camera (tools/security_vision); null = none. */
+  security_camera: SecurityCameraTile | null
+}
+
+export interface SecurityCameraTile {
+  device_id: number; online: boolean | null; source_ok: boolean | null
+  /** People the camera sees now, and how many of them it could not name. */
+  people: number | null; unknown: number | null
+  named: { label: string; name: string; role: Role | null }[]
+  /** People inside per the door. */
+  inside: number
+  open_events: number
+}
+export interface SecurityCamera extends SecurityCameraTile {
+  device_uid: string; name: string; lab_id: number; lab_code: string | null
+  last_seen_at: string | null; fps: number | null
+  zones: { id: number; name: string; status: 'LEARNING' | 'OK' | 'IN_USE' | 'CHANGED' | 'MOTION'; score: number }[]
+}
+export interface SecurityZone {
+  id: number; name: string; kind: 'EQUIPMENT' | 'DOOR'; asset_id: number | null; asset_tag: string | null
+  x: number; y: number; w: number; h: number; alert_on_motion: boolean; ref_version: number
+}
+export type SecurityZoneIn = Omit<SecurityZone, 'id' | 'asset_tag' | 'ref_version'>
+export interface SecurityEvent {
+  id: number; device_id: number; lab_code: string | null; kind: string; title: string
+  zone_name: string | null; detail: string; people_seen: number; people_inside: number
+  has_snapshot: boolean; created_at: string; acknowledged_at: string | null; acknowledged_by: string | null
 }
 
 /** A request the door controller fetches and carries out (fingerprint enrollment). */
@@ -842,6 +869,18 @@ export const api = {
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
+  // Security camera (fixed, lab corner): frames come through the portal.
+  securityCameras: () => request<SecurityCamera[]>('/security/cameras'),
+  securityZones: (cam: number) => request<SecurityZone[]>(`/security/cameras/${cam}/zones`),
+  addSecurityZone: (cam: number, z: SecurityZoneIn) => post<SecurityZone>(`/security/cameras/${cam}/zones`, z),
+  updateSecurityZone: (cam: number, id: number, z: SecurityZoneIn) =>
+    request<SecurityZone>(`/security/cameras/${cam}/zones/${id}`, { method: 'PUT', body: JSON.stringify(z) }),
+  deleteSecurityZone: (cam: number, id: number) =>
+    request<void>(`/security/cameras/${cam}/zones/${id}`, { method: 'DELETE' }),
+  acceptSecurityZone: (cam: number, id: number) => post<SecurityZone>(`/security/cameras/${cam}/zones/${id}/accept`),
+  securityEvents: (q: { lab_id?: number; open_only?: boolean; limit?: number } = {}) =>
+    request<SecurityEvent[]>(`/security/events${qs(q)}`),
+  ackSecurityEvent: (id: number) => post<SecurityEvent>(`/security/events/${id}/ack`),
   inventoryBins: () => request<InventoryBin[]>('/inventory/bins'),
   equipment: () => request<{
     device_id: number; device_uid: string; kind: 'ROBOT' | 'PC'; name: string; asset_tag: string | null

@@ -50,6 +50,7 @@ services:
       # the face server running on this laptop (outside Docker).
       CAMERA_URL: ${CAMERA_URL:-http://192.168.1.150}
       FACE_SERVER_URL: ${FACE_SERVER_URL:-http://host.docker.internal:5000}
+      SECURITY_VISION_HOST: ${SECURITY_VISION_HOST:-host.docker.internal}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       # Smaller student model, loaded next to the staff one (empty = share it).
       OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
