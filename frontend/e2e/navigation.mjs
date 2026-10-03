@@ -34,7 +34,7 @@ const ROLES = [
     journey: async page => {
       for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/reports',
                        '/admin/users', '/admin/devices', '/admin/equipment', '/admin/alerts',
-                       '/admin/settings', '/']) await clickNav(page, p)
+                       '/admin/settings', '/admin/emergency', '/admin/security', '/']) await clickNav(page, p)
     } },
 ]
 

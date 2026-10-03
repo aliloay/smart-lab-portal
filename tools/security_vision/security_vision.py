@@ -168,9 +168,30 @@ class Service:
         self.clear_since: Optional[float] = None
         self.extra_reported = False        # one event per incident, not one per cooldown
         self.last_event: dict[str, float] = {}
+        # Demo (--demo "USER1=Ali,USER2=Sara"): no portal; "X enters" buttons
+        # on /demo stand in for the door, and the whole picture is the door
+        # area, so whoever walks in next gets that name.
+        self.demo = {}
+        if args.demo:
+            for part in args.demo.split(","):
+                label, _, name = part.partition("=")
+                if label.strip():
+                    self.demo[label.strip()] = name.strip() or label.strip()
+            self.cfg = {"zones": [], "door": {"x": 0, "y": 0, "w": 1, "h": 1}, "occupants": []}
 
     # -- portal ------------------------------------------------------------
+    def demo_enter(self, label: str):
+        occ = [o for o in self.cfg["occupants"] if o["auth_subject"] != label]
+        occ.append({"auth_subject": label, "name": self.demo[label], "role": "STUDENT",
+                    "entered_at": time.time()})
+        self.cfg = {**self.cfg, "occupants": occ}
+
+    def demo_leave(self, label: str):
+        self.cfg = {**self.cfg, "occupants": [o for o in self.cfg["occupants"] if o["auth_subject"] != label]}
+
     def poll_config(self):
+        if self.demo:
+            return                     # demo: nothing from the portal
         while True:
             try:
                 r = self.http.get(self.portal + "/security/config", timeout=5, params={
@@ -190,6 +211,8 @@ class Service:
             time.sleep(self.CONFIG_PERIOD_S)
 
     def post_state(self):
+        if self.demo:
+            return
         while True:
             time.sleep(self.STATE_PERIOD_S)
             with self.lock:
@@ -206,6 +229,9 @@ class Service:
                 pass
 
     def event(self, kind: str, detail: str, zone_id=None, people_seen=0, people_inside=0):
+        if self.demo:
+            print(f"[demo event] {kind} {detail}")
+            return
         key = f"{kind}:{zone_id}"
         now = time.time()
         if now - self.last_event.get(key, 0) < self.EVENT_COOLDOWN_S:
@@ -343,7 +369,53 @@ def make_app(svc: Service) -> Flask:
                                     "box": t.box} for t in svc.tracks],
                         "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
                                   for s in svc.zones.states.values()]})
+
+    if svc.demo:                       # local only (bound to 127.0.0.1), no key needed
+        @app.get("/demo")
+        def demo_page():
+            buttons = "".join(
+                f'<div class="p"><b>{n}</b> ({l})<br><button onclick="go(\'enter\',\'{l}\')">{n} enters</button>'
+                f'<button onclick="go(\'leave\',\'{l}\')">{n} leaves</button></div>' for l, n in svc.demo.items())
+            return Response(DEMO_PAGE.replace("{BUTTONS}", buttons), mimetype="text/html")
+
+        @app.get("/demo/frame.jpg")
+        def demo_frame():
+            return Response(svc.jpeg or b"", mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+        @app.post("/demo/<action>/<label>")
+        def demo_action(action, label):
+            if label not in svc.demo or action not in ("enter", "leave"):
+                return jsonify({"error": "unknown"}), 404
+            (svc.demo_enter if action == "enter" else svc.demo_leave)(label)
+            return jsonify({"inside": [o["auth_subject"] for o in svc.cfg["occupants"]]})
+
+        @app.get("/demo/state")
+        def demo_state():
+            with svc.lock:
+                tracks = list(svc.tracks)
+            return jsonify({"fps": svc.fps, "people": [
+                {"id": t.id, "label": t.label, "name": t.name, "crowded": t.crowded} for t in tracks],
+                "locked": {k: v.samples for k, v in svc.labeler.identities.items()},
+                "inside": [o["auth_subject"] for o in svc.cfg["occupants"]]})
     return app
+
+
+DEMO_PAGE = """<!doctype html><meta charset=utf-8><title>Name lock demo</title>
+<style>body{font:15px system-ui;background:#0b1220;color:#e2e8f0;margin:0;display:flex;gap:16px;padding:16px}
+img{max-width:72vw;border-radius:10px;border:1px solid #334155}.side{min-width:260px}
+.p{background:#111a2e;border:1px solid #334155;border-radius:10px;padding:10px;margin-bottom:10px}
+button{margin:6px 6px 0 0;padding:6px 10px;border-radius:8px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+pre{background:#111a2e;padding:10px;border-radius:10px;white-space:pre-wrap}</style>
+<img id=f><div class=side><h3>Name lock demo</h3>
+<p>1. Everyone out of view. 2. Click "X enters", then X walks in alone and stands clear for 2 s
+(the look locks). 3. Next person. 4. Walk past each other, bump, swap places: the names should stay.</p>
+{BUTTONS}<pre id=s></pre></div>
+<script>
+const f=document.getElementById('f');setInterval(()=>{f.src='/demo/frame.jpg?'+Date.now()},150);
+async function go(a,l){await fetch('/demo/'+a+'/'+l,{method:'POST'})}
+setInterval(async()=>{const r=await (await fetch('/demo/state')).json();
+document.getElementById('s').textContent=JSON.stringify(r,null,1)},700);
+</script>"""
 
 
 def main():
@@ -363,18 +435,23 @@ def main():
     ap.add_argument("--threads", type=int, default=4, help="CPU threads (the face server needs the rest)")
     ap.add_argument("--det-fps", type=float, default=3.0)
     ap.add_argument("--max-width", type=int, default=960)
+    ap.add_argument("--demo", default="", help='name-lock test without the portal, e.g. "USER1=Ali,USER2=Sara"; '
+                                               'open http://127.0.0.1:<port>/demo')
     args = ap.parse_args()
     if not os.path.isfile(args.model):
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
     for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render):
         threading.Thread(target=target, daemon=True).start()
+    host = "127.0.0.1" if svc.demo else "0.0.0.0"
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")
+    if svc.demo:
+        print(f"DEMO: open http://127.0.0.1:{args.port}/demo")
     try:
         from waitress import serve
-        serve(make_app(svc), host="0.0.0.0", port=args.port, threads=6)
+        serve(make_app(svc), host=host, port=args.port, threads=6)
     except ImportError:
-        make_app(svc).run(host="0.0.0.0", port=args.port, threaded=True)
+        make_app(svc).run(host=host, port=args.port, threaded=True)
 
 
 if __name__ == "__main__":

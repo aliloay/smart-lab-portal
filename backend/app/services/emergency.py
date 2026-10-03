@@ -117,6 +117,23 @@ def out(e: LabEmergency, now: datetime) -> dict:
             "updated_at": e.updated_at}
 
 
+def notice(e: LabEmergency, lab_code: str) -> tuple[str, str, str]:
+    """(title, body, severity) telling the people INSIDE the lab what to do."""
+    if not active(e):
+        return (f"{lab_code} is back to normal", "The emergency is over.", "info")
+    if e.alarm:
+        title, body = f"EVACUATE {lab_code} now", "The evacuation alarm is on: leave by the nearest exit."
+    elif e.door_mode == "UNLOCKED":
+        title, body = f"Emergency in {lab_code}: please leave calmly", "The door is held open."
+    elif e.door_mode == "LOCKDOWN":
+        title, body = f"{lab_code} is in lockdown", "Nobody can enter. Follow the staff's instructions."
+    else:
+        title, body = f"Message for {lab_code}", ""
+    if e.message:
+        body = (body + " " if body else "") + f'"{e.message}"'
+    return title, body, "critical" if e.alarm or e.door_mode != "NORMAL" else "warning"
+
+
 def device_view(e: LabEmergency, now: datetime) -> dict:
     """Flat, for the door controller's small JSON reader."""
     rem = -1

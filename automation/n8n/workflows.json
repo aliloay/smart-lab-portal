@@ -110,6 +110,11 @@
       "file": "src/22-robotics-daily.ts",
       "id": "l3xYkfCjlNRy9c1d",
       "trigger": "schedule"
+    },
+    {
+      "file": "src/23-emergency.ts",
+      "id": "SmartLab23Emerge",
+      "trigger": "webhook smartlab-emergency-set (+ 30 s door check)"
     }
   ]
 }

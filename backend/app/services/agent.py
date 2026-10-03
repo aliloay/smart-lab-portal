@@ -478,11 +478,22 @@ def snapshot(db: Session) -> str:
     now = datetime.now(timezone.utc)
     week = management_report(db, "weekly")
     occ = occupancy(db)
+    b, pb = week["bookings"], week["previous"]["bookings"]
+    a, pa = week["access"], week["previous"]["access"]
+    m, pm = week["maintenance"], week["previous"]["maintenance"]
+    open_alerts = db.query(Alert).filter(Alert.is_resolved.is_(False)).count()
+    # Both periods as plain numbers: a small model must not have to compute.
     text = "\n".join([
         "SNAPSHOT (from the database, " + _when(now) + "):",
         "Last 7 days: " + " ".join(week["lines"]),
-        "Change vs previous 7 days (%): " + ", ".join(f"{k} {v}" for k, v in week["change_pct"].items()
-                                                      if v is not None),
+        "This week vs the week before (exact numbers): "
+        f"confirmed bookings {b['confirmed']} vs {pb['confirmed']}; booked hours {b['booked_hours']} vs "
+        f"{pb['booked_hours']}; no-shows {b['no_show']} vs {pb['no_show']}; door entries granted "
+        f"{a['granted']} vs {pa['granted']}; refused {a['denied']} vs {pa['denied']}; issues opened "
+        f"{m['opened']} vs {pm['opened']}; issues resolved {m['resolved']} vs {pm['resolved']}.",
+        "Top refusal reasons (7 d): " + (", ".join(f"{d['meaning']} x{d['count']}" for d in week["top_denials"])
+                                         or "none"),
+        f"Alerts not resolved now: {open_alerts}.",
         "Labs by booked hours: " + ", ".join(f"{lab['lab_code']} {lab['hours']}h" for lab in week["labs"][:6]),
         "Equipment running hours (7 d): " + (", ".join(f"{e['name']} {e['running_h']}h"
                                                        for e in week["equipment"][:6]) or "none reported"),

@@ -35,6 +35,7 @@ from app.services import commands as cmds
 from app.services import emergency as em
 from app.services.access import get_device
 from app.services.devices import is_fresh
+from app.services.integration import emit
 from app.services.notifications import notify, staff_ids
 
 router = APIRouter(tags=["emergency"])
@@ -135,10 +136,16 @@ class LabAction(BaseModel):
     alarm: Optional[bool] = None
 
 
-def _announce(db: Session, lab: Lab, admin: User, what: str) -> None:
+def _announce(db: Session, lab: Lab, admin: User, what: str, e=None) -> None:
     notify(db, staff_ids(db), "EMERGENCY", f"{lab.code}: {what}",
            body=f"Set by {admin.full_name} from the Emergency tab.", link="/admin/emergency",
            severity="critical")
+    if e is not None:
+        # n8n (workflow 23) warns the people inside and checks the door applied it.
+        emit(db, "emergency.set", lab_id=lab.id, user_id=admin.id, object_type="lab",
+             object_id=lab.id, payload={"lab_code": lab.code, "version": e.version,
+                                        "door_mode": e.door_mode, "alarm": e.alarm,
+                                        "message": e.message, "active": em.active(e), "what": what})
 
 
 @router.post("/emergency/labs/{lab_id}")
@@ -169,7 +176,7 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
     db.add(AuditLog(actor_user_id=admin.id, action="EMERGENCY_ACTION", entity_type="lab",
                     entity_id=str(lab.id), detail={"lab": lab.code, **req.model_dump(),
                                                    "version": e.version}))
-    _announce(db, lab, admin, "; ".join(did))
+    _announce(db, lab, admin, "; ".join(did), e)
     db.commit()
     _publish(lab.id)
     return em.out(e, now)
@@ -187,7 +194,7 @@ def back_to_normal(lab_id: int, db: Session = Depends(get_db), admin: User = Dep
     e.updated_by_id, e.updated_at = admin.id, now
     db.add(AuditLog(actor_user_id=admin.id, action="EMERGENCY_NORMAL", entity_type="lab",
                     entity_id=str(lab.id), detail={"lab": lab.code, "version": e.version}))
-    _announce(db, lab, admin, "back to normal")
+    _announce(db, lab, admin, "back to normal", e)
     db.commit()
     _publish(lab.id)
     return em.out(e, now)

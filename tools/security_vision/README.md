@@ -62,6 +62,18 @@ names). The camera appears in the portal by itself on its first report.
 
 Not yet run with the real camera in the lab.
 
+## Try the name lock on the laptop webcam
+
+Double-click `demo_webcam.bat` (or `demo_webcam.bat "USER1=Ali,USER2=Sara"`). It opens
+http://127.0.0.1:5101/demo - no portal, no lab camera, local only:
+
+1. Everyone out of view.
+2. Click **Ali enters**, Ali walks in alone and stands clear for ~2 s (the look locks;
+   `locked` on the page counts the samples).
+3. Click **Sara enters**, Sara walks in.
+4. Walk past each other, bump, swap sides, step out of view and back: the names
+   should stay on the right person - or show Unknown, never the other name.
+
 ## Limits, stated rather than hidden
 
 - Names are locked to each person's look (clothes and hair colours, body

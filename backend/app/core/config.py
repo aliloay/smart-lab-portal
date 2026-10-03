@@ -107,8 +107,10 @@ class Settings(BaseSettings):
     # Only types a workflow listens for: a push nobody receives fails (404)
     # and is retried. door.alarm is not pushed - the backend itself raises
     # the alert and notifies staff (services/devices.record_door_alarm).
+    # emergency.set: workflow 23 warns everyone inside the lab and checks
+    # that the door applied it.
     AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
-                                  "issue.created,device.offline")
+                                  "issue.created,device.offline,emergency.set")
     AUTOMATION_MAX_ATTEMPTS: int = 6
     # Delivered/skipped outbox rows older than this are pruned.
     AUTOMATION_RETENTION_DAYS: int = 30

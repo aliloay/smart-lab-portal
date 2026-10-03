@@ -400,11 +400,19 @@ OLLAMA_KEEP_ALIVE = "2h"
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
 OLLAMA_EXTRA = """
-- The SNAPSHOT below comes from the database and already answers most
-  questions: answer from it directly. Call a tool only for what it does not
-  cover (another period, one lab's details, the issue list...).
-- Only call the tools listed.
-- Answer in the same language as the question. Be brief: a few bullets."""
+- Only call the tools listed. Call a tool before answering any question
+  about numbers, labs, issues or devices.
+- Answer in the same language as the question."""
+# First, fast pass: one call, no tools, from the agent's SNAPSHOT. A small
+# local model answers in ~2 s this way instead of ~20 s of tool rounds; it
+# says NEED_TOOLS when the snapshot does not cover the question.
+NEED_TOOLS = "NEED_TOOLS"
+OLLAMA_SNAPSHOT_RULES = """
+- Answer ONLY from the SNAPSHOT below. Copy its numbers exactly; never
+  compute, estimate or add facts that are not in it.
+- If the SNAPSHOT does not contain what is asked (another period, a specific
+  issue, a lab or device not listed), reply with exactly: NEED_TOOLS
+- At most 5 short bullets, no preamble. Same language as the question."""
 
 
 def _ctx_for(model: str) -> int:
@@ -514,8 +522,15 @@ def _ollama_tools() -> list[dict]:
 def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
     from app.services.agent import snapshot
     model = settings.OLLAMA_MODEL
+    first = [{"role": "system",
+              "content": _staff_system(OLLAMA_SNAPSHOT_RULES) + "\n\n" + snapshot(db)}]
+    msg = _ollama_chat(model, first + _history(question, history)).get("message") or {}
+    text = (msg.get("content") or "").strip()
+    if text and NEED_TOOLS not in text:
+        return {"answer": text, "tools_used": ["snapshot"], "model": model}
+    # Not covered by the snapshot: the slower tool loop.
     messages = [{"role": "system",
-                 "content": _staff_system(OLLAMA_EXTRA) + "\n\n" + snapshot(db)}]
+                 "content": _staff_system(OLLAMA_EXTRA)}]
     messages += _history(question, history)
     tools = _ollama_tools()
     tools_used: list[str] = []

@@ -143,3 +143,35 @@ def test_change_password(client, db, admin):
     assert client.put("/api/emergency/password", headers=h, json={"new_password": "new-safe-1"}).status_code == 200
     assert _open(client, admin, PW)[0].status_code == 403           # the .env one no longer works
     assert _open(client, admin, "new-safe-1")[0].status_code == 200
+
+
+# ------------------------------------------- n8n workflow 23 (automation) ---
+def test_emergency_reaches_n8n_and_names_who_to_warn(client, db, admin, alice, lab, controller,
+                                                     device_headers, monkeypatch):
+    from app.models import AccessSession, AuthMethod, IntegrationEvent
+    monkeypatch.setattr(settings, "AUTOMATION_API_KEY", "k")
+    db.add(AccessSession(lab_id=lab.id, user_id=alice.id, entry_method=AuthMethod.QR,
+                         started_at=datetime.now(timezone.utc)))
+    db.commit()
+    _, h = _open(client, admin)
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h,
+                json={"door": "UNLOCKED", "alarm": True, "message": "Fire drill"})
+    ev = db.query(IntegrationEvent).filter_by(event_type="emergency.set").one()
+    assert ev.lab_id == lab.id and ev.payload["alarm"] is True
+
+    key = {"X-Automation-Key": "k"}
+    st = client.get(f"/api/automation/emergency/{lab.id}", headers=key).json()
+    assert st["active"] and st["applied"] is False             # the door has not confirmed yet
+    (n,) = st["notices"]
+    assert n["user_id"] == alice.id and n["title"].startswith("EVACUATE") and "Fire drill" in n["body"]
+    assert n["severity"] == "critical" and n["dedupe_key"].endswith(f":{alice.id}")
+
+    # The controller reports the version it applied: now "applied".
+    controller.component_state = {"emergency_version": st["version"]}
+    db.commit()
+    assert client.get(f"/api/automation/emergency/{lab.id}", headers=key).json()["applied"] is True
+
+    client.post(f"/api/emergency/labs/{lab.id}/normal", headers=h)
+    assert client.get(f"/api/automation/emergency/{lab.id}",
+                      headers=key).json()["notices"][0]["title"].endswith("back to normal")
+    assert client.get(f"/api/automation/emergency/{lab.id}").status_code == 401

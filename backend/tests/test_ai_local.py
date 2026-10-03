@@ -61,8 +61,17 @@ def test_provider_selection(monkeypatch):
     assert ai.provider() == "ollama"
 
 
+def test_ollama_answers_from_the_snapshot_in_one_call(db, lab, ollama):
+    fake = ollama([{"role": "assistant", "content": "- 3 bookings this week"}])
+    out = ai.ask(db, "How busy was it this week?")
+    assert out == {"answer": "- 3 bookings this week", "tools_used": ["snapshot"], "model": "qwen2.5:3b"}
+    (body,) = fake.bodies                                  # one call, no tools
+    assert "tools" not in body and "SNAPSHOT" in body["messages"][0]["content"]
+
+
 def test_ollama_tool_loop(db, lab, ollama):
     fake = ollama([
+        {"role": "assistant", "content": "NEED_TOOLS"},     # the snapshot does not cover it
         {"role": "assistant", "content": "",
          "tool_calls": [{"function": {"name": "get_lab_readiness",
                                       "arguments": {"lab_code": "lab_test"}}}]},
@@ -71,7 +80,8 @@ def test_ollama_tool_loop(db, lab, ollama):
     out = ai.ask(db, "Is LAB_TEST ready?")
     assert out == {"answer": "LAB_TEST is ready.", "tools_used": ["get_lab_readiness"],
                    "model": "qwen2.5:3b"}
-    first, second = fake.bodies
+    quick, first, second = fake.bodies
+    assert "tools" not in quick
     assert first["model"] == "qwen2.5:3b" and first["stream"] is False
     assert {t["function"]["name"] for t in first["tools"]} == set(ai.HANDLERS)
     tool_msg = second["messages"][-1]

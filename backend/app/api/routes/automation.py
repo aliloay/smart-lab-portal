@@ -177,7 +177,7 @@ def anomaly_scan(hours: int = Query(24, ge=1, le=24 * 14),
 AUTOMATION_KINDS = {
     "BOOKING_BRIEFING", "PRE_BOOKING_CHECK", "SECURITY_EVENT", "DEVICE_OFFLINE",
     "MAINTENANCE_DIGEST", "DAILY_REPORT", "WEEKLY_REPORT", "SENSOR_THRESHOLD",
-    "POST_SESSION", "DATA_QUALITY", "ANOMALY",
+    "POST_SESSION", "DATA_QUALITY", "ANOMALY", "EMERGENCY",
 }
 
 
@@ -206,6 +206,37 @@ def robotics_topic(topic: str, db: Session = Depends(get_db)):
     items = fn(db, datetime.now(timezone.utc))
     db.commit()
     return {"topic": topic, "count": len(items), "items": items}
+
+
+@router.get("/emergency/{lab_id}", dependencies=guard)
+def emergency_state(lab_id: int, db: Session = Depends(get_db)):
+    """
+    Workflow 23: a lab's emergency now, whether its door controller has
+    applied it, and one ready notice per person inside (they are told what
+    to do - leave, stay, the admin's message). Read-only.
+    """
+    from app.api.routes.emergency import _controller
+    from app.models import AccessSession, Lab, User
+    from app.services import emergency as em
+    from app.services.devices import is_fresh
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    now = datetime.now(timezone.utc)
+    e = em.state(db, lab.id, now)
+    c = _controller(db, lab.id)
+    applied = (c.component_state or {}).get("emergency_version") if c else None
+    title, body, severity = em.notice(e, lab.code)
+    inside = [db.get(User, s.user_id) for s in db.scalars(select(AccessSession).where(
+        AccessSession.lab_id == lab.id, AccessSession.ended_at.is_(None))).all()]
+    db.commit()
+    return {"lab_id": lab.id, "lab_code": lab.code, "version": e.version, "active": em.active(e),
+            "door_mode": e.door_mode, "alarm": e.alarm, "message": e.message,
+            "has_door": c is not None, "controller_online": is_fresh(c, now) if c else None,
+            "applied": c is not None and applied is not None and int(applied) >= e.version,
+            "notices": [{"user_id": u.id, "name": u.full_name, "title": title, "body": body,
+                         "severity": severity, "dedupe_key": f"emergency:{lab.id}:v{e.version}:{u.id}"}
+                        for u in inside if u is not None]}
 
 
 @router.post("/notify", dependencies=guard)
