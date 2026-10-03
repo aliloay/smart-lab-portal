@@ -114,7 +114,8 @@ static void tabletHandleState() {
   // Fingerprint enrollment (serial monitor or portal request) runs while the
   // state machine is idle; show its prompts instead of the welcome screen.
   if (enrollActive) {
-    screen = "enroll"; tone = "idle"; header = "FINGERPRINT ENROLLMENT";
+    screen = "enroll"; tone = "idle";
+    header = enrollIsCard ? "RFID CARD ENROLLMENT" : "FINGERPRINT ENROLLMENT";
     title = enrollLine1; name = enrollWho; step = 0; note = nullptr;
     for (auto &l : lines) l = nullptr;
     lines[0] = enrollLine2;
@@ -285,7 +286,7 @@ var BUILD=null,logoTried=false;
 function render(s){
  if(BUILD===null)BUILD=s.build;else if(s.build&&s.build!==BUILD){location.reload();return}
  PORTAL=s.portal||null;
- LIVE=!!PORTAL&&(s.screen==='idle'||s.screen==='verify'||s.screen==='step1ok');
+ LIVE=!!PORTAL&&(s.screen==='verify'||s.screen==='step1ok');   // after step 1 only
  $('liveWrap').hidden=!LIVE;
  if(!logoTried&&s.portal){logoTried=true;var im=$('logo');
   im.onload=function(){im.hidden=false;$('sep').hidden=false;$('brandTxt').innerHTML='SMART <b>LAB</b>'};
@@ -322,23 +323,31 @@ function conn(down){
 }
 // Live camera view. The frames come from the face server on the laptop -
 // the very frames the camera already sends for QR/face analysis - so the
-// camera and this board do no extra work. Shown on the scan / verify steps.
-var LIVE=false,PORTAL=null,liveBusy=false;
+// camera and this board do no extra work. Shown after step 1 (QR / card),
+// while the person verifies. The face server PUSHES each frame the moment
+// it arrives (MJPEG), so the view runs at the camera's own rate; the hint
+// and face box are polled alongside.
+var LIVE=false,PORTAL=null,liveOn=false,liveStale=true;
+function liveStream(on){
+ var im=$('liveImg');
+ if(on){im.src='http://'+PORTAL+':5000/preview.mjpg?t='+Date.now();liveStale=false}
+ else{im.removeAttribute('src');$('liveOff').hidden=false;$('liveOff').textContent='Camera view starting…'}
+ liveOn=on}
+$('liveImg').onerror=function(){if(liveOn){liveStale=true;$('liveOff').hidden=false;$('liveOff').textContent='Camera view unavailable'}};
 function liveTick(){
- if(!LIVE||!PORTAL||liveBusy){return}
- liveBusy=true;var im=new Image(),done=function(){liveBusy=false};
- im.onload=function(){$('liveImg').src=im.src;$('liveOff').hidden=true;done()};
- im.onerror=function(){$('liveOff').hidden=false;$('liveOff').textContent='Camera view unavailable';done()};
- im.src='http://'+PORTAL+':5000/preview.jpg?t='+Date.now();
+ if(LIVE!==liveOn)liveStream(LIVE);
+ if(!LIVE)return;
  fetch('http://'+PORTAL+':5000/preview/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(p){
+  if(!LIVE)return;
   var h=$('liveHint'),b=$('liveBox');h.textContent=p.hint||'';h.className='hint '+(p.tone||'');
   if(p.box){b.hidden=false;b.className='box '+(p.tone||'');
    b.style.left=(100*(1-p.box.x-p.box.w))+'%';b.style.top=(100*p.box.y)+'%';
    b.style.width=(100*p.box.w)+'%';b.style.height=(100*p.box.h)+'%'}else b.hidden=true;
-  if(!p.fresh){$('liveOff').hidden=false;$('liveOff').textContent='Camera view paused'}
+  if(!p.fresh){liveStale=true;$('liveOff').hidden=false;$('liveOff').textContent='Camera view paused'}
+  else{$('liveOff').hidden=true;if(liveStale)liveStream(true)}   // frames are back: reconnect
  }).catch(function(){});
 }
-setInterval(liveTick,250);
+setInterval(liveTick,300);
 function poll(){
  var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},2500);
  fetch('/state',{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})

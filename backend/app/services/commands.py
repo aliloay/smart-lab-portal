@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from app.models import DeviceCommand
 
 ENROLL_FINGERPRINT = "ENROLL_FINGERPRINT"
+ENROLL_RFID = "ENROLL_RFID"          # the person taps their card at the door
+REMOVE_RFID = "REMOVE_RFID"
 
 ACTIVE = ("PENDING", "SENT", "RUNNING")
 FINAL = ("DONE", "FAILED", "EXPIRED", "CANCELLED")

@@ -653,6 +653,7 @@ def analyze():
     img = decode_jpeg(raw)
     if img is None:
         return jsonify({"error": "no image received"}), 400
+    publish_frame(raw)        # tablet live view: shown before analysis, no added delay
 
     # JPEG decoding (above) runs in parallel; the analysis is serialised.
     with cv_lock:
@@ -683,9 +684,9 @@ def analyze():
                     face_name = label_to_name.get(label)
 
         t_face = time.perf_counter()
-        # The tablet's live view: keep THIS frame and where the face is.
-        # A reference and a few numbers - the camera does nothing extra.
-        set_preview(raw, img.shape, face_row, face is not None, face_name)
+        # The tablet's live view: where the face is in this frame.
+        # A few numbers - the camera does nothing extra.
+        set_preview(img.shape, face_row, face is not None, face_name)
 
         # --- QR, second chance ---
         # The slow WeChat decoder only runs when the fast one found nothing AND
@@ -760,9 +761,17 @@ def analyze():
 # its own pace and detection is unchanged; this only keeps a reference to
 # the last frame. Frames older than PREVIEW_MAX_AGE_S are not served, and
 # PREVIEW=off (environment) switches the view off entirely.
+#
+# /preview.mjpg pushes each frame to the tablet the moment the camera's POST
+# arrives (before analysis), so the view runs at the camera's own rate with
+# no polling delay. A stream ends by itself when frames stop for
+# PREVIEW_MAX_AGE_S, and at most PREVIEW_MAX_STREAMS run at once so viewers
+# can never take the server threads the camera needs.
 PREVIEW_ON = os.environ.get("PREVIEW", "on").lower() != "off"
 PREVIEW_MAX_AGE_S = 2.0
-_preview = {"jpeg": None, "at": 0.0, "state": {}}
+PREVIEW_MAX_STREAMS = 2
+_preview = {"jpeg": None, "at": 0.0, "state": {}, "seq": 0, "streams": 0}
+_preview_cond = threading.Condition()
 
 
 def guidance(shape, row, found, name):
@@ -797,11 +806,20 @@ def guidance(shape, row, found, name):
     return {"hint": hint, "tone": tone, "box": box}
 
 
-def set_preview(raw, shape, row, found, name):
+def publish_frame(raw):
+    """Hand the frame to any open stream at once (a reference, no copy)."""
     if not PREVIEW_ON:
         return
-    _preview["jpeg"], _preview["at"] = raw, time.time()
-    _preview["state"] = guidance(shape, row, found, name)
+    with _preview_cond:
+        _preview["jpeg"], _preview["at"] = raw, time.time()
+        _preview["seq"] += 1
+        _preview_cond.notify_all()
+
+
+def set_preview(shape, row, found, name):
+    """The hint for the frame just analysed."""
+    if PREVIEW_ON:
+        _preview["state"] = guidance(shape, row, found, name)
 
 
 def _cors(resp):
@@ -815,6 +833,36 @@ def preview_jpg():
     if not PREVIEW_ON or _preview["jpeg"] is None or time.time() - _preview["at"] > PREVIEW_MAX_AGE_S:
         return _cors(Response(status=204))
     return _cors(Response(_preview["jpeg"], mimetype="image/jpeg"))
+
+
+@app.route("/preview.mjpg", methods=["GET"])
+def preview_mjpg():
+    if not PREVIEW_ON:
+        return _cors(Response(status=204))
+    with _preview_cond:
+        if _preview["streams"] >= PREVIEW_MAX_STREAMS:
+            return _cors(Response("Too many viewers", status=503))
+        _preview["streams"] += 1
+
+    def frames():
+        seen = -1
+        try:
+            while True:
+                with _preview_cond:
+                    if _preview["seq"] == seen:
+                        _preview_cond.wait(timeout=PREVIEW_MAX_AGE_S)
+                    if _preview["seq"] == seen or _preview["jpeg"] is None:
+                        return                      # camera stopped: end; the tablet reconnects
+                    seen, jpeg = _preview["seq"], _preview["jpeg"]
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " +
+                       str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
+        finally:
+            with _preview_cond:
+                _preview["streams"] -= 1
+
+    resp = Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame",
+                    direct_passthrough=True)
+    return _cors(resp)
 
 
 @app.route("/preview/state", methods=["GET"])

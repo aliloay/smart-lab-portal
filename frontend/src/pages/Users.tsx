@@ -3,6 +3,7 @@ import { Fingerprint, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon 
 import { Role, User, api } from '../lib/api'
 import FaceEnrollment from '../components/FaceEnrollment'
 import FingerprintEnrollment from '../components/FingerprintEnrollment'
+import CardEnrollment from '../components/CardEnrollment'
 import { roleLabel, useAuth } from '../lib/auth'
 import {
   Avatar, Chip, Drawer, EmptyState, ErrorBanner, Field, MetricCard, Modal, Notice, PageHeader,
@@ -117,12 +118,13 @@ export default function Users() {
         {enrolling && (
           <div className="space-y-4">
             <p className="text-[12.5px] text-slate-400">
-              Fingerprint: the person and you go to the door; press Enroll and follow the door screen.
-              Face ID: the person stands in front of the door camera.
+              Fingerprint and RFID card: the person and you go to the door; press Enroll and follow the
+              door screen. Face ID: the person stands in front of the door camera, or upload clear photos.
             </p>
             <FingerprintEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject}
                                    enrolledAt={enrolling.fingerprint_enrolled_at ?? null} onEnrolled={() => load()} />
             <FaceEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject} onEnrolled={() => load()} />
+            <CardEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject} />
           </div>)}
       </Drawer>
 
@@ -136,7 +138,7 @@ export default function Users() {
 }
 
 function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () => void }) {
-  const [f, setF] = useState({ full_name: u.full_name, role: u.role, is_active: u.is_active,
+  const [f, setF] = useState({ full_name: u.full_name, email: u.email, role: u.role, is_active: u.is_active,
     auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '',
     fingerprint_enrolled: !!u.fingerprint_enrolled_at, face_enrolled: !!u.face_enrolled_at })
   const [error, setError] = useState('')
@@ -154,6 +156,9 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
       {error && <ErrorBanner message={error} />}
       <Field label="Full name"><input className="input" value={f.full_name} required
         onChange={e => setF({ ...f, full_name: e.target.value })} /></Field>
+      <Field label="Email" hint="The sign-in address. Changing the name does not change it; edit it here.">
+        <input className="input" type="email" value={f.email} required
+               onChange={e => setF({ ...f, email: e.target.value })} /></Field>
       <Field label="Role" hint={self ? 'You cannot change your own role.' : undefined}>
         <select className="input" value={f.role} disabled={self}
                 onChange={e => setF({ ...f, role: e.target.value as Role })}>
@@ -187,6 +192,7 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
                                onEnrolled={() => setF(x => ({ ...x, fingerprint_enrolled: true }))} />
         <FaceEnrollment userId={u.id} savedSubject={u.auth_subject}
                         onEnrolled={() => setF(x => ({ ...x, face_enrolled: true }))} />
+        <CardEnrollment userId={u.id} savedSubject={u.auth_subject} />
         <label className="flex items-center gap-2.5 text-sm text-slate-200">
           <input type="checkbox" checked={f.fingerprint_enrolled} className="accent-sky-500"
                  onChange={e => setF({ ...f, fingerprint_enrolled: e.target.checked })} />

@@ -64,6 +64,9 @@ class SignupRequest(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    # The sign-in address. Not derived from the name: changing the name never
+    # changes it; change it here when the person's address changes.
+    email: Optional[EmailStr] = None
     role: Optional[Role] = None
     is_active: Optional[bool] = None
     auth_subject: Optional[str] = Field(default=None, max_length=32)

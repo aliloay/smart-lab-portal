@@ -316,6 +316,16 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                              changes.get("role") not in (None, Role.ADMIN)):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "You cannot demote or disable your own account")
+    if "email" in changes:
+        email = (changes["email"] or "").strip().lower()
+        if not email:
+            changes.pop("email")
+        elif email != u.email and db.scalar(select(User).where(
+                func.lower(User.email) == email, User.id != u.id)):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Another account already uses this email")
+        else:
+            changes["email"] = email
     if "auth_subject" in changes:
         subj = (changes["auth_subject"] or "").strip() or None
         if subj and db.scalar(select(User).where(User.auth_subject == subj,

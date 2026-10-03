@@ -14,7 +14,8 @@ reminder and notifies them.
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_staff
@@ -22,6 +23,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import AuditLog, User
 from app.services import enrolment
+from app.services.storage import ImageRejected, process_image
 
 router = APIRouter(tags=["enrollment"])
 
@@ -138,3 +140,66 @@ def face_finish(user_id: int, db: Session = Depends(get_db),
     return {"trained": True, "samples": samples,
             "has_photo": u.auth_subject in portraits,
             "face_enrolled_at": u.face_enrolled_at}
+
+
+# Photos staff upload for a person (e.g. taken with a phone). They go straight
+# to the face server as samples - it finds the face in each - and the portal
+# keeps none of them. Staff are the ones vouching that the photos show this
+# person, as when they approve photos the person sent themselves.
+MAX_UPLOAD_PHOTOS = 20
+MIN_UPLOAD_SAMPLES = 3
+
+
+@router.post("/users/{user_id}/face/upload")
+async def face_upload(user_id: int, files: list[UploadFile] = File(...),
+                      db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    if not 1 <= len(files) <= MAX_UPLOAD_PHOTOS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Choose between 1 and {MAX_UPLOAD_PHOTOS} photos.")
+    limit = settings.MAX_UPLOAD_MB * 1024 * 1024
+    raws = [await f.read(limit + 1) for f in files]
+
+    def send() -> int:
+        saved = 0
+        for i, raw in enumerate(raws, 1):
+            try:
+                img = process_image(raw)        # upright from EXIF, metadata removed
+            except ImageRejected as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Photo {i}: {e}")
+            try:
+                r = httpx.post(f"{settings.FACE_SERVER_URL}/enroll",
+                               params={"name": u.auth_subject}, content=img.data,
+                               headers={"Content-Type": img.content_type},
+                               timeout=httpx.Timeout(20.0, connect=3.0))
+                r.raise_for_status()
+                saved += r.json().get("status") == "saved"
+            except (httpx.HTTPError, ValueError):
+                raise _unreachable("face server", settings.FACE_SERVER_URL)
+        if saved:
+            try:                                # LBPH needs it; SFace refreshes templates
+                httpx.post(f"{settings.FACE_SERVER_URL}/train",
+                           timeout=httpx.Timeout(120.0, connect=3.0)).raise_for_status()
+            except httpx.HTTPError:
+                raise _unreachable("face server", settings.FACE_SERVER_URL)
+        return saved
+
+    saved = await run_in_threadpool(send)
+    users, portraits = await run_in_threadpool(_face_server_users)
+    samples = int(users.get(u.auth_subject, 0))
+    enrolled = saved >= MIN_UPLOAD_SAMPLES or (saved > 0 and samples >= MIN_SAMPLES)
+    if enrolled:
+        enrolment.mark(db, u, "face", True)
+    db.add(AuditLog(actor_user_id=staff.id, action="FACE_PHOTOS_UPLOADED",
+                    entity_type="user", entity_id=str(u.id),
+                    detail={"auth_subject": u.auth_subject, "photos": len(raws),
+                            "samples_saved": saved, "face_enrolled": enrolled}))
+    db.commit()
+    skipped = len(raws) - saved
+    message = (f"{saved} of {len(raws)} photos added as face samples ({samples} in total)."
+               + (f" {skipped} had no clear face." if skipped else "")
+               + (" Face ID is registered." if enrolled else
+                  f" Add at least {MIN_UPLOAD_SAMPLES} clear photos to register Face ID."))
+    return {"sent": len(raws), "saved": saved, "samples": samples,
+            "face_enrolled": enrolled, "has_photo": u.auth_subject in portraits,
+            "message": message}

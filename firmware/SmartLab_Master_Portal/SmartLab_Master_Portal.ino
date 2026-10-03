@@ -48,6 +48,7 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 
 // ===========================================================================
 // >>>>>>>>>>>>>>>>>>>>> STAGE 4: CAMERA INTEGRATION <<<<<<<<<<<<<<<<<<<<<<<<<
@@ -236,6 +237,25 @@ constexpr size_t AUTHORIZED_USER_COUNT =
     sizeof(authorizedUsers) / sizeof(authorizedUsers[0]) - 1;
 constexpr int    PORTAL_SLOT    = (int)AUTHORIZED_USER_COUNT;
 constexpr uint8_t MAX_FINGER_SLOT = 127;   // AS608 capacity on common modules
+
+// ---------------------------------------------------------------------------
+// RFID cards enrolled from the portal (Users & roles -> Enroll -> RFID card).
+// Kept in this board's flash (NVS), so they keep working with the laptop or
+// the Wi-Fi down - the door never depends on the network. One card per door
+// identity: card for slot n = identity USERn (fingerprint slot n, face USERn).
+// The two built-in cards above stay as they are.
+// ---------------------------------------------------------------------------
+constexpr uint8_t MAX_PORTAL_CARDS = 40;
+struct PortalCard {
+  uint8_t slot;
+  uint8_t size;
+  uint8_t uid[10];
+  char    who[16];              // first name for the LCD
+};
+PortalCard portalCards[MAX_PORTAL_CARDS];
+uint8_t    portalCardCount = 0;
+Preferences cardPrefs;
+
 
 // Result of asking the portal about a booking QR.
 // Defined up here (not next to validateQrWithBackend) because the Arduino IDE
@@ -477,9 +497,69 @@ void rememberUID(const RfidUid &uid) {
   haveLastUID = true;
 }
 
+// --- Portal-enrolled RFID cards (data: see PortalCard above) ----------------
+void cardsLoad() {
+  portalCardCount = 0;
+  if (!cardPrefs.begin("cards", true)) return;     // nothing stored yet
+  size_t n = cardPrefs.getBytesLength("list");
+  if (n > 0 && n % sizeof(PortalCard) == 0 && n <= sizeof(portalCards)) {
+    cardPrefs.getBytes("list", portalCards, n);
+    portalCardCount = n / sizeof(PortalCard);
+  }
+  cardPrefs.end();
+}
+
+bool cardsSave() {
+  if (!cardPrefs.begin("cards", false)) return false;
+  bool ok;
+  if (portalCardCount == 0) { cardPrefs.remove("list"); ok = true; }
+  else {
+    size_t n = portalCardCount * sizeof(PortalCard);
+    ok = cardPrefs.putBytes("list", portalCards, n) == n;
+  }
+  cardPrefs.end();
+  return ok;
+}
+
+int cardIndexBySlot(uint8_t slot) {
+  for (uint8_t i = 0; i < portalCardCount; i++) if (portalCards[i].slot == slot) return i;
+  return -1;
+}
+
+int cardIndexByUid(const uint8_t *uid, uint8_t size) {
+  for (uint8_t i = 0; i < portalCardCount; i++) {
+    if (portalCards[i].size != size) continue;
+    if (memcmp(portalCards[i].uid, uid, size) == 0) return i;
+  }
+  return -1;
+}
+
+void cardRemoveAt(int i) {
+  for (int j = i; j + 1 < portalCardCount; j++) portalCards[j] = portalCards[j + 1];
+  portalCardCount--;
+}
+
+// "89:52:FF:1F"
+void uidText(const uint8_t *uid, uint8_t size, char *out, size_t outSize) {
+  out[0] = '\0';
+  for (uint8_t i = 0; i < size && strlen(out) + 3 < outSize; i++) {
+    char b[4];
+    snprintf(b, sizeof(b), i ? ":%02X" : "%02X", uid[i]);
+    strlcat(out, b, outSize);
+  }
+}
+
+int usePortalIdentity(const String &subject, const String &fullName);   // defined below
+
 int findAuthorizedUser(const RfidUid &uid) {
   for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
     if (uidEquals(uid, authorizedUsers[i].uid, authorizedUsers[i].size)) return (int)i;
+  }
+  // A card enrolled from the portal: its identity USERn goes into
+  // PORTAL_SLOT, exactly like a booking QR naming USERn.
+  int c = cardIndexByUid(uid.uidByte, uid.size);
+  if (c >= 0) {
+    return usePortalIdentity(String("USER") + portalCards[c].slot, String(portalCards[c].who));
   }
   return -1;
 }
@@ -520,8 +600,14 @@ bool rfidSameCardStillPresent() {
 // posting progress - so the access logic on core 1 never waits on Wi-Fi.
 constexpr uint32_t COMMAND_POLL_MS = 2000;
 
+// What a portal request asks for.
+constexpr uint8_t CMD_ENROLL_FINGER = 0;
+constexpr uint8_t CMD_ENROLL_CARD   = 1;
+constexpr uint8_t CMD_REMOVE_CARD   = 2;
+
 struct PortalCommand {          // what the task hands to loop()
   long    id;
+  uint8_t kind;                 // CMD_*
   uint8_t slot;
   bool    force;
   char    who[16];              // first name for the LCD / tablet
@@ -532,6 +618,7 @@ struct CommandProgress {        // what loop() hands back to the task
   char status[8];               // RUNNING / DONE / FAILED
   char step[24];
   char message[96];
+  char uid[32];                 // card commands: the card's UID, "89:52:FF:1F"
 };
 
 QueueHandle_t commandQueue  = nullptr;   // task -> loop
@@ -549,9 +636,23 @@ void queueProgress(long id, const char *status, const char *step, const char *me
   xQueueSend(progressQueue, &p, 0);
 }
 
+// Same, with the card UID (card enrollment / removal).
+void queueCardProgress(long id, const char *status, const char *step, const char *message,
+                       const char *uid) {
+  if (!progressQueue || id <= 0) return;
+  CommandProgress p = {};
+  p.id = id;
+  strlcpy(p.status, status, sizeof(p.status));
+  strlcpy(p.step, step, sizeof(p.step));
+  strlcpy(p.message, message ? message : "", sizeof(p.message));
+  strlcpy(p.uid, uid ? uid : "", sizeof(p.uid));
+  xQueueSend(progressQueue, &p, 0);
+}
+
 // Plain arguments, not the struct: the Arduino IDE puts its generated
 // prototypes above the struct definitions.
-void postProgress(long id, const char *status, const char *step, const char *message) {
+void postProgress(long id, const char *status, const char *step, const char *message,
+                  const char *uid) {
   WiFiClient client;
   HTTPClient http;
   if (!http.begin(client, backendBase() + "/access/commands/" + id + "/progress")) return;
@@ -560,7 +661,8 @@ void postProgress(long id, const char *status, const char *step, const char *mes
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", DEVICE_KEY);
   String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"status\":\"" + status +
-                "\",\"step\":\"" + step + "\",\"message\":\"" + message + "\"}";
+                "\",\"step\":\"" + step + "\",\"message\":\"" + message + "\"" +
+                (uid && *uid ? String(",\"uid\":\"") + uid + "\"" : String()) + "}";
   int code = http.POST(body);
   if (code != 200) Serial.printf("[PORTAL] progress for request %ld not recorded (HTTP %d)\n", id, code);
   http.end();
@@ -580,8 +682,12 @@ void fetchCommand() {
 
   PortalCommand c = {};
   c.id = jsonLong(reply, "id");
-  if (jsonStr(reply, "command") != "ENROLL_FINGERPRINT") {
-    postProgress(c.id, "FAILED", "UNKNOWN_COMMAND", "This firmware does not know that request");
+  String command = jsonStr(reply, "command");
+  if (command == "ENROLL_FINGERPRINT") c.kind = CMD_ENROLL_FINGER;
+  else if (command == "ENROLL_RFID")   c.kind = CMD_ENROLL_CARD;
+  else if (command == "REMOVE_RFID")   c.kind = CMD_REMOVE_CARD;
+  else {
+    postProgress(c.id, "FAILED", "UNKNOWN_COMMAND", "This firmware does not know that request", "");
     return;
   }
   long slot = jsonLong(reply, "slot");
@@ -596,7 +702,7 @@ void portalTask(void *) {
   for (;;) {
     // Wakes at once when loop() reports a step, else every COMMAND_POLL_MS.
     if (xQueueReceive(progressQueue, &p, pdMS_TO_TICKS(COMMAND_POLL_MS)) == pdTRUE) {
-      if (WiFi.status() == WL_CONNECTED) postProgress(p.id, p.status, p.step, p.message);
+      if (WiFi.status() == WL_CONNECTED) postProgress(p.id, p.status, p.step, p.message, p.uid);
       continue;
     }
     // Ask for work only while the door is idle and nothing is queued.
@@ -1553,6 +1659,7 @@ void tabletLoop();   // tablet_display.h, included further down
 // each step reported back. The door stays watched throughout: if it opens
 // while locked, enrollment stops and the forced-entry alarm takes over.
 char        enrollWho[16] = "";
+bool        enrollIsCard = false;      // RFID card enrollment (else fingerprint)
 const char *enrollLine1 = "";
 const char *enrollLine2 = "";
 long        enrollCmdId = 0;          // 0 = from the serial monitor
@@ -1564,7 +1671,7 @@ void enrollStep(const char *step, const char *line1, const char *line2, uint16_t
   Serial.printf("[ENROLL] %s - %s\n", line1, line2);
   Adafruit_GFX &g = gfx();
   g.fillScreen(C_BG);
-  header(g, C_HEADER, "FINGERPRINT");
+  header(g, C_HEADER, enrollIsCard ? "RFID CARD" : "FINGERPRINT");
   centerText(g, enrollWho, fitFont(g, enrollWho), 30, C_ACCENT);
   centerText(g, line1, &FreeSansBold9pt7b, 66, tone);
   centerText(g, line2, nullptr, 96, C_SUB);
@@ -1659,6 +1766,97 @@ void runEnrollment(uint8_t id, bool force, const char *who, long cmdId) {
   if (enrollDoorForced) goDoorAlarm(); else goIdle();
 }
 
+// ---------------------------------------------------------------------------
+// RFID card enrollment from the portal: the person taps their card; it is
+// stored for identity USERn in flash. A card already belonging to someone
+// else is refused. The door stays watched throughout, as for a finger.
+// ---------------------------------------------------------------------------
+void finishCardScreen(const char *result, bool ok, const char *line2) {
+  if (enrollDoorForced) return;
+  enrollStep(result, ok ? "CARD STORED" : "NOT STORED", line2, ok ? C_OK_LIGHT : C_WARN);
+  uint32_t t0 = millis();
+  while (millis() - t0 < 1800) { if (!enrollService()) break; delay(30); }
+}
+
+void runCardEnrollment(uint8_t slot, const char *who, long cmdId) {
+  enrollCmdId = cmdId;
+  enrollIsCard = true;
+  enrollDoorForced = false;
+  strlcpy(enrollWho, (who && *who) ? who : "", sizeof(enrollWho));
+  if (!enrollWho[0]) snprintf(enrollWho, sizeof(enrollWho), "USER%u", slot);
+  enrollActive = true;
+  if (cmdId) queueProgress(cmdId, "RUNNING", "STARTED", "Door controller started");
+
+  const char *result = "TIMEOUT", *why = "No card presented in time";
+  char text[32] = "";
+  if (rfidLinkDown) {
+    result = "READER_UNAVAILABLE"; why = "RFID reader not available";
+  } else {
+    enrollStep("PRESENT_CARD", "TAP YOUR CARD", "on the RFID reader", C_WHITE);
+    uint32_t start = millis();
+    while (millis() - start < 20000) {
+      if (!enrollService()) { result = "DOOR_OPENED"; why = "Stopped: door opened while locked"; break; }
+      if (!rfidDetectCard(100)) continue;
+      uidText(rfidUid.uidByte, rfidUid.size, text, sizeof(text));
+      // The card now resting on the reader must not start an entry afterwards.
+      rememberUID(rfidUid);
+      lastUIDSeenMs = millis();
+      int builtIn = -1;
+      for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++)
+        if (uidEquals(rfidUid, authorizedUsers[i].uid, authorizedUsers[i].size)) builtIn = (int)i;
+      int other = cardIndexByUid(rfidUid.uidByte, rfidUid.size);
+      if (builtIn >= 0 && authorizedUsers[builtIn].fingerprintId != slot) {
+        result = "CARD_IN_USE"; why = "This card already belongs to someone else";
+      } else if (other >= 0 && portalCards[other].slot != slot) {
+        result = "CARD_IN_USE"; why = "This card already belongs to someone else";
+      } else if (builtIn >= 0) {
+        result = "STORED"; why = "This is their built-in card - already works";
+      } else {
+        int i = cardIndexBySlot(slot);            // one card per person: a new one replaces it
+        if (i < 0 && portalCardCount >= MAX_PORTAL_CARDS) {
+          result = "FULL"; why = "Card memory full - remove a card first";
+        } else {
+          if (i < 0) i = portalCardCount++;
+          PortalCard &c = portalCards[i];
+          c.slot = slot;
+          c.size = rfidUid.size;
+          memset(c.uid, 0, sizeof(c.uid));
+          memcpy(c.uid, rfidUid.uidByte, rfidUid.size);
+          strlcpy(c.who, enrollWho, sizeof(c.who));
+          if (cardsSave()) { result = "STORED"; why = "Card stored"; }
+          else { cardsLoad(); result = "STORE_FAILED"; why = "Could not save - try again"; }
+        }
+      }
+      break;
+    }
+  }
+  bool ok = strcmp(result, "STORED") == 0;
+  Serial.printf("[CARD] USER%u: %s %s (%s)\n", slot, result, text, why);
+  if (cmdId) queueCardProgress(cmdId, ok ? "DONE" : "FAILED", result, why, text);
+  finishCardScreen(result, ok, ok ? text : why);
+  enrollActive = false;
+  enrollIsCard = false;
+  enrollCmdId = 0;
+  if (enrollDoorForced) goDoorAlarm(); else goIdle();
+}
+
+void runCardRemoval(uint8_t slot, long cmdId) {
+  int i = cardIndexBySlot(slot);
+  char text[32] = "";
+  if (i < 0) {
+    if (cmdId) queueCardProgress(cmdId, "DONE", "NO_CARD", "No card was stored for this person", "");
+    Serial.printf("[CARD] USER%u: no card stored\n", slot);
+    return;
+  }
+  uidText(portalCards[i].uid, portalCards[i].size, text, sizeof(text));
+  cardRemoveAt(i);
+  bool ok = cardsSave();
+  if (!ok) cardsLoad();
+  Serial.printf("[CARD] USER%u: card %s %s\n", slot, text, ok ? "removed" : "NOT removed");
+  if (cmdId) queueCardProgress(cmdId, ok ? "DONE" : "FAILED", ok ? "REMOVED" : "STORE_FAILED",
+                               ok ? "Card removed from the door" : "Could not save - try again", text);
+}
+
 // A request fetched by the portal task. Taken only while idle.
 void handlePortalCommand() {
   if (!commandQueue) return;
@@ -1669,7 +1867,16 @@ void handlePortalCommand() {
     return;
   }
   if (c.slot == 0) {
-    queueProgress(c.id, "FAILED", "BAD_SLOT", "Invalid fingerprint slot");
+    queueProgress(c.id, "FAILED", "BAD_SLOT", "Invalid door identity");
+    return;
+  }
+  if (c.kind == CMD_ENROLL_CARD) {
+    Serial.printf("[CARD] Portal request %ld: card for USER%u (%s)\n", c.id, c.slot, c.who);
+    runCardEnrollment(c.slot, c.who, c.id);
+    return;
+  }
+  if (c.kind == CMD_REMOVE_CARD) {
+    runCardRemoval(c.slot, c.id);
     return;
   }
   Serial.printf("[ENROLL] Portal request %ld: slot %u (%s)%s\n", c.id, c.slot, c.who,
@@ -1688,6 +1895,21 @@ void runSerialCommand(String line) {
       Serial.printf("[CMD] %u fingerprints stored.\n", finger.templateCount);
     else
       Serial.println("[CMD] Fingerprint sensor not available.");
+    return;
+  }
+  if (line == "cards") {
+    Serial.printf("[CMD] %u portal card(s) stored (max %u):\n", portalCardCount, MAX_PORTAL_CARDS);
+    for (uint8_t i = 0; i < portalCardCount; i++) {
+      char t[32];
+      uidText(portalCards[i].uid, portalCards[i].size, t, sizeof(t));
+      Serial.printf("  USER%u  %-12s %s\n", portalCards[i].slot, portalCards[i].who, t);
+    }
+    return;
+  }
+  if (line.startsWith("card delete ")) {
+    long n = line.substring(12).toInt();
+    if (n < 1 || n > MAX_FINGER_SLOT) { Serial.println("[CMD] card delete <n>"); return; }
+    runCardRemoval((uint8_t)n, 0);
     return;
   }
   bool isEnroll = line.startsWith("enroll ");
@@ -1711,7 +1933,7 @@ void runSerialCommand(String line) {
     goIdle();                      // redraw the idle screen
     return;
   }
-  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count");
+  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count | cards | card delete <n>");
 }
 
 void pollSerialCommands() {
@@ -1856,7 +2078,9 @@ void setup() {
   }
   tabletBegin();       // read-only tablet display; the door never depends on it
   portraitBegin();     // grant-screen photos from the face server, in the background
-  portalTaskBegin();   // portal requests (fingerprint enrollment), in the background
+  cardsLoad();         // RFID cards enrolled from the portal (flash)
+  Serial.printf("[CARD] %u portal card(s) loaded from flash\n", portalCardCount);
+  portalTaskBegin();   // portal requests (fingerprint / card enrollment), in the background
 
   Serial.println();
   Serial.println("=================================================");

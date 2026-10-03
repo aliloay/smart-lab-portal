@@ -1,11 +1,16 @@
 """
-Fingerprint enrollment from the portal, through device commands.
+Fingerprint and RFID card enrollment from the portal, through device commands.
 
 Staff press "Enroll fingerprint" on Users & roles. The portal records a
 request; the door controller fetches it while idle, prompts the person on
 its LCD and the tablet ("place your finger... again"), stores the finger in
 slot n of the sensor (USERn), and reports each step back. The portal never
 reaches into the controller - see app/services/commands.py.
+
+RFID card: same path. The controller asks the person to tap their card,
+stores it in its own flash for USERn (so the door keeps working offline) and
+reports the card's UID, which the portal records as the person's active
+card. "Remove card" deletes it on the controller, then revokes it here.
 """
 from __future__ import annotations
 
@@ -20,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, require_device, require_staff
 from app.db.session import get_db
-from app.models import AuditLog, Device, DeviceCommand, DeviceType, User
+from app.models import AuditLog, Device, DeviceCommand, DeviceType, RfidCredential, User
 from app.services import commands as cmds
 from app.services import enrolment
 from app.services.access import get_device
@@ -97,6 +102,93 @@ def request_enrollment(user_id: int, req: EnrollRequest, db: Session = Depends(g
     return cmds.out(c)
 
 
+def _queue(db: Session, u: User, staff: User, command: str, lab_id: Optional[int],
+           args: dict, action: str) -> DeviceCommand:
+    """One request for the door controller, with the same rules as a finger."""
+    device = _controller(db, lab_id)
+    cmds.expire_stale(db)
+    if cmds.active_for_device(db, device.id):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The door controller is busy with another request. "
+                            "Wait for it to finish or cancel it.")
+    now = datetime.now(timezone.utc)
+    c = DeviceCommand(device_id=device.id, command=command,
+                      args={**args, "auth_subject": u.auth_subject,
+                            "display_name": _first_name(u)},
+                      status="PENDING", target_user_id=u.id, requested_by_id=staff.id,
+                      created_at=now, expires_at=now + cmds.PICKUP_WINDOW)
+    db.add(c)
+    db.flush()
+    db.add(AuditLog(actor_user_id=staff.id, action=action, entity_type="user",
+                    entity_id=str(u.id), detail={**args, "command_id": c.id,
+                                                 "device": device.device_uid}))
+    cmds.publish_later(db, c)
+    db.commit()
+    cmds.flush_published(db)
+    return c
+
+
+class CardRequest(BaseModel):
+    lab_id: Optional[int] = None
+
+
+@router.post("/users/{user_id}/rfid/enroll")
+def request_card_enrollment(user_id: int, req: CardRequest, db: Session = Depends(get_db),
+                            staff: User = Depends(require_staff)):
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    slot = _slot(u)
+    return cmds.out(_queue(db, u, staff, cmds.ENROLL_RFID, req.lab_id, {"slot": slot},
+                           "RFID_ENROLL_REQUESTED"))
+
+
+@router.post("/users/{user_id}/rfid/remove")
+def request_card_removal(user_id: int, req: CardRequest, db: Session = Depends(get_db),
+                         staff: User = Depends(require_staff)):
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    slot = _slot(u)
+    return cmds.out(_queue(db, u, staff, cmds.REMOVE_RFID, req.lab_id, {"slot": slot},
+                           "RFID_REMOVE_REQUESTED"))
+
+
+def _hex(uid: str) -> str:
+    return re.sub(r"[^0-9A-Fa-f]", "", uid).upper()
+
+
+@router.get("/users/{user_id}/rfid")
+def user_cards(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """The person's active cards (UIDs are identifiers, not secrets)."""
+    rows = db.scalars(select(RfidCredential).where(
+        RfidCredential.user_id == user_id, RfidCredential.is_active.is_(True),
+        RfidCredential.revoked_at.is_(None)).order_by(RfidCredential.issued_at)).all()
+    return [{"id": r.id, "uid_hex": r.uid_hex, "label": r.label, "issued_at": r.issued_at}
+            for r in rows]
+
+
+def _record_card(db: Session, target: User, uid: str, now: datetime) -> None:
+    """The controller stored this card for the person: it is now their one card."""
+    uid_hex = _hex(uid)
+    for r in db.scalars(select(RfidCredential).where(
+            RfidCredential.user_id == target.id, RfidCredential.is_active.is_(True))).all():
+        if r.uid_hex != uid_hex:
+            r.is_active, r.revoked_at = False, now
+    row = db.scalar(select(RfidCredential).where(RfidCredential.uid_hex == uid_hex))
+    if row is None:
+        db.add(RfidCredential(uid_hex=uid_hex, label="Enrolled at the door",
+                              user_id=target.id, issued_at=now))
+    else:                       # re-issued (or moved from a revoked owner)
+        row.user_id, row.is_active, row.revoked_at, row.issued_at = target.id, True, None, now
+
+
+def _revoke_cards(db: Session, target: User, now: datetime) -> None:
+    for r in db.scalars(select(RfidCredential).where(
+            RfidCredential.user_id == target.id, RfidCredential.is_active.is_(True))).all():
+        r.is_active, r.revoked_at = False, now
+
+
 @router.get("/device-commands/{command_id}")
 def command_status(command_id: int, db: Session = Depends(get_db),
                    _: User = Depends(require_staff)):
@@ -164,6 +256,8 @@ class ProgressReport(BaseModel):
     status: Literal["RUNNING", "DONE", "FAILED"]
     step: Optional[str] = Field(default=None, max_length=32)
     message: Optional[str] = Field(default=None, max_length=255)
+    # Card commands: the card's UID as the controller read it ("89:52:FF:1F").
+    uid: Optional[str] = Field(default=None, max_length=32)
 
 
 @router.post("/access/commands/{command_id}/progress", tags=["devices"])
@@ -193,6 +287,21 @@ def report_progress(command_id: int, req: ProgressReport, db: Session = Depends(
                             detail={"slot": (c.args or {}).get("slot"),
                                     "command_id": c.id, "step": req.step,
                                     "message": req.message,
+                                    "device": device.device_uid}))
+        if c.command == cmds.ENROLL_RFID and target is not None:
+            if req.status == "DONE" and req.uid and _hex(req.uid):
+                _record_card(db, target, req.uid, now)
+            db.add(AuditLog(actor_user_id=c.requested_by_id,
+                            action="RFID_ENROLLED" if req.status == "DONE"
+                            else "RFID_ENROLL_FAILED",
+                            entity_type="user", entity_id=str(target.id),
+                            detail={"uid": req.uid, "command_id": c.id, "step": req.step,
+                                    "message": req.message, "device": device.device_uid}))
+        if c.command == cmds.REMOVE_RFID and target is not None and req.status == "DONE":
+            _revoke_cards(db, target, now)
+            db.add(AuditLog(actor_user_id=c.requested_by_id, action="RFID_REMOVED",
+                            entity_type="user", entity_id=str(target.id),
+                            detail={"uid": req.uid, "command_id": c.id,
                                     "device": device.device_uid}))
     cmds.publish_later(db, c)
     db.commit()

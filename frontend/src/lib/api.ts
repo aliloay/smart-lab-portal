@@ -891,6 +891,17 @@ export const api = {
     post<FaceSubmission>(`/face-submissions/${id}/reject`, { reason }),
   fingerprintEnroll: (id: number, force: boolean) =>
     post<DeviceCommand>(`/users/${id}/fingerprint/enroll`, { force }),
+  // RFID card: the person taps it at the door; the controller stores it.
+  cardEnroll: (id: number) => post<DeviceCommand>(`/users/${id}/rfid/enroll`, {}),
+  cardRemove: (id: number) => post<DeviceCommand>(`/users/${id}/rfid/remove`, {}),
+  userCards: (id: number) => request<{ id: number; uid_hex: string; label: string; issued_at: string }[]>(`/users/${id}/rfid`),
+  // Face photos uploaded by staff: straight to the face server, nothing kept.
+  faceUpload: (id: number, files: File[], onProgress?: (f: number) => void) => {
+    const form = new FormData()
+    files.forEach(f => form.append('files', f))
+    return upload<{ sent: number; saved: number; samples: number; face_enrolled: boolean; message: string }>(
+      `/users/${id}/face/upload`, form, onProgress)
+  },
   deviceCommand: (id: number) => request<DeviceCommand>(`/device-commands/${id}`),
   cancelDeviceCommand: (id: number) => post<DeviceCommand>(`/device-commands/${id}/cancel`),
   faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),

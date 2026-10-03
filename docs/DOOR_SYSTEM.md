@@ -354,18 +354,35 @@ tablet at ACCESS GRANTED. The door never waits for it:
 - Older enrollments (before this feature) have no colour photo: capture a few
   more samples for that person on the camera page and one is created.
 
+### RFID cards enrolled from the portal
+
+Users & roles -> Enroll -> RFID card -> *Enroll card at the door*. Same path
+as a finger: the master fetches the request while the door is idle, shows
+TAP YOUR CARD on the LCD and the tablet for 20 s, and stores the card for
+USERn in its own flash (NVS, up to 40 cards), so the card keeps working with
+the laptop or the Wi-Fi down. It reports the card's UID, which the portal
+records as the person's one active card; a new card replaces the old one.
+A card that already belongs to someone else is refused. *Remove* deletes it
+on the master, then revokes it in the portal. The two built-in cards (USER1,
+USER2) stay compiled in. Serial monitor: `cards` lists the stored cards,
+`card delete <n>` removes USERn's card.
+
 ### Live camera view on the tablet
 
-On the Scan / Verify screens the tablet shows a small live view under the
-text, with a box around the face and a hint: *Look at the camera*, *Come a
+After step 1 (QR code or card), while the person verifies, the tablet shows
+a small live view under the text, with a box around the face and a hint: *Look at the camera*, *Come a
 little closer*, *Step back a little*, *Center your face in the frame*, *Face
 the camera straight*, *Keep your head level*, *Recognised - hold still*.
 
 It costs the camera nothing. The ESP32-CAM already POSTs every frame to the
 face server's `/analyze`. The face server keeps the last frame and the face
-box it found anyway, and the tablet fetches them from the laptop
-(`http://<laptop>:5000/preview.jpg` and `/preview/state`, about 4 times a
-second). The camera is never asked for anything extra, and the door decision
+box it found anyway. The face server pushes each frame to the tablet the
+moment the camera's POST arrives (`http://<laptop>:5000/preview.mjpg`, an
+MJPEG stream), so the view runs at the camera's own rate; the hint and box
+come from `/preview/state` about 3 times a second. Measured with test frames
+at 10 frames/s: the stream ran at 10.1 frames/s and a frame reached the
+viewer about 2 ms after the camera sent it. At most two viewers stream at
+once, so viewers can never take the server threads the camera needs. The camera is never asked for anything extra, and the door decision
 path is unchanged. Measured `/analyze` median was about 35 ms with the
 preview on vs about 37 ms with it off, i.e. no slowdown.
 

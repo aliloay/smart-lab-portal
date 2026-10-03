@@ -115,3 +115,71 @@ def test_camera_offline_is_a_clear_503(client, staff, newbie, fake_devices):
     r = client.post(f"/api/users/{newbie.id}/face/capture", headers=h)
     assert r.status_code == 503
     assert "camera" in r.json()["detail"]
+
+
+# --------------------------------------------- photos uploaded by staff ---
+def _png(color=(200, 150, 120)) -> bytes:
+    import io
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new("RGB", (64, 64), color).save(b, "PNG")
+    return b.getvalue()
+
+
+@pytest.fixture
+def fake_face_server(monkeypatch):
+    """/enroll saves a sample unless the photo is all black (no face)."""
+    state = {"samples": 0, "trained": 0, "posted": []}
+
+    def get(url, params=None, timeout=None):
+        assert url.endswith("/users")
+        return _Resp({"users": {"USER7": state["samples"]}, "portraits": ["USER7"]})
+
+    def post(url, params=None, content=None, headers=None, timeout=None):
+        if url.endswith("/train"):
+            state["trained"] += 1
+            return _Resp({"status": "trained"})
+        assert url.endswith("/enroll") and params == {"name": "USER7"}
+        state["posted"].append(headers["Content-Type"])
+        from PIL import Image
+        import io
+        if Image.open(io.BytesIO(content)).getpixel((1, 1)) == (0, 0, 0):
+            return _Resp({"status": "no_face"})
+        state["samples"] += 1
+        return _Resp({"status": "saved"})
+
+    monkeypatch.setattr(enrollment.httpx, "get", get)
+    monkeypatch.setattr(enrollment.httpx, "post", post)
+    return state
+
+
+def _upload(client, h, user, photos):
+    return client.post(f"/api/users/{user.id}/face/upload", headers=h,
+                       files=[("files", (f"p{i}.png", p, "image/png")) for i, p in enumerate(photos)])
+
+
+def test_staff_upload_photos_registers_face(client, db, staff, newbie, fake_face_server):
+    h = auth_headers(client, staff.email)
+    r = _upload(client, h, newbie, [_png(), _png(), _png(), _png((0, 0, 0))])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["saved"] == 3 and body["sent"] == 4 and body["face_enrolled"] is True
+    assert "1 had no clear face" in body["message"]
+    assert fake_face_server["trained"] == 1
+    db.refresh(newbie)
+    assert newbie.face_enrolled_at is not None
+    assert db.query(AuditLog).filter_by(action="FACE_PHOTOS_UPLOADED").count() == 1
+
+
+def test_too_few_uploaded_photos_do_not_register(client, db, staff, newbie, fake_face_server):
+    r = _upload(client, auth_headers(client, staff.email), newbie, [_png()])
+    assert r.status_code == 200 and r.json()["face_enrolled"] is False
+    db.refresh(newbie)
+    assert newbie.face_enrolled_at is None
+
+
+def test_upload_rejects_non_images_and_students(client, staff, alice, newbie, fake_face_server):
+    r = client.post(f"/api/users/{newbie.id}/face/upload", headers=auth_headers(client, staff.email),
+                    files=[("files", ("x.png", b"not an image", "image/png"))])
+    assert r.status_code == 400 and fake_face_server["posted"] == []
+    assert _upload(client, auth_headers(client, alice.email), newbie, [_png()]).status_code == 403

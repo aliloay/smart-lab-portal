@@ -8,7 +8,7 @@
  * camera's own page is linked for anything done there by hand.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, CheckCircle2, ExternalLink, Pause, Play, ScanFace } from 'lucide-react'
+import { Camera, CheckCircle2, ExternalLink, ImagePlus, Pause, Play, ScanFace } from 'lucide-react'
 import { FaceStatus, api, fetchBlob } from '../lib/api'
 import { fmtDateTime } from '../lib/time'
 import { ErrorBanner, ProgressBar, Spinner } from './ui'
@@ -34,6 +34,8 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   const [auto, setAuto] = useState(false)
   const [done, setDone] = useState(false)
   const autoRef = useRef(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState<number | null>(null)
 
   const load = useCallback(() => {
     api.faceStatus(userId).then(setSt).catch(e => setError(e.message))
@@ -100,6 +102,24 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
     setAuto(false)
   }
 
+  // Photos staff already have (e.g. from a phone): straight to the face server.
+  async function uploadPhotos(list: FileList | null) {
+    if (!list?.length) return
+    setUploading(0); setError(''); setDone(false)
+    try {
+      const r = await api.faceUpload(userId, Array.from(list), f => setUploading(f))
+      setMsg(r.message)
+      setDone(r.face_enrolled)
+      load()
+      if (r.face_enrolled) onEnrolled()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setUploading(null)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
   async function finish() {
     autoRef.current = false
     setBusy(true); setError('')
@@ -157,9 +177,18 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
       )}
 
       {!open ? (
-        <button type="button" className="btn-ghost btn-sm w-full" onClick={() => { setOpen(true); setDone(false); setMsg('') }}>
-          <Camera size={14} /> {samples ? 'Add face samples' : 'Enroll face'}
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className="btn-ghost btn-sm" onClick={() => { setOpen(true); setDone(false); setMsg('') }}>
+            <Camera size={14} /> {samples ? 'Add at the camera' : 'Enroll at the camera'}
+          </button>
+          <button type="button" className="btn-ghost btn-sm" disabled={uploading !== null || !st?.face_server_online}
+                  title="Clear, front-facing photos of this person (JPEG/PNG), up to 20"
+                  onClick={() => fileRef.current?.click()}>
+            <ImagePlus size={14} /> {uploading !== null ? `Uploading ${Math.round(uploading * 100)}%` : 'Upload photos'}
+          </button>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden
+                 onChange={e => uploadPhotos(e.target.files)} />
+        </div>
       ) : (
         <div className="space-y-2.5">
           <div className="relative aspect-[4/3] rounded-lg overflow-hidden bg-ink-900 border border-ink-600/70">
