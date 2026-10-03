@@ -9,8 +9,9 @@
  * always works.
  */
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
-import { Bot, ListOrdered, MessageCircle, Send, Sparkles, TriangleAlert, X } from 'lucide-react'
+import { Bot, ListOrdered, Maximize2, MessageCircle, Minimize2, Send, Sparkles, TriangleAlert, X } from 'lucide-react'
 import { AiAnswer, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
@@ -67,7 +68,11 @@ function SetupHint({ s }: { s: AiStatus }) {
     detail={`In a terminal on that computer run: ${s.missing_models.map(m => `ollama pull ${m}`).join('  and  ')}`} />
 }
 
-export function AskTheLab({ mode = 'staff' }: { mode?: 'staff' | 'student' }) {
+export function AskTheLab({ mode = 'staff', fill = false }: {
+  mode?: 'staff' | 'student'
+  /** Fill the parent's height (the chat panel) instead of a fixed-height box. */
+  fill?: boolean
+}) {
   const student = mode === 'student'
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [turns, setTurns] = useState<Turn[]>([])
@@ -111,8 +116,8 @@ export function AskTheLab({ mode = 'staff' }: { mode?: 'staff' | 'student' }) {
       : null
   }
   return (
-    <div className="flex flex-col">
-      <div className="max-h-[420px] overflow-y-auto space-y-3 pr-1">
+    <div className={`flex flex-col ${fill ? 'h-full min-h-0 text-[14.5px]' : ''}`}>
+      <div className={`${fill ? 'flex-1 min-h-0' : 'max-h-[420px]'} overflow-y-auto space-y-3 pr-1`}>
         {turns.length === 0 && (
           <div className="space-y-2">
             <p className="text-[12.5px] text-slate-400">{student
@@ -127,8 +132,8 @@ export function AskTheLab({ mode = 'staff' }: { mode?: 'staff' | 'student' }) {
           </div>)}
         {turns.map((t, i) => t.role === 'user' ? (
           <div key={i} className="flex justify-end">
-            <div className="max-w-[85%] rounded-xl rounded-br-sm bg-accent-500/15 border border-accent-400/25
-                            px-3.5 py-2 text-[13.5px] text-slate-100">{t.content}</div>
+            <div className={`max-w-[85%] rounded-xl rounded-br-sm bg-accent-500/15 border border-accent-400/25
+                            px-3.5 py-2 ${fill ? 'text-[14.5px]' : 'text-[13.5px]'} text-slate-100`}>{t.content}</div>
           </div>
         ) : (
           <div key={i} className="flex gap-2.5">
@@ -249,12 +254,29 @@ export function useChatAvailable(): boolean {
   return available
 }
 
+const CHAT_SIZE = 'slp.chatSize'
+
 export function ChatBubble() {
   const { user } = useAuth()
   const loc = useLocation()
   const staff = isStaff(user)
   const [open, setOpen] = useState(false)
+  // 'large' = tall panel at the right; 'full' = almost the whole window.
+  const [size, setSize] = useState<'large' | 'full'>(() => {
+    try { return localStorage.getItem(CHAT_SIZE) === 'full' ? 'full' : 'large' } catch { return 'large' }
+  })
   const available = useChatAvailable()
+  const toggleSize = () => setSize(v => {
+    const next = v === 'full' ? 'large' : 'full'
+    try { localStorage.setItem(CHAT_SIZE, next) } catch { /* private mode */ }
+    return next
+  })
+  useEffect(() => {
+    if (!open) return
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [open])
 
   useEffect(() => {
     const show = () => setOpen(true)
@@ -266,27 +288,47 @@ export function ChatBubble() {
   // The Operations Center already shows the full panel; the bubble appears
   // there only when opened from the sidebar.
   if (loc.pathname === '/admin/operations' && !open) return null
-  return (
+  // Portal to <body>: the page wrapper is its own layer and would keep the
+  // panel under the sidebar.
+  return createPortal(
     <>
-      <div className={`fixed z-40 bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[410px]
-                       card p-4 shadow-2xl ${open ? '' : 'hidden'}`}
-           role="dialog" aria-label="AI assistant">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="grid place-items-center w-7 h-7 rounded-lg bg-violet-500/15 text-violet-300">
-            <Sparkles size={14} /></span>
-          <div className="flex-1 text-sm font-medium text-white">
-            {staff ? 'Ask the lab' : 'Ask Smart Lab'}</div>
-          <button onClick={() => setOpen(false)} aria-label="Close" className="p-1 text-slate-400 hover:text-white">
-            <X size={16} /></button>
+      {open && size === 'full' && (
+        <div className="fixed inset-0 z-[60] bg-ink-950/60 backdrop-blur-[2px]" onClick={() => setOpen(false)} />)}
+      {/* Pops out of the bubble (bottom-right). Stays mounted when closed so
+          the conversation survives navigation. */}
+      <div className={`fixed z-[61] card p-5 shadow-2xl flex flex-col origin-bottom-right
+                       transition-[opacity,transform] duration-200 ease-out
+                       ${size === 'full'
+                         ? 'top-4 bottom-24 left-4 right-4 sm:top-8 sm:left-[max(2rem,calc(50vw-36rem))] sm:right-[max(2rem,calc(50vw-36rem))]'
+                         : 'top-20 bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[min(760px,calc(100vw-3rem))]'}
+                       ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}
+           role="dialog" aria-label="AI assistant" aria-hidden={!open}>
+        <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-ink-600/70">
+          <span className="grid place-items-center w-9 h-9 rounded-xl bg-violet-500/15 text-violet-300">
+            <Sparkles size={17} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[16px] font-semibold text-white">{staff ? 'Ask the lab' : 'Ask Smart Lab'}</div>
+            <div className="text-[12px] text-slate-400">
+              {staff ? 'Answers from the portal’s own records' : 'Your bookings, reports and free labs'}</div>
+          </div>
+          <button onClick={toggleSize} aria-label={size === 'full' ? 'Smaller' : 'Full screen'}
+                  title={size === 'full' ? 'Smaller' : 'Full screen'}
+                  className="hidden sm:grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
+            {size === 'full' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+          <button onClick={() => setOpen(false)} aria-label="Close"
+                  className="grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
+            <X size={17} /></button>
         </div>
-        <AskTheLab mode={staff ? 'staff' : 'student'} />
+        <div className="flex-1 min-h-0">
+          <AskTheLab mode={staff ? 'staff' : 'student'} fill />
+        </div>
       </div>
       <button onClick={() => setOpen(o => !o)} aria-label={open ? 'Close assistant' : 'Open AI assistant'}
-        className="fixed z-40 bottom-5 right-4 sm:right-6 w-14 h-14 rounded-full grid place-items-center
+        className="fixed z-[62] bottom-5 right-4 sm:right-6 w-14 h-14 rounded-full grid place-items-center
                    bg-gradient-to-br from-accent-500 to-violet-500 text-white shadow-lg
                    hover:scale-105 transition-transform">
         {open ? <X size={22} /> : <MessageCircle size={22} />}
       </button>
-    </>
-  )
+    </>,
+    document.body)
 }
