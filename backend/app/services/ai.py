@@ -400,9 +400,11 @@ OLLAMA_KEEP_ALIVE = "2h"
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
 OLLAMA_EXTRA = """
-- Only call the tools listed. Call a tool before answering any question
-  about numbers, labs, issues or devices.
-- Answer in the same language as the question."""
+- The SNAPSHOT below comes from the database and already answers most
+  questions: answer from it directly. Call a tool only for what it does not
+  cover (another period, one lab's details, the issue list...).
+- Only call the tools listed.
+- Answer in the same language as the question. Be brief: a few bullets."""
 
 
 def _ctx_for(model: str) -> int:
@@ -510,9 +512,10 @@ def _ollama_tools() -> list[dict]:
 
 
 def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
+    from app.services.agent import snapshot
     model = settings.OLLAMA_MODEL
     messages = [{"role": "system",
-                 "content": _staff_system(OLLAMA_EXTRA)}]
+                 "content": _staff_system(OLLAMA_EXTRA) + "\n\n" + snapshot(db)}]
     messages += _history(question, history)
     tools = _ollama_tools()
     tools_used: list[str] = []

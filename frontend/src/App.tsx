@@ -26,6 +26,7 @@ import AssetDetail from './pages/AssetDetail'
 import Alerts from './pages/Alerts'
 import Users from './pages/Users'
 import Settings from './pages/Settings'
+import Emergency from './pages/Emergency'
 import ReportIssue from './pages/issues/ReportIssue'
 import IssueList from './pages/issues/IssueList'
 import IssueDetail from './pages/issues/IssueDetail'
@@ -36,6 +37,7 @@ import Profile from './pages/Profile'
 const Reports = lazy(() => import('./pages/Reports'))
 const Operations = lazy(() => import('./pages/Operations'))
 const Monitor = lazy(() => import('./pages/Monitor'))
+const ReportPrint = lazy(() => import('./pages/ReportPrint'))
 
 function Chunk({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>
@@ -74,6 +76,10 @@ export default function App() {
   if (staff && loc.pathname === '/monitor') {
     return <LiveProvider><Chunk><Monitor /></Chunk></LiveProvider>
   }
+  // The printable weekly / monthly report: its own page, white, for "Save as PDF".
+  if (staff && loc.pathname === '/report') {
+    return <Chunk><ReportPrint /></Chunk>
+  }
 
   return (
     <LiveProvider>
@@ -107,6 +113,7 @@ export default function App() {
           <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/admin/users" element={adminOnly(<Users />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />
+          <Route path="/admin/emergency" element={adminOnly(<Emergency />)} />
 
           {/* Earlier addresses keep working. */}
           <Route path="/admin" element={<Navigate to="/" replace />} />

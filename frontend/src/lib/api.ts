@@ -66,6 +66,22 @@ export interface MonitorTile {
   motion: boolean
   /** The lab's fixed security camera (tools/security_vision); null = none. */
   security_camera: SecurityCameraTile | null
+  /** Set by an administrator from the Emergency tab; null = none. */
+  emergency: EmergencyState | null
+}
+
+export interface EmergencyState {
+  door_mode: 'NORMAL' | 'UNLOCKED' | 'LOCKDOWN'; door_until: string | null; door_remaining_s: number | null
+  message: string; message_until: string | null; alarm: boolean; version: number; active: boolean
+  updated_at: string
+}
+export interface EmergencyLab extends EmergencyState {
+  lab_id: number; code: string; name: string; has_door: boolean; controller_online: boolean | null
+  door_closed: boolean | null; lock_released: boolean | null; applied: boolean; updated_by: string | null
+}
+export interface EmergencyAction {
+  door?: 'NORMAL' | 'UNLOCKED' | 'LOCKDOWN'; minutes?: number | null
+  message?: string; message_minutes?: number | null; alarm?: boolean
 }
 
 export interface SecurityCameraTile {
@@ -374,6 +390,7 @@ export interface Asset {
   maintenance_due: boolean
   /** NFC sticker for the reusable smart bin; null = not tagged. */
   nfc_uid?: string | null
+  unit_mass_g?: number | null
   /** Kept in the reusable smart bin (System 4), not fixed equipment. */
   bin_item?: boolean
 }
@@ -691,7 +708,29 @@ export interface Priority {
   age_hours: number; sla_hours: number | null; overdue: boolean
   bookings_next_24h: number; score: number; reasons: string[]; link: string
 }
-export interface AiAnswer { answer: string; tools_used: string[]; model: string }
+export interface AiAnswer {
+  answer: string; tools_used: string[]; model: string
+  /** Answered by the agent straight from the records (no model). */
+  instant?: boolean; link?: { label: string; to: string }
+}
+export interface ManagementReport {
+  kind: 'weekly' | 'monthly'; span: string; title: string; period_label: string; generated_at: string
+  lines: string[]
+  bookings: { total: number; confirmed: number; cancelled: number; rejected: number; finished: number
+    attended: number; no_show: number; attendance_rate: number | null; booked_hours: number }
+  access: { granted: number; denied: number; identity_mismatch: number; forced_entry: number; door_held_open: number }
+  sessions: { started: number; exit_recorded: number; exit_not_recorded: number }
+  maintenance: { opened: number; resolved: number; open_now: number; critical_open: number; overdue_now: number }
+  devices: { offline_now: string[]; offline_events: number }
+  alerts: { opened: number }
+  labs: { lab_code: string; bookings: number; hours: number; attended: number }[]
+  change_pct: { bookings: number | null; hours: number | null; entries: number | null }
+  equipment: { device_uid: string; name: string; kind: string; lab_code: string | null; running_h: number
+    idle_h: number; fault_h: number; faults: number; users: number; master_pc: boolean }[]
+  insights: { kind: string; title: string; lab_code: string | null; count: number; severity: string
+    recommendation: string; first?: string | null; last?: string | null }[]
+  top_denials: { reason: string; count: number; meaning: string }[]
+}
 export interface AiStatus {
   configured: boolean; provider: 'ollama' | 'anthropic' | null; model: string | null
   student_model?: string | null; reachable: boolean; missing_models: string[]; questions_per_hour: number
@@ -869,6 +908,26 @@ export const api = {
   userAccessSetup: (id: number) => request<AccessSetup>(`/users/${id}/access-setup`),
   nextAuthSubject: () => request<{ auth_subject: string | null }>('/users/next-auth-subject'),
   monitor: () => request<{ generated_at: string; labs: MonitorTile[] }>('/monitor'),
+  // Emergency tab (admin): the token comes from the password, for a few minutes.
+  emergencySession: (password: string) =>
+    post<{ token: string; expires_at: string }>('/emergency/session', { password }),
+  emergencyStatus: () => request<{ password_set: boolean; labs: EmergencyLab[]
+    pcs: { total: number; locked: number; master: number } }>('/emergency/status'),
+  emergencyAct: (token: string, labId: number, a: EmergencyAction) =>
+    request<EmergencyState>(`/emergency/labs/${labId}`, { method: 'POST', body: JSON.stringify(a),
+      headers: { 'X-Emergency-Token': token } }),
+  emergencyNormal: (token: string, labId: number) =>
+    request<EmergencyState>(`/emergency/labs/${labId}/normal`, { method: 'POST',
+      headers: { 'X-Emergency-Token': token } }),
+  emergencyPcs: (token: string, a: { action: 'LOCK' | 'UNLOCK' | 'MESSAGE'; text?: string; include_master?: boolean }) =>
+    request<{ done: number }>('/emergency/pcs', { method: 'POST', body: JSON.stringify(a),
+      headers: { 'X-Emergency-Token': token } }),
+  emergencyPassword: (token: string, new_password: string) =>
+    request<{ ok: boolean }>('/emergency/password', { method: 'PUT', body: JSON.stringify({ new_password }),
+      headers: { 'X-Emergency-Token': token } }),
+  setMasterPc: (id: number, is_master: boolean) =>
+    request<{ device_id: number; is_master_pc: boolean }>(`/equipment/${id}/master`,
+      { method: 'PUT', body: JSON.stringify({ is_master }) }),
   // Security camera (fixed, lab corner): frames come through the portal.
   securityCameras: () => request<SecurityCamera[]>('/security/cameras'),
   securityZones: (cam: number) => request<SecurityZone[]>(`/security/cameras/${cam}/zones`),
@@ -887,7 +946,7 @@ export const api = {
     lab_code: string | null; online: boolean | null; last_seen_at: string | null
     state: 'RUNNING' | 'IDLE' | 'FAULT' | null; since: string | null; detail: Record<string, unknown>
     user_name: string | null; booking_id: number | null; mode: PcMode
-    running_today_s: number; open_violations: number }[]>('/equipment'),
+    running_today_s: number; open_violations: number; is_master_pc: boolean }[]>('/equipment'),
   equipmentViolations: () => request<{ id: number; device_uid: string; kind: string; detail: string
     os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
   setEquipmentMode: (id: number, mode: PcMode) =>
@@ -901,6 +960,9 @@ export const api = {
       `/reusable/items?lab_id=${labId}`),
   takeFromBin: (assetId: number) =>
     post<DeviceCommand & { message: string }>('/reusable/checkout', { asset_id: assetId }),
+  setItemMass: (assetId: number, unit_mass_g: number | null) =>
+    request<{ asset_id: number; unit_mass_g: number | null }>(
+      `/reusable/assets/${assetId}/mass`, { method: 'PUT', body: JSON.stringify({ unit_mass_g }) }),
   lastUnknownTag: () => request<{ nfc_uid: string; device_uid: string; at: string } | null>('/reusable/last-unknown'),
   assignTag: (assetId: number, nfc_uid: string | null) =>
     request<{ asset_id: number; asset_tag: string; nfc_uid: string | null }>(
@@ -988,6 +1050,7 @@ export const api = {
     post<AiAnswer>('/ai/student/ask', { question, history }),
   aiAsk: (question: string, history: { role: 'user' | 'assistant'; content: string }[] = []) =>
     post<AiAnswer>('/ai/ask', { question, history }),
+  managementReport: (period: 'weekly' | 'monthly') => request<ManagementReport>(`/ai/report?period=${period}`),
   aiSummary: (kind: 'issues' | 'weekly') => post<AiAnswer>(`/ai/summaries/${kind}`),
   priorities: (limit = 20) =>
     request<{ open_issues: number; scoring: string[]; priorities: Priority[] }>(

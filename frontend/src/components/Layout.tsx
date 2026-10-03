@@ -6,7 +6,7 @@ import {
   ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
   ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
-  Cctv,
+  Cctv, Siren,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
@@ -94,6 +94,7 @@ const ADMIN_NAV: Section[] = [
   { title: 'Administration', items: [
     { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
     { to: '/admin/settings', label: 'Settings', icon: <Settings size={17} /> },
+    { to: '/admin/emergency', label: 'Emergency', icon: <Siren size={17} /> },
   ]},
 ]
 

@@ -50,7 +50,7 @@ export default function Settings() {
               <div className="card p-4"><dl>
                 <KV label="Offline after">{c.device_stale_seconds} s without a heartbeat</KV>
                 <KV label="Device authentication">Shared key (X-Device-Key)</KV>
-                <KV label="Relay control">Firmware only - no API endpoint opens a door</KV>
+                <KV label="Relay control">Firmware only - except the admin Emergency tab (password, audited)</KV>
               </dl></div>
             </section>
             <section>
@@ -81,7 +81,7 @@ export default function Settings() {
                   'The time window and the laboratory are checked server-side on every scan.',
                   'Cancelled, revoked, unknown or wrong-lab credentials are refused and logged.',
                   'The biometric must match the identity from step 1.',
-                  'The backend never drives the relay - it cannot open a door.',
+                  'Only the admin Emergency tab can hold a door open: emergency password, short session, audited, announced to staff.',
                   'If the backend is unreachable, a booking QR fails closed.',
                   'Students see only their own bookings, events and reports.',
                   'No fingerprint or face templates are stored in the database.',

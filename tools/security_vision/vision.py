@@ -6,13 +6,20 @@ piece can be tested on its own (test_vision.py). security_vision.py wires
 them to the camera, the portal and the HTTP endpoints.
 
     Detector      YOLOX-S (OpenCV model zoo, ONNX) on the CPU through cv2.dnn
-    Tracker       keeps an id on each person from frame to frame (IoU match)
+    Appearance    what a person looks like: clothing / hair colours, plus a
+                  body re-identification model when its file is present
+    Tracker       keeps an id on each person from frame to frame (overlap,
+                  motion and appearance)
     Labeler       puts a name on a track only when the door data makes it
-                  certain; otherwise the track stays "Unknown"
+                  certain, then LOCKS it to that person's look: names follow
+                  the person through crossings and short disappearances;
+                  otherwise the track stays "Unknown"
     ZoneWatcher   compares each equipment box with how it normally looks
 """
 from __future__ import annotations
 
+import itertools
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -77,6 +84,125 @@ class Detector:
         return dets
 
 
+# ------------------------------------------------------------- appearance ---
+HUE_BINS, VAL_BINS = 12, 4
+BODY_PARTS = ((0.0, 0.18), (0.18, 0.55), (0.55, 1.0))    # head/hair, upper body, legs
+
+
+def color_signature(frame: np.ndarray, box) -> Optional[np.ndarray]:
+    """
+    Colour histograms of the head, upper body and lower body, from the
+    middle of the box (less background). Coloured pixels count by hue,
+    black / grey / white ones by brightness. Each part sums to 1.
+    """
+    H, W = frame.shape[:2]
+    x, y, w, h = box
+    x0, x1 = int(max(0, x + 0.2 * w)), int(min(W, x + 0.8 * w))
+    parts = []
+    for a, b in BODY_PARTS:
+        y0, y1 = int(max(0, y + a * h)), int(min(H, y + b * h))
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            return None
+        hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.int32)
+        colored = (hsv[:, 1] > 50) & (hsv[:, 2] > 40)
+        # Shift so red (hue ~0 and ~179) falls in one bin.
+        hue = np.bincount(((hsv[colored, 0] + 7) % 180) * HUE_BINS // 180, minlength=HUE_BINS)
+        val = np.bincount(hsv[~colored, 2] * VAL_BINS // 256, minlength=VAL_BINS)
+        f = np.concatenate([hue, val]).astype(np.float32)
+        parts.append(f / max(float(f.sum()), 1.0))
+    return np.concatenate(parts)
+
+
+@dataclass
+class Look:
+    color: Optional[np.ndarray] = None
+    deep: Optional[np.ndarray] = None   # L2-normalised re-id embedding
+
+
+def look_distance(a: Optional[Look], b: Optional[Look]) -> Optional[float]:
+    """0 = looks the same, 1 = nothing alike. None when either is unknown."""
+    if a is None or b is None:
+        return None
+    parts = []
+    if a.color is not None and b.color is not None:
+        bc = float(np.sqrt(a.color * b.color).sum()) / len(BODY_PARTS)    # Bhattacharyya, 0-1
+        parts.append((0.4, math.sqrt(max(0.0, 1.0 - bc))))
+    if a.deep is not None and b.deep is not None:
+        parts.append((0.6, float(np.clip((1.0 - float(a.deep @ b.deep)) / 1.2, 0, 1))))
+    if not parts:
+        return None
+    return sum(w * d for w, d in parts) / sum(w for w, _ in parts)
+
+
+def blend(old: Optional[Look], new: Optional[Look], alpha: float) -> Optional[Look]:
+    """Running average of a look (alpha = weight of the new one)."""
+    if old is None or new is None:
+        return new or old
+    color = old.color if new.color is None else new.color if old.color is None \
+        else (1 - alpha) * old.color + alpha * new.color
+    deep = old.deep if new.deep is None else new.deep if old.deep is None \
+        else (1 - alpha) * old.deep + alpha * new.deep
+    if deep is not None:
+        deep = deep / max(float(np.linalg.norm(deep)), 1e-6)
+    return Look(color, deep)
+
+
+class Appearance:
+    """
+    Looks for the detected people of a frame. Colours always; the body
+    re-identification model (OpenCV zoo, person_reid_youtu_2021nov.onnx,
+    CPU) when its file is present - it tells apart people in similar clothes.
+    """
+    REID_SIZE = (128, 256)
+    MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+    STD = np.array([0.229, 0.224, 0.225], np.float32)
+
+    def __init__(self, reid_path: Optional[str] = None):
+        self.net = None
+        if reid_path:
+            try:
+                self.net = cv2.dnn.readNet(reid_path)
+            except cv2.error as e:     # half-downloaded or damaged file: colours only
+                print(f"[vision] re-id model not usable ({e.__class__.__name__}): colours only")
+
+    DEEP_EVERY_S = 1.0                 # body model at least this often (~100 ms a person)...
+    NEAR_HOLD_S = 2.0                  # ...and every frame while people are close / just apart
+
+    _last_deep = -1e9
+    _near_at = -1e9
+
+    def wants_deep(self, boxes: list[tuple], now: float) -> bool:
+        if any(_close(a, b) for a, b in itertools.combinations(boxes, 2)):
+            self._near_at = now
+        return now - self._near_at <= self.NEAR_HOLD_S or now - self._last_deep >= self.DEEP_EVERY_S
+
+    def looks(self, frame: np.ndarray, boxes: list[tuple],
+              now: Optional[float] = None) -> list[Optional[Look]]:
+        out = [Look(color_signature(frame, b)) for b in boxes]
+        if now is not None and not self.wants_deep(boxes, now):
+            return out
+        if now is not None:
+            self._last_deep = now
+        if self.net is not None and boxes:
+            crops, idx = [], []
+            H, W = frame.shape[:2]
+            for i, (x, y, w, h) in enumerate(boxes):
+                x0, y0 = int(max(0, x)), int(max(0, y))
+                x1, y1 = int(min(W, x + w)), int(min(H, y + h))
+                if x1 - x0 < 8 or y1 - y0 < 16:
+                    continue
+                img = cv2.resize(frame[y0:y1, x0:x1], self.REID_SIZE)[:, :, ::-1].astype(np.float32) / 255.0
+                crops.append((img - self.MEAN) / self.STD)
+                idx.append(i)
+            if crops:
+                self.net.setInput(cv2.dnn.blobFromImages(crops))
+                feats = self.net.forward().reshape(len(crops), -1)
+                feats /= np.maximum(np.linalg.norm(feats, axis=1, keepdims=True), 1e-6)
+                for i, f in zip(idx, feats):
+                    out[i].deep = f
+        return out
+
+
 # ---------------------------------------------------------------- tracker ---
 def iou(a, b) -> float:
     ax2, ay2, bx2, by2 = a[0] + a[2], a[1] + a[3], b[0] + b[2], b[1] + b[3]
@@ -98,37 +224,90 @@ class Track:
     name: Optional[str] = None         # display name
     role: Optional[str] = None
     entered_at_door: bool = False      # first seen in the door area
+    look: Optional[Look] = None        # this frame's look
+    vel: tuple = (0.0, 0.0)            # centre speed, px/s
+    crowded: bool = False              # touching someone else right now
+    crowded_at: float = -1e9           # last time it was
+    separated_at: float = -1e9         # when it last came apart from someone
 
     def center(self):
         return (self.box[0] + self.box[2] / 2, self.box[1] + self.box[3] / 2)
 
 
+def _center(b):
+    return (b[0] + b[2] / 2, b[1] + b[3] / 2)
+
+
+def _close(a, b) -> bool:
+    """Two people boxes touching or nearly: their looks may mix."""
+    if iou(a, b) > 0.02:
+        return True
+    (ax, ay), (bx, by) = _center(a), _center(b)
+    return abs(ax - bx) < 0.6 * max(a[2], b[2]) and abs(ay - by) < 0.5 * max(a[3], b[3])
+
+
 class Tracker:
-    """Greedy IoU matching. A track survives short misses (MAX_MISS_S)."""
+    """
+    Matches each person box to a track by overlap with where the track was
+    heading (constant speed) and, when looks are given, by appearance - so
+    two people crossing keep their own ids. A track survives short misses
+    (MAX_MISS_S).
+    """
     MAX_MISS_S = 2.0
     MIN_IOU = 0.25
+    APPEAR_W = 0.6                     # weight of appearance against overlap
+    APPEAR_GATE = 0.35                 # no overlap, but this alike and near: same person
     CONFIRM_HITS = 3                   # seen in this many frames before it counts
 
     def __init__(self):
         self.tracks: list[Track] = []
         self._next = 1
 
-    def update(self, boxes: list[tuple], now: float) -> list[Track]:
-        pairs = sorted(((iou(t.box, b), ti, bi) for ti, t in enumerate(self.tracks)
-                        for bi, b in enumerate(boxes)), reverse=True)
+    @staticmethod
+    def _predicted(t: Track, now: float):
+        dt = min(max(now - t.last_seen, 0.0), 1.0)
+        return (t.box[0] + t.vel[0] * dt, t.box[1] + t.vel[1] * dt, t.box[2], t.box[3])
+
+    def update(self, boxes: list[tuple], now: float,
+               looks: Optional[list[Optional[Look]]] = None) -> list[Track]:
+        looks = looks if looks is not None else [None] * len(boxes)
+        pairs = []
+        for ti, t in enumerate(self.tracks):
+            pred = self._predicted(t, now)
+            for bi, b in enumerate(boxes):
+                ov = iou(pred, b)
+                d = look_distance(t.look, looks[bi])
+                near = math.dist(_center(pred), _center(b)) < max(b[3], pred[3])
+                if ov < self.MIN_IOU and not (d is not None and d < self.APPEAR_GATE and near):
+                    continue
+                pairs.append((ov + (self.APPEAR_W * (1 - d) if d is not None else 0.0), ti, bi))
         used_t, used_b = set(), set()
-        for score, ti, bi in pairs:
-            if score < self.MIN_IOU or ti in used_t or bi in used_b:
+        for score, ti, bi in sorted(pairs, reverse=True):
+            if ti in used_t or bi in used_b:
                 continue
             t = self.tracks[ti]
+            dt = now - t.last_seen
+            if dt > 1e-3:
+                (ox, oy), (nx, ny) = t.center(), _center(boxes[bi])
+                t.vel = (0.5 * t.vel[0] + 0.5 * (nx - ox) / dt, 0.5 * t.vel[1] + 0.5 * (ny - oy) / dt)
             t.box, t.last_seen, t.hits = boxes[bi], now, t.hits + 1
+            if looks[bi] is not None:
+                t.look = looks[bi]
             used_t.add(ti)
             used_b.add(bi)
         for bi, b in enumerate(boxes):
             if bi not in used_b:
-                self.tracks.append(Track(self._next, b, now, now))
+                self.tracks.append(Track(self._next, b, now, now, look=looks[bi]))
                 self._next += 1
         self.tracks = [t for t in self.tracks if now - t.last_seen <= self.MAX_MISS_S]
+        live = [t for t in self.tracks if t.last_seen == now]
+        for t in live:
+            was = t.crowded
+            t.crowded = any(o is not t and _close(t.box, o.box) for o in live)
+            if t.crowded:
+                t.crowded_at = now
+            elif was:
+                t.separated_at = now
         return self.confirmed(now)
 
     def confirmed(self, now: float) -> list[Track]:
@@ -138,6 +317,13 @@ class Tracker:
 # ---------------------------------------------------------------- labeler ---
 def in_rect(pt, rect) -> bool:
     return rect is not None and rect[0] <= pt[0] <= rect[0] + rect[2] and rect[1] <= pt[1] <= rect[1] + rect[3]
+
+
+@dataclass
+class Identity:
+    """A named person's locked look, learnt only while they stand alone."""
+    look: Look
+    samples: int = 1
 
 
 class Labeler:
@@ -150,10 +336,28 @@ class Labeler:
         visible person is unlabelled, that person must be them;
       * everyone else stays "Unknown" - a wrong name is worse than none.
 
+    Once named, the name is LOCKED to the person's look (clothes, hair,
+    body), learnt only from frames where they stand clear of everyone:
+
+      * after two or more people touch and come apart, the names go back
+        to the looks they belong to (swapped if the tracker mixed them up);
+      * someone who vanished for a moment (behind a robot, out of view)
+        gets their name back when they reappear - only on a clear match,
+        else they stay Unknown until the door or elimination says.
+
     occupants: [{"auth_subject", "name", "role", "entered_at" (epoch s)}]
     door_rect: the door area in frame pixels (x, y, w, h) or None.
     """
     ENTRY_MATCH_S = 25.0
+    LOCK_SAMPLES = 3                   # alone-frames before a look can move a name
+    SETTLE_S = 0.6                     # apart this long before names are re-checked
+    SWAP_MARGIN = 0.05                 # a swap must fit this much better
+    REACQUIRE_MAX = 0.30               # this alike to get a name back...
+    REACQUIRE_MARGIN = 0.08            # ...and clearly more alike than anyone else
+    LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
+
+    def __init__(self):
+        self.identities: dict[str, Identity] = {}
 
     def assign(self, tracks: list[Track], occupants: list[dict], door_rect, now: float):
         inside = {o["auth_subject"]: o for o in occupants}
@@ -161,6 +365,12 @@ class Labeler:
         for t in tracks:
             if t.label and t.label not in inside:
                 t.label = t.name = t.role = None
+        for label in list(self.identities):
+            if label not in inside:
+                del self.identities[label]
+
+        self._fix_after_crossing(tracks, inside, now)
+
         taken = {t.label for t in tracks if t.label}
         free = [o for o in occupants if o["auth_subject"] not in taken]
 
@@ -177,10 +387,87 @@ class Labeler:
                 self._give(t, o)
                 free.remove(o)
 
-        # 2) Elimination: one free name, one unlabelled person.
+        # 2) Someone named before, back in view: by their locked look.
+        for t in sorted(tracks, key=lambda t: t.first_seen):
+            if t.label or t.crowded or not free:
+                continue
+            scored = []
+            for o in free:
+                d = self._distance(t, o["auth_subject"])
+                if d is not None:
+                    scored.append((d, o["auth_subject"]))
+            scored.sort()
+            if not scored or scored[0][0] > self.REACQUIRE_MAX:
+                continue
+            if len(scored) > 1 and scored[1][0] - scored[0][0] < self.REACQUIRE_MARGIN:
+                continue
+            o = inside[scored[0][1]]
+            self._give(t, o)
+            free.remove(o)
+
+        # 3) Elimination: one free name, one unlabelled person.
         unlabelled = [t for t in tracks if not t.label]
         if len(free) == 1 and len(unlabelled) == 1:
             self._give(unlabelled[0], free[0])
+
+        self._learn(tracks)
+
+    def _distance(self, t: Track, label: str) -> Optional[float]:
+        ident = self.identities.get(label)
+        if ident is None or ident.samples < self.LOCK_SAMPLES:
+            return None
+        return look_distance(t.look, ident.look)
+
+    def _fix_after_crossing(self, tracks: list[Track], inside: dict, now: float):
+        """People who touched and are now apart: give each name back to the look it belongs to."""
+        group = [t for t in tracks if not t.crowded and t.separated_at > -1e9
+                 and now - t.separated_at >= self.SETTLE_S]
+        for t in group:
+            t.separated_at = -1e9      # checked once per separation
+        labels = [t.label for t in group if t.label and t.label in inside
+                  and t.label in self.identities
+                  and self.identities[t.label].samples >= self.LOCK_SAMPLES]
+        if not labels or len(group) < 2 or len(group) > 6:
+            return
+
+        def cost(pairs):
+            total = 0.0
+            for t, label in pairs:
+                d = look_distance(t.look, self.identities[label].look)
+                if d is None:
+                    return None
+                total += d
+            return total
+
+        current = cost([(t, t.label) for t in group if t.label in labels])
+        if current is None:
+            return
+        best, best_cost = None, current - self.SWAP_MARGIN
+        for chosen in itertools.permutations(group, len(labels)):
+            c = cost(list(zip(chosen, labels)))
+            if c is not None and c < best_cost:
+                best, best_cost = chosen, c
+        if best is None:
+            return
+        for t in group:
+            if t.label in labels:
+                t.label = t.name = t.role = None
+        for t, label in zip(best, labels):
+            self._give(t, inside[label])
+
+    def _learn(self, tracks: list[Track]):
+        for t in tracks:
+            if not t.label or t.crowded or t.look is None:
+                continue
+            ident = self.identities.get(t.label)
+            if ident is None:
+                self.identities[t.label] = Identity(t.look)
+                continue
+            d = look_distance(t.look, ident.look)
+            if d is not None and d > self.LEARN_MAX and ident.samples >= self.LOCK_SAMPLES:
+                continue               # not like them at all: a mix-up, do not learn it
+            ident.look = blend(ident.look, t.look, max(0.1, 1.0 / (ident.samples + 1)))
+            ident.samples += 1
 
     @staticmethod
     def _give(t: Track, o: dict):

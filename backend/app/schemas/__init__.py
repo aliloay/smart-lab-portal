@@ -418,6 +418,8 @@ class AssetOut(ORM):
     # NFC sticker for the reusable smart bin; None = not tagged.
     nfc_uid: Optional[str] = None
     bin_item: bool = False
+    # Mass on the smart bin's load cell (learnt from the first return).
+    unit_mass_g: Optional[float] = None
 
 
 class AssetCreate(BaseModel):

@@ -15,6 +15,10 @@ if not exist models\object_detection_yolox_2022nov.onnx (
   echo Downloading the person detector once ^(36 MB, needs internet^)...
   curl -L -o models\object_detection_yolox_2022nov.onnx https://github.com/opencv/opencv_zoo/raw/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx
 )
+if not exist models\person_reid_youtu_2021nov.onnx (
+  echo Downloading the person re-identification model once ^(107 MB, optional^)...
+  curl -L -o models\person_reid_youtu_2021nov.part https://github.com/opencv/opencv_zoo/raw/main/models/person_reid_youtureid/person_reid_youtu_2021nov.onnx && move /y models\person_reid_youtu_2021nov.part models\person_reid_youtu_2021nov.onnx >nul
+)
 set "PY=py"
 %PY% -c "import cv2, flask, requests, waitress" >nul 2>&1 || %PY% -m pip install -r requirements.txt
 echo Do NOT click inside this window: Windows pauses the program while text is

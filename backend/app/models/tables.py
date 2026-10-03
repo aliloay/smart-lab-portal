@@ -178,6 +178,9 @@ class Device(Base):
     asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"),
                                                  nullable=True)
     mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # PCs: the lab engineer's master PC. Lab staff control the other lab PCs
+    # from the portal; only an administrator controls this one.
+    is_master_pc: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     lab: Mapped[Lab] = relationship(back_populates="devices")
 
@@ -400,6 +403,9 @@ class Asset(Base):
     # as opposed to fixed lab equipment such as the door lock or a robot.
     bin_item: Mapped[bool] = mapped_column(Boolean, default=False,
                                            server_default=sa_false())
+    # Its mass on the bin's load cell (third proof besides the portal and
+    # the tag). Learnt from its first return, or set by staff.
+    unit_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class AssetTransaction(Base):
@@ -423,6 +429,10 @@ class AssetTransaction(Base):
                                                   nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="STAFF",
                                         server_default="STAFF")
+    # Smart bin load cell: mass change over the lid cycle (+ = put in) and
+    # what it says: MATCH / MISMATCH / LEARNED / NO_SCALE.
+    mass_delta_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_check: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 # ===========================================================================
@@ -927,3 +937,39 @@ class SecurityEvent(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     acknowledged_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     acknowledged_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+# ===========================================================================
+# Emergency (admin, behind the emergency password)
+# ===========================================================================
+class LabEmergency(Base):
+    """
+    A lab's emergency state, set by an administrator from the Emergency tab.
+    The door controller reads it every second and applies it itself:
+    door UNLOCKED (until door_until, or until back to normal), LOCKDOWN (no
+    entry), a message on the LCD and tablet, the evacuation alarm. A state,
+    not a one-off command, so a reboot or a missed poll cannot lose it.
+    version increases on every change; the controller reports the version it
+    has applied, so the portal can show "applied by the door".
+    """
+    __tablename__ = "lab_emergencies"
+
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), primary_key=True)
+    door_mode: Mapped[str] = mapped_column(String(16), default="NORMAL")   # NORMAL / UNLOCKED / LOCKDOWN
+    door_until: Mapped[datetime | None] = mapped_column(TS, nullable=True)  # None = until normal
+    message: Mapped[str] = mapped_column(String(96), default="")
+    message_until: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    alarm: Mapped[bool] = mapped_column(Boolean, default=False)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class SystemSetting(Base):
+    """Small key/value settings changed from the portal (e.g. the emergency
+    password's bcrypt hash - never the password itself)."""
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

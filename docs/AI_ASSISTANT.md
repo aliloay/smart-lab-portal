@@ -32,6 +32,31 @@ The student helper does not choose what to look up. The backend fetches that
 student's data and hands it to the model as context, which is why a small
 model is enough. If no AI is set up, the student card is hidden.
 
+## Instant answers (the Smart Lab agent - no model needed)
+
+`backend/app/services/agent.py` answers the common questions itself, straight
+from the database, in milliseconds - with or without Ollama running:
+
+| Who | Ask, e.g. | Answer |
+|---|---|---|
+| Student | "When is my next booking?", "My bookings", "Which labs are free now?" | the booking (with a QR link), free labs and until when |
+| Staff | "Weekly report", "Monthly report" | the figures vs the previous period, busiest labs, most used equipment, what needs attention - with a link to the printable report |
+| Staff | "Which robot was used most?" | running / idle hours and faults per robot and PC (7 days) |
+| Staff | "What keeps repeating, and how do we fix it?" | repeated alerts, door refusal reasons, devices dropping off, equipment reported more than once, no-shows - each with a recommendation |
+| Staff | "Who is inside the labs?", "What is offline?", "Open issues" | live, from the door records and heartbeats |
+
+Answers carry "Instant, from the records" in the chat and are audited as
+`AI_INSTANT` (they do not count towards the hourly question limit). Any other
+question goes to the model, which now also receives a compact SNAPSHOT of
+the same facts (cached 60 s), so it rarely needs a slow tool round-trip.
+
+**Reports (PDF):** Reports page → *Weekly report (PDF)* / *Monthly report
+(PDF)* opens `/report?period=weekly|monthly`, a white A4 page; *Save as PDF*
+uses the browser's print dialog. Data: `GET /api/ai/report?period=…`
+(staff), repeated problems alone: `GET /api/ai/insights?days=30`. The
+recommendation rules (`ALERT_FIXES`, `DENIAL_FIXES`) are plain tables in
+agent.py - add a line to teach it a new fix.
+
 ## How the assistant works
 
 ```

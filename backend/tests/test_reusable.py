@@ -154,3 +154,84 @@ def test_only_bin_items_are_listed_not_fixed_equipment(client, db, staff, lab, b
                       headers=auth_headers(client, staff.email)).json()
     tags = [i["asset_tag"] for i in body["items"]]
     assert "BREADBOARD-009" in tags and "AC-004" not in tags
+
+
+# ---------------------------------------------- load cell: third proof ---
+from app.api.routes.reusable import weight_check  # noqa: E402
+from app.models import Alert  # noqa: E402
+
+
+def test_weight_check_rules():
+    assert weight_check(None, None) == "NO_SCALE"
+    assert weight_check(None, 25.0) == "LEARNED"            # first return teaches the mass
+    assert weight_check(None, 0.4) == "MISMATCH"            # nothing went in
+    assert weight_check(25.0, 26.5) == "MATCH"
+    assert weight_check(25.0, 0.3) == "MISMATCH"
+    assert weight_check(25.0, 50.0) == "MISMATCH"           # two boards
+    assert weight_check(200.0, 225.0) == "MATCH"            # 15 % of a heavy item
+
+
+def _return(client, device_headers, uid, before, after):
+    _scan(client, device_headers, uid)
+    return client.post("/api/reusable/complete", headers=device_headers, json={
+        "device_uid": "REUSE_BIN_1", "nfc_uid": uid, "lid_opened": True, "lid_closed": True,
+        "mass_before_g": before, "mass_after_g": after}).json()
+
+
+def test_return_learns_the_mass_then_flags_an_empty_return(client, db, alice, lab, bin_node,
+                                                           arduino, device_headers):
+    arduino.status, arduino.holder_id = AssetStatus.CHECKED_OUT, alice.id
+    db.commit()
+    r = _return(client, device_headers, arduino.nfc_uid, 100.0, 125.2)
+    assert r["recorded"] and r["weight_check"] == "LEARNED"
+    db.refresh(arduino)
+    assert arduino.unit_mass_g == 25.2
+
+    # Next time only the tag is scanned, the board stays in the pocket.
+    arduino.status, arduino.holder_id = AssetStatus.CHECKED_OUT, alice.id
+    db.commit()
+    r = _return(client, device_headers, arduino.nfc_uid, 125.2, 125.4)
+    assert r["recorded"] and r["weight_check"] == "MISMATCH" and r["lcd2"] == "CHECK WEIGHT"
+    alert = db.query(Alert).one()
+    assert "ARDUINO-001" in alert.title and "may not be in the bin" in alert.detail
+    tx = db.query(AssetTransaction).filter_by(action="RETURN").order_by(AssetTransaction.id).all()[-1]
+    assert tx.weight_check == "MISMATCH" and tx.mass_delta_g == 0.2
+
+
+def test_checkout_that_removes_two_items_is_flagged(client, db, alice, lab, bin_node,
+                                                    arduino, device_headers):
+    arduino.unit_mass_g = 25.0
+    db.commit()
+    _inside(db, alice, lab)
+    h = auth_headers(client, alice.email)
+    assert client.post("/api/reusable/checkout", headers=h, json={"asset_id": arduino.id}).status_code == 200
+    client.get("/api/access/commands/next?device_uid=REUSE_BIN_1", headers=device_headers)
+    r = client.post("/api/reusable/scan", headers=device_headers, json={
+        "device_uid": "REUSE_BIN_1", "nfc_uid": arduino.nfc_uid, "mass_delta_g": -50.4}).json()
+    assert r["action"] == "CHECKOUT_OK" and r["weight_check"] == "MISMATCH"
+    db.refresh(arduino)
+    assert arduino.status == AssetStatus.CHECKED_OUT          # the tag decides; the scale alerts
+    assert db.query(Alert).count() == 1
+
+
+def test_checkout_matching_one_item_is_quiet(client, db, alice, lab, bin_node, arduino, device_headers):
+    arduino.unit_mass_g = 25.0
+    db.commit()
+    _inside(db, alice, lab)
+    h = auth_headers(client, alice.email)
+    client.post("/api/reusable/checkout", headers=h, json={"asset_id": arduino.id})
+    client.get("/api/access/commands/next?device_uid=REUSE_BIN_1", headers=device_headers)
+    r = client.post("/api/reusable/scan", headers=device_headers, json={
+        "device_uid": "REUSE_BIN_1", "nfc_uid": arduino.nfc_uid, "mass_delta_g": -24.1}).json()
+    assert r["weight_check"] == "MATCH" and r["lcd2"] == "CHECKED OUT"
+    assert db.query(Alert).count() == 0
+    tx = db.query(AssetTransaction).one()
+    assert tx.mass_delta_g == -24.1
+
+
+def test_staff_set_the_mass(client, db, staff, alice, arduino):
+    assert client.put(f"/api/reusable/assets/{arduino.id}/mass", headers=auth_headers(client, alice.email),
+                      json={"unit_mass_g": 30}).status_code == 403
+    r = client.put(f"/api/reusable/assets/{arduino.id}/mass", headers=auth_headers(client, staff.email),
+                   json={"unit_mass_g": 30})
+    assert r.status_code == 200 and r.json()["unit_mass_g"] == 30

@@ -4,31 +4,37 @@
  * staff:   answers from the portal's own analytics through read-only tools.
  * student: answers from the student's own bookings/reports and the lab list.
  * See backend app/services/ai.py. The model is either free and local
- * (Ollama) or Claude. When neither is set up the staff panel says how; the
- * student panel just stays hidden. The priority list is deterministic and
- * always works.
+ * (Ollama) or Claude. Common questions (next booking, free labs, weekly /
+ * monthly report, who is inside, equipment use, repeated problems) are
+ * answered instantly by the agent from the records, with or without a
+ * model. The priority list is deterministic and always works.
  */
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
-import { Bot, ListOrdered, Maximize2, MessageCircle, Minimize2, Send, Sparkles, TriangleAlert, X } from 'lucide-react'
+import { ArrowUpRight, Bot, ListOrdered, Maximize2, MessageCircle, Minimize2, Send, Sparkles, TriangleAlert, X, Zap } from 'lucide-react'
 import { AiAnswer, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
-type Turn = { role: 'user' | 'assistant'; content: string; tools?: string[] }
+type Turn = {
+  role: 'user' | 'assistant'; content: string; tools?: string[]
+  instant?: boolean; link?: { label: string; to: string }
+}
 
 const STUDENT_SUGGESTED = [
   'When is my next booking?',
-  'Which labs are free tomorrow afternoon?',
+  'Which labs are free now?',
   'What happened to the issue I reported?',
   'How do I get into the lab with my booking?',
 ]
 
 const SUGGESTED = [
-  'How busy were the labs this week compared with last week?',
-  'Which lab has the most no-shows, and when?',
-  'Were there any security concerns in the last 24 hours?',
+  'Weekly report',
+  'Monthly report',
+  'Which robot was used most?',
+  'What keeps repeating, and how do we fix it?',
+  'Who is inside the labs?',
   'What should the technicians fix first today?',
 ]
 
@@ -98,7 +104,8 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
     setBusy(true)
     try {
       const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
-      setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used }])
+      setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used,
+                             instant: r.instant, link: r.link }])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The assistant could not answer.')
       setTurns(t => t.slice(0, -1))
@@ -108,16 +115,16 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
   const submit = (e: FormEvent) => { e.preventDefault(); ask(q) }
 
   if (status === null) return <Skeleton className="h-40" />
+  // Without a working model the chat still answers the common questions
+  // instantly from the records; only open-ended ones need the model.
   const ready = status.configured && status.reachable && status.missing_models.length === 0
-  if (!ready) {
-    if (!student) return <SetupHint s={status} />
-    return status.configured
-      ? <p className="text-[12.5px] text-slate-400">The helper is offline right now. Try again later.</p>
-      : null
-  }
   return (
     <div className={`flex flex-col ${fill ? 'h-full min-h-0 text-[14.5px]' : ''}`}>
       <div className={`${fill ? 'flex-1 min-h-0' : 'max-h-[420px]'} overflow-y-auto space-y-3 pr-1`}>
+        {!ready && turns.length === 0 && (student
+          ? <p className="text-[12px] text-warn-soft">The AI model is offline: the suggested questions
+              below still answer instantly.</p>
+          : <SetupHint s={status} />)}
         {turns.length === 0 && (
           <div className="space-y-2">
             <p className="text-[12.5px] text-slate-400">{student
@@ -141,7 +148,14 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
               <Sparkles size={14} /></span>
             <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm border border-ink-600/70 bg-ink-800/40 px-3.5 py-2.5">
               <AiText text={t.content} />
-              {!!t.tools?.length && (
+              {t.link && (
+                <Link to={t.link.to} target={t.link.to.startsWith('/report') ? '_blank' : undefined}
+                  className="mt-2 inline-flex items-center gap-1 text-[12.5px] text-accent-300 hover:text-accent-200">
+                  {t.link.label} <ArrowUpRight size={13} /></Link>)}
+              {t.instant ? (
+                <div className="mt-2 text-[11px] text-slate-500 inline-flex items-center gap-1 ml-2">
+                  <Zap size={11} className="text-ok-soft" /> Instant, from the records</div>
+              ) : !!t.tools?.length && (
                 <div className="mt-2 text-[11px] text-slate-500">
                   Checked: {Array.from(new Set(t.tools)).map(x => x.replace(/^get_|^list_/, '').replace(/_/g, ' ')).join(', ')}
                 </div>)}
@@ -248,8 +262,8 @@ export function useChatAvailable(): boolean {
   const [available, setAvailable] = useState(false)
   useEffect(() => {
     if (!user) { setAvailable(false); return }
-    if (staff) { setAvailable(true); return }
-    api.studentAiStatus().then(s => setAvailable(s.configured)).catch(() => setAvailable(false))
+    // Everyone: the agent answers the common questions even without a model.
+    setAvailable(true)
   }, [user, staff])
   return available
 }

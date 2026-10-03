@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
-                            bookings, commands, enrollment, equipment,
+                            bookings, commands, emergency, enrollment, equipment,
                             face_submissions, inventory, issues, labs, monitor,
                             notifications, reusable, security, system)
 from app.core.config import settings
@@ -87,7 +87,8 @@ for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
           automation.router, analytics.router, ai.router, enrollment.router,
           monitor.router, commands.router, face_submissions.router,
-          inventory.router, reusable.router, equipment.router, security.router):
+          inventory.router, reusable.router, equipment.router, security.router,
+          emergency.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

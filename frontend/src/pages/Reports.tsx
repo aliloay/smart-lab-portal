@@ -9,7 +9,7 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { BarChart3, CalendarRange, DoorOpen, ShieldX, Timer } from 'lucide-react'
+import { BarChart3, CalendarRange, DoorOpen, FileText, ShieldX, Timer } from 'lucide-react'
 import { IssueSummary, ReportsOverview, api } from '../lib/api'
 import { denialShort } from '../lib/labels'
 import { ErrorBanner, MetricCard, PageHeader, SectionTitle, Skeleton } from '../components/ui'
@@ -51,13 +51,17 @@ export default function Reports() {
     <div>
       <PageHeader eyebrow="Analytics" title="Reports"
         sub="Laboratory usage, access outcomes and traceability - aggregated from recorded rows only."
-        actions={<div className="flex gap-1 p-1 rounded-xl border border-ink-600 bg-ink-800/60">
+        actions={<><a href="/report?period=weekly" target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
+            <FileText size={14} /> Weekly report (PDF)</a>
+          <a href="/report?period=monthly" target="_blank" rel="noreferrer" className="btn-ghost btn-sm">
+            <FileText size={14} /> Monthly report (PDF)</a>
+          <div className="flex gap-1 p-1 rounded-xl border border-ink-600 bg-ink-800/60">
           {PERIODS.map(p => (
             <button key={p} onClick={() => setDays(p)} aria-pressed={days === p}
               className={`px-3 py-1.5 rounded-lg text-[13px] ${days === p ? 'bg-accent-500/20 text-white'
                 : 'text-slate-400 hover:text-white'}`}>{p === 365 ? '1 year' : `${p} days`}</button>
           ))}
-        </div>} />
+        </div></>} />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       {!r ? <Skeleton className="h-96" /> : (

@@ -277,8 +277,11 @@ constexpr uint32_t CARD_READ_TIMEOUT_MS   = 250;   // proven value
 constexpr uint32_t DUPLICATE_IGNORE_MS    = 1200;  // proven value
 constexpr uint32_t POLL_DELAY_MS          = 5;     // proven value
 constexpr uint32_t FINGERPRINT_TIMEOUT_MS = 20000;
-constexpr uint32_t GRANTED_DISPLAY_MS     = 1500;  // "GRANTED" screen hold time
-constexpr uint32_t UNLOCK_HOLD_MS         = 8000;  // safety relock if door never opens
+// Unlocked window after a grant: GRANTED_DISPLAY_MS + UNLOCK_HOLD_MS = 5 s to
+// pull the door, then it relocks by itself (was 1.5 + 8 = 9.5 s). Opening and
+// closing the door relocks at once, whatever is left of the window.
+constexpr uint32_t GRANTED_DISPLAY_MS     = 1000;  // "GRANTED" screen hold time
+constexpr uint32_t UNLOCK_HOLD_MS         = 4000;  // safety relock if door never opens
 constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
                                                    // otherwise goIdle() cuts
                                                    // the alert short
@@ -621,6 +624,63 @@ struct CommandProgress {        // what loop() hands back to the task
   char uid[32];                 // card commands: the card's UID, "89:52:FF:1F"
 };
 
+// ---------------------------------------------------------------------------
+// EMERGENCY (admin, from the portal's Emergency tab, after its password)
+// ---------------------------------------------------------------------------
+// The portal holds an emergency STATE per lab; this board reads it every
+// second, in every state, and applies it at once:
+//   UNLOCKED  door kept unlocked (for N minutes, or until "back to normal");
+//             the entry steps are paused and the screens say so
+//   LOCKDOWN  no QR code or card is accepted (forced-entry alarm still works)
+//   message   shown on the LCD and tablet (entry still works)
+//   alarm     the buzzer sounds (evacuation)
+// It is a state, not a one-off command, so a reboot or a missed poll cannot
+// lose it. If the laptop goes down mid-emergency, the last state is kept;
+// after a reboot the board starts NORMAL until the portal answers.
+constexpr uint8_t  EM_NORMAL = 0, EM_UNLOCKED = 1, EM_LOCKDOWN = 2;
+constexpr uint32_t EMERGENCY_POLL_MS = 1000;
+
+struct EmergencyState {         // what the task hands to loop()
+  long    version;
+  uint8_t door;
+  long    remainingS;           // door UNLOCKED: seconds left, -1 = until normal
+  long    msgRemainingS;        // -1 = until cleared, 0 = no message
+  bool    alarm;
+  char    message[96];
+};
+QueueHandle_t emergencyQueue = nullptr;  // task -> loop (always the newest)
+
+uint8_t  emDoor = EM_NORMAL;
+uint32_t emUnlockUntilMs = 0;   // 0 = until normal
+bool     emAlarm = false;
+char     emMessage[96] = "";
+uint32_t emMessageUntilMs = 0;  // 0 = until cleared
+long     emVersion = -1;
+uint8_t  emView = 0;            // what the screens show: 0 none, 1 door open, 2 lockdown
+uint32_t emLastDrawMs = 0;
+
+// Door events are SENT by the background task (core 0), in order: the door,
+// the LCD and the tablet never wait on a network round trip. Before, every
+// grant / door-closed report blocked loop() - and with it the tablet and the
+// return to the welcome screen - for the round trip, or the whole timeout
+// when the laptop was slow or away.
+struct PortalEvent {
+  char type[24];
+  char subject[16];
+  long booking;
+  char method[12];
+  char result[12];
+  char reason[32];
+  char message[160];
+};
+QueueHandle_t eventQueue = nullptr;          // loop -> task
+volatile bool heartbeatWanted = false;       // loop -> task
+
+void sendEventNow(const char *eventType, const char *authSubject,
+                  long bookingId, const char *method, const char *result,
+                  const char *reason, const char *message);
+void sendHeartbeat();
+
 QueueHandle_t commandQueue  = nullptr;   // task -> loop
 QueueHandle_t progressQueue = nullptr;   // loop -> task
 volatile bool enrollActive  = false;     // an enrollment is running
@@ -697,17 +757,58 @@ void fetchCommand() {
   xQueueSend(commandQueue, &c, 0);
 }
 
+// The lab's emergency state, every second, in any state.
+void fetchEmergency() {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/emergency?device_uid=" + DEVICE_ID)) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  String reply = code == 200 ? http.getString() : String();
+  http.end();
+  if (code != 200 || reply.indexOf("\"version\":") < 0) return;   // keep the last state
+  EmergencyState e = {};
+  e.version = jsonLong(reply, "version");
+  String door = jsonStr(reply, "door");
+  e.door = door == "UNLOCKED" ? EM_UNLOCKED : door == "LOCKDOWN" ? EM_LOCKDOWN : EM_NORMAL;
+  e.remainingS = jsonLong(reply, "remaining_s");
+  e.msgRemainingS = jsonLong(reply, "message_remaining_s");
+  e.alarm = reply.indexOf("\"alarm\":true") >= 0;
+  strlcpy(e.message, jsonStr(reply, "message").c_str(), sizeof(e.message));
+  if (emergencyQueue) xQueueOverwrite(emergencyQueue, &e);
+}
+
 void portalTask(void *) {
   CommandProgress p;
+  uint32_t lastCommandFetch = 0, lastEmergencyFetch = 0;
+  PortalEvent ev;
   for (;;) {
-    // Wakes at once when loop() reports a step, else every COMMAND_POLL_MS.
-    if (xQueueReceive(progressQueue, &p, pdMS_TO_TICKS(COMMAND_POLL_MS)) == pdTRUE) {
+    // Door events first, in order, as soon as they happen.
+    if (eventQueue && xQueueReceive(eventQueue, &ev, 0) == pdTRUE) {
+      sendEventNow(ev.type, ev.subject, ev.booking, ev.method, ev.result, ev.reason, ev.message);
+      continue;
+    }
+    if (heartbeatWanted && BACKEND_ENABLED && WiFi.status() == WL_CONNECTED) {
+      heartbeatWanted = false;
+      sendHeartbeat();
+      continue;
+    }
+    // Short wait so a new event is picked up within ~50 ms.
+    if (xQueueReceive(progressQueue, &p, pdMS_TO_TICKS(50)) == pdTRUE) {
       if (WiFi.status() == WL_CONNECTED) postProgress(p.id, p.status, p.step, p.message, p.uid);
       continue;
     }
+    if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) continue;
+    if (millis() - lastEmergencyFetch >= EMERGENCY_POLL_MS) {
+      lastEmergencyFetch = millis();
+      fetchEmergency();
+    }
     // Ask for work only while the door is idle and nothing is queued.
-    if (BACKEND_ENABLED && WiFi.status() == WL_CONNECTED && state == STATE_IDLE &&
+    if (millis() - lastCommandFetch >= COMMAND_POLL_MS && state == STATE_IDLE &&
         !enrollActive && uxQueueMessagesWaiting(commandQueue) == 0) {
+      lastCommandFetch = millis();
       fetchCommand();
     }
   }
@@ -716,6 +817,8 @@ void portalTask(void *) {
 void portalTaskBegin() {
   commandQueue  = xQueueCreate(1, sizeof(PortalCommand));
   progressQueue = xQueueCreate(8, sizeof(CommandProgress));
+  emergencyQueue = xQueueCreate(1, sizeof(EmergencyState));
+  eventQueue     = xQueueCreate(16, sizeof(PortalEvent));
   if (!commandQueue || !progressQueue) {
     Serial.println("[PORTAL][WARN] No memory for portal requests - serial enrollment only.");
     return;
@@ -1072,8 +1175,51 @@ void screenIdle(Adafruit_GFX &g) {
   if (rfidLinkDown && !cameraHealthy()) note = "Readers offline - call staff";
   else if (rfidLinkDown)                note = "RFID offline - use QR code";
   else if (!cameraHealthy())            note = "Camera offline - use card";
-  if (note) centerText(g, note, nullptr, 90, C_WARN);
+  if (emMessage[0]) {
+    g.fillRect(0, 78, 160, 34, C_BAD_DARK);   // the admin's message, over the notes
+    wrapText(g, emMessage, 80, C_WHITE, 3);
+  } else if (note) {
+    centerText(g, note, nullptr, 90, C_WARN);
+  }
   centerText(g, "STEP 1 OF 2", nullptr, 112, C_ACCENT);
+}
+
+// Up to `maxLines` lines of ~25 characters, centred, from y downwards.
+void wrapText(Adafruit_GFX &g, const char *text, int16_t y, uint16_t color, uint8_t maxLines) {
+  char line[27];
+  const char *p = text;
+  for (uint8_t n = 0; n < maxLines && *p; n++) {
+    while (*p == ' ') p++;
+    size_t len = strlen(p);
+    size_t take = len <= 25 ? len : 25;
+    if (len > 25) {                       // break at the last space that fits
+      size_t cut = take;
+      while (cut > 0 && p[cut] != ' ') cut--;
+      if (cut > 0) take = cut;
+    }
+    memcpy(line, p, take);
+    line[take] = '\0';
+    centerText(g, line, nullptr, y + n * 11, color);
+    p += take;
+  }
+}
+
+// Emergency screens: door held open by the admin, or lockdown.
+void screenEmergency(Adafruit_GFX &g) {
+  bool open = emView == 1;
+  g.fillScreen(open ? C_OK_DARK : C_BAD_DARK);
+  header(g, C_BAD, "! EMERGENCY !");
+  centerText(g, open ? "DOOR OPEN" : "LAB LOCKED", &FreeSansBold12pt7b, 30, C_WHITE);
+  if (emMessage[0]) wrapText(g, emMessage, 58, C_WARN, 4);
+  else centerText(g, open ? "Please leave calmly" : "No entry at the moment", nullptr, 62, C_WHITE);
+  if (open && emUnlockUntilMs) {
+    char left[24];
+    long s = (long)(emUnlockUntilMs - millis()) / 1000;
+    snprintf(left, sizeof(left), "for %ld min", s > 0 ? (s + 59) / 60 : 0);
+    centerText(g, left, nullptr, 112, C_SUB);
+  } else {
+    centerText(g, open ? "until staff lock it" : "set by the lab admin", nullptr, 112, C_SUB);
+  }
 }
 
 void screenChecking(Adafruit_GFX &g) {
@@ -1190,6 +1336,7 @@ void updateDisplay() {
   displayDirty = false;
 
   Adafruit_GFX &g = gfx();
+  if (emView) { screenEmergency(g); present(); return; }
   switch (state) {
     case STATE_IDLE:                    screenIdle(g); break;
     case STATE_WAIT_FINGERPRINT:
@@ -1371,20 +1518,43 @@ QrAuthResult validateQrWithBackend(const String &token) {
 // Event reporting. Fire and forget: the door must never wait on the portal.
 // A failure here costs an audit-log line, not an entry decision.
 // ---------------------------------------------------------------------------
+// Door events are SENT by the background task (core 0), in order: the door,
+// the LCD and the tablet never wait on a network round trip (PortalEvent,
+// eventQueue and heartbeatWanted are declared with the other task queues).
+
 void reportEvent(const char *eventType, const char *authSubject,
                  long bookingId, const char *method, const char *result,
                  const char *reason, const String &message) {
+  if (!BACKEND_ENABLED) return;
+  PortalEvent e = {};
+  strlcpy(e.type, eventType ? eventType : "", sizeof(e.type));
+  strlcpy(e.subject, authSubject ? authSubject : "", sizeof(e.subject));
+  e.booking = bookingId;
+  strlcpy(e.method, method ? method : "", sizeof(e.method));
+  strlcpy(e.result, result ? result : "", sizeof(e.result));
+  strlcpy(e.reason, reason ? reason : "", sizeof(e.reason));
+  strlcpy(e.message, message.c_str(), sizeof(e.message));
+  if (eventQueue && xQueueSend(eventQueue, &e, 0) == pdTRUE) return;
+  // No task (out of memory) or 16 events waiting: send it here rather than lose it.
+  Serial.println("[PORTAL] event queue full - sending directly");
+  sendEventNow(e.type, e.subject, e.booking, e.method, e.result, e.reason, e.message);
+}
+
+// Called by the background task (or, as a fallback, from reportEvent).
+// Its own client each time: it may run on either core.
+void sendEventNow(const char *eventType, const char *authSubject,
+                  long bookingId, const char *method, const char *result,
+                  const char *reason, const char *message) {
   if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) return;
 
-  static WiFiClient client;
-  static HTTPClient http;
+  WiFiClient client;
+  HTTPClient http;
 
   const char *path = "/access/events";
   if (strcmp(eventType, "ACCESS_GRANTED") == 0) path = "/access/grant";
   else if (strcmp(eventType, "ACCESS_DENIED") == 0) path = "/access/deny";
 
   http.begin(client, backendBase() + path);
-  http.setReuse(true);
   http.setConnectTimeout(BACKEND_TIMEOUT_MS);
   http.setTimeout(BACKEND_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
@@ -1430,7 +1600,9 @@ void sendHeartbeat() {
                 ",\"components\":{\"rfid\":" + (rfidLinkDown ? "false" : "true") +
                 ",\"fingerprint\":" + (fpOk ? "true" : "false") +
                 ",\"camera\":" + (cameraHealthy() ? "true" : "false") +
-                ",\"relay_locked\":" + (relayUnlocked ? "false" : "true") + "}}";
+                ",\"relay_locked\":" + (relayUnlocked ? "false" : "true") +
+                // The emergency state this board has applied (portal shows "applied").
+                ",\"emergency_version\":" + String(emVersion) + "}}";
   http.POST(body);
   http.end();
 }
@@ -1967,6 +2139,80 @@ void pollDoor() {
 }
 
 // ===========================================================================
+// Emergency: take the newest state from the portal task and apply it.
+// Returns true while the normal entry steps must not run this loop.
+// ===========================================================================
+void emergencyTakeUpdate() {
+  EmergencyState e;
+  if (!emergencyQueue || xQueueReceive(emergencyQueue, &e, 0) != pdTRUE) return;
+  bool changed = e.version != emVersion;
+  if (!changed) return;
+  emVersion = e.version;
+  emDoor = e.door;
+  emUnlockUntilMs = (e.door == EM_UNLOCKED && e.remainingS >= 0) ? millis() + (uint32_t)e.remainingS * 1000UL : 0;
+  if (e.door == EM_UNLOCKED && e.remainingS == 0) emDoor = EM_NORMAL;     // already expired
+  strlcpy(emMessage, e.msgRemainingS != 0 ? e.message : "", sizeof(emMessage));
+  emMessageUntilMs = (emMessage[0] && e.msgRemainingS > 0) ? millis() + (uint32_t)e.msgRemainingS * 1000UL : 0;
+  if (e.alarm != emAlarm) {
+    emAlarm = e.alarm;
+    if (!emAlarm) { digitalWrite(RED_LED_BUZZER_PIN, LOW); setRedSolo(false); }
+  }
+  Serial.printf("[EMERGENCY] v%ld door=%s%s alarm=%s message=\"%s\"\n", emVersion,
+                emDoor == EM_UNLOCKED ? "UNLOCKED" : emDoor == EM_LOCKDOWN ? "LOCKDOWN" : "NORMAL",
+                emDoor == EM_UNLOCKED && e.remainingS > 0 ? " (timed)" : "",
+                emAlarm ? "ON" : "off", emMessage);
+  displayDirty = true;
+  heartbeatNow = true;          // tell the portal at once that it is applied
+}
+
+bool emergencyOverride() {
+  emergencyTakeUpdate();
+  if (emMessage[0] && emMessageUntilMs && (int32_t)(millis() - emMessageUntilMs) >= 0) {
+    emMessage[0] = '\0';                 // the message's time is over
+    displayDirty = true;
+  }
+  bool unlocked = emDoor == EM_UNLOCKED &&
+                  (emUnlockUntilMs == 0 || (int32_t)(millis() - emUnlockUntilMs) < 0);
+  if (emDoor == EM_UNLOCKED && !unlocked) {
+    Serial.println("[EMERGENCY] Timed unlock over - locking");
+    emDoor = EM_NORMAL;
+  }
+  bool lockdown = emDoor == EM_LOCKDOWN && state == STATE_IDLE;
+
+  // Evacuation alarm: buzzer on (soft start, as for the deny alert) and the
+  // red LED blinking. Turned back on if a door step switched it off.
+  if (emAlarm) {
+    if (digitalRead(RED_LED_BUZZER_PIN) == LOW) { softStartAlert(); tftRefreshWanted = true; }
+    setRedSolo((millis() / 500) % 2);
+  }
+
+  uint8_t view = unlocked ? 1 : lockdown ? 2 : 0;
+  if (view != emView) {
+    if (emView == 1 && view != 1) {          // leaving "door open": lock and start fresh
+      emView = 0;
+      goIdle();
+    }
+    emView = view;
+    displayDirty = true;
+  }
+  if (!view) return false;
+
+  if (unlocked) {
+    if (state != STATE_IDLE) {              // whatever was going on, the admin's order wins
+      pendingUserIndex = -1; pendingBookingId = -1; pendingViaPortal = false;
+      enterState(STATE_IDLE);
+    }
+    setRelay(true);
+    digitalWrite(GREEN_LED_PIN, HIGH);
+  }
+  visionQrFresh = false;                    // QR codes are not used meanwhile
+  visionFaceFresh = false;
+  if (tftRefreshWanted) { tftRefreshWanted = false; tftWake(); displayDirty = true; }
+  if (millis() - emLastDrawMs > 30000) { emLastDrawMs = millis(); displayDirty = true; }   // minutes left
+  return true;
+}
+
+// ===========================================================================
 // setup()
 // ===========================================================================
 // Read-only tablet display (a second, larger view of the TFT's state).
@@ -2136,7 +2382,7 @@ void loop() {
   // assuming it.
   if (millis() - lastHeartbeatSentMs > HEARTBEAT_PERIOD_MS) {
     lastHeartbeatSentMs = millis();
-    sendHeartbeat();
+    heartbeatWanted = true;          // sent by the background task
   }
 
   // The photo arrived after the grant screen was drawn without it: redraw.
@@ -2151,6 +2397,18 @@ void loop() {
   if (millis() - lastCameraPollMs > CAMERA_POLL_MS) {
     lastCameraPollMs = millis();
     pollCamera();
+  }
+
+  // Emergency from the portal (admin): door held open or lockdown. The
+  // forced-entry check above has already run; the entry steps pause.
+  if (emergencyOverride()) {
+    updateDisplay();
+    if (heartbeatNow) {
+      heartbeatNow = false;
+      lastHeartbeatSentMs = millis();
+      heartbeatWanted = true;
+    }
+    return;
   }
 
   switch (state) {
@@ -2447,6 +2705,6 @@ void loop() {
   if (heartbeatNow) {
     heartbeatNow = false;
     lastHeartbeatSentMs = millis();
-    sendHeartbeat();
+    heartbeatWanted = true;          // sent by the background task
   }
 }

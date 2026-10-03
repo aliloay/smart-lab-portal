@@ -233,6 +233,16 @@ export function ReusableItems() {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [editing, setEditing] = useState<Asset | null>(null)
   const [adding, setAdding] = useState(false)
+  // The bin's load cell checks every return / checkout against this mass.
+  async function setMass(a: Asset) {
+    const v = window.prompt(`Mass of ${a.asset_tag} in grams (empty = learn it from the next return):`,
+      a.unit_mass_g?.toString() ?? '')
+    if (v === null) return
+    const g = v.trim() ? Number(v) : null
+    if (g !== null && !(g > 0)) { window.alert('Enter a positive number of grams.'); return }
+    await api.setItemMass(a.id, g).catch(e => window.alert(e.message))
+    load()
+  }
   // Only what is kept in the smart bin - not fixed lab equipment.
   const load = useCallback(() => {
     api.assets().then(a => setAssets(a.filter(x => x.bin_item || x.nfc_uid))).catch(() => setAssets([]))
@@ -255,6 +265,9 @@ export function ReusableItems() {
                 <span className="text-slate-400 w-28">{a.status.replace('_', ' ').toLowerCase()}</span>
                 <span className={`mono w-40 truncate ${a.nfc_uid ? 'text-slate-200' : 'text-slate-500'}`}>
                   {a.nfc_uid ?? 'no tag'}</span>
+                <button className="tnum w-24 text-left text-slate-300 hover:text-white" title="Mass on the bin's load cell"
+                  onClick={() => setMass(a)}>
+                  {a.unit_mass_g != null ? `${a.unit_mass_g.toFixed(1)} g` : <span className="text-slate-500">learn on return</span>}</button>
                 <button className="btn-ghost btn-sm" onClick={() => setEditing(a)}>{a.nfc_uid ? 'Change tag' : 'Assign tag'}</button>
               </div>))}
           </div>}

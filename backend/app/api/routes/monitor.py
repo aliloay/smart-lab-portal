@@ -111,7 +111,11 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
     faults = [_COMPONENT_NAMES[k] for k, v in comp.items()
               if k in _COMPONENT_NAMES and v is False] if controller_online else []
 
-    if any(a.severity == AlertSeverity.CRITICAL for a in alerts):
+    from app.services import emergency as em
+    emg = em.state(db, lab.id, now)
+    if em.active(emg) and (emg.door_mode != "NORMAL" or emg.alarm):
+        state = "ALERT"
+    elif any(a.severity == AlertSeverity.CRITICAL for a in alerts):
         state = "ALERT"
     elif alerts or faults or controller_online is False or (
             envd["node"] is not None and envd["node"]["online"] is False):
@@ -152,6 +156,9 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         # The lab's security camera: the tile streams it live; people seen
         # vs inside per the door, and who the camera could name.
         "security_camera": _security(db, security_cam, now) if security_cam else None,
+        # Emergency set by an administrator (door held open / lockdown /
+        # message / alarm), shown first on the tile.
+        "emergency": em.out(emg, now) if em.active(emg) else None,
     }
 
 

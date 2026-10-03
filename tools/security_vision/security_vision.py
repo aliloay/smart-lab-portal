@@ -41,7 +41,7 @@ import numpy as np
 import requests
 from flask import Flask, Response, jsonify, request
 
-from vision import PERSON, Detector, Labeler, Tracker, ZoneWatcher, draw
+from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -152,6 +152,10 @@ class Service:
         self.http.headers["X-Device-Key"] = self.key
         cv2.setNumThreads(args.threads)            # leave CPU for the face server
         self.detector = Detector(args.model, conf=args.conf, size=args.size)
+        # Who looks like whom: colours always, the body model when downloaded.
+        reid = args.reid if args.reid and os.path.isfile(args.reid) else None
+        self.appearance = Appearance(reid)
+        print(f"[vision] identity lock: colours{' + body re-id model' if reid else ' only (no re-id model)'}")
         self.camera = Camera(args.source, args.max_width)
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
         self.cfg = {"zones": [], "door": None, "occupants": []}
@@ -234,7 +238,7 @@ class Service:
                 continue
             h, w = frame.shape[:2]
             people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
-            tracks = self.tracker.update(people, t0)
+            tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
             occupants = self.cfg.get("occupants", [])
             door = self.cfg.get("door")
             door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
@@ -352,6 +356,8 @@ def main():
     ap.add_argument("--portal", default="http://127.0.0.1:8000/api")
     ap.add_argument("--port", type=int, default=5100)
     ap.add_argument("--model", default=os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx"))
+    ap.add_argument("--reid", default=os.path.join(HERE, "models", "person_reid_youtu_2021nov.onnx"),
+                    help="body re-identification model (optional; colours only without it)")
     ap.add_argument("--size", type=int, default=416, help="detector input (416: ~160 ms; 640: sharper, slower)")
     ap.add_argument("--conf", type=float, default=0.45)
     ap.add_argument("--threads", type=int, default=4, help="CPU threads (the face server needs the rest)")

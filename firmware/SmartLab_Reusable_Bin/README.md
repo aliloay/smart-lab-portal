@@ -11,6 +11,7 @@ Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §K–L.
 | 16×2 LCD (I2C) | same bus | found by I2C scan; check its pull-ups / supply first |
 | MG90S servo signal | GPIO13 | power from the **5 V branch rail**, not the ESP32; bulk capacitor near the servo; measure sag |
 | Reed switch (NO, 2×14 mm) | GPIO27 → GND | pulled up; magnet at the reed = lid closed (VERIFY) |
+| HX711 + load cell under the bin | DT 25, SCK 26 | third proof: weighs before/after each lid cycle; nothing else may rest on the weighing path |
 
 ## Set on the actual bin (VERIFY constants)
 
@@ -18,6 +19,16 @@ Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §K–L.
 (time the lid stays open for an item), `HOME_ANGLE`, `REED_LID_CLOSED_LEVEL`.
 The servo must only press the button: it never carries the bin and never
 touches a weighing path.
+
+## Load cell calibration (USB serial, 115200)
+
+`tare` with the bin empty, then put a known mass in and `cal <grams>`;
+`show` prints the stable mass. Saved in flash. Without calibration the bin
+still works - the portal just records `NO_SCALE` instead of a weight check.
+
+Each item's mass is learnt from its first return (or set by staff); later a
+return that adds nothing, or a checkout that removes two items' worth,
+raises a warning alert for staff. The tag and the portal still decide.
 
 ## Portal setup
 

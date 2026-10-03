@@ -17,7 +17,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, CircleCheck, DoorClosed, DoorOpen, Droplets, Lock, LockOpen,
-  Maximize2, Minimize2, ShieldAlert, ShieldCheck, Thermometer, TriangleAlert,
+  Maximize2, Minimize2, ShieldAlert, ShieldCheck, Siren, Thermometer, TriangleAlert,
   UsersRound, WifiOff,
 } from 'lucide-react'
 import { MonitorTile, Role, api } from '../lib/api'
@@ -181,6 +181,24 @@ function roleBreakdown(t: MonitorTile): string {
     .join(' · ')
 }
 
+/** Set by an administrator from the Emergency tab: shown before anything else. */
+function EmergencyBanner({ e, size }: { e: NonNullable<MonitorTile['emergency']>; size: string }) {
+  const what = [
+    e.door_mode === 'UNLOCKED' ? `Door held OPEN${e.door_remaining_s != null
+      ? ` · ${Math.ceil(e.door_remaining_s / 60)} min left` : ''}` : null,
+    e.door_mode === 'LOCKDOWN' ? 'LOCKDOWN · no entry' : null,
+    e.alarm ? 'Evacuation alarm' : null,
+  ].filter(Boolean).join(' · ')
+  return (
+    <div className={`rounded-xl border border-bad/60 bg-bad/15 px-3 py-2 ${size}`}>
+      <div className="flex items-center gap-1.5 font-extrabold text-bad-soft uppercase tracking-wide">
+        <Siren className="w-[1em] h-[1em] shrink-0 animate-pulse" /> Emergency</div>
+      {what && <div className="text-white font-semibold truncate">{what}</div>}
+      {e.message && <div className="text-slate-200 truncate">“{e.message}”</div>}
+    </div>
+  )
+}
+
 function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
   const S = SIZES[size]
   // Static red frame; only the ALARM badge pulses - a pulsing tile would fade
@@ -211,6 +229,8 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
         </div>
         <StatePill state={t.state} inUse={t.in_use} />
       </div>
+
+      {t.emergency && <EmergencyBanner e={t.emergency} size={S.body} />}
 
       {t.security_camera && <CameraBadges t={t} onOpen={() => setBig(true)} />}
 

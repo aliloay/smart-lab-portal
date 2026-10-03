@@ -104,8 +104,11 @@ class Settings(BaseSettings):
     # with a Header Auth credential.
     AUTOMATION_WEBHOOK_TOKEN: str = ""
     # Which event types are pushed. The rest stay in the pull feed only.
+    # Only types a workflow listens for: a push nobody receives fails (404)
+    # and is retried. door.alarm is not pushed - the backend itself raises
+    # the alert and notifies staff (services/devices.record_door_alarm).
     AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
-                                  "issue.created,device.offline,door.alarm")
+                                  "issue.created,device.offline")
     AUTOMATION_MAX_ATTEMPTS: int = 6
     # Delivered/skipped outbox rows older than this are pruned.
     AUTOMATION_RETENTION_DAYS: int = 30
@@ -151,6 +154,13 @@ class Settings(BaseSettings):
     # portal fetches the live frames from it. Each camera's service reports
     # its own port; this is the host part.
     SECURITY_VISION_HOST: str = "127.0.0.1"
+
+    # --- emergency (admin) ------------------------------------------------------
+    # The Emergency tab opens only with this password (kept in .env, never in
+    # git). Once changed from the portal, the stored bcrypt hash is used instead.
+    EMERGENCY_PASSWORD: str = ""
+    # How long the emergency controls stay open after the password.
+    EMERGENCY_SESSION_MINUTES: int = 15
 
     # --- AI assistant (optional) --------------------------------------------
     # Two providers:

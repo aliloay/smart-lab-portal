@@ -121,6 +121,19 @@ static void tabletHandleState() {
     lines[0] = enrollLine2;
   }
 
+  // Emergency (admin, from the portal): it overrides the normal screens.
+  if (emView) {
+    screen = "emergency"; tone = emView == 1 ? "ok" : "bad"; header = "! EMERGENCY !";
+    title = emView == 1 ? "DOOR OPEN" : "LAB LOCKED"; name = ""; step = 0; remainingMs = -1;
+    for (auto &l : lines) l = nullptr;
+    lines[0] = emMessage[0] ? emMessage : (emView == 1 ? "Please leave calmly" : "No entry at the moment");
+    note = emView == 1 ? (emUnlockUntilMs ? "Door kept open for a limited time" : "Door kept open until staff lock it")
+                       : "Set by the lab administrator";
+  } else if (emMessage[0]) {
+    note = emMessage;                      // the admin's message on the normal screens
+  }
+  if (emAlarm) { tone = "bad"; header = "! EVACUATE !"; }
+
   String o; o.reserve(1200);
   o += '{';
   tjKV(o, "screen", screen); tjKV(o, "tone", tone); tjKV(o, "header", header);

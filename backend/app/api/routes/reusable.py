@@ -19,6 +19,13 @@ CHECKOUT (portal-driven, selected item + tag confirmation)
 This never guesses which item left the bin: only the selected item, and
 only when its own tag is scanned.
 
+WEIGHT (third proof, the load cell under the bin)
+  The node weighs before the lid opens and after it closes. A return must
+  add about the item's mass, a checkout remove about one item's mass; a
+  mismatch (nothing went in, two items left) is an alert for staff, never
+  a block - the tag and the portal decide, the scale double-checks. The
+  item's mass is learnt from its first return or set by staff.
+
 Unknown tags are remembered (last one per node) so staff can assign them
 to an item on the Inventory page.
 """
@@ -34,18 +41,58 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, get_current_user, require_device, require_staff
 from app.db.session import get_db
-from app.models import (AccessSession, Asset, AssetStatus, AssetTransaction, AuditLog,
-                        Device, DeviceCommand, DeviceType, EventType, Role, User)
+from app.models import (AccessSession, Alert, AlertSeverity, Asset, AssetStatus,
+                        AssetTransaction, AuditLog, Device, DeviceCommand, DeviceType,
+                        EventType, Role, User)
 from app.services import commands as cmds
 from app.services.access import get_device
 from app.services.devices import is_fresh
 from app.services.events import log_event
+from app.services.notifications import notify, staff_ids
 
 router = APIRouter(prefix="/reusable", tags=["reusable inventory"])
 
 OPEN_LID = "OPEN_LID"
 # Last unknown tag per bin node, for assigning it on the Inventory page.
 _last_unknown: dict[str, dict] = {}
+
+
+MIN_ITEM_G = 2.0                     # less than this = nothing went in / came out
+TOLERANCE_G = 3.0                    # scale noise + tag/sticker variation...
+TOLERANCE_FRACTION = 0.15            # ...or this share of the item's mass, if larger
+
+
+def weight_check(expected_g: Optional[float], observed_g: Optional[float]) -> str:
+    """observed_g: mass that went in (return) or came out (checkout), grams."""
+    if observed_g is None:
+        return "NO_SCALE"
+    if expected_g is None:
+        return "LEARNED" if observed_g >= MIN_ITEM_G else "MISMATCH"
+    tolerance = max(TOLERANCE_G, TOLERANCE_FRACTION * expected_g)
+    return "MATCH" if abs(observed_g - expected_g) <= tolerance else "MISMATCH"
+
+
+def _weight(db: Session, a: Asset, device: Device, tx: AssetTransaction,
+            observed_g: Optional[float], what: str) -> str:
+    """Record the load cell's verdict on a transaction; alert staff on a mismatch."""
+    verdict = weight_check(a.unit_mass_g, observed_g)
+    tx.mass_delta_g = None if observed_g is None else \
+        round(observed_g if what == "RETURN" else -observed_g, 1)
+    tx.weight_check = verdict
+    if verdict == "LEARNED":
+        a.unit_mass_g = round(observed_g, 1)
+    elif verdict == "MISMATCH":
+        exp = f"{a.unit_mass_g:.0f} g" if a.unit_mass_g else "the item's mass"
+        detail = (f"{a.asset_tag} ({a.name}): {'return' if what == 'RETURN' else 'checkout'} - the bin "
+                  f"{'gained' if what == 'RETURN' else 'lost'} {observed_g:.1f} g, expected about {exp}. "
+                  + ("The item may not be in the bin." if what == "RETURN"
+                     else "More (or other) items may have been taken."))
+        title = f"Smart bin weight does not match: {a.asset_tag}"
+        db.add(Alert(lab_id=a.lab_id, device_id=device.id, severity=AlertSeverity.WARNING,
+                     title=title[:128], detail=detail))
+        notify(db, staff_ids(db), "SECURITY_EVENT", title[:160], body=detail,
+               link="/admin/equipment?tab=reusables", severity="warning")
+    return verdict
 
 
 def norm_uid(uid: str) -> str:
@@ -143,6 +190,7 @@ def bin_items(lab_id: int, db: Session = Depends(get_db),
         out.append({"id": a.id, "asset_tag": a.asset_tag, "name": a.name,
                     "category": a.category, "status": a.status.value,
                     "holder": holder, "checked_out_at": a.checked_out_at,
+                    "unit_mass_g": a.unit_mass_g,
                     **({"nfc_uid": a.nfc_uid} if _staff(user) else {})})
     return {"bin_online": bool(node and is_fresh(node, datetime.now(timezone.utc))),
             "bin_device": node.device_uid if node else None,
@@ -156,6 +204,24 @@ def last_unknown(_: User = Depends(require_staff)):
     if not _last_unknown:
         return None
     return max(_last_unknown.values(), key=lambda x: x["at"])
+
+
+class SetMass(BaseModel):
+    unit_mass_g: Optional[float] = Field(default=None, gt=0, le=5000)
+
+
+@router.put("/assets/{asset_id}/mass")
+def set_mass(asset_id: int, req: SetMass, db: Session = Depends(get_db),
+             staff: User = Depends(require_staff)):
+    """The item's mass for the bin's weight check (None = learn it again)."""
+    a = db.get(Asset, asset_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    a.unit_mass_g = req.unit_mass_g
+    db.add(AuditLog(actor_user_id=staff.id, action="ASSET_MASS_SET", entity_type="asset",
+                    entity_id=str(a.id), detail={"unit_mass_g": req.unit_mass_g}))
+    db.commit()
+    return {"asset_id": a.id, "unit_mass_g": a.unit_mass_g}
 
 
 class AssignTag(BaseModel):
@@ -185,12 +251,16 @@ def assign_tag(asset_id: int, req: AssignTag, db: Session = Depends(get_db),
 class ScanReport(BaseModel):
     device_uid: str = Field(max_length=64)
     nfc_uid: str = Field(min_length=4, max_length=32)
+    # Load cell: mass change over the last lid cycle (checkout), if weighed.
+    mass_delta_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
 def _tx(db: Session, a: Asset, user_id: int, action: str, device: Device,
-        booking_id: Optional[int]) -> None:
-    db.add(AssetTransaction(asset_id=a.id, user_id=user_id, lab_id=a.lab_id, action=action,
-                            booking_id=booking_id, device_id=device.id, source="BIN"))
+        booking_id: Optional[int]) -> AssetTransaction:
+    tx = AssetTransaction(asset_id=a.id, user_id=user_id, lab_id=a.lab_id, action=action,
+                          booking_id=booking_id, device_id=device.id, source="BIN")
+    db.add(tx)
+    return tx
 
 
 @router.post("/scan", tags=["devices"])
@@ -227,14 +297,18 @@ def scan(req: ScanReport, db: Session = Depends(get_db),
             cmds.flush_published(db)
             return {"action": "NOT_ALLOWED", "lcd1": a.asset_tag[:16], "lcd2": "NOT AVAILABLE"}
         a.status, a.holder_id, a.checked_out_at = AssetStatus.CHECKED_OUT, args.get("user_id"), now
-        _tx(db, a, args["user_id"], "CHECKOUT", device, args.get("booking_id"))
+        tx = _tx(db, a, args["user_id"], "CHECKOUT", device, args.get("booking_id"))
+        verdict = _weight(db, a, device, tx,
+                          None if req.mass_delta_g is None else -req.mass_delta_g, "CHECKOUT")
         log_event(db, EventType.ASSET_CHECKOUT, lab_id=a.lab_id, user_id=args["user_id"],
                   message=f"{a.name} taken from the smart bin")
         pending.status, pending.step, pending.completed_at = "DONE", "TAG_CONFIRMED", now
         cmds.publish_later(db, pending)
         db.commit()
         cmds.flush_published(db)
-        return {"action": "CHECKOUT_OK", "lcd1": a.asset_tag[:16], "lcd2": "CHECKED OUT"}
+        return {"action": "CHECKOUT_OK", "lcd1": a.asset_tag[:16],
+                "lcd2": "CHECK WEIGHT" if verdict == "MISMATCH" else "CHECKED OUT",
+                "weight_check": verdict}
 
     if a.status == AssetStatus.CHECKED_OUT:
         db.commit()
@@ -251,6 +325,9 @@ class CompleteReport(BaseModel):
     nfc_uid: str = Field(min_length=4, max_length=32)
     lid_opened: bool
     lid_closed: bool
+    # Load cell, before the lid opened and after it closed (None = not weighed).
+    mass_before_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
+    mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
 @router.post("/complete", tags=["devices"])
@@ -270,11 +347,18 @@ def complete_return(req: CompleteReport, db: Session = Depends(get_db),
     holder = a.holder_id
     session = _inside(db, holder, a.lab_id) if holder else None
     a.status, a.holder_id, a.checked_out_at = AssetStatus.AVAILABLE, None, None
+    verdict = None
     if holder:
-        _tx(db, a, holder, "RETURN", device, session.booking_id if session else None)
+        tx = _tx(db, a, holder, "RETURN", device, session.booking_id if session else None)
+        put_in = (req.mass_after_g - req.mass_before_g
+                  if req.mass_before_g is not None and req.mass_after_g is not None else None)
+        verdict = _weight(db, a, device, tx, put_in, "RETURN")
     log_event(db, EventType.ASSET_RETURN, lab_id=a.lab_id, user_id=holder,
               message=f"{a.name} returned to the smart bin"
-                      + ("" if req.lid_closed else " - lid did not close"))
+                      + ("" if req.lid_closed else " - lid did not close")
+                      + (" - weight does not match" if verdict == "MISMATCH" else ""))
     db.commit()
     return {"recorded": True, "lcd1": a.asset_tag[:16],
-            "lcd2": "RETURN RECORDED" if req.lid_closed else "CLOSE THE LID"}
+            "lcd2": "CLOSE THE LID" if not req.lid_closed
+            else "CHECK WEIGHT" if verdict == "MISMATCH" else "RETURN RECORDED",
+            "weight_check": verdict}

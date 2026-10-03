@@ -64,10 +64,16 @@ Not yet run with the real camera in the lab.
 
 ## Limits, stated rather than hidden
 
-- Names: after this service restarts, people already inside are no longer
+- Names are locked to each person's look (clothes and hair colours, body
+  re-identification), learnt only while they stand clear of others. After
+  people bump into each other the names go back to the right looks, and
+  someone hidden for a moment gets their name back on a clear match - else
+  Unknown, never someone else. The look is learnt fresh each entry (it
+  follows clothes, not the face), and two people dressed alike can still
+  be confused: then they stay Unknown rather than swap.
+- After this service restarts, people already inside are no longer
   matched to their door entry (more than 25 s ago) and show as Unknown until
-  only one name is left. Crossing paths can make the tracker lose a person;
-  they then become Unknown, never someone else.
+  only one name is left.
 - A person hidden behind equipment is not counted; a poster or photo of a
   person can be counted as one.
 - Robots and PCs are watched as boxes, not recognised: the general detector

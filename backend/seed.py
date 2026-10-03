@@ -73,6 +73,18 @@ ramy, _ = get_or_create(
         "department": "Robotics & Automation Engineering",
     }, email="ramy@giu-uni.de")
 
+# The lab engineer: lab staff (controls the lab PCs from the portal); his own
+# master PC is marked from the Equipment page once its agent reports, and is
+# then controlled by an administrator only. Face photos are added later.
+get_or_create(
+    User, {
+        "full_name": "Eng. Hemaly",
+        "hashed_password": hash_password("Staff#2026"),
+        "role": Role.LAB_STAFF,
+        "auth_subject": "USER5",
+        "department": "Lab engineering",
+    }, email="hemaly@giu-uni.de")
+
 # USER1 and USER2 are the two people physically enrolled on the door today:
 # fingerprint slots 1 and 2 on the sensor, face labels USER1/USER2 on the
 # face server. Record that (only if not recorded yet) so they are not told

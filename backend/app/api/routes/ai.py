@@ -9,7 +9,7 @@ Every endpoint answers even when AI is not configured: /status says so, the
 priority list is deterministic and needs no AI, and the AI calls return 503
 with a readable reason. Each question is recorded in the audit log.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,7 +21,7 @@ from app.api.deps import get_current_user, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import AuditLog, User
-from app.services import ai
+from app.services import agent, ai
 from app.services.automation import maintenance_priorities
 
 router = APIRouter(prefix="/ai", tags=["ai assistant"])
@@ -85,11 +85,38 @@ def _run(db: Session, user: User, question: str, history=None, kind="ask") -> di
         raise HTTPException(503, str(exc)) from exc
 
 
+def _instant(db: Session, user: User, question: str) -> Optional[dict]:
+    """The agent's exact answer from the database, if the question is one it
+    knows - milliseconds, no model, and it works with no AI configured."""
+    out = agent.quick_answer(db, user, question)
+    if out is not None:
+        db.add(AuditLog(actor_user_id=user.id, action="AI_INSTANT", entity_type="ai",
+                        entity_id=out["tools_used"][0], detail={"question": question[:500]}))
+        db.commit()
+    return out
+
+
 @router.post("/ask")
 def ask(req: AskRequest, db: Session = Depends(get_db),
         user: User = Depends(require_staff)):
-    return _run(db, user, req.question,
-                [t.model_dump() for t in req.history])
+    return _instant(db, user, req.question) or _run(db, user, req.question,
+                                                    [t.model_dump() for t in req.history])
+
+
+@router.get("/report")
+def management_report(period: Literal["weekly", "monthly"] = "weekly",
+                      end_day: Optional[date] = None, db: Session = Depends(get_db),
+                      _: User = Depends(require_staff)):
+    """Weekly or monthly management report (no AI needed): figures, the
+    previous period, equipment use, repeated problems with recommendations."""
+    return agent.management_report(db, period, end_day)
+
+
+@router.get("/insights")
+def insights(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db),
+             _: User = Depends(require_staff)):
+    now = datetime.now(timezone.utc)
+    return {"days": days, "insights": agent.insights(db, now - timedelta(days=days), now)}
 
 
 @router.post("/summaries/{kind}")
@@ -102,6 +129,9 @@ def summary(kind: Literal["issues", "weekly"], db: Session = Depends(get_db),
 @router.post("/student/ask")
 def student_ask(req: AskRequest, db: Session = Depends(get_db),
                 user: User = Depends(get_current_user)):
+    quick = _instant(db, user, req.question)
+    if quick is not None:
+        return quick
     if not (settings.AI_STUDENT_ENABLED and ai.configured()):
         raise HTTPException(503, "The AI helper is not configured.")
     _limit(db, user, "AI_STUDENT_QUESTION", settings.AI_STUDENT_QUESTIONS_PER_HOUR)

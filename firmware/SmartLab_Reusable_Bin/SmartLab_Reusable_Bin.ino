@@ -6,16 +6,28 @@
 // (PRESS - HOLD - RELEASE); a reed switch confirms the lid opened and
 // closed. The servo is not part of any weighing path.
 //
-//   RETURN:   scan a checked-out item -> portal says OPEN_FOR_RETURN ->
-//             lid open, item in, lid closed -> POST /reusable/complete
-//   CHECKOUT: chosen in the portal -> this node fetches an OPEN_LID request
-//             (only while idle) -> lid opens -> the person scans the item's
-//             tag -> the portal checks it is the chosen item
+// A load cell (HX711) under the bin is the third proof: the bin is weighed
+// before the lid opens and after it closes, and the portal checks the
+// change against the item's mass (learnt from its first return). A
+// mismatch alerts staff; it never blocks - the tag and the portal decide.
 //
+//   RETURN:   scan a checked-out item -> portal says OPEN_FOR_RETURN ->
+//             weigh, lid open, item in, lid closed, weigh ->
+//             POST /reusable/complete (with both masses)
+//   CHECKOUT: chosen in the portal -> this node fetches an OPEN_LID request
+//             (only while idle) -> weigh, lid opens, item out, weigh ->
+//             the person scans the item's tag (with the mass change) ->
+//             the portal checks it is the chosen item
+//
+// Calibration over USB serial (115200), as on the consumable bin:
+//   tare         - bin empty -> zero
+//   cal <grams>  - a known mass in the bin -> scale factor (saved in flash)
+//   show         - raw / mass / stable
 // An NFC UID identifies an item; it authenticates nobody.
 //
-// STATUS: compiled, NOT yet run on hardware. Servo angles, hold time and
-// the reed polarity are VERIFY values: set them on the actual bin.
+// STATUS: compiled, NOT yet run on hardware. Servo angles, hold time, the
+// reed polarity and the load cell bands are VERIFY values: set them on the
+// actual bin.
 // ===========================================================================
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -23,6 +35,8 @@
 #include <Adafruit_PN532.h>
 #include <LiquidCrystal_I2C.h>
 #include <ESP32Servo.h>
+#include <Preferences.h>
+#include "HX711.h"
 
 #include "secrets.h"        // WIFI_SSID, WIFI_PASS, DEVICE_KEY (gitignored)
 
@@ -31,7 +45,7 @@ const char *BACKEND_IP = "192.168.1.200";
 constexpr uint16_t BACKEND_PORT = 8000;
 const char *LAB_ID    = "LAB_01";
 const char *DEVICE_ID = "REUSE_BIN_1";
-const char *FIRMWARE  = "reuse-0.1";
+const char *FIRMWARE  = "reuse-0.2";
 const IPAddress LOCAL_IP(192, 168, 1, 154), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -39,6 +53,7 @@ const IPAddress LOCAL_IP(192, 168, 1, 154), GATEWAY(192, 168, 1, 1),
 constexpr uint8_t I2C_SDA = 21, I2C_SCL = 22;   // PN532 (0x24) + LCD on one bus
 constexpr uint8_t SERVO_PIN = 13;
 constexpr uint8_t REED_PIN  = 27;               // to GND through the reed, pulled up
+constexpr uint8_t HX_DT_PIN = 25, HX_SCK_PIN = 26;   // load cell under the bin
 
 // --- mechanism (VERIFY on the actual bin) ---------------------------------------
 constexpr int      HOME_ANGLE   = 0;
@@ -50,6 +65,14 @@ constexpr uint32_t LID_CLOSE_TIMEOUT_MS = 6000; // and CLOSED after release
 constexpr bool     HAS_REED = true;
 constexpr int      REED_LID_CLOSED_LEVEL = LOW; // magnet at the reed = lid closed
 
+// --- load cell (VERIFY from the noise / settling tests) ------------------------
+constexpr uint8_t  SAMPLES_PER_READING = 5;
+constexpr float    STABLE_BAND_G  = 1.0;        // spread allowed while "stable"
+constexpr uint32_t STABLE_TIME_MS = 800;        // held this long
+constexpr uint32_t WEIGH_BEFORE_MS = 1500;      // give up waiting after this (-> not weighed)
+constexpr uint32_t WEIGH_AFTER_MS  = 4000;      // the bin swings after the lid closes
+constexpr uint32_t DELTA_VALID_MS  = 120000;    // a checkout's mass change waits for its scan
+
 constexpr uint32_t SCAN_REPEAT_MS  = 3000;      // same tag again within this = ignored
 constexpr uint32_t COMMAND_POLL_MS = 2000;
 constexpr uint32_t HEARTBEAT_MS    = 30000;
@@ -58,6 +81,12 @@ constexpr uint32_t HTTP_TIMEOUT_MS = 2500;
 Adafruit_PN532 nfc(255, 255, &Wire);            // IRQ / RESET not wired
 LiquidCrystal_I2C *lcd = nullptr;
 Servo servo;
+HX711 scale;
+Preferences prefs;
+float scaleFactor = 0;                          // counts per gram; 0 = not calibrated
+long  zeroOffset = 0;
+float lastDeltaG = NAN;                         // mass change of the last checkout lid cycle
+uint32_t lastDeltaAt = 0;
 bool pn532Ok = false;
 String lastUid;
 uint32_t lastUidMs = 0, lastPollMs = 0, lastHeartbeatMs = 0, idleScreenAt = 0;
@@ -103,6 +132,74 @@ void lidCycle(bool *opened, bool *closed) {
   Serial.printf("[LID] opened=%d closed=%d\n", *opened, *closed);
 }
 
+// --- load cell ------------------------------------------------------------------
+void loadCalibration() {
+  prefs.begin("rbin", true);
+  scaleFactor = prefs.getFloat("scale", 0);
+  zeroOffset  = prefs.getLong("offset", 0);
+  prefs.end();
+  if (scaleFactor != 0) { scale.set_scale(scaleFactor); scale.set_offset(zeroOffset); }
+  Serial.printf("[CAL] %s\n", scaleFactor != 0 ? "loaded" : "not calibrated: 'tare' (bin empty), then 'cal <grams>'");
+}
+
+void saveCalibration() {
+  prefs.begin("rbin", false);
+  prefs.putFloat("scale", scaleFactor);
+  prefs.putLong("offset", zeroOffset);
+  prefs.end();
+}
+
+// A stable mass in grams, or NAN (not calibrated, no HX711, or still moving).
+float stableMass(uint32_t timeoutMs) {
+  if (scaleFactor == 0) return NAN;
+  uint32_t t0 = millis(), windowStart = millis();
+  float lo = NAN, hi = NAN, m = NAN;
+  while (millis() - t0 < timeoutMs) {
+    if (!scale.wait_ready_timeout(300)) return NAN;
+    m = scale.get_units(SAMPLES_PER_READING);
+    if (isnan(lo) || max(hi, m) - min(lo, m) > STABLE_BAND_G) { lo = hi = m; windowStart = millis(); }
+    else { lo = min(lo, m); hi = max(hi, m); }
+    if (millis() - windowStart >= STABLE_TIME_MS) return (lo + hi) / 2;
+  }
+  return NAN;
+}
+
+String num(float g) { return isnan(g) ? String("null") : String(g, 1); }
+
+void handleSerial() {
+  static String line;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r') continue;
+    if (c != '\n') { if (line.length() < 32) line += c; continue; }
+    line.trim();
+    if (line == "tare") {
+      scale.set_scale(1);
+      scale.tare(20);
+      zeroOffset = scale.get_offset();
+      if (scaleFactor != 0) scale.set_scale(scaleFactor);
+      saveCalibration();
+      Serial.printf("[CAL] Zero set (offset %ld)\n", zeroOffset);
+    } else if (line.startsWith("cal ")) {
+      float g = line.substring(4).toFloat();
+      if (g <= 0) Serial.println("[CAL] Usage: cal <grams of the reference mass>");
+      else {
+        scale.set_scale(1);
+        scaleFactor = scale.get_units(20) / g;
+        scale.set_scale(scaleFactor);
+        saveCalibration();
+        Serial.printf("[CAL] %.2f g -> scale %.3f counts/g (saved)\n", g, scaleFactor);
+      }
+    } else if (line == "show") {
+      Serial.printf("[CAL] raw %ld, scale %.3f, stable mass %s g\n", scale.read_average(10),
+                    scaleFactor, num(stableMass(3000)).c_str());
+    } else if (line.length()) {
+      Serial.println("[CMD] tare | cal <grams> | show");
+    }
+    line = "";
+  }
+}
+
 String http(const char *method, const String &path, const String &body, int *code) {
   *code = -1;
   if (WiFi.status() != WL_CONNECTED) return "";
@@ -139,18 +236,26 @@ long jsonLong(const String &s, const char *key) {
 // --- flows ----------------------------------------------------------------------
 void handleScan(const String &uid) {
   int code;
+  // A checkout's lid cycle just ran: its mass change goes with the confirming scan.
+  bool withDelta = !isnan(lastDeltaG) && millis() - lastDeltaAt < DELTA_VALID_MS;
   String reply = http("POST", "/reusable/scan",
-                      String("{\"device_uid\":\"") + DEVICE_ID + "\",\"nfc_uid\":\"" + uid + "\"}", &code);
+                      String("{\"device_uid\":\"") + DEVICE_ID + "\",\"nfc_uid\":\"" + uid + "\"" +
+                      (withDelta ? ",\"mass_delta_g\":" + num(lastDeltaG) : String("")) + "}", &code);
   if (code != 200) { lcdShow("NO CONNECTION", "TRY AGAIN"); idleScreenAt = millis() + 3000; return; }
   String action = jsonStr(reply, "action");
   lcdShow(jsonStr(reply, "lcd1"), jsonStr(reply, "lcd2"));
+  if (action == "CHECKOUT_OK") lastDeltaG = NAN;  // used
   if (action == "OPEN_FOR_RETURN") {
     bool opened, closed;
+    float before = stableMass(WEIGH_BEFORE_MS);
     lidCycle(&opened, &closed);
+    float after = closed ? stableMass(WEIGH_AFTER_MS) : NAN;
+    Serial.printf("[SCALE] return: %s g -> %s g\n", num(before).c_str(), num(after).c_str());
     String done = http("POST", "/reusable/complete",
                        String("{\"device_uid\":\"") + DEVICE_ID + "\",\"nfc_uid\":\"" + uid +
                        "\",\"lid_opened\":" + (opened ? "true" : "false") +
-                       ",\"lid_closed\":" + (closed ? "true" : "false") + "}", &code);
+                       ",\"lid_closed\":" + (closed ? "true" : "false") +
+                       ",\"mass_before_g\":" + num(before) + ",\"mass_after_g\":" + num(after) + "}", &code);
     if (code == 200) lcdShow(jsonStr(done, "lcd1"), jsonStr(done, "lcd2"));
     else lcdShow("NOT RECORDED", "CALL STAFF");
   }
@@ -177,7 +282,12 @@ void pollCommand() {
   lcdShow("TAKE " + item, "THEN SCAN IT");
   progress(id, "RUNNING", "OPENING", "Opening the lid");
   bool opened, closed;
+  float before = stableMass(WEIGH_BEFORE_MS);
   lidCycle(&opened, &closed);
+  float after = closed ? stableMass(WEIGH_AFTER_MS) : NAN;
+  lastDeltaG = (isnan(before) || isnan(after)) ? NAN : after - before;
+  lastDeltaAt = millis();
+  Serial.printf("[SCALE] checkout: %s g -> %s g\n", num(before).c_str(), num(after).c_str());
   if (!opened) progress(id, "FAILED", "LID_NOT_OPENED", "The lid did not open");
   else progress(id, "RUNNING", closed ? "LID_CLOSED" : "LID_LEFT_OPEN",
                 "Waiting for the item's tag");          // the scan completes it
@@ -192,6 +302,8 @@ void sendHeartbeat() {
        "\",\"device_type\":\"SENSOR_NODE\",\"firmware_version\":\"" + FIRMWARE +
        "\",\"ip_address\":\"" + WiFi.localIP().toString() + "\",\"components\":{" +
        "\"reusable_bin\":true,\"pn532\":" + (pn532Ok ? "true" : "false") +
+       ",\"hx711\":" + (scale.is_ready() ? "true" : "false") +
+       ",\"scale_calibrated\":" + (scaleFactor != 0 ? "true" : "false") +
        ",\"lid_closed\":" + (HAS_REED ? (lidClosed() ? "true" : "false") : "null") + "}}", &code);
   lastHeartbeatMs = millis();
 }
@@ -212,6 +324,8 @@ void setup() {
   pinMode(REED_PIN, INPUT_PULLUP);
   servo.attach(SERVO_PIN);
   servo.write(HOME_ANGLE);
+  scale.begin(HX_DT_PIN, HX_SCK_PIN);
+  loadCalibration();
 
   Wire.begin(I2C_SDA, I2C_SCL);
   uint8_t lcdAddr = 0;
@@ -247,6 +361,7 @@ void setup() {
 
 void loop() {
   ensureWifi();
+  handleSerial();
   if (lastHeartbeatMs == 0 || millis() - lastHeartbeatMs > HEARTBEAT_MS) sendHeartbeat();
   if (idleScreenAt && millis() > idleScreenAt) { idleScreenAt = 0; idleScreen(); }
 

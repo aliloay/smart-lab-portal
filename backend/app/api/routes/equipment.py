@@ -29,12 +29,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, require_device, require_staff
+from app.api.deps import device_scope, require_admin, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingStatus,
                         Device, DeviceCommand, DeviceType, EquipmentSession, Lab,
-                        PolicyViolation, SensorReading, User)
+                        PolicyViolation, Role, SensorReading, User)
 from app.services import commands as cmds
 from app.services import pc_control
 from app.services.access import get_device, get_lab_by_code
@@ -193,6 +193,7 @@ def list_equipment(db: Session = Depends(get_db), _: User = Depends(require_staf
             "since": s.started_at if s else None, "detail": d.component_state or {},
             "user_name": who.full_name if who else None,
             "booking_id": s.booking_id if s else None, "mode": d.mode or "NORMAL",
+            "is_master_pc": bool(d.is_master_pc),
             "running_today_s": _today_seconds(db, d, "RUNNING", now),
             "open_violations": db.query(PolicyViolation).filter_by(
                 device_id=d.id, reviewed=False).count()})
@@ -232,9 +233,7 @@ class ModeRequest(BaseModel):
 @router.put("/{device_id}/mode")
 def set_mode(device_id: int, req: ModeRequest, db: Session = Depends(get_db),
              staff: User = Depends(require_staff)):
-    d = db.get(Device, device_id)
-    if d is None or d.device_type != DeviceType.PC:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "PC not found")
+    d = _pc(db, device_id, staff)
     old = d.mode or "NORMAL"
     d.mode = req.mode
     action = ("PC_ACCESS_REMOVED" if req.mode == "LOCKED" else
@@ -246,11 +245,32 @@ def set_mode(device_id: int, req: ModeRequest, db: Session = Depends(get_db),
     return {"device_id": d.id, "mode": d.mode}
 
 
-def _pc(db: Session, device_id: int) -> Device:
+def _pc(db: Session, device_id: int, user: Optional[User] = None) -> Device:
     d = db.get(Device, device_id)
     if d is None or d.device_type != DeviceType.PC:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "PC not found")
+    # The lab engineer controls the lab PCs; only an administrator controls
+    # the engineer's own master PC.
+    if d.is_master_pc and user is not None and user.role != Role.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "This is the lab engineer's master PC - administrators only.")
     return d
+
+
+class MasterRequest(BaseModel):
+    is_master: bool
+
+
+@router.put("/{device_id}/master")
+def set_master(device_id: int, req: MasterRequest, db: Session = Depends(get_db),
+               admin: User = Depends(require_admin)):
+    """Mark (or unmark) a PC as the lab engineer's master PC."""
+    d = _pc(db, device_id, admin)
+    d.is_master_pc = req.is_master
+    db.add(AuditLog(actor_user_id=admin.id, action="PC_MASTER_SET", entity_type="device",
+                    entity_id=str(d.id), detail={"device": d.device_uid, "is_master": req.is_master}))
+    db.commit()
+    return {"device_id": d.id, "is_master_pc": d.is_master_pc}
 
 
 # ------------------------------------------- admin master PC: agent side ---
@@ -306,7 +326,7 @@ async def pc_frame(request: Request, device_uid: str = Query(max_length=64),
 @router.post("/{device_id}/screen/start")
 def screen_start(device_id: int, db: Session = Depends(get_db),
                  staff: User = Depends(require_staff)):
-    d = _pc(db, device_id)
+    d = _pc(db, device_id, staff)
     pc_control.touch_viewer(d.id)
     db.add(AuditLog(actor_user_id=staff.id, action="PC_SCREEN_VIEWED", entity_type="device",
                     entity_id=str(d.id), detail={"device": d.device_uid}))
@@ -316,9 +336,9 @@ def screen_start(device_id: int, db: Session = Depends(get_db),
 
 @router.get("/{device_id}/screen.jpg")
 def screen_frame(device_id: int, db: Session = Depends(get_db),
-                 _: User = Depends(require_staff)):
+                 staff: User = Depends(require_staff)):
     """Latest frame, or 204 while the agent has not sent one yet."""
-    d = _pc(db, device_id)
+    d = _pc(db, device_id, staff)
     pc_control.touch_viewer(d.id)
     jpeg = pc_control.latest_frame(d.id)
     if jpeg is None:
@@ -329,8 +349,8 @@ def screen_frame(device_id: int, db: Session = Depends(get_db),
 
 @router.post("/{device_id}/screen/stop")
 def screen_stop(device_id: int, db: Session = Depends(get_db),
-                _: User = Depends(require_staff)):
-    d = _pc(db, device_id)
+                staff: User = Depends(require_staff)):
+    d = _pc(db, device_id, staff)
     pc_control.stop_viewer(d.id)
     return {"device_id": d.id, "watching": False}
 
@@ -342,7 +362,7 @@ class MessageRequest(BaseModel):
 @router.post("/{device_id}/message", status_code=status.HTTP_201_CREATED)
 def send_message(device_id: int, req: MessageRequest, db: Session = Depends(get_db),
                  staff: User = Depends(require_staff)):
-    d = _pc(db, device_id)
+    d = _pc(db, device_id, staff)
     text = req.text.strip()
     if not text:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Write a message first.")

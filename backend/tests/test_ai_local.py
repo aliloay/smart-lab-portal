@@ -130,7 +130,7 @@ def test_student_endpoint(client, db, alice, lab, ollama, monkeypatch):
     assert st["configured"] and st["model"] == "qwen2.5:1.5b"
     for _ in range(2):
         r = client.post("/api/ai/student/ask", headers=h,
-                        json={"question": "what are my bookings?"})
+                        json={"question": "how does the door entry work?"})
         assert r.status_code == 200 and r.json()["answer"] == "You have no bookings."
     assert client.post("/api/ai/student/ask", headers=h,
                        json={"question": "again?"}).status_code == 429

@@ -10,10 +10,14 @@
  * Admin master PC (System 2): from here staff remove / give access to a PC
  * (mode LOCKED keeps it locked), view its screen while they watch, and send
  * a message - per PC or to all PCs at once. Every action is audited.
+ *
+ * The lab engineer's master PC is controlled by an administrator only: lab
+ * staff see it, but not its controls, and "Lock all" leaves it alone.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
+import { Bot, Crown, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
 import { api, type PcMode } from '../lib/api'
+import { isAdmin, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
 import { PcMessageModal, PcScreenViewer } from './PcControls'
@@ -32,6 +36,7 @@ export default function NetworkedEquipment() {
   const [viewing, setViewing] = useState<Equip | null>(null)
   const [messaging, setMessaging] = useState<Equip | null>(null)
   const [busy, setBusy] = useState(false)
+  const admin = isAdmin(useAuth().user)
   const closeViewer = useCallback(() => setViewing(null), [])
   const load = useCallback(() => {
     api.equipment().then(setItems).catch(() => setItems([]))
@@ -49,7 +54,16 @@ export default function NetworkedEquipment() {
     await api.setEquipmentMode(id, mode).catch(() => {})
     load()
   }
-  const pcs = items.filter(e => e.kind === 'PC')
+  async function setMaster(e: Equip) {
+    const what = e.is_master_pc
+      ? `${e.name} is no longer the master PC: lab staff can control it again.`
+      : `Make ${e.name} the lab engineer's master PC? Only administrators can control it then.`
+    if (!window.confirm(what)) return
+    await api.setMasterPc(e.device_id, !e.is_master_pc).catch(err => window.alert(err.message))
+    load()
+  }
+  // Bulk actions never touch the master PC.
+  const pcs = items.filter(e => e.kind === 'PC' && !e.is_master_pc)
   async function setAll(mode: 'LOCKED' | 'NORMAL') {
     const what = mode === 'LOCKED' ? 'Remove access on ALL lab PCs? They lock now and stay locked.'
       : 'Give access back on all locked PCs?'
@@ -91,7 +105,8 @@ export default function NetworkedEquipment() {
                     <div className="text-white font-semibold truncate">{e.name}</div>
                     <div className="mono text-[11px] text-slate-400">{e.asset_tag ?? e.device_uid} · {e.lab_code}</div>
                   </div>
-                  <Chip tone={tone} dot className="ml-auto">
+                  {e.is_master_pc && <Chip tone="violet" className="ml-auto shrink-0"><Crown size={11} /> Master PC</Chip>}
+                  <Chip tone={tone} dot className={e.is_master_pc ? 'shrink-0' : 'ml-auto'}>
                     {e.online === false ? 'offline' : (e.state ?? 'no data').toLowerCase()}</Chip>
                 </div>
                 <div className="text-[12.5px] text-slate-300 space-y-0.5">
@@ -101,7 +116,10 @@ export default function NetworkedEquipment() {
                   {e.since && e.online !== false && <div className="text-slate-500">In this state since {relative(e.since)}</div>}
                   <div className="text-slate-500">Last report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>
                 </div>
-                {e.kind === 'PC' && (
+                {e.kind === 'PC' && e.is_master_pc && !admin && (
+                  <div className="text-[12px] text-slate-400 pt-1">
+                    The lab engineer's master PC: controlled by an administrator.</div>)}
+                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="text-[11.5px] text-slate-400">Mode</span>
                     {e.mode === 'LOCKED'
@@ -112,7 +130,7 @@ export default function NetworkedEquipment() {
                           <option value="MAINTENANCE">Maintenance</option></select>}
                     {e.open_violations > 0 && <Chip tone="warn">{e.open_violations} violation{e.open_violations > 1 ? 's' : ''}</Chip>}
                   </div>)}
-                {e.kind === 'PC' && (
+                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {e.mode === 'LOCKED'
                       ? <button className="btn-ghost btn-sm" onClick={() => setMode(e.device_id, 'NORMAL')}>
@@ -125,6 +143,8 @@ export default function NetworkedEquipment() {
                       <MonitorPlay size={13} /> View screen</button>
                     <button className="btn-ghost btn-sm" disabled={e.online === false} onClick={() => setMessaging(e)}>
                       <MessageSquare size={13} /> Message</button>
+                    {admin && <button className="btn-ghost btn-sm" onClick={() => setMaster(e)}>
+                      <Crown size={13} /> {e.is_master_pc ? 'Not master PC' : 'Make master PC'}</button>}
                   </div>)}
               </div>)
           })}
