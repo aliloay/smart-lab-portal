@@ -1,5 +1,5 @@
 /**
- * Admin master PC controls for one lab PC (System 2): live screen view and a
+ * Admin master PC controls for one lab PC (System 1): live screen view and a
  * message to the person at it. Lock / unlock (remove / give access) is the
  * PC's mode, set in NetworkedEquipment.
  *

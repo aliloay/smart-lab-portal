@@ -620,7 +620,7 @@ export interface EnvSeries {
   latest: number; latest_at: string
   points: { t: string; v: number; lab_id: number }[]
 }
-/** Latest environment value per metric with its quality (System 1). */
+/** Latest environment value per metric with its quality (System 2). */
 export type EnvQuality = 'VALID' | 'STALE' | 'MISSING' | 'DEVICE_OFFLINE' | 'OUT_OF_RANGE'
 export interface LabEnvironment {
   node: { device_uid: string; online: boolean | null; last_seen_at: string | null } | null
@@ -951,7 +951,7 @@ export const api = {
     os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
   setEquipmentMode: (id: number, mode: PcMode) =>
     request<{ device_id: number; mode: string }>(`/equipment/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
-  // Admin master PC (System 2): screen view while staff watch, and messages.
+  // Admin master PC (System 1): screen view while staff watch, and messages.
   pcScreenStart: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/start`),
   pcScreenStop: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/stop`),
   pcMessage: (id: number, text: string) => post<DeviceCommand>(`/equipment/${id}/message`, { text }),

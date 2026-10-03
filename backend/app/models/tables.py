@@ -90,7 +90,7 @@ class User(Base):
 
 class RfidCredential(Base):
     """
-    The physical card/tag. Stores the UID only - an MFRC522 UID is not secret
+    The physical card/tag. Stores the UID only - a card UID (read by the PN532) is not secret
     and is trivially cloneable, which is precisely why it is only ever the
     FIRST factor.
     """

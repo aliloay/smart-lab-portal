@@ -1,5 +1,5 @@
 // ===========================================================================
-// SMART LAB - ENVIRONMENT NODE (Robotics Lab, System 1)        ESP32 #1
+// SMART LAB - ENVIRONMENT NODE (Robotics Lab, System 2)        ESP32 #1
 // ===========================================================================
 // Senses only. It never actuates anything and is not a certified fire,
 // gas or safety system: the MQ-2 and the flame sensor are INDICATORS, and
@@ -17,6 +17,14 @@
 // STATUS: written against the design in docs/ROBOTICS_LAB_ARCHITECTURE.md
 // (section I) and compiled; NOT yet run on hardware. Every value marked
 // VERIFY must be checked on the actual module before it is trusted.
+//
+// BRING-UP: sensors are enabled ONE AT A TIME (HAS_* below), in the order
+// DHT22 -> MQ-2 -> flame -> PIR -> leak. An enabled input with nothing
+// connected floats and reports false hazards, so a sensor is enabled only
+// once it is wired and its output level has been measured.
+// Every reading, state change, HTTP round trip and Wi-Fi change is also
+// printed as a "CSV,..." line (see tools/bringup/README.md) for the
+// measurement log; tools/bringup/serial_log.py saves them with timestamps.
 // ===========================================================================
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -28,9 +36,11 @@
 // --- network -----------------------------------------------------------------
 const char *BACKEND_IP = "192.168.1.200";
 constexpr uint16_t BACKEND_PORT = 8000;
-const char *LAB_ID    = "LAB_01";            // Robotics & Industrial Automation Lab
+// BENCH = the bring-up bench (home); its data stays apart from the lab's.
+// Set "LAB_01" when the node is installed in the Robotics Lab.
+const char *LAB_ID    = "BENCH";
 const char *DEVICE_ID = "ENV_LAB01";
-const char *FIRMWARE  = "env-0.1";
+const char *FIRMWARE  = "env-0.2";
 // Fixed address, like the door boards: the plan in the architecture doc.
 const IPAddress LOCAL_IP(192, 168, 1, 152), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
@@ -48,8 +58,10 @@ constexpr uint8_t PIR_PIN       = 27;   // HC-SR501 OUT (VERIFY it is 3.3 V)
 constexpr uint8_t EMERGENCY_PIN = 26;   // optocoupler output, pulled up
 
 // --- which sensors are actually fitted (unfitted = never reported) -----------
-constexpr bool HAS_DHT = true, HAS_MQ2 = true, HAS_FLAME = true,
-               HAS_LEAK = true, HAS_PIR = true, HAS_EMERGENCY = false;
+// Bring-up stage 1: DHT22 only. Enable the next one after it is wired and
+// its output level is measured (README, "Before connecting anything").
+constexpr bool HAS_DHT = true, HAS_MQ2 = false, HAS_FLAME = false,
+               HAS_LEAK = false, HAS_PIR = false, HAS_EMERGENCY = false;
 
 // --- the level that means "detected" on each module (VERIFY each one) -------
 // Common LM393-comparator modules (MQ-2, flame, rain/leak) pull DO LOW when
@@ -107,8 +119,12 @@ bool postJson(const char *path, const String &body) {
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", DEVICE_KEY);
+  uint32_t t0 = millis();
   int code = http.POST(body);
+  uint32_t rtt = millis() - t0;
   http.end();
+  // Round trip node -> portal -> node, for the network measurements.
+  Serial.printf("CSV,http,%lu,%s,%d,%lu\n", (unsigned long)millis(), path, code, (unsigned long)rtt);
   if (code != 200) Serial.printf("[NET] %s -> HTTP %d\n", path, code);
   return code == 200;
 }
@@ -122,6 +138,7 @@ void readDht() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
   if (isnan(t) || isnan(h)) {
+    Serial.printf("CSV,dht_fail,%lu\n", (unsigned long)millis());
     // Three failures in a row = the sensor is reported faulty and its
     // values are no longer sent (the portal then shows them as stale).
     if (++dhtFailures >= 3 && dhtOk) {
@@ -131,6 +148,7 @@ void readDht() {
     return;
   }
   dhtFailures = 0;
+  Serial.printf("CSV,dht,%lu,%.2f,%.2f\n", (unsigned long)millis(), t, h);
   if (!dhtOk) Serial.println("[DHT] Reading");
   dhtOk = true;
   lastTemp = t;
@@ -148,6 +166,7 @@ void pollInputs() {
       bool warming = strcmp(in.metric, "smoke") == 0 && !mq2Ready();
       Serial.printf("[STATE] %s -> %s%s\n", in.metric, in.state ? "DETECTED" : "normal",
                     warming ? " (MQ-2 warming up - not reported yet)" : "");
+      Serial.printf("CSV,state,%lu,%s,%d\n", (unsigned long)now, in.metric, in.state ? 1 : 0);
       if (!warming) reportDue = true;      // a hazard change goes out at once
     }
   }
@@ -194,8 +213,19 @@ void sendHeartbeat() {
   lastHeartbeatMs = millis();
 }
 
+// Logs every connect / disconnect (reconnect behaviour and time).
+void logWifi() {
+  static bool was = false;
+  bool now = WiFi.status() == WL_CONNECTED;
+  if (now == was) return;
+  was = now;
+  if (now) Serial.printf("CSV,wifi,%lu,connected,%d\n", (unsigned long)millis(), (int)WiFi.RSSI());
+  else     Serial.printf("CSV,wifi,%lu,disconnected,0\n", (unsigned long)millis());
+}
+
 void ensureWifi() {
   static uint32_t lastTry = 0;
+  logWifi();
   if (WiFi.status() == WL_CONNECTED || millis() - lastTry < 10000) return;
   lastTry = millis();
   Serial.println("[WIFI] Reconnecting...");
@@ -209,7 +239,8 @@ void setup() {
   delay(200);
   Serial.println();
   Serial.println("=================================================");
-  Serial.println(" SMART LAB - ENVIRONMENT NODE (System 1)");
+  Serial.println(" SMART LAB - ENVIRONMENT NODE (System 2)");
+  Serial.printf(" firmware %s, device %s, lab %s\n", FIRMWARE, DEVICE_ID, LAB_ID);
   Serial.println(" Indicators only - not a certified safety system.");
   Serial.println("=================================================");
 

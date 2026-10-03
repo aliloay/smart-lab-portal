@@ -43,7 +43,7 @@ const SCENARIOS: { key: string; label: string; outcome: 'granted' | 'denied'; st
     { node: 'door', title: 'Door closed', detail: 'Relocked. The person is inside; no exit is assumed', tone: 'violet' },
   ]},
   { key: 'rfid-finger', label: 'RFID + fingerprint → granted', outcome: 'granted', steps: [
-    { node: 'credential', title: 'Card presented', detail: 'MFRC522 reads the card UID', tone: 'info' },
+    { node: 'credential', title: 'Card presented', detail: 'PN532 reads the card UID', tone: 'info' },
     { node: 'portal', title: 'Card accepted', detail: 'Registered, active user → identity USER1', tone: 'ok' },
     { node: 'biometric', title: 'Fingerprint presented', detail: 'AS608 matches against its own stored templates', tone: 'info' },
     { node: 'master', title: 'Identity matched', detail: 'Step 2 (USER1) = step 1 (USER1)', tone: 'ok' },

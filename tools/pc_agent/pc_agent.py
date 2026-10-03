@@ -1,5 +1,5 @@
 """
-Lab PC agent (Robotics Lab, System 2) - visible, documented, minimal.
+Lab PC agent (Robotics Lab, System 1) - visible, documented, minimal.
 
 Runs on PC-01 / PC-02 (on the lab LAN) inside the signed-in user's session
 and every 30 s reports to the portal: CPU, RAM, disk and network use, and

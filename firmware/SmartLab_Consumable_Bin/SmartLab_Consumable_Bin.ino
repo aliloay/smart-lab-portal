@@ -14,7 +14,13 @@
 //        tare        - platform empty -> zero
 //        cal <g>     - a known reference mass on the platform -> scale
 //        show        - current raw / scale / mass
+//        avg <n>     - mean and spread of n raw samples (known-mass tests)
+//        stream      - toggle: every HX711 sample as "CSV,lc,..." (noise,
+//                      drift, settling, step response); portal reporting
+//                      pauses while streaming so test loads are not stock
 //   2. Bin (in the portal, Inventory): empty-bin mass, unit mass, noise.
+// Every reading / send / HTTP round trip / Wi-Fi change is also printed as a
+// "CSV,..." line (tools/bringup/README.md) for the measurement log.
 // This firmware reports the mass on the PLATFORM in grams (bin included).
 //
 // STATUS: compiled, NOT yet run on hardware. Values marked VERIFY come
@@ -32,10 +38,12 @@
 // --- network ------------------------------------------------------------------
 const char *BACKEND_IP = "192.168.1.200";
 constexpr uint16_t BACKEND_PORT = 8000;
-const char *LAB_ID    = "LAB_01";
+// BENCH = the bring-up bench (home); its data stays apart from the lab's.
+// Set "LAB_01" when the bin is installed in the Robotics Lab.
+const char *LAB_ID    = "BENCH";
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
-const char *FIRMWARE  = "bin-0.1";
+const char *FIRMWARE  = "bin-0.2";
 const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -67,6 +75,7 @@ uint32_t windowStart = 0;
 float    lastSentG = NAN;
 uint32_t lastSentMs = 0, lastHeartbeatMs = 0;
 bool     netOk = false;
+bool     streaming = false;        // "stream": raw samples out, portal paused
 String   itemName = "";
 long     qtyEst = -1, qtyErr = -1;
 
@@ -143,6 +152,27 @@ void readScale() {
     windowMax = max(windowMax, massG);
   }
   stable = now - windowStart >= STABLE_TIME_MS;
+  Serial.printf("CSV,mass,%lu,%.3f,%d\n", (unsigned long)now, massG, stable ? 1 : 0);
+}
+
+// n raw samples: mean and standard deviation (Welford), raw and in grams.
+void averageSamples(int n) {
+  double mean = 0, m2 = 0;
+  int got = 0;
+  for (int i = 0; i < n; i++) {
+    if (!scale.wait_ready_timeout(500)) break;
+    double x = (double)scale.read();
+    got++;
+    double d = x - mean;
+    mean += d / got;
+    m2 += d * (x - mean);
+  }
+  if (got < 2) { Serial.println("[AVG] HX711 not answering"); return; }
+  double sd = sqrt(m2 / (got - 1));
+  double g = scaleFactor != 0 ? (mean - zeroOffset) / scaleFactor : NAN;
+  double sdg = scaleFactor != 0 ? sd / fabs(scaleFactor) : NAN;
+  Serial.printf("CSV,avg,%lu,%d,%.1f,%.1f,%.3f,%.3f\n", (unsigned long)millis(), got, mean, sd, g, sdg);
+  Serial.printf("[AVG] %d samples: raw %.1f (sd %.1f) -> %.3f g (sd %.3f g)\n", got, mean, sd, g, sdg);
 }
 
 void handleSerial() {
@@ -174,8 +204,15 @@ void handleSerial() {
       Serial.printf("[CAL] raw %ld, offset %ld, scale %.3f, mass %.2f g, %s\n",
                     scale.read_average(10), zeroOffset, scaleFactor, massG,
                     stable ? "stable" : "settling");
+    } else if (line == "stream") {
+      streaming = !streaming;
+      Serial.printf("[STREAM] %s\n", streaming
+                    ? "on - every HX711 sample as CSV,lc,<ms>,<raw>,<grams>; portal reporting paused"
+                    : "off - portal reporting resumed");
+    } else if (line.startsWith("avg ")) {
+      averageSamples(constrain(line.substring(4).toInt(), 2, 500));
     } else if (line.length()) {
-      Serial.println("[CMD] tare | cal <grams> | show");
+      Serial.println("[CMD] tare | cal <grams> | show | avg <n> | stream");
     }
     line = "";
   }
@@ -192,7 +229,10 @@ String post(const char *path, const String &body, int *code) {
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", DEVICE_KEY);
+  uint32_t t0 = millis();
   *code = http.POST(body);
+  Serial.printf("CSV,http,%lu,%s,%d,%lu\n", (unsigned long)millis(), path, *code,
+                (unsigned long)(millis() - t0));
   String reply = *code == 200 ? http.getString() : String();
   http.end();
   return reply;
@@ -231,6 +271,7 @@ void sendMass() {
   qtyEst = jsonLong(reply, "qty_est");
   qtyErr = jsonLong(reply, "qty_err");
   String tx = jsonStr(reply, "transaction");
+  Serial.printf("CSV,sent,%lu,%.3f,%ld,%s\n", (unsigned long)millis(), massG, qtyEst, tx.c_str());
   Serial.printf("[BIN] %.2f g sent%s%s\n", massG,
                 qtyEst >= 0 ? (String(" ~") + qtyEst + " pcs").c_str() : "",
                 tx.length() ? (String(" -> ") + tx).c_str() : "");
@@ -249,8 +290,19 @@ void sendHeartbeat() {
   lastHeartbeatMs = millis();
 }
 
+// Logs every connect / disconnect (reconnect behaviour and time).
+void logWifi() {
+  static bool was = false;
+  bool now = WiFi.status() == WL_CONNECTED;
+  if (now == was) return;
+  was = now;
+  if (now) Serial.printf("CSV,wifi,%lu,connected,%d\n", (unsigned long)millis(), (int)WiFi.RSSI());
+  else     Serial.printf("CSV,wifi,%lu,disconnected,0\n", (unsigned long)millis());
+}
+
 void ensureWifi() {
   static uint32_t lastTry = 0;
+  logWifi();
   if (WiFi.status() == WL_CONNECTED || millis() - lastTry < 10000) return;
   lastTry = millis();
   WiFi.disconnect();
@@ -262,6 +314,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== SMART LAB - CONSUMABLE BIN NODE (System 3) ===");
+  Serial.printf("firmware %s, device %s, lab %s, bin %s\n", FIRMWARE, DEVICE_ID, LAB_ID, BIN_CODE);
   Wire.begin(I2C_SDA, I2C_SCL);
   scanI2c();
   if (lcdAddr) {
@@ -286,6 +339,16 @@ void loop() {
   static uint32_t lastDraw = 0;
   ensureWifi();
   handleSerial();
+  if (streaming) {                 // measurement mode: raw samples only
+    if (scale.is_ready()) {
+      long raw = scale.read();
+      float g = scaleFactor != 0 ? (raw - zeroOffset) / scaleFactor : NAN;
+      Serial.printf("CSV,lc,%lu,%ld,%.3f\n", (unsigned long)millis(), raw, g);
+    }
+    if (lastHeartbeatMs == 0 || millis() - lastHeartbeatMs > HEARTBEAT_MS) sendHeartbeat();
+    if (millis() - lastDraw > 1000) { lastDraw = millis(); lcdShow(BIN_CODE, "STREAMING"); }
+    return;
+  }
   readScale();
   if (lastHeartbeatMs == 0 || millis() - lastHeartbeatMs > HEARTBEAT_MS) sendHeartbeat();
   if (stable && !isnan(massG) &&

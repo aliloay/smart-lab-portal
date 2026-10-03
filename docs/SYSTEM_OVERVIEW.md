@@ -74,7 +74,7 @@ Three rules hold everywhere:
 
 `firmware/SmartLab_Master_Portal/` · details in [DOOR_SYSTEM.md](DOOR_SYSTEM.md)
 
-The only device that can unlock the door. It carries the MFRC522 RFID reader,
+The only device that can unlock the door. It carries the PN532 V3 NFC/RFID reader (HW-147, I2C),
 the AS608 fingerprint reader, the ST7735 colour screen, the relay for the
 lock, the MC-38 door sensor and the LEDs.
 

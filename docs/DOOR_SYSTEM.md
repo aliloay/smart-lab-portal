@@ -90,7 +90,7 @@ const char *CAMERA_IP = "192.168.1.150";
 Flash. Expect:
 
 ```
-[RFID][PASS] MFRC522 communication detected.
+[RFID][PASS] PN532 communication detected.
 [FP][PASS] Fingerprint sensor detected.
 [WIFI] Connected. Master IP: 192.168.1.x
                 SYSTEM READY

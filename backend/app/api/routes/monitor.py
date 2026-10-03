@@ -100,7 +100,7 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
         people.append({"name": u.full_name if u else None,
                        "role": u.role.value if u else None, "since": s.started_at})
 
-    # Environment (System 1): only fresh, valid values are shown as current.
+    # Environment (System 2): only fresh, valid values are shown as current.
     envd = environment.latest(db, lab, now)
     env = {m: {"value": v["value"], "unit": v["unit"], "at": v["at"]}
            for m, v in envd["metrics"].items()

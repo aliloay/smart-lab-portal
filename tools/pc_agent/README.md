@@ -1,4 +1,4 @@
-# Lab PC agent (Robotics Lab, System 2)
+# Lab PC agent (Robotics Lab, System 1)
 
 `pc_agent.py` is a visible console program on PC-01 / PC-02 (on the lab LAN,
 wired or Wi-Fi). It does two things:

@@ -1,5 +1,5 @@
 """
-Lab PC control from the admin's master PC (System 2): screen view state.
+Lab PC control from the admin's master PC (System 1): screen view state.
 
 Screen view is pull-based and only while staff watch: the staff page asks
 for the latest frame; that marks a viewer; the PC agent sees "mirror" in

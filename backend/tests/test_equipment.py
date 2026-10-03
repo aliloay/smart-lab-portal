@@ -88,7 +88,7 @@ def test_staff_only_and_robots_have_no_mode(client, db, alice, staff, lab, devic
                       json={"mode": "EXAM"}).status_code == 404
 
 
-# ------------------------------------------------ admin master PC (System 2) ---
+# ------------------------------------------------ admin master PC (System 1) ---
 from app.models import AuditLog, DeviceCommand  # noqa: E402
 from app.services import pc_control  # noqa: E402
 

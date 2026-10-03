@@ -13,7 +13,7 @@ the mode staff set (NORMAL / EXAM / MAINTENANCE / LOCKED) and, in exam
 mode, the configured list of prohibited programs; violations are logged
 and shown to staff - nothing is decided automatically about a student.
 
-Admin master PC (System 2): from the portal staff can remove access (mode
+Admin master PC (System 1): from the portal staff can remove access (mode
 LOCKED: the agent locks the PC and locks it again if someone unlocks it),
 give it back (NORMAL), view the screen while they watch, and send a short
 message. The agent polls for all of this; nothing pushes into a PC, and

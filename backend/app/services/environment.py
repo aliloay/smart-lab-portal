@@ -1,5 +1,5 @@
 """
-Environment monitoring (Robotics Lab, System 1): hazard alerts and the
+Environment monitoring (Robotics Lab, System 2): hazard alerts and the
 latest reading of each metric with an honest quality label.
 
 The environment node posts to the existing telemetry endpoint. Hazard

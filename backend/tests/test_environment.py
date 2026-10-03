@@ -1,5 +1,5 @@
 """
-Environment monitoring (Robotics Lab, System 1), backend side.
+Environment monitoring (Robotics Lab, System 2), backend side.
 
 The environment node posts states and values to the existing telemetry
 endpoint. Tested: a hazard raises exactly one CRITICAL alert and notifies

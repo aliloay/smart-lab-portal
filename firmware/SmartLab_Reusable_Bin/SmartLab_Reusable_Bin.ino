@@ -43,9 +43,11 @@
 // --- network ------------------------------------------------------------------
 const char *BACKEND_IP = "192.168.1.200";
 constexpr uint16_t BACKEND_PORT = 8000;
-const char *LAB_ID    = "LAB_01";
+// BENCH = the bring-up bench (home); its data stays apart from the lab's.
+// Set "LAB_01" when the bin is installed in the Robotics Lab.
+const char *LAB_ID    = "BENCH";
 const char *DEVICE_ID = "REUSE_BIN_1";
-const char *FIRMWARE  = "reuse-0.2";
+const char *FIRMWARE  = "reuse-0.3";
 const IPAddress LOCAL_IP(192, 168, 1, 154), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -124,12 +126,19 @@ void moveServo(int from, int to) {
 
 // One PRESS - HOLD - RELEASE cycle. Reports what the reed saw.
 void lidCycle(bool *opened, bool *closed) {
+  uint32_t t0 = millis();
   moveServo(HOME_ANGLE, PRESS_ANGLE);
   *opened = waitLid(false, LID_OPEN_TIMEOUT_MS);
+  uint32_t openMs = millis() - t0;            // press start -> reed shows open
   if (*opened) delay(OPEN_HOLD_MS);
+  uint32_t t1 = millis();
   moveServo(PRESS_ANGLE, HOME_ANGLE);
   *closed = waitLid(true, LID_CLOSE_TIMEOUT_MS);
+  uint32_t closeMs = millis() - t1;           // release start -> reed shows closed
   Serial.printf("[LID] opened=%d closed=%d\n", *opened, *closed);
+  // Times are meaningful only with the reed switch fitted (HAS_REED).
+  Serial.printf("CSV,lid,%lu,%d,%d,%lu,%lu,%d\n", (unsigned long)millis(), *opened, *closed,
+                (unsigned long)openMs, (unsigned long)closeMs, HAS_REED ? 1 : 0);
 }
 
 // --- load cell ------------------------------------------------------------------
@@ -209,12 +218,15 @@ String http(const char *method, const String &path, const String &body, int *cod
   h.setConnectTimeout(HTTP_TIMEOUT_MS);
   h.setTimeout(HTTP_TIMEOUT_MS);
   h.addHeader("X-Device-Key", DEVICE_KEY);
+  uint32_t t0 = millis();
   if (strcmp(method, "POST") == 0) {
     h.addHeader("Content-Type", "application/json");
     *code = h.POST(body);
   } else {
     *code = h.GET();
   }
+  Serial.printf("CSV,http,%lu,%s,%d,%lu\n", (unsigned long)millis(), path.c_str(), *code,
+                (unsigned long)(millis() - t0));
   String reply = *code == 200 ? h.getString() : String();
   h.end();
   return reply;
@@ -308,8 +320,19 @@ void sendHeartbeat() {
   lastHeartbeatMs = millis();
 }
 
+// Logs every connect / disconnect (reconnect behaviour and time).
+void logWifi() {
+  static bool was = false;
+  bool now = WiFi.status() == WL_CONNECTED;
+  if (now == was) return;
+  was = now;
+  if (now) Serial.printf("CSV,wifi,%lu,connected,%d\n", (unsigned long)millis(), (int)WiFi.RSSI());
+  else     Serial.printf("CSV,wifi,%lu,disconnected,0\n", (unsigned long)millis());
+}
+
 void ensureWifi() {
   static uint32_t lastTry = 0;
+  logWifi();
   if (WiFi.status() == WL_CONNECTED || millis() - lastTry < 10000) return;
   lastTry = millis();
   WiFi.disconnect();
@@ -321,6 +344,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== SMART LAB - REUSABLE BIN NODE (System 4) ===");
+  Serial.printf("firmware %s, device %s, lab %s\n", FIRMWARE, DEVICE_ID, LAB_ID);
   pinMode(REED_PIN, INPUT_PULLUP);
   servo.attach(SERVO_PIN);
   servo.write(HOME_ANGLE);
@@ -374,7 +398,10 @@ void loop() {
         lastUid = hex;
         lastUidMs = millis();
         Serial.printf("[NFC] Tag %s\n", hex.c_str());
+        Serial.printf("CSV,nfc,%lu,%s,accepted\n", (unsigned long)millis(), hex.c_str());
         handleScan(hex);
+      } else {                                  // read again inside the window: ignored
+        Serial.printf("CSV,nfc,%lu,%s,duplicate\n", (unsigned long)millis(), hex.c_str());
       }
     }
   }

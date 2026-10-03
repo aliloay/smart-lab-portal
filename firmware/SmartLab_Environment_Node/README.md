@@ -1,4 +1,4 @@
-# Environment node (Robotics Lab, System 1) — bench bring-up
+# Environment node (Robotics Lab, System 2) — bench bring-up
 
 Firmware: `SmartLab_Environment_Node.ino` — compiled, **not yet run on
 hardware**. Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §I. Indicators only;
@@ -33,15 +33,28 @@ not a certified fire, gas or safety system.
 
 All grounds common. No 12 V on the breadboard.
 
+## Bring-up stages (firmware env-0.2)
+
+The firmware reports as lab **BENCH** (bring-up bench, not bookable) and
+starts with **only the DHT22 enabled** (`HAS_DHT = true`, all other `HAS_*`
+false): an enabled input with nothing wired floats and would report false
+smoke / flame / leak alerts. Enable the next sensor only after it is wired
+and its output level is measured: DHT22 → MQ-2 → flame → PIR → leak.
+
+Its device key is already in `secrets.h` (its own key, issued in the portal,
+so it can report only as `ENV_LAB01`).
+
 ## Flash and check
 
-1. Copy `secrets.example.h` → `secrets.h` (Wi-Fi `Smart_Lab`, device key).
+1. `secrets.h` holds Wi-Fi `Smart_Lab` and this node's own device key.
 2. Board **ESP32 Dev Module**, core **3.3.11**. Upload.
-3. Serial 115200: expect `[WIFI] Connected: 192.168.1.152`, the initial state
-   of each input, and DHT readings.
-4. Portal → Laboratories → LAB_01 → Environment: states appear with
-   quality *VALID*; trigger each sensor and watch it change (and the live
-   monitor tile turn red for smoke / flame / leak / emergency).
+3. Log the serial output: `py tools/bringup/serial_log.py COM<n> --tag env-dht`.
+   Expect the banner (`firmware env-0.2, device ENV_LAB01, lab BENCH`),
+   `CSV,wifi,...,connected,<RSSI>`, `CSV,dht,...` every 2.5 s and
+   `CSV,http,...,200,<round trip>` for the heartbeat and readings.
+4. Portal: the node appears under Devices in lab BENCH; its readings are in
+   lab BENCH. In the Robotics Lab later: `LAB_ID = "LAB_01"`, re-flash, and
+   move the device record to LAB_01.
 
 ## Measurements to record (thesis, §X)
 

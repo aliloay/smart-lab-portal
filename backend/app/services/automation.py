@@ -96,7 +96,7 @@ def lab_readiness(db: Session, lab: Lab, now: Optional[datetime] = None) -> dict
     if in_maintenance:
         notes.append(f"{in_maintenance} item(s) of equipment are in maintenance.")
 
-    # Environment node (Robotics Lab, System 1), where one is installed.
+    # Environment node (Robotics Lab, System 2), where one is installed.
     from app.services import environment
     env = environment.latest(db, lab, now)
     env_state = None

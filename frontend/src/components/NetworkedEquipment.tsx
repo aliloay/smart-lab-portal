@@ -7,7 +7,7 @@
  * automatically about a student. FANUC appears once its controller has been
  * identified and a collector exists.
  *
- * Admin master PC (System 2): from here staff remove / give access to a PC
+ * Admin master PC (System 1): from here staff remove / give access to a PC
  * (mode LOCKED keeps it locked), view its screen while they watch, and send
  * a message - per PC or to all PCs at once. Every action is audited.
  *

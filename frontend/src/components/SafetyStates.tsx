@@ -1,5 +1,5 @@
 /**
- * The environment node's states (Robotics Lab, System 1): smoke/gas,
+ * The environment node's states (Robotics Lab, System 2): smoke/gas,
  * flame, water leak, emergency signal and motion, each NORMAL / DETECTED
  * with an honest quality - "No sensor yet", "Stale", "Node offline" are
  * shown as such and never as NORMAL. These indicators supplement, and do

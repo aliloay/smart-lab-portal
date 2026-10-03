@@ -30,7 +30,7 @@ ESP32 stays the final authority for the door.
 | Network | Offline router `Smart_Lab` (192.168.1.x); laptop .200, camera .150, master .151; `launch.bat` runs offline | Same LAN; new nodes get fixed IPs (§H) |
 | Backend | FastAPI, 15 route modules, PostgreSQL via Alembic, WebSocket live channel, device key auth | All new APIs live here; no second backend |
 | Device model | `devices` (uid, type, lab, ip, firmware, last_seen, `component_state` JSON), `DeviceType` = MASTER_CONTROLLER, CAMERA, FACE_SERVER, **SENSOR_NODE** | Environment/inventory nodes register through the existing heartbeat |
-| Telemetry | `POST /api/access/telemetry` → `sensor_readings` (metric, value, unit, **server UTC timestamp**); thresholds `SENSOR_THRESHOLDS`; `/automation/sensors/evaluate` marks stale/high/low | System 1 needs no new table |
+| Telemetry | `POST /api/access/telemetry` → `sensor_readings` (metric, value, unit, **server UTC timestamp**); thresholds `SENSOR_THRESHOLDS`; `/automation/sensors/evaluate` marks stale/high/low | System 2 needs no new table |
 | Assets | `assets` (tag, category, lab, status AVAILABLE/CHECKED_OUT/MAINTENANCE/RETIRED, holder, maintenance dates) + `asset_transactions`; checkout/return endpoints | Reusable inventory and equipment identity |
 | Commands | `device_commands` (new): portal request → device fetches while idle → reports steps | Reusable-bin lid opening, admin door request |
 | Alerts | `alerts` with `dedupe_key`, notifications, live push | Environment hazards, inventory, equipment |
@@ -41,10 +41,14 @@ ESP32 stays the final authority for the door.
 
 ## B. Four-system Robotics Lab architecture
 
+Numbering follows the thesis: **System 1** core robotics, PCs and LAN; **System 2**
+physical environment; **System 3** consumables; **System 4** reusables. The door
+is a separate, protected subsystem.
+
 ```
                               ROBOTICS LAB (LAB_01)
  ┌────────────┬──────────────┬───────────────┬───────────────┬────────────────────┐
- │ DOOR       │ 1 ENVIRON-   │ 3 CONSUMABLES │ 4 REUSABLES   │ 2 ROBOTS & PCs     │
+ │ DOOR       │ 2 ENVIRON-   │ 3 CONSUMABLES │ 4 REUSABLES   │ 1 ROBOTS & PCs     │
  │ (exists)   │   MENT       │   ESP32 #2    │   ESP32 #3    │   no ESP32         │
  │ access only│   ESP32 #1   │   weigh only  │   NFC + lid   │   UR5e · FANUC     │
  │            │   sense only │               │   + LCD       │   PC-01 · PC-02    │
@@ -135,11 +139,11 @@ All migrations additive; each one checked with `alembic upgrade` +
 | Router | — | 192.168.1.1 (DHCP pool shrunk to .2–.100) |
 | Laptop (server) | Wi-Fi today (Ethernet to the router later) | 192.168.1.200 |
 | ESP32-CAM / door master | Wi-Fi | .150 / .151 |
-| System 1 — environment ESP32 #1 | Wi-Fi | **.152** |
+| System 2 — environment ESP32 #1 | Wi-Fi | **.152** |
 | System 3 — consumable ESP32 #2 | Wi-Fi | **.153** |
 | System 4 — reusable ESP32 #3 | Wi-Fi | **.154** |
-| System 2 — UR5e / FANUC | Ethernet, **directly to the router** (switch only if ports run out) | .160 / .161 (*set on the controllers*) |
-| System 2 — PC-01 / PC-02 | Wi-Fi or LAN (*to decide*) | .170 / .171 |
+| System 1 — UR5e / FANUC | Ethernet, **directly to the router** (switch only if ports run out) | .160 / .161 (*set on the controllers*) |
+| System 1 — PC-01 / PC-02 | Wi-Fi or LAN (*to decide*) | .170 / .171 |
 | Admin master PC | any (it only opens the portal) | — |
 | Security camera (Mercusys MC210, lab corner) | Wi-Fi | **.155** (*router reservation*) |
 
@@ -149,7 +153,7 @@ its services to the lab network. The portal distinguishes **device offline**
 (no heartbeat) from **internet offline** (no route to the outside), which
 it reports separately.
 
-## I. System 1 — Environment ESP32 #1 (first to build)
+## I. System 2 — Environment ESP32 #1 (first to build)
 
 | Signal | Sensor | Interface | Notes (*to verify on the actual module*) |
 |---|---|---|---|
@@ -236,7 +240,7 @@ stronger actuator only if MG90S fails a measured test. The lid path is
 mechanically separate from the weighing path: no servo, lid, cable or
 housing force reaches the load cell.
 
-## M. System 2 — UR5e (read-only)
+## M. System 1 — UR5e (read-only)
 
 Ethernet directly to the router (a switch only if ports run out). Investigate **RTDE** (Universal Robots' real-time
 data exchange interface). A collector on the laptop subscribes read-only and
@@ -246,13 +250,13 @@ joint positions, I/O) are confirmed against **this controller's software
 version** before they are relied on. No commands to the robot; no AI or n8n
 path to it.
 
-## N. System 2 — FANUC
+## N. System 1 — FANUC
 
 First identify: controller model and version, installed software options,
 Ethernet interface. The protocol is chosen only after that. Until then the
 equipment page shows it as *not integrated*.
 
-## O. System 2 — PCs and the admin master PC
+## O. System 1 — PCs and the admin master PC
 
 On the lab LAN (wired or Wi-Fi, to decide). A small authenticated agent
 (`tools/pc_agent`, per-device key) reports heartbeat, CPU, RAM, disk,

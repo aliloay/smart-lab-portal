@@ -220,7 +220,7 @@ ASSETS = [
     # The door's own hardware, as wired in firmware/SmartLab_Master_Portal.
     # Registered as equipment so a failing reader can be reported against
     # the actual part rather than as a vague "door problem".
-    ("AC-001", "MFRC522 RFID Reader",           "Access control", "LAB_01"),
+    ("AC-001", "PN532 V3 NFC/RFID Reader (HW-147)", "Access control", "LAB_01"),
     ("AC-002", "AS608 Fingerprint Sensor",      "Access control", "LAB_01"),
     ("AC-003", "ESP32-CAM Entry Camera",        "Access control", "LAB_01"),
     ("AC-004", "12V Solenoid Door Lock",        "Access control", "LAB_01"),

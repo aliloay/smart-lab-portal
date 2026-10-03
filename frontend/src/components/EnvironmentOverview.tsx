@@ -1,5 +1,5 @@
 /**
- * System 1 - physical environment, every lab that has an environment node:
+ * System 2 - physical environment, every lab that has an environment node:
  * temperature, humidity and the safety states (smoke/gas, flame, water
  * leak, emergency, motion), each with an honest quality. Indicators only -
  * not certified fire or safety systems.
