@@ -15,6 +15,7 @@ import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
 import HazardAlarm from './HazardAlarm'
+import EnvWarnings from './EnvWarnings'
 import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
@@ -403,6 +404,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <ChatBubble />
       </div>
       <HazardAlarm />
+      <EnvWarnings />
 
       {/* phone quick action - hidden where it could cover the entry QR */}
       {showFab && (

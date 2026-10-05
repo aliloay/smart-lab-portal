@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     BOOKING_AUTO_APPROVE: bool = True
     # A booking reminder is raised this many minutes before the window opens.
     BOOKING_REMINDER_MINUTES: int = 15
+    # Environment advisories (orange pop-up for staff, no siren): comfort
+    # limits with hysteresis. The portal only advises - it switches nothing.
+    ENV_TEMP_HIGH_C: float = 30.0
+    ENV_TEMP_NORMAL_C: float = 28.0
+    ENV_HUMIDITY_HIGH: float = 70.0
+    ENV_HUMIDITY_NORMAL: float = 65.0
 
     # A device that has not sent a heartbeat for this long is offline.
     DEVICE_STALE_SECONDS: int = 90

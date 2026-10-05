@@ -58,7 +58,8 @@ def test_each_hazard_has_its_own_alert(client, db, lab, env_node, device_headers
 
 def test_motion_and_values_raise_no_hazard_alert(client, db, lab, env_node, device_headers):
     _post(client, device_headers, lab, motion=1, temperature=24.8, humidity=47.2)
-    assert db.query(Alert).filter_by(lab_id=lab.id).count() == 0
+    # No CRITICAL hazard. (Motion in a closed lab is a separate WARNING advisory.)
+    assert db.query(Alert).filter_by(lab_id=lab.id, severity=AlertSeverity.CRITICAL).count() == 0
 
 
 def test_environment_qualities(client, db, alice, lab, env_node, device_headers):
@@ -181,4 +182,42 @@ def test_offline_alert_once_and_cleared_when_back(client, db, lab, env_node, dev
     db.expire_all()
     refresh_liveness(db)
     assert db.query(Alert).filter(Alert.device_id == env_node.id,
+                                  Alert.is_resolved.is_(False)).count() == 0
+
+
+def test_humidity_advisory_once_then_clears_with_hysteresis(client, db, lab, env_node,
+                                                            device_headers, monkeypatch):
+    from app.ws.manager import Client, manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    warn = lambda: [m for m in sent if m.get("type") == "env_warning"]
+    _post(client, device_headers, lab, humidity=82.0)
+    _post(client, device_headers, lab, humidity=90.0)         # still high: nothing new
+    assert [m["state"] for m in warn()] == ["raised"]
+    assert warn()[0]["kind"] == "humidity_high"
+    assert not manager._wants(Client(user_id=1, is_staff=False, lab_filter=None), warn()[0])
+    _post(client, device_headers, lab, humidity=67.0)         # inside the hysteresis band
+    assert len(warn()) == 1
+    _post(client, device_headers, lab, humidity=60.0)
+    assert [m["state"] for m in warn()] == ["raised", "cleared"]
+    _post(client, device_headers, lab, humidity=85.0)         # and it can happen again
+    assert [m["state"] for m in warn()] == ["raised", "cleared", "raised"]
+
+
+def test_motion_alerts_only_when_the_lab_is_closed(client, db, alice, lab, env_node,
+                                                   device_headers, now):
+    from app.models import Booking, BookingStatus
+    _post(client, device_headers, lab, motion=1)
+    closed = db.query(Alert).filter(Alert.title.like("Motion in%")).all()
+    assert len(closed) == 1
+    _post(client, device_headers, lab, motion=1)              # same episode: no second alert
+    assert db.query(Alert).filter(Alert.title.like("Motion in%")).count() == 1
+
+    closed[0].is_resolved = True
+    closed[0].dedupe_key = f"{closed[0].dedupe_key}:{closed[0].id}"
+    db.add(Booking(user_id=alice.id, lab_id=lab.id, status=BookingStatus.CONFIRMED,
+                   start_time=now - timedelta(minutes=10), end_time=now + timedelta(hours=1)))
+    db.commit()
+    _post(client, device_headers, lab, motion=1)              # booked: normal activity
+    assert db.query(Alert).filter(Alert.title.like("Motion in%"),
                                   Alert.is_resolved.is_(False)).count() == 0

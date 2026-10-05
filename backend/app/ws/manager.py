@@ -66,6 +66,10 @@ class ConnectionManager:
             # A smoke / flame alarm: safety information for everyone signed in,
             # whatever their role - every open page shows the full-screen alarm.
             return True
+        if kind == "env_warning":
+            # Comfort advisories and motion in a closed lab: for the staff who
+            # can act on them (ventilation, checking the room).
+            return client.is_staff
         if kind == "env_update":
             # "New readings for this lab - refetch": the same facts GET
             # /labs/{id}/environment shows any signed-in user.

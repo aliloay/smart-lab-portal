@@ -8,7 +8,7 @@ certified fire or gas detector — the MQ-2 and the flame board are indicators.
 | Board | ESP32-WROOM-32 DevKit (ESP32-D0WD-V3 rev 3.1, 4 MB flash, no PSRAM), USB CH340 |
 | Build | Arduino CLI, FQBN `esp32:esp32:esp32`, esp32 core 3.3.11 |
 | Libraries | Adafruit **DHT sensor library** 1.4.7 + **Adafruit Unified Sensor** 1.1.15 |
-| Identity | device `ENV_LAB01` (its own portal key in `secrets.h`), lab `BENCH`, IP 192.168.1.152 |
+| Identity | device `ENV_LAB01` (its own portal key in `secrets.h`), lab `LAB_01` (the door's lab), IP 192.168.1.152 |
 | Serial | 115200 baud, line ending "Newline" — type `help` |
 
 Files: `env_config.h` (every pin, interval, threshold), `env_events.h`,

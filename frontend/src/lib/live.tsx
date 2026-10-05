@@ -20,6 +20,10 @@ export type LiveMessage =
       command_id?: number; status?: string; step?: string | null }
   /** The door sensor or lock changed: refetch the lab's status. */
   | { type: 'door_state'; lab_id: number }
+  /** Staff advisory: comfort limit or motion while the lab is closed. */
+  | { type: 'env_warning'; state: 'raised' | 'cleared'; kind: string; lab_id: number
+      lab_code: string; title: string; detail: string; value: number | null
+      alert_id: number; at: string }
   /** New environment readings for a lab: refetch. */
   | { type: 'env_update'; lab_id: number }
   /** An environment node raised or cleared a smoke / flame alarm. */

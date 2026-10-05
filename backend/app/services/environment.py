@@ -29,8 +29,9 @@ from typing import Optional
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.models import (Alert, AlertSeverity, Device, DeviceType, EventType,
-                        Lab, SensorReading)
+from app.core.config import settings
+from app.models import (AccessSession, Alert, AlertSeverity, Booking, BookingStatus,
+                        Device, DeviceType, EventType, Lab, SensorReading)
 from app.services.devices import is_fresh
 from app.services.events import log_event
 from app.services.notifications import notify, staff_ids
@@ -104,6 +105,89 @@ def active_hazards(db: Session) -> list[dict]:
                     "label": HAZARD_LABEL.get(metric, metric), "title": a.title,
                     "detail": a.detail, "at": a.created_at.isoformat() if a.created_at else None})
     return out
+
+
+# Advisories: worth a staff pop-up (orange, no siren), not an evacuation.
+def _advisories() -> dict:
+    return {
+        "temperature": ("temp_high", settings.ENV_TEMP_HIGH_C, settings.ENV_TEMP_NORMAL_C,
+                        "Temperature high in {lab}: {v:.1f} C",
+                        "Above {hi:.0f} C. Consider ventilation or air conditioning."),
+        "humidity": ("humidity_high", settings.ENV_HUMIDITY_HIGH, settings.ENV_HUMIDITY_NORMAL,
+                     "Humidity high in {lab}: {v:.0f} %",
+                     "Above {hi:.0f} %. Consider ventilation, a dehumidifier or air conditioning."),
+    }
+
+
+def lab_is_open(db: Session, lab: Lab, now: datetime) -> bool:
+    """Booked right now, or someone checked in at the door (same rule as the
+    Live Monitor's 'in use')."""
+    inside = db.scalar(select(AccessSession.id).where(
+        AccessSession.lab_id == lab.id, AccessSession.ended_at.is_(None)))
+    booked = db.scalar(select(Booking.id).where(
+        Booking.lab_id == lab.id, Booking.status == BookingStatus.CONFIRMED,
+        Booking.start_time <= now, Booking.end_time > now))
+    return inside is not None or booked is not None
+
+
+def _warning_message(lab: Lab, kind: str, state: str, alert: Alert, title: str,
+                     detail: str, value: Optional[float]) -> dict:
+    return {"type": "env_warning", "state": state, "kind": kind, "lab_id": lab.id,
+            "lab_code": lab.code, "title": title, "detail": detail, "value": value,
+            "alert_id": alert.id, "at": datetime.now(timezone.utc).isoformat()}
+
+
+def record_advisories(db: Session, lab: Lab, device: Optional[Device],
+                      readings: list[tuple[str, float]]) -> list[dict]:
+    """Comfort limits (temperature / humidity, with hysteresis) and motion in a
+    closed lab. WARNING alerts + staff notification + orange pop-up; nothing is
+    switched. Returns live messages to publish after the commit."""
+    now = datetime.now(timezone.utc)
+    messages: list[dict] = []
+    dev_id = device.id if device else None
+    for metric, value in readings:
+        rule = _advisories().get(metric)
+        if rule is not None:
+            name, hi, normal, title_t, detail_t = rule
+            key = _key(lab, name)
+            open_alert = db.scalar(select(Alert).where(
+                Alert.dedupe_key == key, Alert.is_resolved.is_(False)))
+            if value >= hi and open_alert is None:
+                title = title_t.format(lab=lab.code, v=value)
+                detail = detail_t.format(hi=hi)
+                a = Alert(lab_id=lab.id, device_id=dev_id, severity=AlertSeverity.WARNING,
+                          title=title, detail=detail, dedupe_key=key)
+                db.add(a)
+                db.flush()
+                notify(db, staff_ids(db), "ENVIRONMENT_ADVISORY", title, body=detail,
+                       link=f"/labs/{lab.id}", severity="warning",
+                       dedupe_key=f"{key}:{now.isoformat()}")
+                messages.append(_warning_message(lab, name, "raised", a, title, detail, value))
+            elif value <= normal and open_alert is not None:
+                open_alert.is_resolved = True
+                open_alert.resolved_at = now
+                open_alert.dedupe_key = f"{key}:{open_alert.id}"   # free the key
+                messages.append(_warning_message(lab, name, "cleared", open_alert,
+                                                 open_alert.title, "Back to normal", value))
+        elif metric == "motion" and value >= 0.5 and not lab_is_open(db, lab, now):
+            key = _key(lab, "motion_closed")
+            if db.scalar(select(Alert.id).where(Alert.dedupe_key == key,
+                                                Alert.is_resolved.is_(False))) is None:
+                title = f"Motion in {lab.code} while it is closed"
+                detail = ("No booking and nobody checked in at the door. Check the camera "
+                          "or the room. Resolve this alert once checked.")
+                a = Alert(lab_id=lab.id, device_id=dev_id, severity=AlertSeverity.WARNING,
+                          title=title, detail=detail, dedupe_key=key)
+                db.add(a)
+                db.flush()
+                log_event(db, EventType.ALARM, lab_id=lab.id, device_id=dev_id,
+                          reason="MOTION_CLOSED", message=title)
+                notify(db, staff_ids(db), "ENVIRONMENT_ADVISORY", title, body=detail,
+                       link=f"/labs/{lab.id}", severity="warning",
+                       dedupe_key=f"{key}:{now.isoformat()}")
+                messages.append(_warning_message(lab, "motion_closed", "raised", a,
+                                                 title, detail, value))
+    return messages
 
 
 def record_hazards(db: Session, lab: Lab, device: Optional[Device],

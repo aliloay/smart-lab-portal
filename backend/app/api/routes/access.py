@@ -320,8 +320,9 @@ def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
     if device is not None:
         device.last_seen_at = now
     from app.services import environment
-    messages = environment.record_hazards(db, lab, device,
-                                          [(r.metric, r.value) for r in req.readings])
+    values = [(r.metric, r.value) for r in req.readings]
+    messages = environment.record_hazards(db, lab, device, values)
+    messages += environment.record_advisories(db, lab, device, values)
     db.commit()
     # After the commit: open pages refetch this lab's readings at once, and a
     # hazard change shows / clears the full-screen alarm.
