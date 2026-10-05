@@ -24,7 +24,9 @@ py serial_log.py COM5 --tag dht-baseline
 |---|---|---|---|
 | `dht` | environment | node_ms, temperature_c, humidity_rh | readings, repeatability, update rate |
 | `dht_fail` | environment | node_ms | read failures |
-| `state` | environment | node_ms, metric, 0/1 | MQ-2 / flame / PIR / leak changes, response time |
+| `state` | environment | node_ms, metric, 0/1 (`gas_level`: 1 normal, 2 warning, 3 critical) | flame_1..5 / pir_1, pir_2 / gas changes, response time |
+| `mq` | environment | node_ms, raw, pin_mv, filtered_mv, baseline_mv, ratio, status, level | MQ-2 warm-up curve, baseline drift, response |
+| `event` | environment | node_ms, EVENT_NAME, source, value | event timestamps (response times, false triggers) |
 | `lc` | consumable (`stream`) | node_ms, raw, grams (`nan` until calibrated) | noise, drift, settling, step response |
 | `avg` | consumable (`avg <n>`) | node_ms, n, mean_raw, sd_raw, mean_g, sd_g | known-mass accuracy, repeatability |
 | `mass` | consumable | node_ms, grams, stable 0/1 | normal operation |
