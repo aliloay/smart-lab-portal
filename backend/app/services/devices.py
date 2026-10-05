@@ -59,12 +59,18 @@ def refresh_liveness(db: Session) -> list[Device]:
                       device_id=d.id,
                       message=f"{d.name} stopped reporting "
                               f"(no heartbeat for {silent}s)")
-            db.add(Alert(lab_id=d.lab_id, device_id=d.id,
-                         severity=AlertSeverity.WARNING,
-                         title=f"{d.name} offline",
-                         detail=f"No heartbeat since "
-                                f"{_utc(d.last_seen_at):%Y-%m-%d %H:%M:%S} UTC. "
-                                f"Laboratory {lab.code if lab else d.lab_id}."))
+            # One open offline alert per device: two requests refreshing at the
+            # same moment used to raise it twice (or three times).
+            already = db.scalar(select(Alert.id).where(
+                Alert.device_id == d.id, Alert.title == f"{d.name} offline",
+                Alert.is_resolved.is_(False)))
+            if already is None:
+                db.add(Alert(lab_id=d.lab_id, device_id=d.id,
+                             severity=AlertSeverity.WARNING,
+                             title=f"{d.name} offline",
+                             detail=f"No heartbeat since "
+                                    f"{_utc(d.last_seen_at):%Y-%m-%d %H:%M:%S} UTC. "
+                                    f"Laboratory {lab.code if lab else d.lab_id}."))
             notify(db, staff_ids(db), "DEVICE_OFFLINE",
                    f"{d.name} is offline",
                    body=f"{lab.code if lab else ''} - no heartbeat for "
@@ -73,6 +79,12 @@ def refresh_liveness(db: Session) -> list[Device]:
         elif not d.is_online and fresh:
             d.is_online = True
             changed = True
+            # Back online: its offline alert is no longer true.
+            for a in db.scalars(select(Alert).where(
+                    Alert.device_id == d.id, Alert.title == f"{d.name} offline",
+                    Alert.is_resolved.is_(False))).all():
+                a.is_resolved = True
+                a.resolved_at = now
     if changed:
         db.commit()
     return list(devices)

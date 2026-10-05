@@ -153,3 +153,32 @@ def test_hazard_is_pushed_live_and_listed_for_every_user(client, db, alice, lab,
 
 def test_active_hazards_needs_a_login(client):
     assert client.get("/api/labs/hazards/active").status_code == 401
+
+
+def test_same_hazard_can_happen_again_after_it_cleared(client, db, lab, env_node, device_headers):
+    """Regression (bench 2026-10-05): the second flame in a lab collided with the
+    resolved first alert's dedupe key -> HTTP 500 for every post afterwards."""
+    for _ in range(3):
+        assert _post(client, device_headers, lab, flame=1).status_code == 200
+        assert _post(client, device_headers, lab, flame=0).status_code == 200
+    alerts = db.query(Alert).filter(Alert.lab_id == lab.id).all()
+    assert len(alerts) == 3 and all(a.is_resolved for a in alerts)
+    assert _post(client, device_headers, lab, flame=1, temperature=24.0).status_code == 200
+
+
+def test_offline_alert_once_and_cleared_when_back(client, db, lab, env_node, device_headers):
+    """One open offline alert per device, resolved by itself when it reports again."""
+    from app.services.devices import refresh_liveness
+    env_node.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    db.commit()
+    refresh_liveness(db)
+    env_node.is_online = True            # a second, concurrent refresh sees "online" too
+    db.commit()
+    refresh_liveness(db)
+    open_ = db.query(Alert).filter(Alert.device_id == env_node.id, Alert.is_resolved.is_(False)).all()
+    assert len(open_) == 1
+    _post(client, device_headers, lab, temperature=24.0)   # reports again
+    db.expire_all()
+    refresh_liveness(db)
+    assert db.query(Alert).filter(Alert.device_id == env_node.id,
+                                  Alert.is_resolved.is_(False)).count() == 0

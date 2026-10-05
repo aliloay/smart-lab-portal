@@ -76,7 +76,7 @@ export default function Monitor() {
   // Door, access and alert messages refresh at once (debounced: one entry
   // produces several messages in a second).
   useLiveMessages(m => {
-    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff' && m.type !== 'hazard') return
+    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff' && m.type !== 'hazard' && m.type !== 'env_update') return
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(load, 300)
   })

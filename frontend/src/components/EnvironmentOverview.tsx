@@ -4,24 +4,29 @@
  * leak, emergency, motion), each with an honest quality. Indicators only -
  * not certified fire or safety systems.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Droplets, Thermometer, Wind } from 'lucide-react'
 import { Lab, LabEnvironment, api } from '../lib/api'
 import { relative } from '../lib/time'
+import { useLiveMessages } from '../lib/live'
 import SafetyStates from './SafetyStates'
 import { EmptyState, Spinner } from './ui'
 
 export default function EnvironmentOverview() {
   const [rows, setRows] = useState<{ lab: Lab; env: LabEnvironment }[] | null>(null)
-  useEffect(() => {
-    const load = () => api.labs().then(labs => Promise.all(labs.map(l =>
+  const load = useCallback(() => {
+    api.labs().then(labs => Promise.all(labs.map(l =>
       api.labEnvironment(l.id).then(env => ({ lab: l, env })).catch(() => null))))
       .then(list => setRows(list.filter((x): x is { lab: Lab; env: LabEnvironment } => !!x && !!x.env.node)))
       .catch(() => setRows([]))
+  }, [])
+  useEffect(() => {
     load()
     const t = window.setInterval(load, 20000)
     return () => window.clearInterval(t)
-  }, [])
+  }, [load])
+  // New readings arrive every ~10 s and on every change: show them at once.
+  useLiveMessages(m => { if (m.type === 'env_update' || m.type === 'hazard') load() })
 
   if (!rows) return <Spinner label="Loading environment" />
   if (!rows.length) {

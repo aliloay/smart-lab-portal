@@ -107,7 +107,8 @@ constexpr uint32_t MQ_DO_DEBOUNCE_MS     = 200;
 
 // --- reporting and network ---------------------------------------------------------
 constexpr uint32_t DIAG_INTERVAL_MS           = 10000;  // one-line status on Serial
-constexpr uint32_t SNAPSHOT_INTERVAL_MS       = 30000;  // full JSON snapshot
+constexpr uint32_t SNAPSHOT_INTERVAL_MS       = 10000;  // readings to the portal (changes go at once)
+constexpr uint32_t SEND_RETRY_MS              = 5000;   // after a failed send, wait this long
 constexpr uint32_t HEARTBEAT_INTERVAL_MS      = 30000;  // backend mode only
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000;
 constexpr uint32_t HTTP_TIMEOUT_MS            = 2500;   // network task only

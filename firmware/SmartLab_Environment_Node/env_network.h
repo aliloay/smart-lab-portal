@@ -128,7 +128,7 @@ bool sendEnvironmentEvent(const EnvEvent &) { return sendEnvironmentSnapshot(); 
 
 // --- the task -------------------------------------------------------------------
 void netTask(void *) {
-  uint32_t lastTry = 0, lastBeat = 0, lastSnap = 0;
+  uint32_t lastTry = 0, lastBeat = 0, lastSnap = 0, lastFail = 0;
   bool firstTry = true, urgent = false;
   for (;;) {
     uint32_t now = millis();
@@ -147,8 +147,12 @@ void netTask(void *) {
         lastBeat = millis();
       }
       // Safety change: at once (and again next round if the portal missed it).
-      if (urgent || lastSnap == 0 || now - lastSnap >= SNAPSHOT_INTERVAL_MS) {
-        if (sendEnvironmentSnapshot()) { urgent = false; lastSnap = millis(); }
+      // A failed send (portal down, Wi-Fi gone) waits SEND_RETRY_MS instead of
+      // hammering the portal every loop.
+      bool retryOk = lastFail == 0 || now - lastFail >= SEND_RETRY_MS;
+      if (retryOk && (urgent || lastSnap == 0 || now - lastSnap >= SNAPSHOT_INTERVAL_MS)) {
+        if (sendEnvironmentSnapshot()) { urgent = false; lastSnap = millis(); lastFail = 0; }
+        else lastFail = millis();
       }
     }
     vTaskDelay(pdMS_TO_TICKS(50));

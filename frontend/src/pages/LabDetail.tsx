@@ -51,6 +51,7 @@ export default function LabDetail() {
     }
     if (m.type === 'staff' && m.kind === 'issue') loadStatus()
     if (m.type === 'door_state' && m.lab_id === labId) loadStatus()
+    if ((m.type === 'env_update' || m.type === 'hazard') && m.lab_id === labId) loadStatus()
   })
 
   if (error) {

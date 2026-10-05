@@ -173,20 +173,21 @@ export default function HazardAlarm() {
                 + {unacked.slice(1).map(h => `${HEADLINE[h.metric] ?? h.label} (${h.lab_code})`).join(', ')}</div>
             )}
 
+            {/* Two choices only: take charge (Emergency mode) or clear it from this screen. */}
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
               {isAdmin(user) && (
                 <button onClick={() => { acknowledge(); nav('/admin/emergency') }}
-                  className="rounded-xl bg-white text-bad text-xl font-black px-8 py-4 shadow-lift
+                  className="rounded-xl bg-white text-bad text-xl font-black px-10 py-4 shadow-lift
                              hover:scale-[1.02] transition">
-                  OPEN EMERGENCY MODE</button>
+                  EMERGENCY MODE</button>
               )}
-              <button onClick={() => { acknowledge(); nav(`/labs/${top.lab_id}`) }}
-                className="rounded-xl border-2 border-white text-white text-lg font-bold px-6 py-4">
-                See the lab</button>
               <button onClick={acknowledge}
-                className="rounded-xl border-2 border-white/60 text-white/90 text-lg font-semibold px-6 py-4">
-                Acknowledge</button>
+                className="rounded-xl border-4 border-white text-white text-xl font-black px-10 py-4
+                           hover:bg-white/10 transition">
+                CLEAR</button>
             </div>
+            <div className="mt-3 text-sm text-white/80">
+              Clear only closes this screen - while the sensor still detects it, a red bar stays at the bottom.</div>
 
             {siren.blocked && (
               <button onClick={siren.start}

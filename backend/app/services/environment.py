@@ -69,17 +69,23 @@ def _key(lab: Lab, metric: str) -> str:
     return f"env:{lab.id}:{metric}"
 
 
-def _publish_hazard(lab: Lab, metric: str, state: str, alert: Optional[Alert],
-                    title: str, detail: str) -> None:
-    """Tell every open portal page at once: the full-screen alarm. Best effort -
-    the open alerts stay in the database (active_hazards) for pages that load later."""
+def _hazard_message(lab: Lab, metric: str, state: str, alert: Optional[Alert],
+                    title: str, detail: str) -> dict:
+    """The live message behind the portal's full-screen alarm. Published by the
+    caller only AFTER the commit, so no page ever shows an alarm that was not saved."""
+    return {"type": "hazard", "state": state, "lab_id": lab.id,
+            "lab_code": lab.code, "metric": metric,
+            "label": HAZARD_LABEL.get(metric, metric), "title": title,
+            "detail": detail, "alert_id": alert.id if alert else None,
+            "at": datetime.now(timezone.utc).isoformat()}
+
+
+def publish(messages: list[dict]) -> None:
+    """Best effort: the open alerts stay in the database (active_hazards)."""
     try:
         from app.ws.manager import manager
-        manager.publish({"type": "hazard", "state": state, "lab_id": lab.id,
-                         "lab_code": lab.code, "metric": metric,
-                         "label": HAZARD_LABEL.get(metric, metric), "title": title,
-                         "detail": detail, "alert_id": alert.id if alert else None,
-                         "at": datetime.now(timezone.utc).isoformat()})
+        for m in messages:
+            manager.publish(m)
     except Exception:
         pass
 
@@ -91,7 +97,7 @@ def active_hazards(db: Session) -> list[dict]:
         .order_by(desc(Alert.created_at))).all()
     out = []
     for a in rows:
-        metric = a.dedupe_key.split(":")[-1]
+        metric = a.dedupe_key.split(":")[2]
         lab = db.get(Lab, a.lab_id) if a.lab_id else None
         out.append({"alert_id": a.id, "lab_id": a.lab_id,
                     "lab_code": lab.code if lab else "", "metric": metric,
@@ -101,9 +107,11 @@ def active_hazards(db: Session) -> list[dict]:
 
 
 def record_hazards(db: Session, lab: Lab, device: Optional[Device],
-                   readings: list[tuple[str, float]]) -> None:
-    """Open or close the hazard alerts for the states just reported."""
+                   readings: list[tuple[str, float]]) -> list[dict]:
+    """Open or close the hazard alerts for the states just reported. Returns the
+    live messages to publish once the caller has committed."""
     now = datetime.now(timezone.utc)
+    messages: list[dict] = []
     for metric, value in readings:
         if metric not in HAZARDS:
             continue
@@ -118,7 +126,7 @@ def record_hazards(db: Session, lab: Lab, device: Optional[Device],
                           detail=detail, dedupe_key=_key(lab, metric))
             db.add(alert)
             db.flush()
-            _publish_hazard(lab, metric, "raised", alert, title, detail)
+            messages.append(_hazard_message(lab, metric, "raised", alert, title, detail))
             log_event(db, EventType.ALARM, lab_id=lab.id,
                       device_id=device.id if device else None,
                       reason=metric.upper(), message=title)
@@ -128,10 +136,15 @@ def record_hazards(db: Session, lab: Lab, device: Optional[Device],
         elif not active and open_alert is not None:
             open_alert.is_resolved = True
             open_alert.resolved_at = now
+            # Free the key for the next episode (dedupe_key is UNIQUE): without
+            # this, a second flame in the same lab hit a duplicate-key error and
+            # every telemetry post from the node failed with HTTP 500.
+            open_alert.dedupe_key = f"{_key(lab, metric)}:{open_alert.id}"
             log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,
                       device_id=device.id if device else None,
                       message=f"{title}: cleared")
-            _publish_hazard(lab, metric, "cleared", open_alert, title, detail)
+            messages.append(_hazard_message(lab, metric, "cleared", open_alert, title, detail))
+    return messages
 
 
 def node(db: Session, lab: Lab) -> Optional[Device]:
@@ -195,7 +208,7 @@ def history(db: Session, lab: Lab, hours: int = 24,
     for a in db.scalars(select(Alert).where(
             Alert.lab_id == lab.id, Alert.dedupe_key.like(f"env:{lab.id}:%"),
             Alert.created_at >= since).order_by(Alert.created_at)).all():
-        episodes.append({"hazard": a.dedupe_key.rsplit(":", 1)[-1], "title": a.title,
+        episodes.append({"hazard": a.dedupe_key.split(":")[2], "title": a.title,
                          "started": a.created_at, "cleared": a.resolved_at,
                          "minutes": round((_utc(a.resolved_at) - _utc(a.created_at))
                                           .total_seconds() / 60, 1) if a.resolved_at else None})

@@ -66,6 +66,10 @@ class ConnectionManager:
             # A smoke / flame alarm: safety information for everyone signed in,
             # whatever their role - every open page shows the full-screen alarm.
             return True
+        if kind == "env_update":
+            # "New readings for this lab - refetch": the same facts GET
+            # /labs/{id}/environment shows any signed-in user.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
         if kind == "door_state":
             # Door open/closed and lock state: the same facts GET /labs/{id}
             # already shows any signed-in user. Only a "refetch" hint.
