@@ -10,9 +10,13 @@
 //     http://<Master ESP32 IP>/state   the current state as JSON
 //
 // Guarantees:
-//   - Three GET routes (/, /state, /photo), nothing else (anything else is a 404). No route writes
-//     a variable, calls a state transition or touches the relay/lock, so no
-//     request - including one from a modified page - can open the door.
+//   - Three GET routes (/, /state, /photo), nothing else (anything else is a 404). No route
+//     calls a state transition or touches the relay/lock, so no request -
+//     including one from a modified page - can open the door. The one thing a
+//     request records is /state?snd=1: "this page has its sound on", which
+//     moves the spoken prompts from the door speaker to the page. Nothing else.
+//   - Sound: the page says each announcement (sayId / say) with the voice and
+//     speaker of the device that opened it, after one tap to allow sound.
 //   - handleClient() is non-blocking and a /state reply is ~1 KB, so the
 //     access logic keeps its timing. With no tablet, it costs nothing.
 //   - Wording is taken from the TFT screens in SmartLab_Master_Portal.ino so
@@ -61,6 +65,7 @@ static void tabletHandlePhoto() {
 
 // Mirrors updateDisplay(): same states, same branches, same words.
 static void tabletHandleState() {
+  if (tabletServer.arg("snd") == "1") tabletSoundSeenMs = millis();
   const char *name = (pendingUserIndex >= 0) ? authorizedUsers[pendingUserIndex].displayName : "";
   const char *screen = "idle", *tone = "idle", *header = "SMART LAB", *title = "";
   const char *lines[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
@@ -134,7 +139,7 @@ static void tabletHandleState() {
   }
   if (emAlarm) { tone = "bad"; header = "! EVACUATE !"; }
 
-  String o; o.reserve(1200);
+  String o; o.reserve(1600);
   o += '{';
   tjKV(o, "screen", screen); tjKV(o, "tone", tone); tjKV(o, "header", header);
   tjKV(o, "title", title); tjKV(o, "name", name);
@@ -154,6 +159,11 @@ static void tabletHandleState() {
   // the page fetches it again.
   tjKV(o, "photoSrc", (pendingUserIndex >= 0 &&
                        serverPortrait(authorizedUsers[pendingUserIndex].name)) ? "server" : "local");
+  // The newest announcement. sayId changes once per announcement; a page
+  // with its sound on plays each one once, if it is still fresh.
+  tjKV(o, "sayId", (long)annSeq);
+  tjKV(o, "sayAgeMs", (long)(millis() - annAtMs));
+  tjKey(o, "say"); o += annSteps; o += ',';
   // Station facts the ESP32 already tracks (read-only).
   tjKV(o, "lab", LAB_ID); tjKV(o, "device", DEVICE_ID);
   // A page left open across a reflash reloads itself when this changes.
@@ -251,9 +261,18 @@ border:2px solid rgba(148,184,226,.35);background:#050b16}
 .live .off{position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:clamp(14px,1.8vw,20px)}
 .hint{margin-top:1vh;font-size:clamp(18px,4vh,34px);font-weight:700;color:var(--cy)}
 .hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
+footer .snd{cursor:pointer}
+footer .snd:hover{background:rgba(22,44,76,.85)}
+#sndAsk{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;justify-content:center;
+gap:2.4vh;background:rgba(5,11,22,.84);text-align:center;padding:24px;cursor:pointer}
+#sndAsk b{font-size:clamp(22px,4.8vh,46px);color:var(--cy)}
+#sndAsk span{font-size:clamp(15px,2.4vh,22px);color:var(--sub)}
+#sndAsk small{font-size:clamp(14px,2.2vh,20px);color:var(--sub);text-decoration:underline;padding:8px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <div id="conn"></div>
+<div id="sndAsk" hidden><b>Tap to turn on the door sound</b><span>The door speaks through this device</span>
+<small id="sndNo">Keep this device silent</small></div>
 <header><div class="brand"><img id="logo" alt="German International University" hidden><i class="sep" id="sep" hidden></i><span id="brandTxt">GIU &middot; SMART <b>LAB</b></span></div><div class="lab" id="lab">ACCESS STATION</div></header>
 <main><div class="card" id="card">
 <div class="hdr" id="hdr">SMART LAB</div>
@@ -275,6 +294,7 @@ border:2px solid rgba(148,184,226,.35);background:#050b16}
 <div><small>Fingerprint</small><span id="fFp" class="m">&ndash;</span></div>
 <div><small>RFID reader</small><span id="fRfid" class="m">&ndash;</span></div>
 <div><small>Network</small><span id="fNet" class="m">&ndash;</span></div>
+<div class="snd" id="fSndCell"><small>Sound &middot; this device</small><span id="fSnd" class="m">&ndash;</span></div>
 </footer>
 <script>
 var CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -361,10 +381,75 @@ function liveTick(){
  }).catch(function(){});
 }
 setInterval(liveTick,300);
+// Door sound. The door decides WHAT is said; this device says it, with its
+// own voice and speaker (or the Bluetooth / lab speaker it is connected to).
+// Browsers allow sound only after a tap, so a tap turns it on; the choice is
+// remembered per device. While it is on, the polls carry snd=1 and the door
+// speaker stays quiet - if this page goes away, the door speaks again.
+var SND={want:false,ctx:null,voice:null,last:null,gen:0};
+try{SND.want=localStorage.getItem('doorSound')==='1'}catch(e){}
+function sndReady(){return SND.want&&!!SND.ctx&&SND.ctx.state==='running'}
+function sndVoice(){
+ if(!window.speechSynthesis)return null;
+ var v=speechSynthesis.getVoices().filter(function(x){return /^en/i.test(x.lang)});
+ var loc=v.filter(function(x){return x.localService});     // these work without internet
+ return loc.filter(function(x){return /en.US/i.test(x.lang)})[0]||loc[0]||v[0]||null}
+if(window.speechSynthesis)speechSynthesis.onvoiceschanged=function(){SND.voice=sndVoice()};
+function sndSay(t,done){
+ var fin=false;function end(){if(!fin){fin=true;if(done)done()}}
+ if(!window.speechSynthesis){end();return}
+ var u=new SpeechSynthesisUtterance(t);
+ u.volume=1;if(SND.voice){u.voice=SND.voice;u.lang=SND.voice.lang}else u.lang='en-US';
+ u.onend=end;u.onerror=end;setTimeout(end,4000+t.length*120);   // never stall the list
+ speechSynthesis.speak(u)}
+function sndTone(f0,f1,ms,sq){
+ var c=SND.ctx;if(!c)return;
+ var o=c.createOscillator(),g=c.createGain(),t=c.currentTime,d=ms/1000,v=sq?.35:.85;   // near full scale: the device volume does the rest
+ o.type=sq?'square':'triangle';o.frequency.setValueAtTime(f0,t);
+ if(f1!==f0)o.frequency.linearRampToValueAtTime(f1,t+d);
+ g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.01);
+ g.gain.setValueAtTime(v,t+Math.max(.01,d-.015));g.gain.linearRampToValueAtTime(0,t+d);
+ o.connect(g);g.connect(c.destination);o.start(t);o.stop(t+d+.03)}
+function sndPlay(steps){
+ var g=++SND.gen,i=0;try{speechSynthesis.cancel()}catch(e){}
+ function next(){
+  if(g!==SND.gen||!sndReady()||i>=steps.length)return;
+  var s=steps[i++];
+  if(s[0]==='t'){sndTone(s[1],s[2],s[3]);setTimeout(next,s[3])}
+  else if(s[0]==='b'){sndTone(s[1],s[1],s[2],true);setTimeout(next,s[2])}
+  else if(s[0]==='g'){setTimeout(next,s[1])}
+  else if(s[0]==='v'){sndSay(s[1],next)}
+  else next()}
+ setTimeout(next,80)}      // a moment after cancel(): some browsers drop a speak() right after it
+function sndOn(){
+ try{if(!SND.ctx)SND.ctx=new(window.AudioContext||window.webkitAudioContext)();
+  SND.ctx.onstatechange=sndShow;SND.ctx.resume()}catch(e){}
+ SND.voice=sndVoice();SND.want=true;
+ try{localStorage.setItem('doorSound','1')}catch(e){}
+ sndSay('Door sound on.');            // said inside the tap: that is what allows speech later
+ sndShow();setTimeout(sndShow,400)}
+function sndOff(){
+ SND.want=false;SND.gen++;try{speechSynthesis.cancel()}catch(e){}
+ try{localStorage.setItem('doorSound','0')}catch(e){}
+ sndShow()}
+function sndShow(){
+ var r=sndReady();
+ set($('fSnd'),r?'On':SND.want?'Tap to resume':'Off \u00b7 tap to turn on',r?'g':SND.want?'y':'m');
+ $('sndAsk').hidden=!(SND.want&&!r)}
+$('fSndCell').onclick=function(){if(sndReady())sndOff();else sndOn()};
+$('sndAsk').onclick=sndOn;
+$('sndNo').onclick=function(e){e.stopPropagation();sndOff()};
+function sndCheck(s){
+ if(s.sayId===undefined)return;
+ if(SND.last===null){SND.last=s.sayId;return}     // just opened: nothing old is played
+ if(s.sayId===SND.last)return;
+ SND.last=s.sayId;
+ if(sndReady()&&s.sayAgeMs<3000)sndPlay(s.say||[])}
+sndShow();
 function poll(){
  var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},2500);
- fetch('/state',{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})
- .then(function(s){clearTimeout(t);fails=0;conn(false);render(s)})
+ fetch('/state'+(sndReady()?'?snd=1':''),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})
+ .then(function(s){clearTimeout(t);fails=0;conn(false);render(s);sndCheck(s)})
  .catch(function(){clearTimeout(t);if(++fails>=3)conn(true)})
  .then(function(){setTimeout(poll,fails?1500:500)});
 }

@@ -29,11 +29,16 @@
        before Serial, so it is never left floating during boot.
      Result: across a whole denied attempt the relay is never written once.
 
-  WIRING THIS FIRMWARE EXPECTS (unchanged from your working setup):
-     Solenoid on the NC contact, GPIO26 wired DIRECTLY to the relay IN pin
-     (no transistor - the module is high-triggered and an NPN pulling IN low
-     stopped it energizing entirely). Relay VCC + COM on 12V.
-     GPIO26 HIGH = LOCKED, GPIO26 LOW = UNLOCKED.
+  WIRING THIS FIRMWARE EXPECTS:
+     Solenoid on the NO contact. Relay VCC + COM on 12V. The relay IN pin is
+     fed from 3V3 through a BC557 (PNP): E -> 3V3, C -> IN, B -> 3.3k ->
+     GPIO26, 15k B-E keeps it off while the ESP32 resets. Driven straight
+     from GPIO26 the module lit its LED but did not close NO (2026-10-05);
+     IN tied to 3V3 did. The PNP inverts:
+     GPIO26 HIGH = LOCKED (coil off), GPIO26 LOW = UNLOCKED (coil on).
+     Moved from NC on 2026-10-04: on NC the coil had to stay energized to
+     keep the door locked, so every reset, flash, boot or 12 V dip unlocked
+     it. On NO, whatever stops the ESP32 driving GPIO26 leaves it locked.
   ===========================================================================
 */
 
@@ -49,6 +54,13 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+// Speaker: PAM8403 + 3 W / 8 ohm on GPIO22 (through a 3.3 k / 100 nF low-pass).
+// Spoken prompts, beeps, the denial buzz and the alarm siren - the old buzzer
+// on GPIO21 is never energized any more (its current surge popped the lock).
+// Needs Partition Scheme "Huge APP (3MB No OTA/1MB SPIFFS)": the voice clips
+// are ~600 KiB. Clips: tools/door_voice/make_voice.py -> door_voice.h.
+#include "door_audio.h"
+#include "door_voice_text.h"   // the same prompts as words, for the tablet page
 
 // ===========================================================================
 // >>>>>>>>>>>>>>>>>>>>> STAGE 4: CAMERA INTEGRATION <<<<<<<<<<<<<<<<<<<<<<<<<
@@ -149,7 +161,7 @@ constexpr uint8_t FP_TX_PIN = 17;     // sensor RX -> here
 // --- Door sensor (MC-38 reed switch) ---
 constexpr uint8_t DOOR_PIN = 27;      // INPUT_PULLUP; LOW=CLOSED, HIGH=OPEN
 
-// --- Relay (HIGH = LOCKED / OFF, LOW = UNLOCKED / ON) ---
+// --- Relay via BC557 (HIGH = LOCKED / coil off, LOW = UNLOCKED / coil on; lock on NO) ---
 constexpr uint8_t RELAY_PIN = 26;
 constexpr uint8_t RELAY_LOCKED_LEVEL   = HIGH;
 constexpr uint8_t RELAY_UNLOCKED_LEVEL = LOW;
@@ -323,14 +335,18 @@ constexpr uint32_t RELAY_SETTLE_MS        = 80;    // supply settles after the
 // 150ms, with and without a soft-start ramp. Only disabling it keeps the door
 // shut. This is a supply problem (no bulk capacitance on the 12V rail), not a
 // firmware problem - fit a 470-1000uF capacitor and this can go back to true.
-constexpr bool     DENY_ALERT_ENABLED = false;
+// 2026-10-05: back ON. The lock now sits on the relay's NO contact (coil off
+// while locked), so a dip has no coil to drop - denial, reflash and reset all
+// tested locked on the bench. 470 uF fitted across the 12 V at the relay.
+constexpr bool     DENY_ALERT_ENABLED = true;
 // 30ms - a deliberate last attempt, not a normal value.
 // A relay armature takes ~5-10ms to release, and the buck converter's output
 // capacitor holds the rail up briefly before it droops. So a pulse this short
 // may finish before the voltage falls far enough to drop the coil.
 // 3000ms, 500ms and 150ms all popped the door; if 30ms does too, no firmware
 // timing will fix this and it is purely a supply problem.
-constexpr uint32_t DENY_BEEP_MS       = 30;
+// With the lock on NO (2026-10-05) a normal beep is safe again.
+constexpr uint32_t DENY_BEEP_MS       = 600;
 
 // ===========================================================================
 // State machine
@@ -354,6 +370,54 @@ long        pendingBookingId = -1;
 bool        pendingViaPortal = false;
 uint32_t    lastHeartbeatSentMs = 0;
 uint32_t    stateEnteredMs = 0;
+uint32_t    lastWelcomeMs = 0;       // welcome prompt cool-down
+uint32_t    lastNagMs = 0;           // repeated alarm / "close the door" prompts
+constexpr uint32_t WELCOME_COOLDOWN_MS = 30000;
+constexpr uint32_t HELD_OPEN_REPEAT_MS = 15000;
+constexpr uint32_t FORCED_REPEAT_MS    = 10000;
+constexpr uint32_t EVACUATE_REPEAT_MS  = 10000;
+
+// ---------------------------------------------------------------------------
+// ANNOUNCEMENTS - the door decides WHAT is said; WHERE depends on the tablet.
+// A tablet page with its sound on asks for /state?snd=1 every 0.5 s. While
+// one does, it says the prompts itself - with the voice and speaker of the
+// device that opened it, or the Bluetooth / lab speaker that device uses -
+// and the door speaker stays quiet. With no such page, the door speaker says
+// them as before. Alarms (forced entry, evacuation) go to BOTH: the page says
+// them too, and alsoDoor = true plays them at the door whatever the tablet or
+// the Wi-Fi is doing (the buzzer pulses for them as well).
+// ---------------------------------------------------------------------------
+constexpr uint32_t TABLET_SOUND_FRESH_MS = 3000;
+uint32_t tabletSoundSeenMs = 0;   // last /state?snd=1 (0 = never)
+uint32_t annSeq = 0;              // +1 per announcement; the page plays each once
+uint32_t annAtMs = 0;
+String   annSteps = "[]";         // the newest announcement, as JSON for the page
+
+bool tabletListening() {
+  return tabletSoundSeenMs != 0 && millis() - tabletSoundSeenMs < TABLET_SOUND_FRESH_MS;
+}
+
+void announce(std::initializer_list<AudioSeg> segs, bool alsoDoor = false) {
+  // Steps for the page: ["t",f0,f1,ms] tone or sweep, ["b",hz,ms] buzz,
+  // ["g",ms] pause, ["v","words"] speech (plain text: no quotes to escape).
+  String j = "[";
+  for (const AudioSeg &s : segs) {
+    if (s.kind == SEG_CLIP && s.clip >= VOICE_COUNT) continue;   // e.g. no name
+    if (j.length() > 1) j += ',';
+    if (s.kind == SEG_CLIP)        { j += "[\"v\",\""; j += VOICE_TEXT[s.clip]; j += "\"]"; }
+    else if (s.kind == SEG_TONE)   { j += "[\"t\","; j += s.f0; j += ','; j += s.f1; j += ','; j += s.ms; j += ']'; }
+    else if (s.kind == SEG_SQUARE) { j += "[\"b\","; j += s.f0; j += ','; j += s.ms; j += ']'; }
+    else if (s.kind == SEG_GAP)    { j += "[\"g\","; j += s.ms; j += ']'; }
+  }
+  j += ']';
+  annSteps = j;
+  annAtMs = millis();
+  annSeq++;
+  bool tablet = tabletListening();
+  Serial.printf("[SAY] #%lu -> %s\n", (unsigned long)annSeq,
+                alsoDoor ? (tablet ? "tablet + door" : "door") : tablet ? "tablet" : "door speaker");
+  if (alsoDoor || !tablet) audioPlay(segs);
+}
 const char *deniedReason = "";
 char        deniedReasonBuf[40];   // deniedReason points here: the callers'
                                    // strings (e.g. a portal reply) are
@@ -956,6 +1020,7 @@ void printDoorStatus() {
 void setRelay(bool unlock) {
   if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
   pinMode(RELAY_PIN, OUTPUT);
+  gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);   // see setup()
   digitalWrite(RELAY_PIN, unlock ? RELAY_UNLOCKED_LEVEL : RELAY_LOCKED_LEVEL);
   relayUnlocked   = unlock;
   relayEverDriven = true;
@@ -1354,10 +1419,9 @@ void updateDisplay() {
 // ===========================================================================
 // CAMERA POLLING
 // ===========================================================================
-// Pulls /status from the camera board and caches the result. Non-blocking in
-// the sense that it runs on a timer and uses a short HTTP timeout - a camera
-// that is off or slow costs us CAMERA_TIMEOUT_MS at worst, and the RFID and
-// fingerprint paths keep working regardless.
+// A background task pulls /status from the camera board; loop() only takes
+// the newest reply. A camera that is off or slow never holds up the door,
+// and the RFID and fingerprint paths keep working regardless.
 // ===========================================================================
 String jsonStr(const String &src, const String &key) {
   int k = src.indexOf("\"" + key + "\"");
@@ -1382,37 +1446,79 @@ long jsonLong(const String &src, const String &key) {
   return src.substring(colon + 1).toInt();
 }
 
+// The request used to run inside loop(): a slow or absent camera then held
+// the door loop for up to 2 x CAMERA_TIMEOUT_MS on every poll, and a door
+// closing was acted on about a second late (bench, 2026-10-04).
+SemaphoreHandle_t visionMutex = nullptr;
+String            camBody = "";          // newest 200 reply  } under
+uint32_t          camBodyMs = 0;         // when it arrived   } visionMutex
+volatile bool     camAnswering = false;  // the newest request got a 200
+
+void visionTask(void *) {
+  // Kept for the life of the task: HTTPClient can only keep the connection
+  // alive between requests if the objects survive between them.
+  WiFiClient client;
+  HTTPClient http;
+  for (;;) {
+    uint32_t start = millis();
+    bool ok = false;
+    String body;
+    if (WiFi.status() == WL_CONNECTED) {
+      http.begin(client, String("http://") + CAMERA_IP + "/status");
+      http.setReuse(true);
+      http.setConnectTimeout(CAMERA_TIMEOUT_MS);
+      http.setTimeout(CAMERA_TIMEOUT_MS);
+      ok = http.GET() == 200;
+      if (ok) body = http.getString();
+      http.end();
+    }
+    if (ok) {
+      xSemaphoreTake(visionMutex, portMAX_DELAY);
+      camBody = body;
+      camBodyMs = millis();
+      xSemaphoreGive(visionMutex);
+    }
+    camAnswering = ok;
+    uint32_t took = millis() - start;
+    vTaskDelay(pdMS_TO_TICKS(took < CAMERA_POLL_MS ? CAMERA_POLL_MS - took : 1));
+  }
+}
+
+void visionBegin() {
+  visionMutex = xSemaphoreCreateMutex();
+  if (!visionMutex) {
+    Serial.println("[CAM][WARN] No memory for the camera task - RFID/finger only.");
+    return;
+  }
+  // Core 0, low priority: never competes with the access logic on core 1.
+  xTaskCreatePinnedToCore(visionTask, "vision", 8192, nullptr, 1, nullptr, 0);
+}
+
+// From loop(): takes the newest camera reply. Never waits on the network.
 void pollCamera() {
-  if (WiFi.status() != WL_CONNECTED) { cameraOnline = false; return; }
-
-  // STATIC, not local: HTTPClient can only keep a connection alive across
-  // calls if the object survives between them. Re-opening a TCP connection
-  // four times a second is the single biggest avoidable delay in the poll.
-  static WiFiClient  client;
-  static HTTPClient  http;
-  http.begin(client, String("http://") + CAMERA_IP + "/status");
-  http.setReuse(true);
-  http.setConnectTimeout(CAMERA_TIMEOUT_MS);
-  http.setTimeout(CAMERA_TIMEOUT_MS);
-  int code = http.GET();
-
-  if (code != 200) {
-    http.end();
+  if (!visionMutex) return;
+  if (!camAnswering) {
     if (cameraOnline) Serial.println("[CAM] camera unreachable - RFID/finger still work");
     cameraOnline = false;
     visionQrFresh = visionFaceFresh = false;
     return;
   }
 
-  String body = http.getString();
-  http.end();
+  xSemaphoreTake(visionMutex, portMAX_DELAY);
+  String body = camBody;
+  uint32_t at = camBodyMs;
+  xSemaphoreGive(visionMutex);
   cameraOnline = true;
-  lastCameraOkMs = millis();
+  lastCameraOkMs = at;
 
   // FRESHNESS IS THE SECURITY CHECK. An old QR or face must never authorize
-  // the person standing there now.
+  // the person standing there now. The ages are the camera's own, plus how
+  // long ago its reply arrived here.
+  uint32_t waited = millis() - at;
   long qrAge   = jsonLong(body, "qr_age_ms");
   long faceAge = jsonLong(body, "face_age_ms");
+  if (qrAge   >= 0) qrAge   += waited;
+  if (faceAge >= 0) faceAge += waited;
 
   visionQr        = jsonStr(body, "qr");
   visionFace      = jsonStr(body, "face");
@@ -1667,6 +1773,7 @@ void goIdle() {
   // earlier person's booking.
   pendingBookingId = -1;
   pendingViaPortal = false;
+  lastWelcomeMs = millis();        // no welcome right after an entry or a denial
   enterState(STATE_IDLE);
 }
 
@@ -1680,6 +1787,7 @@ void goWaitFingerprint(int userIndex) {
                 authorizedUsers[userIndex].name);
   verifyPromptShown = false;
   enterState(STATE_WAIT_FINGERPRINT);
+  announce({aTone(988, 80), aTone(1319, 120), aGap(80), aSay(VOICE_VERIFY)});
 }
 
 // The ONLY place the door is ever unlocked.
@@ -1708,6 +1816,13 @@ void goAccessGranted(const char *factorEvent, const char *factorMethod,
   updateDisplay();                 // show the grant now, not after the reports
   Serial.printf("[TFT] grant screen shown %u ms after unlock\n",
                 (unsigned)(millis() - t0));
+  // After the relay has settled: "Hello <name>, welcome. The door is unlocked."
+  uint8_t nameClip = voiceNameFor(authorizedUsers[pendingUserIndex].name);
+  if (nameClip < VOICE_COUNT)
+    announce({aTone(1319, 90), aTone(1760, 140), aGap(80), aSay(VOICE_HELLO), aSay(nameClip),
+              aGap(60), aSay(VOICE_WELCOME_IN)});
+  else
+    announce({aTone(1319, 90), aTone(1760, 140), aGap(80), aSay(VOICE_WELCOME_IN)});
 
   // Reported AFTER the door is already unlocked. The portal is a witness to
   // this decision, not a participant in it - if the report fails, the person
@@ -1732,6 +1847,13 @@ void goAccessDenied(const char *reason) {
   // white screen mid-draw.
   enterState(STATE_ACCESS_DENIED);
   updateDisplay();
+
+  // Speaker: the buzzer sound, then why, then what to do.
+  uint8_t why = VOICE_COUNT;
+  if (!strcmp(reason, "FINGER TIMEOUT")) why = VOICE_TIME_UP;
+  else if (!strcmp(reason, "FACE MISMATCH") || !strcmp(reason, "WRONG FINGER")) why = VOICE_MISMATCH;
+  announce({aBuzz(250), aGap(60), aBuzz(250), aGap(150), aSay(VOICE_DENIED), aSay(why),
+            aGap(60), aSay(VOICE_TRY_AGAIN)});
 
   // NO RELAY COMMAND. Every denial path already has the door locked - an
   // unknown card is rejected from IDLE, a wrong finger is rejected before
@@ -1787,6 +1909,9 @@ void goDoorAlarm() {
   pendingViaPortal = false;
   enterState(STATE_DOOR_ALARM);
   updateDisplay();
+  lastNagMs = millis();
+  announce({aSay(VOICE_FORCED), aGap(150), aSweep(600, 1400, 600), aSweep(1400, 600, 600),
+            aSweep(600, 1400, 600), aSweep(1400, 600, 600)}, true);
   reportEvent("ALARM", "", -1, "", "", "FORCED_ENTRY",
               "Door opened while locked - no access had been granted");
 }
@@ -2062,6 +2187,17 @@ void runSerialCommand(String line) {
   if (line.length() == 0) return;
   if (state != STATE_IDLE) { Serial.println("[CMD] Busy - try again when the door is idle."); return; }
 
+  if (line.startsWith("vol ")) {             // speaker loudness, % (until restart)
+    audioVolume = constrain(line.substring(4).toInt(), 0, 100);
+    Serial.printf("[CMD] Speaker volume %u%%\n", audioVolume);
+    audioPlay({aTone(880, 200)});
+    return;
+  }
+  if (line.startsWith("say ")) {             // play one clip: say 0 .. say 18
+    long n = line.substring(4).toInt();
+    if (n >= 0 && n < VOICE_COUNT) audioPlay({aSay((uint8_t)n)});
+    return;
+  }
   if (line == "count") {
     if (fpOk && finger.getTemplateCount() == FINGERPRINT_OK)
       Serial.printf("[CMD] %u fingerprints stored.\n", finger.templateCount);
@@ -2105,7 +2241,7 @@ void runSerialCommand(String line) {
     goIdle();                      // redraw the idle screen
     return;
   }
-  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count | cards | card delete <n>");
+  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count | cards | card delete <n> | vol <0-100> | say <n>");
 }
 
 void pollSerialCommands() {
@@ -2155,7 +2291,8 @@ void emergencyTakeUpdate() {
   emMessageUntilMs = (emMessage[0] && e.msgRemainingS > 0) ? millis() + (uint32_t)e.msgRemainingS * 1000UL : 0;
   if (e.alarm != emAlarm) {
     emAlarm = e.alarm;
-    if (!emAlarm) { digitalWrite(RED_LED_BUZZER_PIN, LOW); setRedSolo(false); }
+    lastNagMs = 0;                 // evacuation: say it at once
+    if (!emAlarm) { digitalWrite(RED_LED_BUZZER_PIN, LOW); setRedSolo(false); audioStop(); }
   }
   Serial.printf("[EMERGENCY] v%ld door=%s%s alarm=%s message=\"%s\"\n", emVersion,
                 emDoor == EM_UNLOCKED ? "UNLOCKED" : emDoor == EM_LOCKDOWN ? "LOCKDOWN" : "NORMAL",
@@ -2179,14 +2316,24 @@ bool emergencyOverride() {
   }
   bool lockdown = emDoor == EM_LOCKDOWN && state == STATE_IDLE;
 
-  // Evacuation alarm: buzzer on (soft start, as for the deny alert) and the
-  // red LED blinking. Turned back on if a door step switched it off.
+  // Evacuation alarm: siren + "Emergency. Please leave the lab now." on the
+  // speaker (if fitted), repeated, and the red LED + buzzer pulsing (safe
+  // since the lock moved to NO: a dip can no longer release it).
   if (emAlarm) {
-    if (digitalRead(RED_LED_BUZZER_PIN) == LOW) { softStartAlert(); tftRefreshWanted = true; }
+    digitalWrite(RED_LED_BUZZER_PIN, (millis() / 500) % 2);
+    if (lastNagMs == 0 || millis() - lastNagMs > EVACUATE_REPEAT_MS) {
+      lastNagMs = millis();
+      announce({aSay(VOICE_EVACUATE), aGap(150), aSweep(600, 1400, 700), aSweep(1400, 600, 700),
+                aSweep(600, 1400, 700), aSweep(1400, 600, 700)}, true);
+    }
     setRedSolo((millis() / 500) % 2);
   }
 
   uint8_t view = unlocked ? 1 : lockdown ? 2 : 0;
+  if (view != emView && !emAlarm) {          // the evacuation siren has priority
+    if (view == 1) announce({aTone(988, 120), aGap(80), aSay(VOICE_EM_OPEN)});
+    if (view == 2) announce({aTone(700, 200), aGap(80), aSay(VOICE_LOCKDOWN)});
+  }
   if (view != emView) {
     if (emView == 1 && view != 1) {          // leaving "door open": lock and start fresh
       emView = 0;
@@ -2220,11 +2367,17 @@ bool emergencyOverride() {
 
 void setup() {
   // =========================================================================
-  // RELAY FIRST - driven LOCKED before anything else. This is the 21:07
-  // configuration that kept the door shut. INPUT_PULLUP here is NOT a driven
-  // level and left the door sitting open, so it is not used.
+  // RELAY FIRST - driven LOCKED before anything else. INPUT_PULLUP here is
+  // NOT a driven level and left the door sitting open on the old NC wiring,
+  // so it is not used. With the lock on NO, LOCKED = LOW = coil off - the
+  // same as an undriven pin, so a reset or a flash leaves the door locked.
   // =========================================================================
   pinMode(RELAY_PIN, OUTPUT);
+  // Strongest output drive (~40 mA, default ~20 mA): at the default the
+  // module's input pulled the HIGH level down far enough that the relay
+  // lit its LED but did not close NO (bench, 2026-10-05: IN tied straight
+  // to 3V3 opened the lock, GPIO26 HIGH did not).
+  gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);
   digitalWrite(RELAY_PIN, RELAY_LOCKED_LEVEL);
   relayUnlocked   = false;
   relayEverDriven = true;
@@ -2327,6 +2480,7 @@ void setup() {
   cardsLoad();         // RFID cards enrolled from the portal (flash)
   Serial.printf("[CARD] %u portal card(s) loaded from flash\n", portalCardCount);
   portalTaskBegin();   // portal requests (fingerprint / card enrollment), in the background
+  visionBegin();       // camera /status, in the background
 
   Serial.println();
   Serial.println("=================================================");
@@ -2339,6 +2493,8 @@ void setup() {
   Serial.println("[READY] STEP 1 (identity) : RFID tag/card  OR  QR code");
   Serial.println("[READY] STEP 2 (biometric): fingerprint    OR  face");
   Serial.println("[READY] Step 2 identity must MATCH step 1 - stolen card is denied.");
+
+  if (audioBegin()) audioPlay({aTone(880, 120), aGap(60), aSay(VOICE_BOOT)});
 
   goIdle();
   updateDisplay();   // draw the IDLE screen immediately
@@ -2455,6 +2611,12 @@ void loop() {
           displayDirty = true;
           Serial.println("[RFID] Link restored.");
         }
+      }
+
+      // ---- Speaker: someone stands in front of the camera -------------
+      if (visionFaceFresh && millis() - lastWelcomeMs > WELCOME_COOLDOWN_MS) {
+        lastWelcomeMs = millis();
+        announce({aTone(988, 90), aTone(1319, 140), aGap(100), aSay(VOICE_WELCOME)});
       }
 
       // ---- STEP 1 ALTERNATIVE: QR code from the camera ----------------
@@ -2648,11 +2810,17 @@ void loop() {
         goRelockAndIdle();
         break;
       }
+      if (heldOpenAlarmed && millis() - lastNagMs > HELD_OPEN_REPEAT_MS) {   // still open: say it again
+        lastNagMs = millis();
+        announce({aTone(1500, 150), aGap(100), aTone(1500, 150), aGap(150), aSay(VOICE_CLOSE_DOOR)});
+      }
       if (!heldOpenAlarmed && millis() - stateEnteredMs > DOOR_HELD_OPEN_MS) {
         heldOpenAlarmed = true;
         Serial.println("[ALARM] Door held open");
         setRedSolo(true);
         displayDirty = true;
+        lastNagMs = millis();
+        announce({aTone(1500, 150), aGap(100), aTone(1500, 150), aGap(150), aSay(VOICE_CLOSE_DOOR)});
         reportEvent("ALARM",
                     pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
                     pendingBookingId, "", "", "DOOR_HELD_OPEN",
@@ -2664,8 +2832,17 @@ void loop() {
 
     // -------------------------------------------------------------------
     case STATE_DOOR_ALARM: {
+      if (millis() - lastNagMs > FORCED_REPEAT_MS) {         // forced entry: keep warning
+        lastNagMs = millis();
+        announce({aSay(VOICE_FORCED), aGap(150), aSweep(600, 1400, 600), aSweep(1400, 600, 600),
+                  aSweep(600, 1400, 600), aSweep(1400, 600, 600)}, true);
+      }
+      // Buzzer + red LED pulse while the forced door stays open (the door
+      // speaker may not be fitted; the buzzer is the alarm that always sounds).
+      digitalWrite(RED_LED_BUZZER_PIN, (millis() / 400) % 2);
       if (doorChangedThisLoop && doorClosed) {
         Serial.println("[ALARM] Door closed again");
+        digitalWrite(RED_LED_BUZZER_PIN, LOW);
         goIdle();
         updateDisplay();   // screen first, then the network report
         reportEvent("DOOR_CLOSED", "", -1, "", "", "",

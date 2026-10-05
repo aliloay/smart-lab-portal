@@ -133,3 +133,50 @@ DHT22 -> MQ-2 -> flame -> PIR -> leak. Each output level is measured before its 
 | Settling / step response | `stream`, place a mass, keep streaming | |
 | Minimum detectable change | smallest added mass reliably seen above noise | |
 | Quantity estimate | real count vs `n_hat = round((m - m0) / u)` | |
+
+---
+
+## Door - lock on NO, buzzer, speaker and tablet sound (MASTER_LAB01)
+
+### 2026-10-04/05 - Lock moved to the relay's NO contact
+```
+Hardware:          12 V solenoid lock; 12 V relay module (high-triggered, VCC + COM on 12 V);
+                   BC557 PNP; 3.3 k, 15 k; 470 uF 25 V electrolytic across +12 V / GND at the relay
+Wiring:            Lock on NO (was NC). Relay IN fed from 3V3 through the BC557:
+                   E -> 3V3, C -> IN, B -> 3.3 k -> GPIO26, 15 k B-E (off during reset/flash).
+                   Final BC557 orientation as fitted on the bench - photo to be added.
+Firmware:          SmartLab_Master_Portal, GPIO26 HIGH = LOCKED, LOW = UNLOCKED (PNP inverts)
+Test conditions:   Bench at home, 12 V adapter (label not yet recorded), ESP32 on laptop USB
+Measurements:      Multimeter (model not recorded), DC V:
+                   COM-GND 12.1 V at rest; 12.03 -> 11.95 V during an unlock (470 uF fitted).
+                   GPIO26 straight to IN: NO-GND showed 12 V for ~1 s, then 0 V; lock did not open.
+                   IN tied to 3V3 or 5V by a jumper: lock opened.
+                   Via BC557 (first orientation): IN 0 -> 1.23 V during an unlock; lock did not open.
+Result:            PASS - locked at idle, on denial and while reflashing; opens on a grant.
+Failure:           On NC (old wiring) any reset, flash, boot or 12 V dip (buzzer) unlocked the door.
+                   On NO driven straight from GPIO26 the relay lit its LED but did not close NO.
+Fix:               Lock to NO + relay levels inverted; relay IN driven from 3V3 via the BC557.
+Final state:       HARDWARE VALIDATED on the bench (lock behaviour). Brownout resets seen at
+                   11:50 on 2026-10-05 were attributed to plugging/unplugging - watch for repeats.
+```
+
+### 2026-10-05 - Buzzer, LEDs and tablet sound
+```
+Hardware:          Buzzer + red LED on GPIO21 (one NPN stage); green LED GPIO14; red LED GPIO15;
+                   PAM8403 + 3 W / 8 ohm speaker (removed after the tablet sound worked; 5 V supply 4.97 V)
+Firmware:          DENY_ALERT_ENABLED = true, DENY_BEEP_MS = 600; forced entry and evacuation pulse
+                   the buzzer. Tablet page (http://192.168.1.151/) speaks the prompts with the
+                   viewing device's own voice after one tap ("Sound - this device"); alarms play on
+                   the tablet (words, then siren) AND at the door.
+Measurements:      none (behaviour test)
+Result:            PASS (owner, bench): denial beeps and stays locked; forced entry pulses until the
+                   door closes; tablet speaks prompts and alarms (laptop speakers).
+Failure:           Tablet silent at first - laptop audio was going to an HDMI screen without speakers.
+Final state:       HARDWARE VALIDATED on the bench. Not yet tested: evacuation from the portal on
+                   this build; a dedicated tablet / Bluetooth speaker at the door.
+```
+
+### 2026-10-04 - Door-close lag
+Camera status polling moved off the door loop into a background task (a slow ESP32-CAM had held the
+loop up to ~1.6 s, so a closing door was acted on ~1 s late - log 00:46:51 sensor CLOSED, 00:46:52
+relock). Owner confirmed the welcome screen now returns promptly. Not timed with an instrument.
