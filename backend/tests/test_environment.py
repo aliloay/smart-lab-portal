@@ -118,3 +118,38 @@ def test_ai_environment_tool_reports_only_stored_data(client, db, lab, env_node,
     assert d["hazard_episodes"][0]["cleared"] is not None
     bad, _ = run_tool(db, "get_environment", {"lab_code": "NOPE"})
     assert "No laboratory" in bad
+
+
+def test_hazard_is_pushed_live_and_listed_for_every_user(client, db, alice, lab, env_node,
+                                                         device_headers, monkeypatch):
+    """A smoke / flame alarm reaches every signed-in page at once (the portal's
+    full-screen alarm) and stays listed until the node reports it clear."""
+    from app.ws.manager import Client, manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+
+    _post(client, device_headers, lab, flame=1)
+    raised = [m for m in sent if m.get("type") == "hazard"]
+    assert len(raised) == 1 and raised[0]["state"] == "raised"
+    assert raised[0]["metric"] == "flame" and raised[0]["lab_id"] == lab.id
+    assert raised[0]["alert_id"] is not None
+    # Routed to students too: safety information, not staff-only.
+    assert manager._wants(Client(user_id=alice.id, is_staff=False, lab_filter=None), raised[0])
+
+    # A student's page loaded after the alarm started still shows it.
+    r = client.get("/api/labs/hazards/active", headers=auth_headers(client, alice.email))
+    assert r.status_code == 200
+    assert [h["metric"] for h in r.json()] == ["flame"]
+
+    # Reporting the same state again pushes nothing new.
+    _post(client, device_headers, lab, flame=1)
+    assert len([m for m in sent if m.get("type") == "hazard"]) == 1
+
+    _post(client, device_headers, lab, flame=0)
+    cleared = [m for m in sent if m.get("type") == "hazard" and m["state"] == "cleared"]
+    assert len(cleared) == 1
+    assert client.get("/api/labs/hazards/active", headers=auth_headers(client, alice.email)).json() == []
+
+
+def test_active_hazards_needs_a_login(client):
+    assert client.get("/api/labs/hazards/active").status_code == 401

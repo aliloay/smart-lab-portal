@@ -622,6 +622,12 @@ export interface EnvSeries {
 }
 /** Latest environment value per metric with its quality (System 2). */
 export type EnvQuality = 'VALID' | 'STALE' | 'MISSING' | 'DEVICE_OFFLINE' | 'OUT_OF_RANGE'
+/** A smoke / flame alarm still open (GET /labs/hazards/active). */
+export interface ActiveHazard {
+  alert_id: number; lab_id: number; lab_code: string; metric: string
+  label: string; title: string; detail: string; at: string | null
+}
+
 export interface LabEnvironment {
   node: { device_uid: string; online: boolean | null; last_seen_at: string | null } | null
   metrics: Record<'temperature' | 'humidity' | 'smoke' | 'flame' | 'water_leak' | 'motion' | 'emergency',
@@ -869,6 +875,7 @@ export const api = {
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),
   labSensors: (id: number) => request<unknown[]>(`/labs/${id}/sensors`),
   labEnvironment: (id: number) => request<LabEnvironment>(`/labs/${id}/environment`),
+  activeHazards: () => request<ActiveHazard[]>('/labs/hazards/active'),
   labIssues: (id: number) => request<LabIssueBrief[]>(`/labs/${id}/issues`),
   availability: (id: number, start: string, end: string) =>
     request<BookingSlot[]>(`/labs/${id}/availability${qs({ start, end })}`),

@@ -19,12 +19,12 @@
 static const char *DEVICE_ID = "ENV_LAB01";
 // BENCH = the home bring-up bench (its data stays apart from the lab's).
 // "LAB_01" once the node is installed in the Robotics Lab.
-static const char *LAB_ID = "BENCH";
+static const char *LAB_ID = "LAB_01";   // moved from BENCH 2026-10-05: same lab as the door (emergency controls)
 
 // --- modes -------------------------------------------------------------------
 // LOCAL TEST MODE: readings, events and health go to Serial only; nothing is
 // sent to the portal. Set false only at bring-up phase 9 (backend).
-constexpr bool LOCAL_TEST_MODE = true;
+constexpr bool LOCAL_TEST_MODE = false;   // phase 9 (2026-10-05): reporting to the portal
 // Wi-Fi is separate from the backend, so it can be tested in local mode.
 constexpr bool WIFI_ENABLED = true;
 

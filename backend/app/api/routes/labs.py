@@ -188,6 +188,14 @@ def _brief(db: Session, i: Issue, viewer: User) -> LabIssueBrief:
                          is_mine=i.reporter_id == viewer.id)
 
 
+@router.get("/hazards/active")
+def hazards_active(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Smoke / flame alarms still open in any lab - what the portal's full-screen
+    alarm shows on a page opened after the alarm started."""
+    from app.services import environment
+    return environment.active_hazards(db)
+
+
 @router.get("/{lab_id}/environment")
 def lab_environment(lab_id: int, db: Session = Depends(get_db),
                     _: User = Depends(get_current_user)):

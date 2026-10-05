@@ -37,6 +37,7 @@ export default function SafetyStates({ labId }: { labId: number }) {
   // A hazard raises an alarm event for this lab: refresh at once.
   useLiveMessages(m => {
     if (m.type === 'access_event' && m.event.lab_id === labId) load()
+    if (m.type === 'hazard' && m.lab_id === labId) load()
   })
 
   if (!env) return null

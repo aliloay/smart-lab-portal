@@ -76,7 +76,7 @@ export default function Monitor() {
   // Door, access and alert messages refresh at once (debounced: one entry
   // produces several messages in a second).
   useLiveMessages(m => {
-    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff') return
+    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff' && m.type !== 'hazard') return
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(load, 300)
   })
@@ -310,8 +310,21 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
             <span className="text-slate-500"> · {relative(t.last_event.at)}</span>
           </span>
         ) : <span className="text-slate-600">No door activity</span>}
+        {t.env_online != null && (
+          <span className="ml-auto flex items-center gap-1 shrink-0">
+            {(['smoke', 'flame'] as const).map(k => {
+              const bad = t.hazards.includes(k)
+              const cls = t.env_online === false ? 'border-ink-600 text-slate-500'
+                : bad ? 'border-bad bg-bad text-white animate-pulse' : 'border-ok/40 bg-ok/10 text-ok-soft'
+              return <span key={k} title={t.env_online === false ? 'Environment node offline'
+                  : bad ? `${k} DETECTED` : `${k} sensor active - no danger`}
+                className={`px-1.5 rounded border text-[10.5px] font-bold uppercase tracking-wide ${cls}`}>
+                {k}{bad ? '!' : ' ok'}</span>
+            })}
+          </span>
+        )}
         {(t.environment.temperature || t.environment.humidity) && (
-          <span className="ml-auto flex items-center gap-2 text-slate-300 shrink-0">
+          <span className={`${t.env_online != null ? '' : 'ml-auto '}flex items-center gap-2 text-slate-300 shrink-0`}>
             {t.environment.temperature && <span className="inline-flex items-center gap-0.5">
               <Thermometer size={13} />{t.environment.temperature.value.toFixed(1)}°C</span>}
             {t.environment.humidity && <span className="inline-flex items-center gap-0.5">

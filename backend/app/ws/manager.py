@@ -62,6 +62,10 @@ class ConnectionManager:
             return client.is_staff or ev.get("user_id") == client.user_id
         if kind == "staff":
             return client.is_staff
+        if kind == "hazard":
+            # A smoke / flame alarm: safety information for everyone signed in,
+            # whatever their role - every open page shows the full-screen alarm.
+            return True
         if kind == "door_state":
             # Door open/closed and lock state: the same facts GET /labs/{id}
             # already shows any signed-in user. Only a "refetch" hint.

@@ -39,3 +39,4 @@ backend/uploads/
 Thumbs.db
 firmware/**/user_photos.h
 firmware/**/user_photos_preview.png
+backups/
