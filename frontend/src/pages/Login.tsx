@@ -49,6 +49,15 @@ export default function Login() {
 
   async function submit(e: FormEvent) {
     e.preventDefault()
+    // Chrome's saved-password autofill shows the values but does not tell the
+    // page until the user clicks somewhere - read them straight from the
+    // fields so Enter works on an autofilled form too.
+    const f = e.currentTarget as HTMLFormElement
+    const emailNow = (f.querySelector('#email') as HTMLInputElement | null)?.value ?? email
+    const pwNow = (f.querySelector('#password') as HTMLInputElement | null)?.value ?? password
+    if (!emailNow || !pwNow) { setError('Enter your email and password.'); return }
+    if (emailNow !== email) setEmail(emailNow)
+    if (pwNow !== password) setPassword(pwNow)
     setError('')
     setBusy(true)
     try {
@@ -63,7 +72,7 @@ export default function Login() {
           return
         }
       }
-      await login(email.trim().toLowerCase(), password)
+      await login(emailNow.trim().toLowerCase(), pwNow)
       const next = params.get('next')
       nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
     } catch (err) {
@@ -223,7 +232,7 @@ export default function Login() {
               </>)}
 
               <button type="submit" className="btn-primary w-full !py-3"
-                      disabled={busy || !email || !password
+                      disabled={busy
                         || (signingUp && (fullName.trim().length < 2 || password.length < 8))}>
                 {busy ? (signingUp ? 'Creating account…' : 'Signing in…')
                   : (signingUp ? 'Create account' : 'Sign in')}

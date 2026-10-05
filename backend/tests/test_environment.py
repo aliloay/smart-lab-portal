@@ -204,20 +204,20 @@ def test_humidity_advisory_once_then_clears_with_hysteresis(client, db, lab, env
     assert [m["state"] for m in warn()] == ["raised", "cleared", "raised"]
 
 
-def test_motion_alerts_only_when_the_lab_is_closed(client, db, alice, lab, env_node,
-                                                   device_headers, now):
-    from app.models import Booking, BookingStatus
+def test_motion_start_is_a_quiet_note_not_an_alert(client, db, lab, env_node,
+                                                   device_headers, monkeypatch):
+    """Motion is normal activity: one note to staff when it starts, never an alert."""
+    from app.models import SensorReading
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    motion = lambda: [m for m in sent if m.get("kind") == "motion"]
     _post(client, device_headers, lab, motion=1)
-    closed = db.query(Alert).filter(Alert.title.like("Motion in%")).all()
-    assert len(closed) == 1
-    _post(client, device_headers, lab, motion=1)              # same episode: no second alert
-    assert db.query(Alert).filter(Alert.title.like("Motion in%")).count() == 1
-
-    closed[0].is_resolved = True
-    closed[0].dedupe_key = f"{closed[0].dedupe_key}:{closed[0].id}"
-    db.add(Booking(user_id=alice.id, lab_id=lab.id, status=BookingStatus.CONFIRMED,
-                   start_time=now - timedelta(minutes=10), end_time=now + timedelta(hours=1)))
+    assert len(motion()) == 1
+    # the node re-sends motion=1 every 10 s while it lasts: no repeat
+    for r in db.query(SensorReading).filter_by(metric="motion").all():
+        r.recorded_at -= timedelta(seconds=10)
     db.commit()
-    _post(client, device_headers, lab, motion=1)              # booked: normal activity
-    assert db.query(Alert).filter(Alert.title.like("Motion in%"),
-                                  Alert.is_resolved.is_(False)).count() == 0
+    _post(client, device_headers, lab, motion=1)
+    assert len(motion()) == 1
+    assert db.query(Alert).filter(Alert.lab_id == lab.id).count() == 0

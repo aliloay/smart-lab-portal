@@ -111,10 +111,13 @@ function Unlock_({ onOpen }: { onOpen: (s: Session) => void }) {
   const [err, setErr] = useState<string | null>(null)
   async function submit(e: FormEvent) {
     e.preventDefault()
+    // Read the field itself: an autofilled password is not in state yet.
+    const pwNow = ((e.currentTarget as HTMLFormElement).querySelector('#em-pw') as HTMLInputElement | null)?.value ?? pw
+    if (!pwNow) { setErr('Enter the emergency password.'); return }
     setBusy(true)
     setErr(null)
     try {
-      const r = await api.emergencySession(pw)
+      const r = await api.emergencySession(pwNow)
       onOpen({ token: r.token, expiresAt: new Date(r.expires_at).getTime() })
       setPw('')
     } catch (x) {
@@ -137,7 +140,7 @@ function Unlock_({ onOpen }: { onOpen: (s: Session) => void }) {
                  value={pw} onChange={e => setPw(e.target.value)} />
         </Field>
       </div>
-      <button className="btn-primary" disabled={busy || !pw}>Open controls</button>
+      <button type="submit" className="btn-primary" disabled={busy}>Open controls</button>
     </form>
   )
 }

@@ -30,8 +30,8 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import (AccessSession, Alert, AlertSeverity, Booking, BookingStatus,
-                        Device, DeviceType, EventType, Lab, SensorReading)
+from app.models import (Alert, AlertSeverity, Device, DeviceType, EventType, Lab,
+                        SensorReading)
 from app.services.devices import is_fresh
 from app.services.events import log_event
 from app.services.notifications import notify, staff_ids
@@ -119,17 +119,6 @@ def _advisories() -> dict:
     }
 
 
-def lab_is_open(db: Session, lab: Lab, now: datetime) -> bool:
-    """Booked right now, or someone checked in at the door (same rule as the
-    Live Monitor's 'in use')."""
-    inside = db.scalar(select(AccessSession.id).where(
-        AccessSession.lab_id == lab.id, AccessSession.ended_at.is_(None)))
-    booked = db.scalar(select(Booking.id).where(
-        Booking.lab_id == lab.id, Booking.status == BookingStatus.CONFIRMED,
-        Booking.start_time <= now, Booking.end_time > now))
-    return inside is not None or booked is not None
-
-
 def _warning_message(lab: Lab, kind: str, state: str, alert: Alert, title: str,
                      detail: str, value: Optional[float]) -> dict:
     return {"type": "env_warning", "state": state, "kind": kind, "lab_id": lab.id,
@@ -139,9 +128,9 @@ def _warning_message(lab: Lab, kind: str, state: str, alert: Alert, title: str,
 
 def record_advisories(db: Session, lab: Lab, device: Optional[Device],
                       readings: list[tuple[str, float]]) -> list[dict]:
-    """Comfort limits (temperature / humidity, with hysteresis) and motion in a
-    closed lab. WARNING alerts + staff notification + orange pop-up; nothing is
-    switched. Returns live messages to publish after the commit."""
+    """Comfort limits (temperature / humidity, with hysteresis): WARNING alerts,
+    staff notification and an orange pop-up; nothing is switched. Motion start:
+    a quiet note only. Returns live messages to publish after the commit."""
     now = datetime.now(timezone.utc)
     messages: list[dict] = []
     dev_id = device.id if device else None
@@ -169,24 +158,21 @@ def record_advisories(db: Session, lab: Lab, device: Optional[Device],
                 open_alert.dedupe_key = f"{key}:{open_alert.id}"   # free the key
                 messages.append(_warning_message(lab, name, "cleared", open_alert,
                                                  open_alert.title, "Back to normal", value))
-        elif metric == "motion" and value >= 0.5 and not lab_is_open(db, lab, now):
-            key = _key(lab, "motion_closed")
-            if db.scalar(select(Alert.id).where(Alert.dedupe_key == key,
-                                                Alert.is_resolved.is_(False))) is None:
-                title = f"Motion in {lab.code} while it is closed"
-                detail = ("No booking and nobody checked in at the door. Check the camera "
-                          "or the room. Resolve this alert once checked.")
-                a = Alert(lab_id=lab.id, device_id=dev_id, severity=AlertSeverity.WARNING,
-                          title=title, detail=detail, dedupe_key=key)
-                db.add(a)
-                db.flush()
-                log_event(db, EventType.ALARM, lab_id=lab.id, device_id=dev_id,
-                          reason="MOTION_CLOSED", message=title)
-                notify(db, staff_ids(db), "ENVIRONMENT_ADVISORY", title, body=detail,
-                       link=f"/labs/{lab.id}", severity="warning",
-                       dedupe_key=f"{key}:{now.isoformat()}")
-                messages.append(_warning_message(lab, "motion_closed", "raised", a,
-                                                 title, detail, value))
+        elif metric == "motion" and value >= 0.5:
+            # Motion is normal activity: no alert, just a quiet blue note for
+            # staff when it STARTS (the node also re-sends 1 every 10 s while
+            # it lasts - only the change from "none" counts).
+            prev = db.scalar(select(SensorReading.value).where(
+                SensorReading.lab_id == lab.id, SensorReading.metric == "motion",
+                SensorReading.recorded_at < now - timedelta(seconds=1))
+                .order_by(desc(SensorReading.recorded_at)))
+            if prev is None or prev < 0.5:
+                messages.append({"type": "env_warning", "state": "raised", "kind": "motion",
+                                 "lab_id": lab.id, "lab_code": lab.code,
+                                 "title": f"Motion detected in {lab.code}",
+                                 "detail": "Movement seen by the motion sensors.",
+                                 "value": value, "alert_id": None,
+                                 "at": now.isoformat()})
     return messages
 
 

@@ -78,6 +78,8 @@ export default function HazardAlarm() {
   const [hazards, setHazards] = useState<ActiveHazard[]>([])
   const [acked, setAcked] = useState<number[]>(loadAck)
   const [cleared, setCleared] = useState<string | null>(null)
+  // Alarms whose red bar was cleared on this screen (a NEW alarm still shows).
+  const [barCleared, setBarCleared] = useState<number[]>([])
   const siren = useSiren()
 
   // The database is the truth: re-check every 10 s too, so a missed live
@@ -130,23 +132,36 @@ export default function HazardAlarm() {
     siren.stop()
   }
 
+  const clearBar = () => {
+    acknowledge()
+    setBarCleared(b => [...b, ...hazards.map(h => h.alert_id)])
+  }
+  // CLEAR ALL (from the advisory stack) resets this screen completely.
+  useEffect(() => {
+    window.addEventListener('smartlab:clear-all', clearBar)
+    return () => window.removeEventListener('smartlab:clear-all', clearBar)
+  })
+
   if (!user) return null
   const top = unacked[0] ?? hazards[0]
+  const barHazards = hazards.filter(h => !barCleared.includes(h.alert_id))
 
   return (
     <>
       {/* After acknowledging: a red bar stays (bottom of the screen, never over the
           header) until the sensor clears. */}
-      {!showOverlay && hazards.length > 0 && (
+      {!showOverlay && barHazards.length > 0 && (
         <div className="fixed bottom-0 inset-x-0 z-[60] bg-bad text-white text-sm font-bold
                         flex items-center justify-center gap-3 py-2 px-4 animate-pulse">
           <ShieldAlert size={18} />
-          {hazards.map(h => `${HEADLINE[h.metric] ?? h.label.toUpperCase()} - ${h.lab_code}`).join('  ·  ')}
+          {barHazards.map(h => `${HEADLINE[h.metric] ?? h.label.toUpperCase()} - ${h.lab_code}`).join('  ·  ')}
           {isAdmin(user) && (
             <button onClick={() => nav('/admin/emergency')}
               className="ml-2 rounded bg-white text-bad px-3 py-0.5 text-xs font-extrabold">
               EMERGENCY MODE</button>
           )}
+          <button onClick={clearBar}
+            className="rounded border border-white px-3 py-0.5 text-xs font-extrabold">CLEAR</button>
         </div>
       )}
 
