@@ -24,7 +24,7 @@
 // HARDWARE_TEST_MODE: comment a line out = that part is not started at all,
 // so a missing part can never block testing another one.
 #define ENABLE_LOAD_CELL_TEST
-// #define ENABLE_LCD_TEST
+#define ENABLE_LCD_TEST
 // #define ENABLE_NFC_TEST
 // #define ENABLE_SERVO_TEST
 // #define ENABLE_REED_TEST
@@ -47,6 +47,9 @@ constexpr uint8_t PIN_REED      = 27;   // reed between this pin and GND, intern
 // ----------------------------------------------------------- load cell -----
 // No calibration factor is assumed. Until "cal <grams>" is run, only raw
 // counts are reported and every weight is "not calibrated".
+// HX711 gain (channel A): 128 = +-0.5*AVDD/128 (~+-10 mV here), 64 = twice the
+// range. Changed with "gain 64|128" (saved); this is only the first-boot value.
+constexpr uint8_t  LOAD_CELL_GAIN_DEFAULT       = 128;
 constexpr uint8_t  WEIGHT_SAMPLE_COUNT          = 10;     // moving window (samples)
 constexpr float    WEIGHT_STABILITY_THRESHOLD_G = 2.0f;   // VERIFY: max spread in the window to call it stable
 constexpr uint32_t WEIGHT_STABLE_TIME_MS        = 1000;   // VERIFY: spread must hold this long

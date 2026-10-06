@@ -13,6 +13,7 @@
 #pragma once
 #include <Arduino.h>
 #include <HX711.h>
+#include "config.h"
 
 enum class WeightState : uint8_t { NO_STABLE_READING, STABLE_READING, WEIGHT_INCREASE, WEIGHT_DECREASE };
 const char *weightStateName(WeightState s);
@@ -42,6 +43,8 @@ class LoadCellManager {
   void clearCalibration();
   void printStatus();
   void hxReset();                      // power-cycle the HX711 through PD_SCK
+  bool setGain(uint8_t gain);          // 128 or 64 (channel A); clears the calibration
+  uint8_t gain() const { return _gain; }
   void rawLog(uint8_t n);              // n single readings, each with its wait time (blocking)
 
  private:
@@ -53,6 +56,7 @@ class LoadCellManager {
   bool _available = false;
   int32_t _offset = 0;
   float _factor = 0.0f;
+  uint8_t _gain = LOAD_CELL_GAIN_DEFAULT;
   float _window[32];
   uint8_t _n = 0, _i = 0;
   float _raw = NAN;

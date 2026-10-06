@@ -17,6 +17,7 @@ void SerialCommands::printHelp() {
     "\nCommands (115200 baud, line ending: Newline):\n"
     "  help | status | i2c | selftest | fault | fault clear | reboot\n"
     "  LOAD CELL : tare | cal <grams> | show | watch on|off | calclear\n"
+    "              hxprobe | hxreset | rawlog [n] | gain 64|128\n"
     "  LCD       : lcd <text>\n"
     "  NFC       : nfc\n"
     "  SERVO     : servo angle <n> | servo center | servo stop | servo status\n"
@@ -72,6 +73,7 @@ void SerialCommands::run(String line) {
   if (l == "watch off") { watchScale = false; return; }
   if (l == "calclear") { _p.scale.clearCalibration(); return; }
   if (l == "hxreset") { _p.scale.hxReset(); return; }
+  if (l.startsWith("gain ")) { _p.scale.setGain((uint8_t)l.substring(5).toInt()); return; }
   if (l.startsWith("rawlog")) { int n = l.substring(6).toInt(); _p.scale.rawLog(n > 0 && n <= 100 ? n : 30); return; }
   if (l == "hxprobe") {
     // Wiring check without the library. A powered HX711 pulls DOUT LOW when a
@@ -213,11 +215,24 @@ void HardwareTests::update() {
   }
 #endif
 #ifdef ENABLE_LCD_TEST
-  if (_p.lcd.available() && now - _lastLcdMs >= 1000) {
+  if (_p.lcd.available() && now - _lastLcdMs >= 500) {
     _lastLcdMs = now;
-    char l2[17];
+    char l1[17], l2[17];
+  #ifdef ENABLE_LOAD_CELL_TEST
+    // The scale on the LCD: grams once calibrated, raw counts before.
+    if (!_p.scale.available()) { snprintf(l1, sizeof(l1), "HX711 NO ANSWER"); snprintf(l2, sizeof(l2), "check DT/SCK"); }
+    else if (_p.scale.calibrated()) {
+      snprintf(l1, sizeof(l1), "%9.1f g", _p.scale.grams());
+      snprintf(l2, sizeof(l2), "%s g%u", _p.scale.stable() ? "STABLE" : "moving", _p.scale.gain());
+    } else {
+      snprintf(l1, sizeof(l1), "raw %11.0f", _p.scale.raw());
+      snprintf(l2, sizeof(l2), "not calib. g%u", _p.scale.gain());
+    }
+  #else
+    snprintf(l1, sizeof(l1), "LCD TEST OK");
     snprintf(l2, sizeof(l2), "0x%02X up %lus", _p.lcd.address(), (unsigned long)(now / 1000));
-    _p.lcd.show("LCD TEST OK", l2);       // only the changed characters' line is rewritten
+  #endif
+    _p.lcd.show(l1, l2);                  // only a changed line is rewritten
   }
 #endif
 #ifdef ENABLE_NFC_TEST

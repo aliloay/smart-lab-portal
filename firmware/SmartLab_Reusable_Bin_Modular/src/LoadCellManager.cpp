@@ -28,14 +28,17 @@ bool LoadCellManager::begin() {
   pinMode(PIN_HX711_DT, INPUT_PULLUP);
   load();
   _available = _hx.wait_ready_timeout(HX711_READY_TIMEOUT_MS, 5);
-  if (_available) _hx.reset();          // safe now: a sample is ready
+  if (_available) {
+    _hx.reset();                          // safe now: a sample is ready
+    _hx.set_gain(_gain == 64 ? HX711_CHANNEL_A_GAIN_64 : HX711_CHANNEL_A_GAIN_128, true);
+  }
   if (!_available) {
     LOG("ERROR", "HX711 not responding (DT never went LOW in %lu ms): check VCC, GND, DT, SCK",
         (unsigned long)HX711_READY_TIMEOUT_MS);
     return false;
   }
   _lastSampleMs = millis();
-  LOG("LOADCELL", "OK - HX711 answering");
+  LOG("LOADCELL", "OK - HX711 answering (gain %u)", _gain);
   if (calibrated()) LOG("LOADCELL", "Calibration loaded: offset %ld, factor %.4f counts/g",
                         (long)_offset, _factor);
   else LOG("LOADCELL", "NOT calibrated: raw counts only (run: tare, then cal <grams>)");
@@ -161,6 +164,7 @@ void LoadCellManager::save() {
   if (!p.begin("reusebin", false)) return;
   p.putInt("lc_off", _offset);
   p.putFloat("lc_fac", _factor);
+  p.putUChar("lc_gain", _gain);
   p.end();
 }
 
@@ -169,13 +173,29 @@ void LoadCellManager::load() {
   if (!p.begin("reusebin", true)) return;
   _offset = p.getInt("lc_off", 0);
   _factor = p.getFloat("lc_fac", 0.0f);
+  _gain = p.getUChar("lc_gain", LOAD_CELL_GAIN_DEFAULT);
+  if (_gain != 64 && _gain != 128) _gain = LOAD_CELL_GAIN_DEFAULT;
   p.end();
+}
+
+bool LoadCellManager::setGain(uint8_t g) {
+  if (g != 64 && g != 128) { LOG("ERROR", "gain must be 64 or 128"); return false; }
+  _gain = g;
+  // "forced" applies it with a read that waits for the HX711: only if it answers.
+  _hx.set_gain(g == 64 ? HX711_CHANNEL_A_GAIN_64 : HX711_CHANNEL_A_GAIN_128, _available && _hx.is_ready());
+  _n = 0; _stable = false; _calmSinceMs = 0; _lastStableG = NAN;
+  bool hadCal = calibrated();
+  _factor = 0.0f;                      // counts per gram change with the gain
+  save();
+  LOG("LOADCELL", "Gain %u set (saved)%s", g, hadCal ? " - calibration cleared: run tare + cal again" : "");
+  return true;
 }
 
 void LoadCellManager::hxReset() {
   _hx.power_down();                    // PD_SCK HIGH > 60 us
   delay(2);
   _hx.power_up();
+  _hx.set_gain(_gain == 64 ? HX711_CHANNEL_A_GAIN_64 : HX711_CHANNEL_A_GAIN_128, false);
   _n = 0; _stable = false; _calmSinceMs = 0;
   _lastSampleMs = millis();
   LOG("LOADCELL", "HX711 power-cycled (PD_SCK high 2 ms, then low)");
