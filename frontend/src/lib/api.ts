@@ -651,6 +651,8 @@ export interface ReportsOverview {
 export interface EnvSeries {
   metric: string; unit: string; min: number | null; max: number | null
   latest: number; latest_at: string
+  /** Readings in the period (points is a sparkline of at most 120). */
+  count?: number
   points: { t: string; v: number; lab_id: number }[]
 }
 /** Latest environment value per metric with its quality (System 2). */

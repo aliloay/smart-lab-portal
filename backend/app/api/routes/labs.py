@@ -124,8 +124,10 @@ def all_environments(db: Session = Depends(get_db), _: User = Depends(get_curren
     refresh_liveness(db)
     now = datetime.now(timezone.utc)
     out = []
-    for lab in db.scalars(select(Lab).order_by(Lab.code)).all():
-        env = environment.latest(db, lab, now)
+    labs = db.scalars(select(Lab).order_by(Lab.code)).all()
+    envs = environment.latest_many(db, list(labs), now)
+    for lab in labs:
+        env = envs[lab.id]
         if env.get("node"):
             out.append({"lab": {"id": lab.id, "code": lab.code, "name": lab.name}, "env": env})
     return out

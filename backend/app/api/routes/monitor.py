@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import desc, select
@@ -64,8 +65,53 @@ def _grouped(alerts: list[Alert]) -> list[dict]:
     return list(out.values())
 
 
-def _tile(db: Session, lab: Lab, now: datetime) -> dict:
-    devices = db.scalars(select(Device).where(Device.lab_id == lab.id)).all()
+def _prefetch(db: Session, labs: list[Lab], now: datetime) -> dict:
+    """Everything the tiles need, for all labs at once: a handful of queries
+    instead of ~15 per lab (the wall screen took ~0.5 s)."""
+    from app.models import LabEmergency
+    ids = [lab.id for lab in labs]
+    by = lambda rows, key=lambda r: r.lab_id: _group(rows, key)
+    pre = {
+        "devices": by(db.scalars(select(Device).where(Device.lab_id.in_(ids))).all()),
+        "inside": by(db.scalars(select(AccessSession).where(
+            AccessSession.lab_id.in_(ids), AccessSession.ended_at.is_(None))
+            .order_by(AccessSession.started_at)).all()),
+        "current": by(db.scalars(select(Booking).where(
+            Booking.lab_id.in_(ids), Booking.status == BookingStatus.CONFIRMED,
+            Booking.start_time <= now, Booking.end_time > now).order_by(Booking.start_time)).all()),
+        "upcoming": by(db.scalars(select(Booking).where(
+            Booking.lab_id.in_(ids), Booking.status == BookingStatus.CONFIRMED,
+            Booking.start_time > now)
+            .order_by(Booking.lab_id, Booking.start_time).distinct(Booking.lab_id)).all()),
+        "alerts": by(db.scalars(select(Alert).where(
+            Alert.lab_id.in_(ids), Alert.is_resolved.is_(False))).all()),
+        "last": by(db.scalars(select(AccessEvent).where(
+            AccessEvent.lab_id.in_(ids), AccessEvent.event_type.in_(_DOOR_EVENTS))
+            .order_by(AccessEvent.lab_id, desc(AccessEvent.created_at))
+            .distinct(AccessEvent.lab_id)).all()),
+        "env": environment.latest_many(db, labs, now),
+    }
+    # Loaded once and KEPT (the session only holds weak references): db.get()
+    # below then finds them without a query.
+    pre["_keep"] = list(db.scalars(select(LabEmergency).where(LabEmergency.lab_id.in_(ids))).all())
+    who = {s.user_id for rows in pre["inside"].values() for s in rows}
+    who |= {b.user_id for rows in pre["current"].values() for b in rows}
+    who |= {e.user_id for rows in pre["last"].values() for e in rows if e.user_id}
+    if who:
+        pre["_keep"] += list(db.scalars(select(User).where(User.id.in_(who))).all())
+    return pre
+
+
+def _group(rows, key) -> dict:
+    out: dict = {}
+    for r in rows:
+        out.setdefault(key(r), []).append(r)
+    return out
+
+
+def _tile(db: Session, lab: Lab, now: datetime, pre: Optional[dict] = None) -> dict:
+    pre = pre or _prefetch(db, [lab], now)
+    devices = pre["devices"].get(lab.id, [])
     controller = next((d for d in devices
                        if d.device_type == DeviceType.MASTER_CONTROLLER), None)
     camera = next((d for d in devices if d.device_type == DeviceType.CAMERA), None)
@@ -73,26 +119,13 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
     comp = (controller.component_state or {}) if controller else {}
     controller_online = is_fresh(controller, now) if controller else None
 
-    inside = db.scalars(select(AccessSession).where(
-        AccessSession.lab_id == lab.id, AccessSession.ended_at.is_(None))
-        .order_by(AccessSession.started_at)).all()
-
-    current = db.scalar(select(Booking).where(
-        Booking.lab_id == lab.id, Booking.status == BookingStatus.CONFIRMED,
-        Booking.start_time <= now, Booking.end_time > now)
-        .order_by(Booking.start_time))
-    upcoming = db.scalar(select(Booking).where(
-        Booking.lab_id == lab.id, Booking.status == BookingStatus.CONFIRMED,
-        Booking.start_time > now).order_by(Booking.start_time))
-
-    alerts = db.scalars(select(Alert).where(
-        Alert.lab_id == lab.id, Alert.is_resolved.is_(False))).all()
-    alerts = sorted(alerts, key=lambda a: (_SEVERITY_RANK.get(a.severity, 9),
+    inside = pre["inside"].get(lab.id, [])
+    current = next(iter(pre["current"].get(lab.id, [])), None)
+    upcoming = next(iter(pre["upcoming"].get(lab.id, [])), None)
+    alerts = sorted(pre["alerts"].get(lab.id, []), key=lambda a: (_SEVERITY_RANK.get(a.severity, 9),
                                            -_utc(a.created_at).timestamp()))
 
-    last = db.scalar(select(AccessEvent).where(
-        AccessEvent.lab_id == lab.id, AccessEvent.event_type.in_(_DOOR_EVENTS))
-        .order_by(desc(AccessEvent.created_at)))
+    last = next(iter(pre["last"].get(lab.id, [])), None)
 
     people = []
     for s in inside:
@@ -101,7 +134,7 @@ def _tile(db: Session, lab: Lab, now: datetime) -> dict:
                        "role": u.role.value if u else None, "since": s.started_at})
 
     # Environment (System 2): only fresh, valid values are shown as current.
-    envd = environment.latest(db, lab, now)
+    envd = pre["env"][lab.id]
     env = {m: {"value": v["value"], "unit": v["unit"], "at": v["at"]}
            for m, v in envd["metrics"].items()
            if m in ("temperature", "humidity") and v["quality"] == "VALID"}
@@ -176,7 +209,9 @@ def wall_screen(db: Session = Depends(get_db), _: User = Depends(require_staff))
     now = datetime.now(timezone.utc)
     labs = db.scalars(select(Lab).where(Lab.is_active.is_(True))
                       .order_by(Lab.code)).all()
-    tiles = [_tile(db, lab, now) for lab in labs]
+    pre = _prefetch(db, list(labs), now)
+    tiles = [_tile(db, lab, now, pre) for lab in labs]
+    db.commit()     # keep a new lab's default emergency row, instead of re-creating it every call
     # Every lab gets a tile, in a fixed order (by code) so each lab keeps its
     # place on the wall screen; the colour shows which needs attention.
     return {"generated_at": now, "labs": tiles}

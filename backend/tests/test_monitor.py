@@ -85,3 +85,47 @@ def test_internet_is_reported_apart_and_never_degrades_status(client, alice, mon
     s = client.get("/api/system/status", headers=auth_headers(client, alice.email)).json()
     assert s["internet"] is False
     assert s["status"] == "HEALTHY" and s["database"] is True
+
+
+def test_wall_screen_query_count_does_not_grow_with_labs(client, db, staff, lab):
+    """The wall screen fetches every lab in a few batched queries: ~15 queries
+    per lab made it take ~0.5 s with 11 labs. Adding labs must not add queries."""
+    from sqlalchemy import event
+    from app.db.session import engine
+    from app.models import Lab
+    h = auth_headers(client, staff.email)
+    client.get("/api/monitor", headers=h)
+    count = [0]
+    listen = lambda *a: count.__setitem__(0, count[0] + 1)
+    event.listen(engine, "before_cursor_execute", listen)
+    try:
+        client.get("/api/monitor", headers=h)
+        few = count[0]
+        for i in range(8):
+            db.add(Lab(code=f"LAB_Q{i}", name=f"Query lab {i}", is_active=True))
+        db.commit()
+        client.get("/api/monitor", headers=h)     # a new lab's emergency row is created once
+        count[0] = 0
+        r = client.get("/api/monitor", headers=h)
+        many = count[0]
+    finally:
+        event.remove(engine, "before_cursor_execute", listen)
+    assert r.status_code == 200 and len(r.json()["labs"]) == 9
+    assert many <= few + 2, (few, many)
+
+
+def test_operations_sparkline_is_small_but_keeps_the_count_and_peaks(db, lab):
+    from datetime import timedelta
+    from app.models import SensorReading
+    from app.services import analytics
+    now = datetime.now(timezone.utc)
+    for i in range(600):
+        db.add(SensorReading(lab_id=lab.id, metric="temperature", value=20 + (i % 10), unit="C",
+                             recorded_at=now - timedelta(seconds=600 - i)))
+        db.add(SensorReading(lab_id=lab.id, metric="smoke", value=1 if i == 300 else 0, unit="state",
+                             recorded_at=now - timedelta(seconds=600 - i)))
+    db.commit()
+    s = {x["metric"]: x for x in analytics.environment(db, lab.id)["series"]}
+    assert s["temperature"]["count"] == 600 and len(s["temperature"]["points"]) == 120
+    assert s["temperature"]["latest"] == 29                      # the real last reading
+    assert max(p["v"] for p in s["smoke"]["points"]) == 1        # a 1-sample alarm survives

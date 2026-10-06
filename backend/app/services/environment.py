@@ -253,14 +253,34 @@ def _utc(dt: datetime) -> datetime:
 
 def latest(db: Session, lab: Lab, now: Optional[datetime] = None) -> dict:
     """Latest value of every environment metric, each with its quality."""
+    return latest_many(db, [lab], now)[lab.id]
+
+
+def latest_many(db: Session, labs: list[Lab], now: Optional[datetime] = None) -> dict[int, dict]:
+    """latest() for several labs in two queries (the wall screen and the
+    environment overview used to run 7 queries per lab)."""
     now = now or datetime.now(timezone.utc)
-    dev = node(db, lab)
+    ids = [lab.id for lab in labs]
+    nodes: dict[int, Device] = {}
+    for d in db.scalars(select(Device).where(
+            Device.lab_id.in_(ids), Device.device_type == DeviceType.SENSOR_NODE)
+            .order_by(Device.lab_id, desc(Device.last_seen_at))).all():
+        nodes.setdefault(d.lab_id, d)                 # the most recently seen node per lab
+    newest: dict[tuple[int, str], SensorReading] = {
+        (r.lab_id, r.metric): r for r in db.scalars(
+            select(SensorReading).where(SensorReading.lab_id.in_(ids),
+                                        SensorReading.metric.in_(METRICS))
+            .order_by(SensorReading.lab_id, SensorReading.metric, desc(SensorReading.recorded_at))
+            .distinct(SensorReading.lab_id, SensorReading.metric)).all()}
+    return {lab.id: _latest_view(nodes.get(lab.id), {m: newest.get((lab.id, m)) for m in METRICS}, now)
+            for lab in labs}
+
+
+def _latest_view(dev: Optional[Device], readings: dict, now: datetime) -> dict:
     online = is_fresh(dev, now) if dev else None
     out = {}
     for m in METRICS:
-        r = db.scalar(select(SensorReading).where(
-            SensorReading.lab_id == lab.id, SensorReading.metric == m)
-            .order_by(desc(SensorReading.recorded_at)))
+        r = readings[m]
         if r is None:
             out[m] = {"value": None, "unit": None, "at": None, "quality": "MISSING"}
             continue

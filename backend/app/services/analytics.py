@@ -320,14 +320,35 @@ def automation_status(db: Session) -> dict:
 
 
 # --------------------------------------------------------------- environment --
+# 0/1 states: a slice keeps its highest value, so a short alarm stays visible.
+STATE_METRICS = {"smoke", "flame", "water_leak", "emergency", "motion"}
+SPARK_POINTS = 120
+
+
+def _downsample(points: list[dict], keep_peaks: bool) -> list[dict]:
+    """At most SPARK_POINTS points for a sparkline: consecutive slices, each
+    the mean (or, for states, the max) of its readings, at its last time."""
+    if len(points) <= SPARK_POINTS:
+        return points
+    out, size = [], len(points) / SPARK_POINTS
+    for i in range(SPARK_POINTS):
+        chunk = points[int(i * size):int((i + 1) * size)] or points[int(i * size):int(i * size) + 1]
+        vs = [p["v"] for p in chunk]
+        out.append({"t": chunk[-1]["t"], "lab_id": chunk[-1]["lab_id"],
+                    "v": max(vs) if keep_peaks else round(sum(vs) / len(vs), 2)})
+    return out
+
+
 def environment(db: Session, lab_id: Optional[int] = None,
                 hours: int = 24) -> dict:
     now = datetime.now(timezone.utc)
-    q = select(SensorReading).where(
+    # Plain rows, five columns: building ~6 000 ORM objects took ~0.2 s.
+    q = select(SensorReading.metric, SensorReading.unit, SensorReading.value,
+               SensorReading.recorded_at, SensorReading.lab_id).where(
         SensorReading.recorded_at >= now - timedelta(hours=hours))
     if lab_id:
         q = q.where(SensorReading.lab_id == lab_id)
-    rows = db.scalars(q.order_by(SensorReading.recorded_at)).all()
+    rows = db.execute(q.order_by(SensorReading.recorded_at)).all()
     thresholds = settings.sensor_thresholds
     series: dict[str, dict] = {}
     for r in rows:
@@ -341,7 +362,8 @@ def environment(db: Session, lab_id: Optional[int] = None,
         last = s["points"][-1]
         s["latest"] = last["v"]
         s["latest_at"] = last["t"]
-        s["points"] = s["points"][-500:]
+        s["count"] = len(s["points"])
+        s["points"] = _downsample(s["points"], s["metric"] in STATE_METRICS)
     return {"hours": hours, "has_data": bool(rows),
             "message": None if rows else "Awaiting sensor data",
             "series": sorted(series.values(), key=lambda s: s["metric"])}

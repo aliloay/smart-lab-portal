@@ -169,7 +169,7 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
             <div className="text-[11px] text-slate-500 mb-1.5">
               {s.min !== null || s.max !== null
                 ? `Range ${s.min ?? '−'} – ${s.max ?? '−'} ${s.unit}` : 'No threshold configured'}
-              {' · '}{s.points.length} readings / {env.hours} h
+              {' · '}{s.count ?? s.points.length} readings / {env.hours} h
             </div>
             <Sparkline s={s} />
           </div>
