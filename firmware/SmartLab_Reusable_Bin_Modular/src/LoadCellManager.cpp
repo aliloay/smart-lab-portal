@@ -57,6 +57,21 @@ void LoadCellManager::update() {
     return;
   }
   float v = _hx.read();                       // ready: returns at once
+  // A stuck HX711 (seen after the mount was handled) returns all-ones (-1),
+  // all-zeros or the minimum code. Three in a row: power-cycle it - no one
+  // has to type hxreset - and keep those values out of the average.
+  int32_t code = (int32_t)v;
+  if (code == -1 || code == 0 || code == -8388608) {
+    if (++_junk >= 3) {
+      _junk = 0;
+      _recoveries++;
+      LOG("ERROR", "HX711 returned nonsense 3x - power-cycling it (recovery #%lu)", (unsigned long)_recoveries);
+      hxReset();
+    }
+    _lastSampleMs = now;
+    return;
+  }
+  _junk = 0;
   if (!_available) LOG("LOADCELL", "HX711 answering again");
   _available = true;
   _lastSampleMs = now;

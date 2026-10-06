@@ -57,6 +57,8 @@ class LoadCellManager {
   int32_t _offset = 0;
   float _factor = 0.0f;
   uint8_t _gain = LOAD_CELL_GAIN_DEFAULT;
+  uint8_t _junk = 0;                   // nonsense readings in a row
+  uint32_t _recoveries = 0;
   float _window[32];
   uint8_t _n = 0, _i = 0;
   float _raw = NAN;
