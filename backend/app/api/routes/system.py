@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
+from app.services.backups import read_status as read_backup_status
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -76,6 +77,7 @@ def system_status(db: Session = Depends(get_db),
         controllers_total=len(controllers),
         last_heartbeat_at=max(seen) if seen else None,
         internet=internet_reachable(),
+        backup=read_backup_status(),
         time=now,
     )
 

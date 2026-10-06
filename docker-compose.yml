@@ -23,6 +23,54 @@ services:
     # it inside the compose network as db:5432.
     ports: ["127.0.0.1:5433:5432"]
 
+  # Automatic backups: a full dump at start and every BACKUP_EVERY_HOURS, into
+  # ./backups (gitignored; inside OneDrive, so also copied off the laptop), each
+  # dump checked readable before it is kept; uploads (photos, snapshots) once a
+  # day. Old backups are never deleted - a dump is ~200 KB. backup_status.json
+  # tells the portal how the last run went (app.services.backups alerts on a
+  # failure). Restore: docs/DATABASE.md.
+  backup:
+    image: postgres:16-alpine
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGUSER: smartlab
+      PGPASSWORD: ${POSTGRES_PASSWORD:-smartlab}
+      PGDATABASE: smartlab
+      TZ: Africa/Cairo
+      BACKUP_EVERY_HOURS: ${BACKUP_EVERY_HOURS:-6}
+    volumes:
+      - ./backups:/backups
+      - uploads:/uploads:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        status() {
+          echo "{\"ok\": $$1, \"last_attempt\": \"$$2\", \"last_success\": $$3, \"file\": $$4, \"size_kb\": $$5, \"every_hours\": $$BACKUP_EVERY_HOURS}" > /backups/backup_status.json
+        }
+        last_ok=null
+        while true; do
+          f=/backups/auto_smartlab_$$(date +%Y%m%d_%H%M).dump
+          now=$$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+          if pg_dump -Fc -f "$$f.part" && pg_restore --list "$$f.part" >/dev/null; then
+            mv "$$f.part" "$$f"
+            kb=$$(du -k "$$f" | cut -f1)
+            last_ok="\"$$now\""
+            echo "backup saved: $$f ($$kb KB)"
+            u=/backups/auto_uploads_$$(date +%Y%m%d).tar.gz
+            [ -f "$$u" ] || tar czf "$$u" -C /uploads . || echo "uploads backup failed"
+            status true "$$now" "$$last_ok" "\"$$(basename $$f)\"" "$$kb"
+          else
+            echo "BACKUP FAILED at $$now"
+            rm -f "$$f.part"
+            status false "$$now" "$$last_ok" null null
+          fi
+          sleep $$((BACKUP_EVERY_HOURS * 3600))
+        done
+    restart: unless-stopped
+
   backend:
     build: ./backend
     depends_on:
@@ -33,6 +81,7 @@ services:
       DATABASE_URL: postgresql+psycopg://smartlab:${POSTGRES_PASSWORD:-smartlab}@db:5432/smartlab
       SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
       DEVICE_API_KEY: ${DEVICE_API_KEY:-dev-device-key-change-me}
+      BACKUP_STATUS_PATH: /backups/backup_status.json
       ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost}
       # Automation (n8n) - all optional. Unset = the portal runs exactly as
@@ -75,6 +124,7 @@ services:
     # Issue photos. A named volume so they survive rebuilding the container.
     volumes:
       - uploads:/app/uploads
+      - ./backups:/backups:ro    # read backup_status.json (backup monitor)
     # Published on every interface: the ESP32 master calls
     # http://<laptop LAN IP>:8000/api directly.
     ports: ["8000:8000"]

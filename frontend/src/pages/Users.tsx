@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { Fingerprint, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
+import { Fingerprint, KeyRound, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { Role, User, api } from '../lib/api'
 import FaceEnrollment from '../components/FaceEnrollment'
 import FingerprintEnrollment from '../components/FingerprintEnrollment'
@@ -14,6 +14,9 @@ const ROLE_TONE = { ADMIN: 'violet', LAB_STAFF: 'info', STUDENT: 'idle' } as con
 
 export default function Users() {
   const { user: me } = useAuth()
+  const admin = me?.role === 'ADMIN'
+  // Lab staff manage students' sign-in details; everything else is for administrators.
+  const mayEdit = (u: User) => admin || u.role === 'STUDENT'
   const [rows, setRows] = useState<User[] | null>(null)
   const [q, setQ] = useState('')
   const [role, setRole] = useState('')
@@ -35,7 +38,7 @@ export default function Users() {
     <div>
       <PageHeader eyebrow="Administration" title="Users & roles"
         sub="Accounts, roles, and the auth subject that links a person to the door hardware."
-        actions={<div className="flex flex-wrap gap-2">
+        actions={admin && <div className="flex flex-wrap gap-2">
           <button className="btn-primary" onClick={() => setCreating('STUDENT')}><UserPlus size={16} />Add student</button>
           <button className="btn-ghost" onClick={() => setCreating('LAB_STAFF')}><UserPlus size={16} />Add staff</button>
           <button className="btn-ghost" onClick={() => setCreating('ADMIN')}><UserPlus size={16} />Add admin</button>
@@ -102,8 +105,8 @@ export default function Users() {
                                     ? 'btn-quiet' : 'btn-primary'}`}
                                   title="Register fingerprint and Face ID" onClick={() => setEnrolling(u)}>
                             <Fingerprint size={13} />Enroll</button>)}
-                        <button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
-                          <Pencil size={13} />Edit</button></td>
+                        {mayEdit(u) && <button className="btn-quiet btn-sm" onClick={() => setEditing(u)}>
+                          <Pencil size={13} />Edit</button>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -129,7 +132,8 @@ export default function Users() {
       </Drawer>
 
       <Drawer open={!!editing} onClose={() => setEditing(null)} title="Edit user" subtitle={editing?.email}>
-        {editing && <EditUser u={editing} self={editing.id === me?.id}
+        {editing && !admin && <EditStudent u={editing} onSaved={() => { setEditing(null); load() }} />}
+        {editing && admin && <EditUser u={editing} self={editing.id === me?.id}
                               onSaved={() => { setEditing(null); load() }} />}
       </Drawer>
       {creating && <CreateUser role={creating} onClose={() => setCreating(null)} onSaved={() => { setCreating(null); load() }} />}
@@ -207,6 +211,7 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
                onChange={e => setF({ ...f, is_active: e.target.checked })} />
         Account active {self && <span className="text-slate-500">(cannot disable yourself)</span>}</label>
       <button className="btn-primary w-full" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+      <SetPassword u={u} />
     </form>
   )
 }
@@ -258,5 +263,63 @@ function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => voi
         </div>
       </form>
     </Modal>
+  )
+}
+
+/** Lab staff: a student's name, e-mail, department and student ID, and a new password. */
+function EditStudent({ u, onSaved }: { u: User; onSaved: () => void }) {
+  const [f, setF] = useState({ full_name: u.full_name, email: u.email, department: u.department ?? '',
+                               student_id: u.student_id ?? '' })
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function save(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError('')
+    try {
+      await api.updateUser(u.id, { ...f, department: f.department || null, student_id: f.student_id || null })
+      onSaved()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setBusy(false) }
+  }
+  return (
+    <form onSubmit={save} className="space-y-4">
+      {error && <ErrorBanner message={error} />}
+      <Field label="Full name"><input className="input" value={f.full_name} required
+        onChange={e => setF({ ...f, full_name: e.target.value })} /></Field>
+      <Field label="Email" hint="The sign-in address."><input className="input" type="email" value={f.email} required
+        onChange={e => setF({ ...f, email: e.target.value })} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Department"><input className="input" value={f.department}
+          onChange={e => setF({ ...f, department: e.target.value })} /></Field>
+        <Field label="Student ID"><input className="input" value={f.student_id}
+          onChange={e => setF({ ...f, student_id: e.target.value })} /></Field>
+      </div>
+      <p className="text-[12px] text-slate-500">Role, door identity and disabling an account: an administrator.</p>
+      <button className="btn-primary w-full" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+      <SetPassword u={u} />
+    </form>
+  )
+}
+
+/** A new password for this person (its own button: it never rides on Save). */
+function SetPassword({ u }: { u: User }) {
+  const [pw, setPw] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  async function set() {
+    setMsg(null)
+    try {
+      await api.setUserPassword(u.id, pw)
+      setPw('')
+      setMsg({ ok: true, text: `New password set for ${u.full_name}. Tell them in person.` })
+    } catch (err) { setMsg({ ok: false, text: err instanceof Error ? err.message : 'Failed' }) }
+  }
+  return (
+    <fieldset className="rounded-xl border border-ink-600/70 p-3 space-y-2">
+      <legend className="label px-1 flex items-center gap-1"><KeyRound size={13} /> Set a new password</legend>
+      <div className="flex gap-2">
+        <input className="input flex-1" type="password" autoComplete="new-password" minLength={8} value={pw}
+               placeholder="At least 8 characters" aria-label="New password" onChange={e => setPw(e.target.value)} />
+        <button type="button" className="btn-ghost btn-sm" disabled={pw.length < 8} onClick={set}>Set</button>
+      </div>
+      {msg && <p className={`text-[12px] ${msg.ok ? 'text-ok-soft' : 'text-bad-soft'}`}>{msg.text}</p>}
+    </fieldset>
   )
 }

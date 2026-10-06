@@ -85,7 +85,11 @@ def refresh_liveness(db: Session) -> list[Device]:
                     Alert.is_resolved.is_(False))).all():
                 a.is_resolved = True
                 a.resolved_at = now
-    if changed:
+    # The database backups are watched on the same refresh (app.services.backups).
+    from app.services import backups
+    before = len(db.new) + len(db.dirty)
+    backups.check(db)
+    if changed or len(db.new) + len(db.dirty) != before:
         db.commit()
     return list(devices)
 

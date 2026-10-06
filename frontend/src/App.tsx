@@ -111,7 +111,7 @@ export default function App() {
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
-          <Route path="/admin/users" element={adminOnly(<Users />)} />
+          <Route path="/admin/users" element={staffOnly(<Users />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />
           <Route path="/admin/emergency" element={adminOnly(<Emergency />)} />
 

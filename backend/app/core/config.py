@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # Accept the shared key above. Set false once every device has its own
     # key (Devices -> Issue key), so a leaked shared key opens nothing.
     DEVICE_SHARED_KEY: bool = True
+    # The backup service's status file (docker-compose mounts ./backups read-only);
+    # empty = not watched (tests, a bare install).
+    BACKUP_STATUS_PATH: str = ""
 
     # QR tokens are opaque and random.
     #

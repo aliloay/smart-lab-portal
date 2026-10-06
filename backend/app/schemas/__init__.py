@@ -767,6 +767,9 @@ class SystemStatus(BaseModel):
     # from device health so "internet offline" never reads as a fault.
     # None = not checked yet.
     internet: Optional[bool] = None
+    # The database backups (app.services.backups): state OK / FAILED / STALE /
+    # MISSING / NOT_CONFIGURED, last success, file and size.
+    backup: Optional[dict] = None
     time: datetime
 
 

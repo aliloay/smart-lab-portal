@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -299,13 +300,24 @@ def next_subject(db: Session = Depends(get_db), _: User = Depends(require_admin)
     return {"auth_subject": next_auth_subject(db)}
 
 
+# Lab staff may correct a STUDENT's sign-in details; the rest is for administrators.
+STAFF_EDITABLE = {"full_name", "email", "department", "student_id"}
+
+
+def _may_manage(actor: User, target: User) -> bool:
+    return actor.role == Role.ADMIN or (actor.role == Role.LAB_STAFF and target.role == Role.STUDENT)
+
+
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
-                admin: User = Depends(require_admin)):
+                admin: User = Depends(require_staff)):
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     changes = req.model_dump(exclude_unset=True)
+    if not _may_manage(admin, u) or (admin.role != Role.ADMIN and set(changes) - STAFF_EDITABLE):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Lab staff can change a student's name, e-mail, department and student ID only")
     enrol = {f: changes.pop(f"{f}_enrolled") for f in ("fingerprint", "face")
              if f"{f}_enrolled" in changes and changes[f"{f}_enrolled"] is not None}
     changes.pop("fingerprint_enrolled", None)
@@ -895,3 +907,26 @@ def reports_overview(days: int = Query(30, ge=1, le=365),
                              if r.asset_id in assets else str(r.asset_id),
                              "count": r.n} for r in checkouts],
     }
+
+
+class PasswordSet(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.put("/users/{user_id}/password")
+def set_user_password(user_id: int, req: PasswordSet, db: Session = Depends(get_db),
+                      actor: User = Depends(require_staff)):
+    """Set someone's password: administrators for anyone, lab staff for
+    students. Takes effect at the next sign-in; the audit log records who and
+    whose, never the password."""
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if not _may_manage(actor, u):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Lab staff can set a student's password only")
+    from app.core.security import hash_password
+    u.hashed_password = hash_password(req.new_password)
+    db.add(AuditLog(actor_user_id=actor.id, action="USER_PASSWORD_SET", entity_type="user",
+                    entity_id=str(u.id), detail={"email": u.email, "by_role": actor.role.value}))
+    db.commit()
+    return {"ok": True}
