@@ -7,6 +7,7 @@ import {
   ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
   Cctv, Siren,
+  FlaskConical,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
@@ -72,6 +73,7 @@ const STAFF_NAV: Section[] = [
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
     { to: '/admin/users', label: 'Users', icon: <Users size={17} /> },
+    { to: '/admin/experiments', label: 'Experiments', icon: <FlaskConical size={17} /> },
   ]},
 ]
 
@@ -87,6 +89,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
+    { to: '/admin/experiments', label: 'Experiments', icon: <FlaskConical size={17} /> },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },

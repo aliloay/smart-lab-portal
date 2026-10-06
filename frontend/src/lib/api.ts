@@ -100,6 +100,23 @@ export interface SecurityCamera extends SecurityCameraTile {
   last_seen_at: string | null; fps: number | null
   zones: { id: number; name: string; status: 'LEARNING' | 'OK' | 'IN_USE' | 'CHANGED' | 'MOTION'; score: number }[]
 }
+/** Where a record came from (thesis traceability); set once, never rewritten. */
+export type Provenance = 'REAL_OPERATION' | 'PHYSICAL_TEST' | 'BENCH_TEST' | 'SOFTWARE_TEST'
+  | 'RECOVERED_HISTORY' | 'DEMO_DATA' | 'UNKNOWN_PROVENANCE'
+export interface ExperimentTrial {
+  id: number; repeat_number: number; input: string; expected: string; actual: string
+  measurement: number | null; unit: string | null; result: 'PASS' | 'FAIL' | 'NA' | null; notes: string
+  recorded_at: string
+}
+export interface Experiment {
+  id: number; code: string; name: string; subsystem: string; operator_id: number | null
+  device_id: number | null; firmware_version: string | null; hardware_configuration: string
+  environment: string; network_state: string; data_mode: Provenance; test_condition: string
+  expected_result: string; actual_result: string; result: 'PASS' | 'FAIL' | 'PARTIAL' | 'INCONCLUSIVE' | null
+  notes: string; status: 'PLANNED' | 'RUNNING' | 'FINISHED'; started_at: string | null; ended_at: string | null
+  created_at: string
+  trials?: ExperimentTrial[]; records?: Record<string, number>
+}
 export interface EquipmentSuggestion {
   kind: string; score: number; name: string; x: number; y: number; w: number; h: number
 }
@@ -950,6 +967,16 @@ export const api = {
   securityCameras: () => request<SecurityCamera[]>('/security/cameras'),
   securityZones: (cam: number) => request<SecurityZone[]>(`/security/cameras/${cam}/zones`),
   addSecurityZone: (cam: number, z: SecurityZoneIn) => post<SecurityZone>(`/security/cameras/${cam}/zones`, z),
+  dataMode: () => request<{ mode: Provenance; experiment_id: number | null }>('/system/data-mode'),
+  setDataMode: (mode: Provenance) =>
+    request<{ mode: Provenance }>('/system/data-mode', { method: 'PUT', body: JSON.stringify({ mode }) }),
+  experiments: () => request<Experiment[]>('/experiments'),
+  experiment: (id: number) => request<Experiment>(`/experiments/${id}`),
+  createExperiment: (e: Partial<Experiment>) => post<Experiment>('/experiments', e),
+  startExperiment: (id: number) => post<Experiment>(`/experiments/${id}/start`),
+  stopExperiment: (id: number, body: { actual_result: string; result: string | null; notes?: string }) =>
+    post<Experiment>(`/experiments/${id}/stop`, body),
+  addTrial: (id: number, t: Partial<ExperimentTrial>) => post<ExperimentTrial>(`/experiments/${id}/trials`, t),
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
   securitySuggestions: (cam: number) => request<EquipmentSuggestion[]>(`/security/cameras/${cam}/suggestions`),
   updateSecurityZone: (cam: number, id: number, z: SecurityZoneIn) =>

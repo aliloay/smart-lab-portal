@@ -14,11 +14,12 @@ Three rules run through all of it:
      grants access at the wrong hour.
 """
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import (JSON, Boolean, CheckConstraint, DateTime, Enum, Float,
                         ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 from sqlalchemy.sql.expression import false as sa_false
 
 from app.db.session import Base
@@ -39,6 +40,26 @@ def _enum(e, name):
 
 
 TS = DateTime(timezone=True)
+
+
+# ===========================================================================
+# Data provenance (thesis traceability)
+# ===========================================================================
+# Where a record came from. Set ONCE when the row is written (from the active
+# experiment, else the system data mode - app.services.provenance) and never
+# changed by the application afterwards: thesis queries filter on it, nothing
+# is deleted. History that cannot be proven stays UNKNOWN_PROVENANCE.
+PROVENANCES = ("REAL_OPERATION", "PHYSICAL_TEST", "BENCH_TEST", "SOFTWARE_TEST",
+               "RECOVERED_HISTORY", "DEMO_DATA", "UNKNOWN_PROVENANCE")
+
+
+class ProvenanceMixin:
+    provenance: Mapped[str] = mapped_column(String(24), nullable=False, index=True,
+                                            server_default="UNKNOWN_PROVENANCE")
+
+    @declared_attr
+    def experiment_id(cls) -> Mapped[Optional[int]]:
+        return mapped_column(ForeignKey("experiments.id"), nullable=True, index=True)
 
 
 # ===========================================================================
@@ -206,7 +227,7 @@ class LabDevice(Base):
 # ===========================================================================
 # Bookings and credentials
 # ===========================================================================
-class Booking(Base):
+class Booking(ProvenanceMixin, Base):
     __tablename__ = "bookings"
     __table_args__ = (
         CheckConstraint("start_time < end_time", name="ck_booking_window"),
@@ -304,7 +325,7 @@ class AccessAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
 
 
-class AccessEvent(Base):
+class AccessEvent(ProvenanceMixin, Base):
     """The complete event timeline. Every lab-related event references a lab."""
     __tablename__ = "access_events"
     __table_args__ = (Index("ix_event_lab_time", "lab_id", "created_at"),
@@ -333,7 +354,7 @@ class AccessEvent(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
 
 
-class AccessSession(Base):
+class AccessSession(ProvenanceMixin, Base):
     """
     An occupancy span, opened when access is granted.
 
@@ -438,7 +459,7 @@ class AssetTransaction(Base):
 # ===========================================================================
 # Environment and operations
 # ===========================================================================
-class SensorReading(Base):
+class SensorReading(ProvenanceMixin, Base):
     """
     Structure only. Nothing writes here until a real sensor node exists; the
     lab page must render 'No data available' rather than invent values.
@@ -457,7 +478,7 @@ class SensorReading(Base):
     recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
 
 
-class Alert(Base):
+class Alert(ProvenanceMixin, Base):
     __tablename__ = "alerts"
     __table_args__ = (
         UniqueConstraint("dedupe_key", name="uq_alerts_dedupe_key"),
@@ -498,7 +519,7 @@ class AuditLog(Base):
 # ===========================================================================
 # Maintenance: issue reports
 # ===========================================================================
-class Issue(Base):
+class Issue(ProvenanceMixin, Base):
     """
     A problem reported in a laboratory - broken equipment, a missing tool, a
     reader that stopped detecting cards.
@@ -915,7 +936,7 @@ class SecurityZone(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
-class SecurityEvent(Base):
+class SecurityEvent(ProvenanceMixin, Base):
     """
     Something the security camera saw that staff should look at: a person
     with no matching door entry, equipment moved or moving with nobody at
@@ -973,3 +994,53 @@ class SystemSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+# ===========================================================================
+# Thesis experiments
+# ===========================================================================
+class Experiment(Base):
+    """One controlled experiment (a protocol run on real hardware). While it is
+    RUNNING, every new event / reading / alert is stamped with its data_mode
+    and its id, so each thesis number traces back to its trials and records."""
+    __tablename__ = "experiments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)     # EXP-0001
+    name: Mapped[str] = mapped_column(String(160))
+    subsystem: Mapped[str] = mapped_column(String(32))          # DOOR / ENVIRONMENT / CAMERA ...
+    operator_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    device_id: Mapped[Optional[int]] = mapped_column(ForeignKey("devices.id"), nullable=True)
+    firmware_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    hardware_configuration: Mapped[str] = mapped_column(Text, default="")
+    configuration: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    environment: Mapped[str] = mapped_column(Text, default="")             # ambient conditions
+    network_state: Mapped[str] = mapped_column(Text, default="")
+    data_mode: Mapped[str] = mapped_column(String(24), default="PHYSICAL_TEST")
+    test_condition: Mapped[str] = mapped_column(Text, default="")
+    expected_result: Mapped[str] = mapped_column(Text, default="")
+    actual_result: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # PASS/FAIL/PARTIAL/INCONCLUSIVE
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="PLANNED")      # PLANNED/RUNNING/FINISHED
+    started_at: Mapped[Optional[datetime]] = mapped_column(TS, nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(TS, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class ExperimentTrial(Base):
+    """One repeat of an experiment: input, expected, actual, measurement."""
+    __tablename__ = "experiment_trials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    experiment_id: Mapped[int] = mapped_column(ForeignKey("experiments.id"), index=True)
+    repeat_number: Mapped[int] = mapped_column(Integer)
+    input: Mapped[str] = mapped_column(Text, default="")
+    expected: Mapped[str] = mapped_column(Text, default="")
+    actual: Mapped[str] = mapped_column(Text, default="")
+    measurement: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    result: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # PASS/FAIL/NA
+    notes: Mapped[str] = mapped_column(Text, default="")
+    recorded_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

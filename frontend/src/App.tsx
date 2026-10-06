@@ -18,6 +18,7 @@ import BookingDetail from './pages/BookingDetail'
 import BookingQr from './pages/BookingQr'
 import SessionDetail from './pages/SessionDetail'
 import Simulation from './pages/Simulation'
+import Experiments from './pages/Experiments'
 import AccessMonitor from './pages/AccessMonitor'
 import Devices from './pages/Devices'
 import Equipment from './pages/Equipment'
@@ -112,6 +113,7 @@ export default function App() {
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/admin/users" element={staffOnly(<Users />)} />
+          <Route path="/admin/experiments" element={staffOnly(<Experiments />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />
           <Route path="/admin/emergency" element={adminOnly(<Emergency />)} />
 

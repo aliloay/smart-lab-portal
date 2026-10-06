@@ -18,6 +18,8 @@ if not _test_url.rsplit("/", 1)[-1].split("?")[0].endswith("_test"):
     raise SystemExit(f"Refusing to run tests: database {_test_url.rsplit('/', 1)[-1]!r} "
                      "does not end in '_test' - the tests drop every table.")
 os.environ["DATABASE_URL"] = _test_url
+# Everything the test suite writes is, by definition, a software test.
+os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
 
 
 def _ensure_test_database(url: str) -> None:

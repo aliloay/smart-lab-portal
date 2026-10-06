@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # The backup service's status file (docker-compose mounts ./backups read-only);
     # empty = not watched (tests, a bare install).
     BACKUP_STATUS_PATH: str = ""
+    # Provenance stamped on new records when no data mode was chosen in
+    # Settings and no experiment is running (models.PROVENANCES).
+    DATA_MODE_DEFAULT: str = "UNKNOWN_PROVENANCE"
 
     # QR tokens are opaque and random.
     #

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
                             bookings, commands, emergency, enrollment, equipment,
-                            face_submissions, inventory, issues, labs, monitor,
+                            experiments, face_submissions, inventory, issues, labs, monitor,
                             notifications, reusable, security, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -26,6 +26,7 @@ from app.db.schema_check import check_schema, is_alembic_managed
 from app.db.session import Base, SessionLocal, engine, get_db
 from app.models import Role, User
 from app.services import integration
+from app.services import provenance  # noqa: F401  (stamps new rows' provenance)
 from app.ws.manager import Client, manager
 
 log = logging.getLogger("smartlab")
@@ -88,7 +89,7 @@ for r in (auth.router, labs.router, bookings.router, access.router,
           automation.router, analytics.router, ai.router, enrollment.router,
           monitor.router, commands.router, face_submissions.router,
           inventory.router, reusable.router, equipment.router, security.router,
-          emergency.router):
+          emergency.router, experiments.router):
     app.include_router(r, prefix=settings.API_V1)
 
 

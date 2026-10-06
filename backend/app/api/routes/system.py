@@ -8,14 +8,15 @@ does not claim a device is healthy that has never reported.
 import socket
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from app.services.backups import read_status as read_backup_status
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user, require_admin, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import DeviceType, User
@@ -100,3 +101,30 @@ def system_config(_: User = Depends(require_admin)):
         issue_sla_hours=sla_hours(),
         storage_backend=getattr(get_storage(), "name", "custom"),
     )
+
+
+class DataModeIn(BaseModel):
+    mode: Literal["REAL_OPERATION", "PHYSICAL_TEST", "BENCH_TEST", "SOFTWARE_TEST", "DEMO_DATA",
+                  "UNKNOWN_PROVENANCE"]
+
+
+@router.get("/data-mode")
+def get_data_mode(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """The provenance new records get (a RUNNING experiment overrides it)."""
+    from app.services import provenance
+    mode, exp_id = provenance.current(db)
+    return {"mode": mode, "experiment_id": exp_id}
+
+
+@router.put("/data-mode")
+def set_data_mode(req: DataModeIn, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Administrators only. Affects NEW records only - history keeps its provenance."""
+    from app.models import AuditLog
+    from app.services import provenance
+    before, _ = provenance.current(db)
+    provenance.set_setting(db, provenance.MODE_KEY, req.mode)
+    db.add(AuditLog(actor_user_id=admin.id, action="DATA_MODE_CHANGED", entity_type="system",
+                    entity_id="data_mode", detail={"from": before, "to": req.mode}))
+    db.commit()
+    provenance.invalidate()
+    return {"mode": req.mode}

@@ -13,7 +13,7 @@ from app.models.tables import (AccessAttempt, AccessEvent, AccessSession, Alert,
                                IssueComment, IssueHistory,
                                IssuePhoto, Lab, LabDevice, Notification,
                                QrToken, RfidCredential, RoleRow, SensorReading,
-                               User, utcnow)
+                               User, utcnow, Experiment, ExperimentTrial, PROVENANCES)
 
 __all__ = [
     "AccessResult", "AlertSeverity", "AssetStatus", "AuthMethod",
@@ -25,7 +25,7 @@ __all__ = [
     "FaceSubmission", "InventoryBin", "InventoryMeasurement",
     "InventoryTransaction", "EquipmentSession", "PolicyViolation",
     "SecurityEvent", "SecurityZone", "LabEmergency", "SystemSetting",
-    "IntegrationEvent",
+    "IntegrationEvent", "Experiment", "ExperimentTrial", "PROVENANCES",
     "Issue",
     "IssueComment", "IssueHistory", "IssuePhoto", "Lab", "LabDevice",
     "Notification", "QrToken", "RfidCredential", "RoleRow", "SensorReading",
