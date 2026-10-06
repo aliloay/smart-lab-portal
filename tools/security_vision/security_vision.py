@@ -19,13 +19,16 @@ The portal (device key, like every node) gives it the boxes and who is
 inside, receives its state every 2 s, and gets an event with a snapshot when
 something needs a look: more people seen than entered, a person with nobody
 entered, equipment moved, movement at equipment with nobody there. Staff see
-the live annotated view through the portal. Nothing is recorded except
-event snapshots. It never actuates anything.
+the live annotated view through the portal. Video is recorded only when an
+administrator presses Record in the portal (recorder.py: FFmpeg, MP4 files in
+recordings/ on this laptop, never deleted automatically); otherwise only event
+snapshots are kept. It never actuates anything.
 
 HTTP (port 5100, X-Device-Key required except /health; this laptop only
 by default - the portal in Docker reaches it through host.docker.internal):
     /frame.jpg   latest annotated frame       /raw.jpg   latest plain frame
     /state       JSON: people, names, zones   /health
+    /record/status, /record/start|stop (POST), /recordings, /recordings/<file>
 """
 from __future__ import annotations
 
@@ -40,8 +43,9 @@ from typing import Optional
 import cv2
 import numpy as np
 import requests
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 
+from recorder import Recorder
 from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw, head_crop, predicted
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -162,6 +166,14 @@ class Service:
         self.appearance = Appearance(reid)
         print(f"[vision] identity lock: colours{' + body re-id model' if reid else ' only (no re-id model)'}")
         self.camera = Camera(args.source, args.max_width)
+        # Recording (admin, from the portal): the full-resolution stream when
+        # the analysis reads the small one (MC210: stream1 vs stream2).
+        rec_src = args.record_source or (args.source.replace("/stream2", "/stream1")
+                                         if args.source.lower().startswith("rtsp://") else args.source)
+        self.recorder = Recorder(args.device, rec_src, args.recordings, max_minutes=args.record_max_min,
+                                 min_free_gb=args.record_min_free_gb)
+        print(f"[record] {'FFmpeg found' if self.recorder.ffmpeg else 'FFmpeg NOT found - recording unavailable'};"
+              f" files in {os.path.abspath(args.recordings)}")
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
         self.cfg = {"zones": [], "door": None, "occupants": []}
         self.versions: dict[int, int] = {}
@@ -448,6 +460,43 @@ def make_app(svc: Service) -> Flask:
                         "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
                                   for s in svc.zones.states.values()]})
 
+    # ---- recording (the portal calls these for an administrator) ----------
+    @app.get("/record/status")
+    def record_status():
+        if not authorised():
+            return Response("device key required", status=401)
+        return jsonify(svc.recorder.status())
+
+    @app.post("/record/<action>")
+    def record(action):
+        if not authorised():
+            return Response("device key required", status=401)
+        by = str((request.get_json(silent=True) or {}).get("by", ""))[:80]
+        if action == "start":
+            r = svc.recorder.start(by)
+        elif action == "stop":
+            r = svc.recorder.stop(by)
+        else:
+            return Response("unknown action", status=404)
+        print(f"[record] {action} by {by or '?'}: {r}")
+        return jsonify(r), (200 if r.get("ok") else 409)
+
+    @app.get("/recordings")
+    def recordings():
+        if not authorised():
+            return Response("device key required", status=401)
+        return jsonify({"items": svc.recorder.list(), "free_gb": round(svc.recorder.free_gb(), 1)})
+
+    @app.get("/recordings/<name>")
+    def recording_file(name):
+        if not authorised():
+            return Response("device key required", status=401)
+        path = svc.recorder.path_of(name)
+        if path is None:
+            return Response("no such recording", status=404)
+        # conditional=True: Range requests, so the browser can seek.
+        return send_file(path, mimetype="video/mp4", conditional=True, download_name=name)
+
     if svc.demo:                       # local only (bound to 127.0.0.1), no key needed
         @app.get("/demo")
         def demo_page():
@@ -505,6 +554,10 @@ def main():
     ap.add_argument("--lab", default="LAB_01")
     ap.add_argument("--portal", default="http://127.0.0.1:8000/api")
     ap.add_argument("--port", type=int, default=5100)
+    ap.add_argument("--record-source", default="", help="stream to record (default: the full-resolution stream)")
+    ap.add_argument("--recordings", default=os.path.join(HERE, "recordings"), help="folder for recordings")
+    ap.add_argument("--record-max-min", type=int, default=60, help="a recording stops by itself after this")
+    ap.add_argument("--record-min-free-gb", type=float, default=2.0, help="refuse to record below this free space")
     ap.add_argument("--face-server", default=os.environ.get("FACE_SERVER_URL", "http://127.0.0.1:5000"),
                     help="face server for naming people by face ('' = door names only)")
     ap.add_argument("--host", default="127.0.0.1",

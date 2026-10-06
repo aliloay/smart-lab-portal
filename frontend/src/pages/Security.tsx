@@ -20,9 +20,11 @@ import { relative } from '../lib/time'
 import LiveCameraFeed, { LIVE_MS } from '../components/LiveCameraFeed'
 import CameraFullScreen from '../components/CameraFullScreen'
 import { BoxesToggle } from '../lib/cameraView'
+import { RecordButton, RecordingsPanel } from '../components/Recording'
+import { isAdmin, useAuth } from '../lib/auth'
 import { Chip, EmptyState, ErrorBanner, PageHeader, Spinner, Tabs } from '../components/ui'
 
-type Tab = 'wall' | 'live' | 'boxes' | 'events'
+type Tab = 'wall' | 'live' | 'boxes' | 'events' | 'recordings'
 const ZONE_TONE = { OK: 'ok', IN_USE: 'info', CHANGED: 'bad', MOTION: 'warn', LEARNING: 'idle' } as const
 const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Record<string, string>
 
@@ -32,6 +34,8 @@ export default function Security() {
   const [tab, setTab] = useState<Tab>('wall')
   const [labs, setLabs] = useState<Lab[] | null>(null)
   const [error, setError] = useState('')
+  const { user } = useAuth()
+  const admin = isAdmin(user)
 
   const load = useCallback(() => {
     api.securityCameras().then(c => {
@@ -66,13 +70,16 @@ export default function Security() {
             <Tabs<Tab> id="security" value={tab} onChange={setTab} tabs={[
               { key: 'wall', label: 'All cameras', count: cams.length },
               { key: 'live', label: 'Live' }, { key: 'boxes', label: 'Equipment & door boxes' },
-              { key: 'events', label: 'Events', count: cam?.open_events || undefined }]} />
-            {tab !== 'boxes' && <span className="ml-auto"><BoxesToggle /></span>}
+              { key: 'events', label: 'Events', count: cam?.open_events || undefined },
+              ...(admin ? [{ key: 'recordings' as Tab, label: 'Recordings' }] : [])]} />
+            {cam && admin && (tab === 'live' || tab === 'events') && <RecordButton deviceId={cam.device_id} />}
+            {tab !== 'boxes' && tab !== 'recordings' && <span className="ml-auto"><BoxesToggle /></span>}
           </div>
           {tab === 'wall' && <Wall cams={cams} labs={labs} onPick={(id, t) => { setCamId(id); setTab(t) }} />}
           {cam && tab === 'live' && <Live cam={cam} onChange={load} />}
           {cam && tab === 'boxes' && <Boxes cam={cam} />}
           {cam && tab === 'events' && <Events cam={cam} onChange={load} />}
+          {cam && tab === 'recordings' && admin && <RecordingsPanel deviceId={cam.device_id} />}
         </>
       )}
     </div>
@@ -126,6 +133,7 @@ function Wall({ cams, labs, onPick }: {
         <CameraFullScreen deviceId={big.device_id} title={big.lab_code ?? big.name} sub={big.name}
           badges={<div className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold"><CamFacts c={big} /></div>}
           actions={<>
+            <RecordButton deviceId={big.device_id} />
             <button className="btn-ghost btn-sm" onClick={() => go('live')}>People & equipment</button>
             <button className="btn-ghost btn-sm" onClick={() => go('boxes')}>Boxes</button>
             <button className="btn-ghost btn-sm" onClick={() => go('events')}>

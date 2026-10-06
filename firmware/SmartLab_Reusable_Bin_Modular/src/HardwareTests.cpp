@@ -71,6 +71,45 @@ void SerialCommands::run(String line) {
   if (l == "watch on") { watchScale = true; return; }
   if (l == "watch off") { watchScale = false; return; }
   if (l == "calclear") { _p.scale.clearCalibration(); return; }
+  if (l == "hxprobe") {
+    // Wiring check without the library. A powered HX711 pulls DOUT LOW when a
+    // reading is ready - but only while PD_SCK is LOW (PD_SCK held HIGH for
+    // >60 us powers it down), so the clock line is always kept LOW here.
+    auto lowShare = [](uint8_t pin) {
+      uint32_t low = 0, n = 0, t0 = millis();
+      while (millis() - t0 < 700) { low += digitalRead(pin) == LOW; n++; delayMicroseconds(200); }
+      return (float)low * 100.0f / n;
+    };
+    // A: as wired in config - SCK driven LOW, watch DT.
+    pinMode(PIN_HX711_SCK, OUTPUT); digitalWrite(PIN_HX711_SCK, LOW);
+    pinMode(PIN_HX711_DT, INPUT_PULLUP);
+    delay(200);
+    float a = lowShare(PIN_HX711_DT);
+    // B: in case DT/SCK are swapped - GPIO32 gently pulled DOWN (no output
+    // fighting the HX711), watch GPIO33 with a pull-up.
+    pinMode(PIN_HX711_DT, INPUT_PULLDOWN);
+    pinMode(PIN_HX711_SCK, INPUT_PULLUP);
+    delay(200);
+    float b = lowShare(PIN_HX711_SCK);
+    // C: is DT DRIVEN at all? SCK LOW again, DT with a pull-DOWN. A working
+    // HX711 drives DOUT (HIGH while busy, LOW when ready); a line nobody
+    // drives just follows the pull resistor (HIGH with A's pull-up, LOW here).
+    pinMode(PIN_HX711_SCK, OUTPUT); digitalWrite(PIN_HX711_SCK, LOW);
+    pinMode(PIN_HX711_DT, INPUT_PULLDOWN);
+    delay(200);
+    float c = lowShare(PIN_HX711_DT);
+    // back to normal
+    pinMode(PIN_HX711_DT, INPUT_PULLUP);
+    LOG("LOADCELL", "hxprobe C (DT pull-DOWN):   DT GPIO%u LOW %.1f%% of the time", PIN_HX711_DT, c);
+    if (a < 5 && c > 95) LOG("LOADCELL", "-> DT follows the pull resistor both ways: NOTHING drives it (HX711 DOUT not reaching GPIO%u, or the chip is not running)", PIN_HX711_DT);
+    if (a < 5 && c < 5) LOG("LOADCELL", "-> DT is actively HIGH: the HX711 drives it but never has a reading ready (powered down / not converting)");
+    LOG("LOADCELL", "hxprobe A (SCK=GPIO%u LOW): DT GPIO%u LOW %.1f%% of the time", PIN_HX711_SCK, PIN_HX711_DT, a);
+    LOG("LOADCELL", "hxprobe B (swap test):      GPIO%u LOW %.1f%% of the time", PIN_HX711_SCK, b);
+    if (a > 5) LOG("LOADCELL", "-> the HX711 answers on DT=GPIO%u (wiring as configured)", PIN_HX711_DT);
+    else if (b > 5) LOG("LOADCELL", "-> the HX711 answers only with the pins SWAPPED: DT is on GPIO%u", PIN_HX711_SCK);
+    else LOG("LOADCELL", "-> no answer either way: no 3.3 V/GND at the HX711, a loose wire, or another GPIO");
+    return;
+  }
 
   // lcd
   if (l.startsWith("lcd ")) {

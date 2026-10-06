@@ -43,3 +43,6 @@ backups/
 
 # Arduino build output: the binaries contain the devices' keys.
 firmware/**/build/
+
+# Security camera recordings (videos stay on this laptop; never committed)
+tools/security_vision/recordings/

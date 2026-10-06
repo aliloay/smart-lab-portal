@@ -1,0 +1,133 @@
+/**
+ * Security camera recording (administrators). The video is recorded and kept
+ * on the laptop by the camera service (FFmpeg): the camera's own H.264
+ * video, audio converted to AAC, MP4 files. Nothing is deleted automatically.
+ *
+ *   RecordButton    Record / ● REC mm:ss + Stop, for one camera
+ *   RecordingsPanel every recording of a camera: play in the page, download
+ */
+import { useCallback, useEffect, useState } from 'react'
+import { Circle, Download, Play, Square, X } from 'lucide-react'
+import { Recording, RecordingStatus, api } from '../lib/api'
+import { isAdmin, useAuth } from '../lib/auth'
+import { EmptyState, ErrorBanner, Spinner } from './ui'
+
+const mmss = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${Math.floor(s % 60).toString().padStart(2, '0')}`
+const size = (b: number) => b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(1)} MB`
+
+export function RecordButton({ deviceId, onChange }: { deviceId: number; onChange?: () => void }) {
+  const { user } = useAuth()
+  const [st, setSt] = useState<RecordingStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+
+  const load = useCallback(() => {
+    api.recordingStatus(deviceId).then(s => { setSt(s); setTick(0) }).catch(() => setSt(null))
+  }, [deviceId])
+  useEffect(() => {
+    if (!isAdmin(user)) return
+    load()
+    const t = window.setInterval(load, 5000)
+    return () => window.clearInterval(t)
+  }, [load, user])
+  useEffect(() => {                         // the timer runs between status checks
+    if (!st?.recording) return
+    const t = window.setInterval(() => setTick(x => x + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [st?.recording])
+
+  if (!isAdmin(user)) return null
+  if (!st) return <span className="text-[12px] text-slate-500" title="The camera service does not answer">Recording unavailable</span>
+
+  async function flip(action: 'start' | 'stop') {
+    if (action === 'start' && !window.confirm('Start recording this camera? The video is saved on the laptop.')) return
+    setBusy(true); setError('')
+    try { await api.recordingSwitch(deviceId, action); load(); onChange?.() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {st.recording ? (<>
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-bad/15 border border-bad/50 px-2.5 py-1 text-[12.5px] font-bold text-bad-soft"
+              title={`Started by ${st.started_by || '?'} - stops by itself after ${Math.round(st.max_s / 60)} min`}>
+          <Circle size={10} className="fill-current animate-pulse" /> REC {mmss((st.elapsed_s ?? 0) + tick)}</span>
+        <button className="btn-ghost btn-sm" disabled={busy} onClick={() => flip('stop')}>
+          <Square size={13} /> Stop</button>
+      </>) : (
+        <button className="btn-ghost btn-sm text-bad-soft" disabled={busy || !st.ffmpeg || st.free_gb < st.min_free_gb}
+          onClick={() => flip('start')}
+          title={!st.ffmpeg ? 'FFmpeg is not installed on the laptop'
+            : st.free_gb < st.min_free_gb ? `Only ${st.free_gb} GB free on the laptop` : `${st.free_gb} GB free on the laptop`}>
+          <Circle size={12} className="fill-current" /> Record</button>
+      )}
+      {error && <span className="text-[12px] text-bad-soft">{error}</span>}
+    </span>
+  )
+}
+
+export function RecordingsPanel({ deviceId }: { deviceId: number }) {
+  const [items, setItems] = useState<Recording[] | null>(null)
+  const [free, setFree] = useState<number | null>(null)
+  const [error, setError] = useState('')
+  const [playing, setPlaying] = useState<{ file: string; url: string } | null>(null)
+
+  const load = useCallback(() => {
+    api.recordings(deviceId).then(r => { setItems(r.items); setFree(r.free_gb) })
+      .catch(e => { setError(e instanceof Error ? e.message : 'Failed'); setItems([]) })
+  }, [deviceId])
+  useEffect(() => { load() }, [load])
+
+  async function open(r: Recording, download = false) {
+    try {
+      const { url } = await api.recordingLink(deviceId, r.file)
+      if (download) window.location.href = `${url}&download=true`
+      else setPlaying({ file: r.file, url })
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+  }
+
+  if (items === null) return <Spinner label="Loading recordings" />
+  return (
+    <div className="space-y-3">
+      {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      <div className="flex items-center gap-3">
+        <RecordButton deviceId={deviceId} onChange={load} />
+        <span className="ml-auto text-[12px] text-slate-400">
+          Saved on the laptop{free !== null ? ` · ${free} GB free` : ''} · never deleted automatically</span>
+      </div>
+      {playing && (
+        <div className="card p-3 space-y-2">
+          <div className="flex items-center gap-2 text-[13px] text-slate-200">
+            <Play size={14} /> {playing.file}
+            <button className="ml-auto btn-ghost btn-sm" onClick={() => setPlaying(null)}><X size={13} /> Close</button>
+          </div>
+          <video key={playing.url} src={playing.url} controls autoPlay className="w-full max-h-[70vh] bg-black rounded-lg" />
+        </div>)}
+      {!items.length ? (
+        <div className="card"><EmptyState icon={<Circle size={18} />} title="No recordings yet"
+          detail="Press Record to save this camera's video on the laptop." /></div>
+      ) : (
+        <div className="card divide-y divide-ink-700/60 overflow-hidden" data-testid="recordings">
+          {items.map(r => (
+            <div key={r.file} className="px-4 py-3 flex flex-wrap items-center gap-3 text-[13px]">
+              <div className="min-w-0">
+                <div className="text-white font-medium">
+                  {r.started_at ? new Date(r.started_at).toLocaleString() : r.file}
+                  {r.recording && <span className="ml-2 text-bad-soft font-bold text-[11px]">● RECORDING</span>}</div>
+                <div className="text-slate-400 text-[12px]">
+                  {r.duration_s != null ? mmss(r.duration_s) : '–'} · {size(r.size_bytes)}
+                  {r.started_by ? ` · started by ${r.started_by}` : ''}
+                  {r.stop_reason && r.stop_reason !== 'stopped' ? ` · ${r.stop_reason === 'max_length' ? 'stopped at the maximum length' : 'camera stream ended'}` : ''}
+                </div>
+              </div>
+              <div className="ml-auto flex gap-2">
+                <button className="btn-ghost btn-sm" disabled={r.recording} onClick={() => open(r)}><Play size={13} /> Play</button>
+                <button className="btn-ghost btn-sm" disabled={r.recording} onClick={() => open(r, true)}><Download size={13} /> Download</button>
+              </div>
+            </div>))}
+        </div>)}
+    </div>
+  )
+}

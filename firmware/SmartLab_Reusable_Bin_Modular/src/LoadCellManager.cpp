@@ -16,12 +16,16 @@ const char *weightStateName(WeightState s) {
 
 bool LoadCellManager::begin() {
   LOG("LOADCELL", "Initializing HX711 (DT=GPIO%u, SCK=GPIO%u)...", PIN_HX711_DT, PIN_HX711_SCK);
-  _hx.begin(PIN_HX711_DT, PIN_HX711_SCK);
+  // No reset in begin(): the library's reset ends in a read() that waits
+  // FOREVER for the HX711 - with none connected the board would hang here
+  // (seen on the bare ESP32, 2026-10-07). Reset only once it has answered.
+  _hx.begin(PIN_HX711_DT, PIN_HX711_SCK, false, false);
   // With nothing connected, DT would float and read as random "samples".
   // Pulled up, a missing HX711 simply never reports ready.
   pinMode(PIN_HX711_DT, INPUT_PULLUP);
   load();
   _available = _hx.wait_ready_timeout(HX711_READY_TIMEOUT_MS, 5);
+  if (_available) _hx.reset();          // safe now: a sample is ready
   if (!_available) {
     LOG("ERROR", "HX711 not responding (DT never went LOW in %lu ms): check VCC, GND, DT, SCK",
         (unsigned long)HX711_READY_TIMEOUT_MS);

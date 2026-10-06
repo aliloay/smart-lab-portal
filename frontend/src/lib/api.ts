@@ -122,6 +122,15 @@ export interface Experiment {
   created_at: string
   trials?: ExperimentTrial[]; records?: Record<string, number>
 }
+/** The camera service's recorder (GET /security/cameras/{id}/recording). */
+export interface RecordingStatus {
+  recording: boolean; file: string | null; started_at: string | null; started_by: string | null
+  elapsed_s: number | null; max_s: number; ffmpeg: boolean; free_gb: number; min_free_gb: number
+}
+export interface Recording {
+  file: string; size_bytes: number; recording: boolean; started_at: string | null; stopped_at: string | null
+  duration_s: number | null; started_by: string | null; stopped_by: string | null; stop_reason: string | null
+}
 export interface EquipmentSuggestion {
   kind: string; score: number; name: string; x: number; y: number; w: number; h: number
 }
@@ -1012,6 +1021,13 @@ export const api = {
   addTrial: (id: number, t: Partial<ExperimentTrial>) => post<ExperimentTrial>(`/experiments/${id}/trials`, t),
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
   securitySuggestions: (cam: number) => request<EquipmentSuggestion[]>(`/security/cameras/${cam}/suggestions`),
+  // Recording (administrators): the video stays on the laptop.
+  recordingStatus: (cam: number) => request<RecordingStatus>(`/security/cameras/${cam}/recording`),
+  recordingSwitch: (cam: number, action: 'start' | 'stop') =>
+    post<{ ok: boolean; file?: string; duration_s?: number; size_bytes?: number }>(`/security/cameras/${cam}/recording/${action}`),
+  recordings: (cam: number) => request<{ items: Recording[]; free_gb: number }>(`/security/cameras/${cam}/recordings`),
+  recordingLink: (cam: number, file: string) =>
+    post<{ url: string; expires_at: string }>(`/security/cameras/${cam}/recordings/${encodeURIComponent(file)}/link`),
   updateSecurityZone: (cam: number, id: number, z: SecurityZoneIn) =>
     request<SecurityZone>(`/security/cameras/${cam}/zones/${id}`, { method: 'PUT', body: JSON.stringify(z) }),
   deleteSecurityZone: (cam: number, id: number) =>

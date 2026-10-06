@@ -25,13 +25,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, require_device, require_staff
+from app.api.deps import device_scope, require_admin, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (AccessSession, Alert, AlertSeverity, Asset, AuditLog, Device,
@@ -470,3 +470,112 @@ def purge_old_snapshots(db: Session, now: Optional[datetime] = None) -> int:
         n += 1
     db.commit()
     return n
+
+
+# ------------------------------------------------------------- recording --
+# Video is recorded and kept on the laptop by the camera service (FFmpeg,
+# tools/security_vision/recorder.py); the portal only switches it on/off for
+# an administrator, lists the files and plays them through a short signed
+# link (a <video> tag cannot send the sign-in header). Every start / stop is
+# in the audit log. Nothing is deleted here.
+import re as _re
+from jose import JWTError, jwt as _jwt
+
+_REC_NAME = _re.compile(r"^[A-Za-z0-9_-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.mp4$")
+_LINK_MINUTES = 10
+
+
+def _service(d: Device, method: str, path: str, **kw) -> httpx.Response:
+    try:
+        return httpx.request(method, _service_url(d, path), headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                             timeout=httpx.Timeout(15.0, connect=1.5), **kw)
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The security camera service is not reachable - start it on the laptop.")
+
+
+@router.get("/cameras/{device_id}/recording")
+def recording_status(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    r = _service(_camera(db, device_id), "GET", "/record/status")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no recorder (update it).")
+    return r.json()
+
+
+@router.post("/cameras/{device_id}/recording/{action}")
+def recording_switch(device_id: int, action: Literal["start", "stop"], db: Session = Depends(get_db),
+                     admin: User = Depends(require_admin)):
+    d = _camera(db, device_id)
+    r = _service(d, "POST", f"/record/{action}", json={"by": admin.full_name})
+    if r.status_code == 404:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no recorder (update it).")
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if not body.get("ok"):
+        raise HTTPException(status.HTTP_409_CONFLICT, body.get("error") or "The recording could not be switched.")
+    db.add(AuditLog(actor_user_id=admin.id, action=f"SECURITY_RECORDING_{action.upper()}",
+                    entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid, **{k: body.get(k) for k in ("file", "duration_s", "size_bytes")}}))
+    db.commit()
+    return body
+
+
+@router.get("/cameras/{device_id}/recordings")
+def recordings(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    r = _service(_camera(db, device_id), "GET", "/recordings")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no recorder (update it).")
+    return r.json()
+
+
+@router.post("/cameras/{device_id}/recordings/{name}/link")
+def recording_link(device_id: int, name: str, db: Session = Depends(get_db),
+                   admin: User = Depends(require_admin)):
+    """A link to play / download one recording, valid for 10 minutes."""
+    _camera(db, device_id)
+    if not _REC_NAME.match(name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recording")
+    exp = datetime.now(timezone.utc) + timedelta(minutes=_LINK_MINUTES)
+    token = _jwt.encode({"typ": "recording", "dev": device_id, "name": name, "sub": str(admin.id), "exp": exp},
+                        settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return {"url": f"{settings.API_V1}/security/recordings/play?t={token}", "expires_at": exp}
+
+
+@router.get("/recordings/play")
+def recording_play(t: str = Query(max_length=1024), download: bool = False,
+                   range_: Optional[str] = Header(default=None, alias="Range"),
+                   db: Session = Depends(get_db)):
+    """Streams one recording (with Range, so the player can seek). The signed
+    link IS the permission: an administrator asked for it minutes ago."""
+    try:
+        p = _jwt.decode(t, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This link has expired - open the recording again.")
+    if p.get("typ") != "recording" or not _REC_NAME.match(str(p.get("name", ""))):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not a recording link")
+    d = _camera(db, int(p["dev"]))
+    db.close()                          # the stream may run for minutes; no session held
+    client = httpx.Client(timeout=httpx.Timeout(60.0, connect=1.5))
+    headers = {"X-Device-Key": settings.DEVICE_API_KEY, **({"Range": range_} if range_ else {})}
+    try:
+        r = client.send(client.build_request("GET", _service_url(d, f"/recordings/{p['name']}"), headers=headers),
+                        stream=True)
+    except httpx.HTTPError:
+        client.close()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The security camera service is not reachable.")
+    if r.status_code not in (200, 206):
+        r.close(); client.close()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recording")
+    out = {k: r.headers[k] for k in ("content-type", "content-length", "content-range", "accept-ranges",
+                                     "last-modified", "etag") if k in r.headers}
+    out["Cache-Control"] = "private, no-store"
+    if download:
+        out["Content-Disposition"] = f'attachment; filename="{p["name"]}"'
+
+    def body():
+        try:
+            yield from r.iter_bytes(64 * 1024)
+        finally:
+            r.close()
+            client.close()
+    return StreamingResponse(body(), status_code=r.status_code, headers=out)
+

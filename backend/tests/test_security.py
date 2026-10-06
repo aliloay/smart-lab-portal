@@ -197,3 +197,83 @@ def test_equipment_suggestions_skip_items_already_boxed(client, db, lab, staff, 
     assert items[0]["name"] == "PC-02" and items[1]["name"] == "Laptop-01"
     assert client.get(f"/api/security/cameras/{cid}/suggestions",
                       headers=auth_headers(client, "alice@test.edu") if False else {}).status_code == 401
+
+
+def test_recording_admin_only_audited_and_played_through_a_signed_link(client, db, lab, admin, staff,
+                                                                         device_headers, monkeypatch):
+    """Record / Stop: administrators only, each switch in the audit log; a
+    recording plays through a short signed link (Range passed on), and a
+    forged / foreign token or a path trick gets nothing."""
+    from app.models import AuditLog
+    cid = _register(client, device_headers, lab)["device_id"]
+    name = "SECCAM_LAB01_2026-10-07_01-15-39.mp4"
+    sent = []
+
+    class J:
+        def __init__(self, code, body):
+            self.status_code, self._b = code, body
+            self.headers = {"content-type": "application/json"}
+
+        def json(self):
+            return self._b
+
+    def request(method, url, headers=None, timeout=None, json=None):
+        sent.append((method, url.split(":5100")[1], json))
+        if url.endswith("/record/start"):
+            return J(200, {"ok": True, "file": name})
+        if url.endswith("/record/stop"):
+            return J(409, {"ok": False, "error": "not recording"})
+        return J(200, {"items": [{"file": name, "size_bytes": 938918}], "free_gb": 129.4})
+
+    monkeypatch.setattr(security.httpx, "request", request)
+    h_admin, h_staff = auth_headers(client, admin.email), auth_headers(client, staff.email)
+    assert client.post(f"/api/security/cameras/{cid}/recording/start", headers=h_staff).status_code == 403
+    r = client.post(f"/api/security/cameras/{cid}/recording/start", headers=h_admin)
+    assert r.status_code == 200 and r.json()["file"] == name
+    assert sent[-1] == ("POST", "/record/start", {"by": admin.full_name})
+    assert db.query(AuditLog).filter_by(action="SECURITY_RECORDING_START", actor_user_id=admin.id).count() == 1
+    r = client.post(f"/api/security/cameras/{cid}/recording/stop", headers=h_admin)
+    assert r.status_code == 409 and "not recording" in r.text
+    assert client.get(f"/api/security/cameras/{cid}/recordings", headers=h_admin).json()["items"][0]["file"] == name
+
+    # Playback: signed link, Range passed through, 206 back.
+    assert client.post(f"/api/security/cameras/{cid}/recordings/..%2Fsecret.mp4/link",
+                       headers=h_admin).status_code == 404
+    url = client.post(f"/api/security/cameras/{cid}/recordings/{name}/link", headers=h_admin).json()["url"]
+    seen = {}
+
+    class Streamed:
+        status_code = 206
+        headers = {"content-type": "video/mp4", "content-range": "bytes 0-3/938918", "content-length": "4",
+                   "accept-ranges": "bytes"}
+
+        def iter_bytes(self, n):
+            yield b"\x00\x00\x00\x18"
+
+        def close(self):
+            pass
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            pass
+
+        def build_request(self, method, url, headers=None):
+            seen["url"], seen["headers"] = url, headers
+            return None
+
+        def send(self, req, stream=False):
+            return Streamed()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(security.httpx, "Client", FakeClient)
+    r = client.get(url, headers={"Range": "bytes=0-3"})            # no sign-in header: the link is the permission
+    assert r.status_code == 206 and r.content == b"\x00\x00\x00\x18"
+    assert r.headers["content-range"] == "bytes 0-3/938918"
+    assert seen["url"].endswith(f"/recordings/{name}") and seen["headers"]["Range"] == "bytes=0-3"
+    assert "attachment" in client.get(url + "&download=true").headers.get("content-disposition", "")
+    assert client.get("/api/security/recordings/play?t=forged.token.value").status_code == 401
+    from app.core.security import create_access_token
+    login_token = create_access_token(admin.id, admin.role.value)      # a sign-in token is not a recording link
+    assert client.get(f"/api/security/recordings/play?t={login_token}").status_code == 401
