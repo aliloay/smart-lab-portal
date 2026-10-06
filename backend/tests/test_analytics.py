@@ -1,4 +1,5 @@
 """Operations Center, lab twin and "my usage" aggregates: real rows only."""
+import pytest
 from datetime import timedelta
 
 from app.models import (AccessSession, AuthMethod, Booking, BookingStatus,
@@ -44,7 +45,9 @@ def test_utilisation_and_durations(client, db, staff, alice, lab, now):
     r = client.get("/api/analytics/operations?days=7", headers=h).json()
     u = r["utilisation"][0]
     assert u["booked_hours"] == 2.0 and u["available_hours"] == 70
-    assert sum(sum(row) for row in r["booked_heatmap"]) == 2.0
+    # The 2 h are spread over hour cells as fractions (the start minute follows
+    # the clock): their float sum is 2.0 within rounding, not always bit-exact.
+    assert sum(sum(row) for row in r["booked_heatmap"]) == pytest.approx(2.0)
     # Only the observed exit yields a duration; the other is not guessed.
     assert r["sessions"]["exit_recorded"] == 1
     assert r["sessions"]["median_minutes"] == 45
