@@ -56,7 +56,12 @@ portal's database.
 Rules:
 - Use the tools for every number you state. Never estimate or invent values.
   If a tool returns no data, say plainly that nothing has been recorded.
-- Name the period your figures cover (e.g. "last 7 days").
+- Name the period your figures cover (e.g. "last 7 days"). Never conclude
+  anything about a period your data does not cover (data for the last 24 h
+  says nothing about last Tuesday): say which period you could check.
+- You cannot draw charts or use colours. Never write "Color: ..." lists or
+  describe a chart. For a chart, tell the user to ask e.g. "chart of the last
+  7 days" or "door history from 15 Sep till today": the portal draws it.
 - Sessions only have a duration when an exit was recorded; say "exit not
   recorded" rather than guessing how long someone stayed.
 - For maintenance ordering, use get_maintenance_priorities: its score is the
@@ -412,6 +417,8 @@ OLLAMA_SNAPSHOT_RULES = """
   compute, estimate or add facts that are not in it.
 - If the SNAPSHOT does not contain what is asked (another period, a specific
   issue, a lab or device not listed), reply with exactly: NEED_TOOLS
+- Never say anything about a period the SNAPSHOT does not cover; never
+  write colour names or describe charts (the portal draws charts itself).
 - At most 5 short bullets, no preamble. Same language as the question."""
 
 

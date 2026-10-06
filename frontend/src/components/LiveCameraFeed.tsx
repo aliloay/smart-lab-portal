@@ -9,13 +9,18 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { VideoOff } from 'lucide-react'
 import { fetchBlob } from '../lib/api'
+import { useBoxesShown } from '../lib/cameraView'
 
-export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw = false, className = '',
+/** Pause for a big live view: one frame takes ~40 ms through the portal and
+ *  the service draws 15 a second, so this shows ~12-15 pictures a second. */
+export const LIVE_MS = 40
+
+export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, className = '',
                                          fit = 'cover', children, onFrame }: {
   deviceId: number
   /** Pause between frames; ~200 ms = up to 5 frames a second. */
   intervalMs?: number
-  /** The plain frame (no boxes), for drawing zones. */
+  /** true = always the plain frame (drawing zones); unset = the viewer's Detection boxes switch. */
   raw?: boolean
   className?: string
   fit?: 'cover' | 'contain'
@@ -25,12 +30,14 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw = false
   const [src, setSrc] = useState<string | null>(null)
   const [state, setState] = useState<'loading' | 'live' | 'nodata' | 'error'>('loading')
   const urlRef = useRef<string | null>(null)
+  const [boxes] = useBoxesShown()
+  const plain = raw ?? !boxes
 
   useEffect(() => {
     let stop = false, timer = 0
     async function tick() {
       try {
-        const blob = await fetchBlob(`/security/cameras/${deviceId}/frame.jpg${raw ? '?raw=true' : ''}`)
+        const blob = await fetchBlob(`/security/cameras/${deviceId}/frame.jpg${plain ? '?raw=true' : ''}`)
         if (stop) return
         if (blob.size > 0) {
           const url = URL.createObjectURL(blob)
@@ -52,7 +59,7 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw = false
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
       urlRef.current = null
     }
-  }, [deviceId, intervalMs, raw])
+  }, [deviceId, intervalMs, plain])
 
   return (
     <div className={`relative overflow-hidden bg-black ${className}`}>

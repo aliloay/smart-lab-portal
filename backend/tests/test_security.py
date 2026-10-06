@@ -134,3 +134,66 @@ def test_frame_comes_through_the_portal(client, db, lab, staff, alice, device_he
     assert client.get(f"/api/security/cameras/{cid}/frame.jpg", headers=h).status_code == 503
     assert client.get(f"/api/security/cameras/{cid}/frame.jpg",
                       headers=auth_headers(client, alice.email)).status_code == 403
+
+
+def test_state_pushed_only_when_it_changes(client, db, lab, device_headers, monkeypatch):
+    """The service reports every 2 s; every staff page refetches on a push, so
+    only a real change (people, names, zone states, picture) is pushed - and
+    as its own message type, not a general 'staff' refresh."""
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    _register(client, device_headers, lab)
+
+    def report(people, fps, score=0.1, status="OK"):
+        r = client.post("/api/security/state", headers=device_headers, json={
+            "device_uid": "SECCAM_LAB01", "fps": fps, "people": people, "unknown": people,
+            "named": [], "zones": [{"id": 1, "name": "PC-01", "status": status, "score": score}]})
+        assert r.status_code == 200
+
+    report(1, 3.0)
+    report(1, 2.7, score=0.2)            # only fps / score moved: nothing to show
+    report(1, 3.1, score=0.15)
+    assert [m["type"] for m in sent] == ["security_state"]
+    report(2, 3.0)                       # someone else came into view
+    report(2, 3.0, status="CHANGED")     # a box changed state
+    assert [m["type"] for m in sent] == ["security_state"] * 3
+    assert all(m["type"] != "staff" for m in sent)
+
+
+def test_config_lists_known_people_for_face_names(client, db, lab, alice, device_headers):
+    """The camera may name someone by face before they enter: it needs who
+    USERx is. Only active people with a door identity are listed."""
+    alice.auth_subject = "USER9"
+    db.commit()
+    known = {k["auth_subject"]: k for k in _register(client, device_headers, lab)["known"]}
+    assert known["USER9"]["name"] == alice.full_name and known["USER9"]["role"] == alice.role.value
+    alice.is_active = False
+    db.commit()
+    assert "USER9" not in {k["auth_subject"] for k in _register(client, device_headers, lab)["known"]}
+
+
+def test_equipment_suggestions_skip_items_already_boxed(client, db, lab, staff, device_headers, monkeypatch):
+    """YOLO proposes a box per monitor/laptop; one already covered by a saved box is not proposed again."""
+    cid = _register(client, device_headers, lab)["device_id"]
+    h = auth_headers(client, staff.email)
+    assert client.post(f"/api/security/cameras/{cid}/zones", headers=h, json={
+        "name": "PC-01", "x": 0.10, "y": 0.10, "w": 0.20, "h": 0.20}).status_code == 201
+
+    class R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"items": [{"kind": "Monitor", "score": 0.9, "x": 0.11, "y": 0.11, "w": 0.19, "h": 0.19},
+                              {"kind": "Monitor", "score": 0.8, "x": 0.60, "y": 0.20, "w": 0.15, "h": 0.15},
+                              {"kind": "Laptop", "score": 0.7, "x": 0.40, "y": 0.60, "w": 0.10, "h": 0.10}]}
+
+    monkeypatch.setattr(security.httpx, "get", lambda url, headers=None, timeout=None: R())
+    r = client.get(f"/api/security/cameras/{cid}/suggestions", headers=h)
+    assert r.status_code == 200, r.text
+    items = r.json()
+    assert [i["kind"] for i in items] == ["Monitor", "Laptop"]        # the first is PC-01 already
+    assert items[0]["name"] == "PC-02" and items[1]["name"] == "Laptop-01"
+    assert client.get(f"/api/security/cameras/{cid}/suggestions",
+                      headers=auth_headers(client, "alice@test.edu") if False else {}).status_code == 401

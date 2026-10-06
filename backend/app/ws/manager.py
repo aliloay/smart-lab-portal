@@ -60,7 +60,7 @@ class ConnectionManager:
             if client.lab_filter is not None and ev.get("lab_id") != client.lab_filter:
                 return False
             return client.is_staff or ev.get("user_id") == client.user_id
-        if kind == "staff":
+        if kind in ("staff", "security_state"):
             return client.is_staff
         if kind == "hazard":
             # A smoke / flame alarm: safety information for everyone signed in,

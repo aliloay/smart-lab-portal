@@ -11,6 +11,7 @@ import { ReactNode, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Printer } from 'lucide-react'
 import { ManagementReport, api } from '../lib/api'
+import AiChart from '../components/AiChart'
 
 const BAR = '#2a6fdb'      // one sequential hue; validated against the white surface
 
@@ -128,6 +129,13 @@ export default function ReportPrint() {
             <Kpi label="Security" value={r.access.identity_mismatch + r.access.forced_entry + r.access.door_held_open}
                  sub={`${r.access.forced_entry} forced · ${r.access.door_held_open} held open`} />
           </div>
+
+          {!!r.charts?.length && (
+            <Section title="Charts">
+              <div className="grid grid-cols-2 gap-3">
+                {r.charts.map((c, i) => <AiChart key={i} chart={c} light />)}
+              </div>
+            </Section>)}
 
           <div className="grid grid-cols-2 gap-6">
             <Section title="Booked hours by lab">

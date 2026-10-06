@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models import (AccessEvent, AccessSession, Alert, Booking, BookingStatus, Device,
                         DeviceType, EquipmentSession, EventType, Issue, Lab, Role, User)
+from app.services import agent_history
 from app.services.automation import period_report
 from app.services.devices import is_fresh, refresh_liveness
 from app.services.issues import ACTIVE as ISSUE_ACTIVE
@@ -273,6 +274,8 @@ def management_report(db: Session, period: str = "weekly", end_day: Optional[dat
                       "last": i.get("last") and _when(i["last"])} for i in found],
         "top_denials": [{"reason": d["reason"], "count": d["count"],
                          "meaning": denial_sentence(d["reason"])} for d in r["access"]["top_denial_reasons"]],
+        # The same charts the assistant draws, for the printable report / PDF.
+        "charts": agent_history.charts(db, *agent_history.last_days(30 if period == "monthly" else 7)),
     })
     return r
 
@@ -365,14 +368,23 @@ def detect(question: str, staff: bool) -> Optional[str]:
     return None
 
 
-def _answer(text: str, intent: str, link: Optional[dict] = None) -> dict:
+def _answer(text: str, intent: str, link: Optional[dict] = None, charts: Optional[list] = None) -> dict:
     return {"answer": text, "tools_used": [f"instant:{intent}"], "model": "smartlab-instant",
-            "instant": True, **({"link": link} if link else {})}
+            "instant": True, **({"link": link} if link else {}), **({"charts": charts} if charts else {})}
 
 
 def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
     """An exact answer from the database, or None to let the language model answer."""
     staff = user.role in (Role.ADMIN, Role.LAB_STAFF)
+    if staff:
+        # Door history, any period, charts: exact, from the records (agent_history).
+        h = agent_history.answer(db, question)
+        if h is not None:
+            link = None
+            if h["intent"] == "range_report":
+                period = "monthly" if "last 30 days" in h["text"] else "weekly"
+                link = {"label": f"Open the full {period} report (PDF)", "to": f"/report?period={period}"}
+            return _answer(h["text"], h["intent"], link, h["charts"])
     intent = detect(question, staff)
     if intent is None:
         return None
@@ -382,7 +394,8 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
         period = "monthly" if intent == "report_monthly" else "weekly"
         r = management_report(db, period)
         return _answer(_report_text(r), intent,
-                       {"label": f"Open the full {period} report (PDF)", "to": f"/report?period={period}"})
+                       {"label": f"Open the full {period} report (PDF)", "to": f"/report?period={period}"},
+                       r["charts"])
 
     if intent == "insights":
         start = now - timedelta(days=30)

@@ -9,18 +9,20 @@
  * answered instantly by the agent from the records, with or without a
  * model. The priority list is deterministic and always works.
  */
-import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react'
+import { FormEvent, ReactNode, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
 import { ArrowUpRight, Bot, ListOrdered, Maximize2, MessageCircle, Minimize2, Send, Sparkles, TriangleAlert, X, Zap } from 'lucide-react'
-import { AiAnswer, AiStatus, Priority, api } from '../lib/api'
+import { AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
 type Turn = {
   role: 'user' | 'assistant'; content: string; tools?: string[]
-  instant?: boolean; link?: { label: string; to: string }
+  instant?: boolean; link?: { label: string; to: string }; charts?: AiChartData[]
 }
+// Charts load with the first chart answer: Recharts stays out of the main bundle.
+const AiChart = lazy(() => import('./AiChart'))
 
 const STUDENT_SUGGESTED = [
   'When is my next booking?',
@@ -105,7 +107,7 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
     try {
       const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
       setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used,
-                             instant: r.instant, link: r.link }])
+                             instant: r.instant, link: r.link, charts: r.charts }])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The assistant could not answer.')
       setTurns(t => t.slice(0, -1))
@@ -148,10 +150,23 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
               <Sparkles size={14} /></span>
             <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm border border-ink-600/70 bg-ink-800/40 px-3.5 py-2.5">
               <AiText text={t.content} />
-              {t.link && (
-                <Link to={t.link.to} target={t.link.to.startsWith('/report') ? '_blank' : undefined}
+              {!!t.charts?.length && (
+                <Suspense fallback={<div className="mt-3 text-[12px] text-slate-500">Drawing the chart…</div>}>
+                  <div className={`grid gap-3 ${t.charts.length > 1 ? 'xl:grid-cols-2' : ''}`}>
+                    {t.charts.map((c, k) => <AiChart key={k} chart={c} />)}
+                  </div>
+                </Suspense>)}
+              {t.link && (t.link.to.startsWith('/report') ? (
+                // The report opens in its own tab. window.open (unlike a
+                // target="_blank" link, which opens with noopener) gives the new
+                // tab a copy of this tab's sign-in, so it does not ask again.
+                <a href={t.link.to} onClick={e => { e.preventDefault(); window.open(t.link!.to, '_blank') }}
                   className="mt-2 inline-flex items-center gap-1 text-[12.5px] text-accent-300 hover:text-accent-200">
-                  {t.link.label} <ArrowUpRight size={13} /></Link>)}
+                  {t.link.label} <ArrowUpRight size={13} /></a>
+              ) : (
+                <Link to={t.link.to}
+                  className="mt-2 inline-flex items-center gap-1 text-[12.5px] text-accent-300 hover:text-accent-200">
+                  {t.link.label} <ArrowUpRight size={13} /></Link>))}
               {t.instant ? (
                 <div className="mt-2 text-[11px] text-slate-500 inline-flex items-center gap-1 ml-2">
                   <Zap size={11} className="text-ok-soft" /> Instant, from the records</div>

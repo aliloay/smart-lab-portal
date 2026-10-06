@@ -35,6 +35,7 @@ ENDPOINTS
   POST /enroll?name=USER1   body = JPEG   save one training face for USER1
   GET  /train                             (re)build the model from all faces
   POST /recognize           body = JPEG   -> {"name":..,"distance":..,"access":bool}
+  POST /identify            body = JPEG   -> {"name","score","second"} (security camera; device key; nothing logged)
   GET  /users                             list enrolled users + sample counts
   GET  /health                            quick status check
 
@@ -635,6 +636,36 @@ def recognize():
         "distance": round(float(distance), 1),
         "access": bool(access)
     })
+
+
+@app.route("/identify", methods=["POST"])
+@one_at_a_time
+def identify():
+    """
+    Who is this? For the lab's security camera (tools/security_vision): the
+    same templates and threshold as the door, but nothing else happens - no
+    access result, no line in recognition_log.csv, no tablet preview. Device
+    key required: these are pictures of people.
+
+    Returns {"name": "USER1"|null, "score": cosine|null, "second": cosine of
+    the next most alike person|null, "face": bool}.
+    """
+    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+        return jsonify({"error": "device key required"}), 401
+    if ENGINE != "sface":
+        return jsonify({"error": "identify needs the SFace models"}), 501
+    img = decode_jpeg(request.get_data())
+    if img is None:
+        return jsonify({"error": "no image received"}), 400
+    face = yunet_face(img)
+    if face is None or not templates:
+        return jsonify({"name": None, "score": None, "second": None, "face": face is not None})
+    q = _unit(sface.feature(sface.alignCrop(img, face)))
+    scores = sorted(((float(np.dot(q, t)), n) for n, t in templates.items()), reverse=True)
+    best, name = scores[0]
+    second = scores[1][0] if len(scores) > 1 else None
+    return jsonify({"name": name if best >= SFACE_THRESHOLD else None, "score": round(best, 3),
+                    "second": None if second is None else round(second, 3), "face": True})
 
 
 @app.route("/analyze", methods=["POST"])

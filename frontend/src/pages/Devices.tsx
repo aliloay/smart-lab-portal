@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Camera, Cpu, DoorClosed, Fingerprint, Lock, Plus, Radio, Server, Thermometer, Wrench,
+  Video,
 } from 'lucide-react'
 import { Device, Lab, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
@@ -17,7 +18,10 @@ const TYPE: Record<Device['device_type'], { label: string; icon: JSX.Element }> 
   CAMERA: { label: 'ESP32-CAM entry camera', icon: <Camera size={18} /> },
   FACE_SERVER: { label: 'Face recognition server', icon: <Server size={18} /> },
   SENSOR_NODE: { label: 'Sensor node', icon: <Thermometer size={18} /> },
+  SECURITY_CAMERA: { label: 'Security camera', icon: <Video size={18} /> },
 }
+// A device type this page does not know yet still shows (never a crash).
+const typeOf = (t: string) => TYPE[t as Device['device_type']] ?? { label: t.replace(/_/g, ' ').toLowerCase(), icon: <Cpu size={18} /> }
 
 export default function Devices() {
   const { user } = useAuth()
@@ -96,10 +100,10 @@ export default function Devices() {
                       <span className={`grid place-items-center w-10 h-10 rounded-xl border ${d.state === 'ONLINE'
                         ? 'border-ok/40 bg-ok/10 text-ok-soft' : d.state === 'OFFLINE'
                         ? 'border-bad/40 bg-bad/10 text-bad-soft' : 'border-ink-500 bg-ink-700/60 text-slate-400'}`}>
-                        {TYPE[d.device_type].icon}</span>
+                        {typeOf(d.device_type).icon}</span>
                       <div className="min-w-0">
                         <div className="text-[14px] text-white truncate">{d.name}</div>
-                        <div className="text-[11.5px] text-slate-400">{TYPE[d.device_type].label}</div>
+                        <div className="text-[11.5px] text-slate-400">{typeOf(d.device_type).label}</div>
                       </div>
                     </div>
                     <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : 'idle'} dot>

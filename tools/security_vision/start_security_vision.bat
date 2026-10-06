@@ -10,7 +10,9 @@ if not exist camera.env (
   echo No camera.env here yet: copy camera.env.example to camera.env and fill it in.
   pause & exit /b 1
 )
-call camera.env
+rem Read the "set NAME=value" lines (Windows will not run a .env file with
+rem "call"). Values are taken literally: write the password's URL codes as-is.
+for /f "usebackq tokens=1,* delims= " %%a in ("camera.env") do if /i "%%a"=="set" set "%%b"
 if not exist models\object_detection_yolox_2022nov.onnx (
   echo Downloading the person detector once ^(36 MB, needs internet^)...
   curl -L -o models\object_detection_yolox_2022nov.onnx https://github.com/opencv/opencv_zoo/raw/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx

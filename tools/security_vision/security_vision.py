@@ -22,7 +22,8 @@ entered, equipment moved, movement at equipment with nobody there. Staff see
 the live annotated view through the portal. Nothing is recorded except
 event snapshots. It never actuates anything.
 
-HTTP (port 5100, X-Device-Key required except /health):
+HTTP (port 5100, X-Device-Key required except /health; this laptop only
+by default - the portal in Docker reaches it through host.docker.internal):
     /frame.jpg   latest annotated frame       /raw.jpg   latest plain frame
     /state       JSON: people, names, zones   /health
 """
@@ -41,7 +42,7 @@ import numpy as np
 import requests
 from flask import Flask, Response, jsonify, request
 
-from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw
+from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw, head_crop, predicted
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -143,6 +144,10 @@ class Service:
     CONFIG_PERIOD_S = 3.0
     EXTRA_PERSON_HOLD_S = 8.0          # more people than entered for this long -> event
     EVENT_COOLDOWN_S = 120.0
+    RENDER_FPS = 15                    # pictures drawn per second for the live views
+    FACE_EVERY_S = 1.5                 # a face check per unnamed person at most this often
+    FACE_MARGIN = 0.05                 # the best face must beat the next person by this (cosine)
+    FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
 
     def __init__(self, args):
         self.args = args
@@ -164,6 +169,11 @@ class Service:
         self.fps = 0.0
         self.jpeg = self.raw_jpeg = None
         self.lock = threading.Lock()
+        self.label_lock = threading.Lock()   # labeler: analysis + face checks
+        self.det_lock = threading.Lock()     # the detector network: analysis + equipment search
+        self.face_asked: dict[int, float] = {}
+        self.mismatch_reported: set = set()
+        self.face_http = requests.Session()
         self.extra_since: Optional[float] = None
         self.clear_since: Optional[float] = None
         self.extra_reported = False        # one event per incident, not one per cooldown
@@ -219,7 +229,9 @@ class Service:
                 tracks = list(self.tracks)
                 zones = [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
                          for s in self.zones.states.values()]
-            named = [{"label": t.label, "name": t.name, "role": t.role} for t in tracks if t.label]
+            named = [{"label": t.label, "name": t.name, "role": t.role, "source": t.source,
+                      "entered": t.entered, "verified": t.verified, "face": t.mismatch}
+                     for t in tracks if t.label]
             try:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
                     "device_uid": self.args.device, "fps": self.fps, "people": len(tracks),
@@ -263,12 +275,14 @@ class Service:
                 time.sleep(0.2)
                 continue
             h, w = frame.shape[:2]
-            people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+            with self.det_lock:
+                people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
             tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
             occupants = self.cfg.get("occupants", [])
             door = self.cfg.get("door")
             door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
-            self.labeler.assign(tracks, occupants, door_px, t0)
+            with self.label_lock:
+                self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
             states = self.zones.update(self.cfg.get("zones", []), gray, pnorm, t0)
@@ -288,18 +302,28 @@ class Service:
             self.clear_since = None
             if now - self.extra_since >= self.EXTRA_PERSON_HOLD_S and not self.extra_reported:
                 self.extra_reported = True
+                hold = [f"{t.name} ({t.label})" for t in tracks if t.label and not t.entered]
+                face = f" Recognised by face: {', '.join(hold)} - not entered at the door." if hold else ""
                 if inside == 0:
-                    self.event("PERSON_NO_ENTRY", f"{seen} person(s) seen, nobody entered at the door.",
+                    self.event("PERSON_NO_ENTRY", f"{seen} person(s) seen, nobody entered at the door.{face}",
                                people_seen=seen, people_inside=inside)
                 else:
                     self.event("UNIDENTIFIED_PERSON",
-                               f"{seen} people seen, {inside} entered at the door (possible tailgating).",
+                               f"{seen} people seen, {inside} entered at the door (possible tailgating).{face}",
                                people_seen=seen, people_inside=inside)
         else:
             self.extra_since = None
             self.clear_since = self.clear_since or now
             if now - self.clear_since >= 10:          # back to normal: the next one is new
                 self.extra_reported = False
+        # The badge said one person, the face clearly says another: card sharing?
+        known = {k["auth_subject"]: k["name"] for k in self.cfg.get("known", [])}
+        for t in tracks:
+            if t.mismatch and (t.id, t.mismatch) not in self.mismatch_reported:
+                self.mismatch_reported.add((t.id, t.mismatch))
+                self.event("FACE_MISMATCH", f"The door entry was {t.name} ({t.label}), but the face matches "
+                           f"{known.get(t.mismatch, t.mismatch)} ({t.mismatch}). Someone may be using another "
+                           f"person's card.", zone_id=None, people_seen=seen, people_inside=inside)
         motion_ok = {z["id"]: z.get("alert_on_motion", True) for z in self.cfg.get("zones", [])}
         for st in states:
             if st.reported or st.status not in ("CHANGED", "MOTION"):
@@ -313,15 +337,52 @@ class Service:
                 self.event("EQUIPMENT_MOTION", f"Movement at {st.name} with nobody at it.",
                            zone_id=st.id, people_seen=seen, people_inside=inside)
 
+    def identify_faces(self):
+        """Names by face: a head crop of each person not named yet goes to the
+        face server (the door's templates; nothing logged there). Only a clear
+        match counts, and the labeler waits for two that agree."""
+        if not self.args.face_server:
+            return
+        url = self.args.face_server.rstrip("/") + "/identify"
+        while True:
+            time.sleep(0.3)
+            with self.lock:
+                tracks = list(self.tracks)
+            frame, _ = self.camera.latest()
+            if frame is None:
+                continue
+            now = time.time()
+            for tid in [k for k in self.face_asked if all(t.id != k for t in tracks)]:
+                del self.face_asked[tid]
+            for t in tracks:
+                every = self.FACE_RECHECK_S if t.verified else self.FACE_EVERY_S
+                if now - self.face_asked.get(t.id, 0.0) < every:
+                    continue
+                self.face_asked[t.id] = now
+                crop = head_crop(frame, t.box)
+                if crop is None:
+                    continue
+                jpg = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
+                try:
+                    r = self.face_http.post(url, data=jpg, timeout=3,
+                                            headers={"X-Device-Key": self.key, "Content-Type": "image/jpeg"})
+                    res = r.json() if r.status_code == 200 else {}
+                except (requests.RequestException, ValueError):
+                    res = {}
+                name, score, second = res.get("name"), res.get("score"), res.get("second")
+                if name and (second is None or score - second >= self.FACE_MARGIN):
+                    with self.label_lock:
+                        self.labeler.face_vote(t.id, name, time.time())
+
     def render(self):
-        """Annotated stream: newest frame + latest boxes, ~10 fps."""
+        """Annotated stream: newest frame + latest boxes, RENDER_FPS a second."""
         while True:
             t0 = time.time()
             frame, at = self.camera.latest()
             if frame is not None and t0 - at < 5:
                 raw = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
                 with self.lock:
-                    tracks = list(self.tracks)
+                    tracks = predicted(list(self.tracks), time.time())   # boxes keep up between detections
                 door = self.cfg.get("door")
                 draw(frame, tracks, self.cfg.get("zones", []), dict(self.zones.states),
                      (door["x"], door["y"], door["w"], door["h"]) if door else None)
@@ -331,7 +392,7 @@ class Service:
             else:
                 with self.lock:
                     self.raw_jpeg = self.jpeg = None
-            time.sleep(max(0.0, 0.1 - (time.time() - t0)))
+            time.sleep(max(0.0, 1.0 / self.RENDER_FPS - (time.time() - t0)))
 
 
 def make_app(svc: Service) -> Flask:
@@ -346,6 +407,23 @@ def make_app(svc: Service) -> Flask:
         if data is None:
             return Response(status=204)
         return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+    @app.get("/equipment")
+    def equipment():
+        """Monitors and laptops the detector sees in the plain picture now, as
+        boxes (0-1) to suggest; the portal numbers them and staff choose."""
+        if not authorised():
+            return Response("device key required", status=401)
+        frame, _ = svc.camera.latest()
+        if frame is None:
+            return jsonify({"items": []})
+        h, w = frame.shape[:2]
+        with svc.det_lock:
+            found = svc.detector.detect(frame)
+        kinds = {62: "Monitor", 63: "Laptop"}
+        return jsonify({"items": [
+            {"kind": kinds[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4), "y": round(d.box[1] / h, 4),
+             "w": round(d.box[2] / w, 4), "h": round(d.box[3] / h, 4)} for d in found if d.cls in kinds]})
 
     @app.get("/health")
     def health():
@@ -427,6 +505,11 @@ def main():
     ap.add_argument("--lab", default="LAB_01")
     ap.add_argument("--portal", default="http://127.0.0.1:8000/api")
     ap.add_argument("--port", type=int, default=5100)
+    ap.add_argument("--face-server", default=os.environ.get("FACE_SERVER_URL", "http://127.0.0.1:5000"),
+                    help="face server for naming people by face ('' = door names only)")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="127.0.0.1 = this laptop only (the portal in Docker still reaches it); "
+                         "0.0.0.0 only when the portal runs on another computer")
     ap.add_argument("--model", default=os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx"))
     ap.add_argument("--reid", default=os.path.join(HERE, "models", "person_reid_youtu_2021nov.onnx"),
                     help="body re-identification model (optional; colours only without it)")
@@ -441,9 +524,9 @@ def main():
     if not os.path.isfile(args.model):
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
-    for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render):
+    for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces):
         threading.Thread(target=target, daemon=True).start()
-    host = "127.0.0.1" if svc.demo else "0.0.0.0"
+    host = "127.0.0.1" if svc.demo else args.host
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")
     if svc.demo:
         print(f"DEMO: open http://127.0.0.1:{args.port}/demo")

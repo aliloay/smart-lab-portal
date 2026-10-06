@@ -16,6 +16,8 @@ import { AccessEvent, Notification, api, getToken } from './api'
 export type LiveMessage =
   | { type: 'access_event'; event: AccessEvent }
   | { type: 'notification'; user_id: number; notification: Notification }
+  /** A lab camera's people / names / box states changed (staff). */
+  | { type: 'security_state'; device_id: number; lab_id: number }
   | { type: 'staff'; kind: string; issue_id?: number; event?: string
       command_id?: number; status?: string; step?: string | null }
   /** The door sensor or lock changed: refetch the lab's status. */

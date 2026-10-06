@@ -49,6 +49,7 @@ KINDS = {
     "UNIDENTIFIED_PERSON": (AlertSeverity.WARNING, "More people seen than entered at the door"),
     "EQUIPMENT_CHANGED": (AlertSeverity.WARNING, "Equipment moved or missing"),
     "EQUIPMENT_MOTION": (AlertSeverity.WARNING, "Movement at equipment with nobody there"),
+    "FACE_MISMATCH": (AlertSeverity.CRITICAL, "Face does not match the door entry (card sharing?)"),
 }
 MAX_SNAPSHOT = 2_000_000
 
@@ -102,7 +103,12 @@ def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_lengt
     return {"device_id": d.id, "lab_code": lab.code, "lab_name": lab.name,
             "zones": [_zone_out(z, db) for z in zones if z.kind == "EQUIPMENT"],
             "door": next((_zone_out(z, db) for z in zones if z.kind == "DOOR"), None),
-            "occupants": occupants(db, lab.id), "server_time": now.timestamp()}
+            "occupants": occupants(db, lab.id), "server_time": now.timestamp(),
+            # Who USERx is, so a face recognised before the door can be named
+            # (shown "not entered" until the door confirms the entry).
+            "known": [{"auth_subject": u.auth_subject, "name": u.full_name, "role": u.role.value}
+                      for u in db.scalars(select(User).where(User.is_active.is_(True),
+                                                             User.auth_subject.is_not(None))).all()]}
 
 
 class ZoneStatus(BaseModel):
@@ -130,18 +136,27 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Call /security/config first")
     now = datetime.now(timezone.utc)
+    prev = d.component_state or {}
+    # What staff see: pushed only when it changes. The service reports every
+    # 2 s and every staff page refetches on a push - pushing each report made
+    # the whole portal reload every 2 s.
+    def seen(s: dict) -> tuple:
+        return (s.get("people"), s.get("unknown"), s.get("source_ok"),
+                tuple(sorted((n.get("label") or "", n.get("name") or "") for n in s.get("named", []))),
+                tuple(sorted((z.get("id"), z.get("status")) for z in s.get("zones", []))))
+    was_online = d.is_online
     d.last_seen_at, d.is_online = now, True
-    d.component_state = {"port": (d.component_state or {}).get("port", 5100),
+    d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok,
                          "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
     db.commit()
-    try:
-        from app.ws.manager import manager
-        manager.publish({"type": "staff", "kind": "security_state", "device_id": d.id,
-                         "lab_id": d.lab_id})
-    except Exception:
-        pass
+    if seen(prev) != seen(d.component_state) or not was_online:
+        try:
+            from app.ws.manager import manager
+            manager.publish({"type": "security_state", "device_id": d.id, "lab_id": d.lab_id})
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -250,6 +265,43 @@ def frame(device_id: int, raw: bool = False, db: Session = Depends(get_db),
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return Response(content=r.content, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store"})
+
+
+def _overlap(a: dict, b) -> float:
+    ax2, ay2, bx2, by2 = a["x"] + a["w"], a["y"] + a["h"], b.x + b.w, b.y + b.h
+    iw, ih = max(0.0, min(ax2, bx2) - max(a["x"], b.x)), max(0.0, min(ay2, by2) - max(a["y"], b.y))
+    inter = iw * ih
+    union = a["w"] * a["h"] + b.w * b.h - inter
+    return inter / union if union > 0 else 0.0
+
+
+@router.get("/cameras/{device_id}/suggestions")
+def suggestions(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Equipment the detector finds in the picture now (monitors, laptops) as
+    boxes to add: numbered after the boxes already saved, skipping any item a
+    saved box already covers. Nothing is saved until staff add them."""
+    d = _camera(db, device_id)
+    try:
+        r = httpx.get(_service_url(d, "/equipment"), headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                      timeout=httpx.Timeout(20.0, connect=1.5))
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The security camera service is not reachable - start it on the laptop.")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service could not look for equipment.")
+    zones = db.scalars(select(SecurityZone).where(SecurityZone.device_id == d.id)).all()
+    names = {z.name for z in zones}
+    out = []
+    for it in sorted(r.json().get("items", []), key=lambda i: (round(i["y"], 2), i["x"])):
+        if any(_overlap(it, z) > 0.3 for z in zones):
+            continue
+        prefix = "PC" if it["kind"] == "Monitor" else it["kind"]
+        n = 1
+        while f"{prefix}-{n:02d}" in names:
+            n += 1
+        names.add(f"{prefix}-{n:02d}")
+        out.append({**it, "name": f"{prefix}-{n:02d}"})
+    return out
 
 
 class ZoneIn(BaseModel):

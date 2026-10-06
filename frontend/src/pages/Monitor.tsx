@@ -16,13 +16,14 @@
 import { ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, CircleCheck, DoorClosed, DoorOpen, Droplets, Lock, LockOpen,
+  ArrowLeft, CircleCheck, DoorClosed, DoorOpen, Droplets, Expand, Lock, LockOpen,
   Maximize2, Minimize2, ShieldAlert, ShieldCheck, Siren, Thermometer, TriangleAlert,
   UsersRound, WifiOff,
 } from 'lucide-react'
 import { MonitorTile, Role, api } from '../lib/api'
-import { createPortal } from 'react-dom'
 import LiveCameraFeed from '../components/LiveCameraFeed'
+import CameraFullScreen from '../components/CameraFullScreen'
+import LabDetails from '../components/LabDetails'
 import { useLive, useLiveMessages } from '../lib/live'
 import { fmtTime, relative } from '../lib/time'
 import { InstitutionLogo } from '../components/Brand'
@@ -76,7 +77,8 @@ export default function Monitor() {
   // Door, access and alert messages refresh at once (debounced: one entry
   // produces several messages in a second).
   useLiveMessages(m => {
-    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff' && m.type !== 'hazard' && m.type !== 'env_update') return
+    if (m.type !== 'door_state' && m.type !== 'access_event' && m.type !== 'staff' && m.type !== 'hazard' && m.type !== 'env_update'
+        && m.type !== 'security_state') return
     window.clearTimeout(timer.current)
     timer.current = window.setTimeout(load, 300)
   })
@@ -212,6 +214,7 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
   const others = t.alert_count - (top?.count ?? 0)
 
   const [big, setBig] = useState(false)
+  const [details, setDetails] = useState(false)
   const cam = t.security_camera
   return (
     <section className={`relative isolate rounded-2xl border flex flex-col min-h-0 overflow-hidden [&>*]:relative ${S.pad} ${frame}`}>
@@ -220,7 +223,11 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
         <LiveCameraFeed deviceId={cam.device_id} intervalMs={250} className="!absolute inset-0 -z-0" />
         <div className="!absolute inset-0 bg-gradient-to-b from-ink-950/80 via-ink-950/35 to-ink-950/85 pointer-events-none" />
       </>}
-      {big && cam && <CameraFull t={t} onClose={() => setBig(false)} />}
+      {big && cam && <CameraFullScreen deviceId={cam.device_id} title={t.code} sub={t.name}
+                                       badges={<CameraBadges t={t} onOpen={() => {}} />} onClose={() => setBig(false)} />}
+      {details && <LabDetails t={t} pill={<StatePill state={t.state} inUse={t.in_use} />}
+                              badges={cam ? <CameraBadges t={t} onOpen={() => {}} /> : null}
+                              onClose={() => setDetails(false)} />}
       {/* Lab and its overall state */}
       <div className="flex items-start gap-2 min-w-0">
         <div className="min-w-0">
@@ -228,6 +235,10 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
           <div className="text-[12px] text-slate-400 truncate mt-1">{t.name}</div>
         </div>
         <StatePill state={t.state} inUse={t.in_use} />
+        <button onClick={() => setDetails(true)} title="Everything about this lab"
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-accent-400/40 bg-accent-500/10
+                           text-accent-200 text-[11px] font-bold tracking-[0.14em] hover:bg-accent-500/20">
+          <Expand size={12} /> DETAILS</button>
       </div>
 
       {t.emergency && <EmergencyBanner e={t.emergency} size={S.body} />}
@@ -348,29 +359,13 @@ function CameraBadges({ t, onOpen }: { t: MonitorTile; onOpen: () => void }) {
         <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-bad animate-pulse' : 'bg-slate-500'}`} />
         {live ? 'LIVE' : 'CAMERA OFFLINE'}</button>
       {live && <span className="px-2 py-0.5 rounded-md bg-black/70 text-white tnum">{c.people ?? 0} seen · {c.inside} entered</span>}
-      {extra && <span className="px-2 py-0.5 rounded-md bg-bad text-white">Unidentified person</span>}
+      {extra && <span className="px-2 py-0.5 rounded-md bg-bad text-white">
+        {c.inside === 0 ? 'Person with no door entry' : 'Unidentified person'}</span>}
+      {live && c.named.filter(n => n.entered === false).map(n => (
+        <span key={n.label} className="px-2 py-0.5 rounded-md bg-orange-500 text-black">{n.name} · not entered</span>))}
       {!extra && unknown && <span className="px-2 py-0.5 rounded-md bg-warn/90 text-black">{c.unknown} not named</span>}
     </div>
   )
-}
-
-function CameraFull({ t, onClose }: { t: MonitorTile; onClose: () => void }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', k)
-    return () => window.removeEventListener('keydown', k)
-  }, [onClose])
-  return createPortal(
-    <div className="fixed inset-0 z-[70] bg-black flex flex-col" onClick={onClose}>
-      <div className="flex items-center gap-3 px-5 py-3 text-white">
-        <span className="text-xl font-extrabold">{t.code}</span>
-        <span className="text-slate-400 truncate">{t.name}</span>
-        <div className="ml-4"><CameraBadges t={t} onOpen={() => {}} /></div>
-        <span className="ml-auto text-slate-400 text-[13px]">Click or Esc to close</span>
-      </div>
-      <LiveCameraFeed deviceId={t.security_camera!.device_id} intervalMs={120} fit="contain" className="flex-1" />
-    </div>,
-    document.body)
 }
 
 function StatePill({ state, inUse }: { state: MonitorTile['state']; inUse: boolean }) {

@@ -249,3 +249,96 @@ def test_body_model_runs_when_people_are_close_and_once_a_second_otherwise():
     assert app.wants_deep(apart, 1.5)                       # just apart: still every frame
     app._last_deep = 2.7
     assert not app.wants_deep(apart, 3.0)                   # settled again: back to once a second
+
+
+def test_boxes_follow_people_between_detections():
+    """The live view is drawn 15 times a second, detection runs ~3: between
+    detections each box moves on at the person's speed (capped), so boxes
+    keep up with people instead of jumping."""
+    from vision import Track, predicted
+    t = Track(1, (100.0, 50.0, 40.0, 120.0), first_seen=0.0, last_seen=10.0, vel=(200.0, 0.0))
+    p = predicted([t], now=10.2)[0]
+    assert p.box[0] == pytest.approx(140.0) and p.box[1:] == t.box[1:]
+    assert t.box[0] == 100.0                                   # the track itself is untouched
+    far = predicted([t], now=13.0)[0]                          # long gap: never extrapolate wildly
+    assert far.box[0] == pytest.approx(100.0 + 200.0 * predicted.MAX_AHEAD_S)
+
+
+KNOWN = [{"auth_subject": "USER1", "name": "Ali", "role": "STUDENT"},
+         {"auth_subject": "USER2", "name": "Dr. Ramy", "role": "LAB_STAFF"}]
+
+
+def test_face_names_after_two_agreeing_matches_on_hold_until_the_door():
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    lab.face_vote(1, "USER1", 10.0)
+    lab.assign([t], [], None, now=10.0, known=KNOWN)
+    assert t.label is None                          # one match is not enough
+    lab.face_vote(1, "USER1", 11.5)
+    lab.assign([t], [], None, now=11.5, known=KNOWN)
+    assert (t.label, t.name, t.source, t.entered) == ("USER1", "Ali", "face", False)
+    lab.assign([t], [], None, now=30.0, known=KNOWN)
+    assert t.label == "USER1"                       # kept although nobody entered
+    lab.assign([t], [occ("USER1", "Ali", "STUDENT", 31.0)], None, now=32.0, known=KNOWN)
+    assert t.entered is True                        # the door confirmed it
+
+
+def test_face_matches_that_disagree_or_are_old_name_nobody():
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    lab.face_vote(1, "USER1", 10.0)
+    lab.face_vote(1, "USER2", 11.0)
+    lab.assign([t], [], None, now=11.0, known=KNOWN)
+    assert t.label is None
+    lab2 = Labeler()
+    lab2.face_vote(1, "USER1", 0.0)
+    lab2.face_vote(1, "USER1", 30.0)                # too far apart to count together
+    lab2.assign([t], [], None, now=30.0, known=KNOWN)
+    assert t.label is None
+
+
+def test_door_name_is_not_overridden_by_a_face():
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    lab.assign([t], [occ("USER2", "Dr. Ramy", "LAB_STAFF", 0.0)], None, 10.0, known=KNOWN)
+    assert (t.label, t.source, t.entered) == ("USER2", "door", True)
+    lab.face_vote(1, "USER1", 11.0)
+    lab.face_vote(1, "USER1", 12.0)
+    lab.assign([t], [occ("USER2", "Dr. Ramy", "LAB_STAFF", 0.0)], None, 12.0, known=KNOWN)
+    assert t.label == "USER2"
+
+
+def test_face_that_agrees_with_the_door_verifies_the_name():
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    inside = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    lab.assign([t], inside, None, 10.0, known=KNOWN)
+    assert (t.label, t.verified) == ("USER1", False)          # the door alone named him
+    lab.face_vote(1, "USER1", 11.0)
+    lab.face_vote(1, "USER1", 12.0)
+    lab.assign([t], inside, None, 12.0, known=KNOWN)
+    assert t.verified is True and t.mismatch is None
+
+
+def test_face_of_someone_else_than_the_badge_is_a_mismatch():
+    """Ali's card was used, but the face is clearly Dr. Ramy's: card sharing."""
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    inside = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    lab.assign([t], inside, None, 10.0, known=KNOWN)
+    lab.face_vote(1, "USER2", 11.0)
+    lab.face_vote(1, "USER2", 12.0)
+    lab.assign([t], inside, None, 12.0, known=KNOWN)
+    assert t.label == "USER1" and t.verified is False         # the door's name stays...
+    assert t.mismatch == "USER2"                              # ...and the face that contradicts it is flagged
+
+
+def test_face_named_person_who_then_enters_is_verified():
+    lab = Labeler()
+    t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    lab.face_vote(1, "USER1", 10.0)
+    lab.face_vote(1, "USER1", 11.0)
+    lab.assign([t], [], None, 11.0, known=KNOWN)
+    assert (t.entered, t.verified) == (False, False)          # on hold
+    lab.assign([t], [occ("USER1", "Ali", "STUDENT", 12.0)], None, 13.0, known=KNOWN)
+    assert (t.entered, t.verified) == (True, True)

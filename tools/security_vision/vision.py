@@ -224,6 +224,10 @@ class Track:
     name: Optional[str] = None         # display name
     role: Optional[str] = None
     entered_at_door: bool = False      # first seen in the door area
+    source: Optional[str] = None       # where the name came from: "door" or "face"
+    entered: bool = False              # named AND inside per the door (else: on hold)
+    verified: bool = False             # entered, and the face confirms the name
+    mismatch: Optional[str] = None     # the face clearly says someone else (card sharing?)
     look: Optional[Look] = None        # this frame's look
     vel: tuple = (0.0, 0.0)            # centre speed, px/s
     crowded: bool = False              # touching someone else right now
@@ -314,6 +318,22 @@ class Tracker:
         return [t for t in self.tracks if t.hits >= self.CONFIRM_HITS and now - t.last_seen < 0.6]
 
 
+def predicted(tracks: list[Track], now: float) -> list[Track]:
+    """Copies of the tracks moved on to `now` at their measured speed - for
+    drawing between detections, so boxes keep up with people. At most
+    MAX_AHEAD_S ahead: a long gap is not guessed across."""
+    from dataclasses import replace
+    out = []
+    for t in tracks:
+        dt = min(max(now - t.last_seen, 0.0), predicted.MAX_AHEAD_S)
+        x, y, w, h = t.box
+        out.append(replace(t, box=(x + t.vel[0] * dt, y + t.vel[1] * dt, w, h)))
+    return out
+
+
+predicted.MAX_AHEAD_S = 0.5
+
+
 # ---------------------------------------------------------------- labeler ---
 def in_rect(pt, rect) -> bool:
     return rect is not None and rect[0] <= pt[0] <= rect[0] + rect[2] and rect[1] <= pt[1] <= rect[1] + rect[3]
@@ -336,6 +356,12 @@ class Labeler:
         visible person is unlabelled, that person must be them;
       * everyone else stays "Unknown" - a wrong name is worse than none.
 
+    A face can name a person too (face_vote, from the face server's
+    templates): only after FACE_VOTES agreeing matches within FACE_WINDOW_S.
+    Such a person keeps the name while in view, but is ON HOLD (entered =
+    False) until the door records their entry - the camera says who, only
+    the door says they came in properly. A door name is never overridden.
+
     Once named, the name is LOCKED to the person's look (clothes, hair,
     body), learnt only from frames where they stand clear of everyone:
 
@@ -355,19 +381,31 @@ class Labeler:
     REACQUIRE_MAX = 0.30               # this alike to get a name back...
     REACQUIRE_MARGIN = 0.08            # ...and clearly more alike than anyone else
     LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
+    FACE_VOTES = 2                     # agreeing face matches before a face names someone
+    FACE_WINDOW_S = 10.0               # ...within this long
 
     def __init__(self):
         self.identities: dict[str, Identity] = {}
+        self.votes: dict[int, list[tuple[str, float]]] = {}
 
-    def assign(self, tracks: list[Track], occupants: list[dict], door_rect, now: float):
+    def face_vote(self, track_id: int, label: str, now: float):
+        """The face server matched this track's face to `label`."""
+        self.votes.setdefault(track_id, []).append((label, now))
+
+    def assign(self, tracks: list[Track], occupants: list[dict], door_rect, now: float,
+               known: Optional[list[dict]] = None):
         inside = {o["auth_subject"]: o for o in occupants}
-        # A name whose person left the lab is dropped from its track.
+        # A door name whose person left the lab is dropped from its track (a
+        # face name stays: the face, not the door, said who it is).
         for t in tracks:
-            if t.label and t.label not in inside:
-                t.label = t.name = t.role = None
+            if t.label and t.label not in inside and t.source != "face":
+                t.label = t.name = t.role = t.source = t.mismatch = None
+                t.verified = False
+        held = {t.label for t in tracks if t.label}
         for label in list(self.identities):
-            if label not in inside:
+            if label not in inside and label not in held:
                 del self.identities[label]
+        self._face(tracks, inside, {k["auth_subject"]: k for k in (known or [])}, now)
 
         self._fix_after_crossing(tracks, inside, now)
 
@@ -411,6 +449,46 @@ class Labeler:
             self._give(unlabelled[0], free[0])
 
         self._learn(tracks)
+        for t in tracks:
+            t.entered = bool(t.label and t.label in inside)
+        self._verify(tracks)
+
+    def _face(self, tracks: list[Track], inside: dict, known: dict, now: float):
+        live = {t.id for t in tracks}
+        for tid in list(self.votes):
+            recent = [v for v in self.votes[tid] if now - v[1] <= self.FACE_WINDOW_S]
+            if tid not in live or not recent:
+                del self.votes[tid]
+            else:
+                self.votes[tid] = recent
+        taken = {t.label for t in tracks if t.label}
+        for t in tracks:
+            label = self._agreed(t)
+            if t.label or label is None:
+                continue
+            who = inside.get(label) or known.get(label)
+            if who is None or label in taken:
+                continue
+            self._give(t, who, "face")
+            taken.add(label)
+
+    def _agreed(self, t: Track) -> Optional[str]:
+        """The one person FACE_VOTES recent face matches agree on, else None."""
+        v = self.votes.get(t.id, [])
+        return v[0][0] if len(v) >= self.FACE_VOTES and len({l for l, _ in v}) == 1 else None
+
+    def _verify(self, tracks: list[Track]):
+        """Door and face together: VERIFIED when they agree; a door name the face
+        clearly contradicts is a MISMATCH (someone used another person's card)."""
+        for t in tracks:
+            if not t.label:
+                continue
+            face = self._agreed(t)
+            if face == t.label or (t.source == "face" and face is None and t.verified):
+                t.mismatch = None
+            elif face is not None and t.source != "face":
+                t.mismatch, t.verified = face, False
+            t.verified = t.entered and t.mismatch is None and (face == t.label or t.source == "face" or t.verified)
 
     def _distance(self, t: Track, label: str) -> Optional[float]:
         ident = self.identities.get(label)
@@ -470,8 +548,10 @@ class Labeler:
             ident.samples += 1
 
     @staticmethod
-    def _give(t: Track, o: dict):
+    def _give(t: Track, o: dict, source: str = "door"):
         t.label, t.name, t.role = o["auth_subject"], o.get("name") or o["auth_subject"], o.get("role")
+        t.source = source
+        t.verified, t.mismatch = False, None
 
 
 # ------------------------------------------------------------------ zones ---
@@ -588,10 +668,28 @@ class ZoneWatcher:
             st.status, st.since, st.reported = status, now, False
 
 
+def head_crop(frame: np.ndarray, box) -> Optional[np.ndarray]:
+    """The head and shoulders of a person box, for face identification
+    (YuNet then finds the face inside it). Small crops are enlarged."""
+    H, W = frame.shape[:2]
+    x, y, w, h = box
+    x0, x1 = int(max(0, x - 0.1 * w)), int(min(W, x + 1.1 * w))
+    y0, y1 = int(max(0, y - 0.05 * h)), int(min(H, y + 0.5 * h))
+    if x1 - x0 < 24 or y1 - y0 < 24:
+        return None
+    crop = frame[y0:y1, x0:x1]
+    if crop.shape[1] < 240:
+        f = 240 / crop.shape[1]
+        crop = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC)
+    return crop
+
+
 # --------------------------------------------------------------- drawing ---
 COLORS = {"ADMIN": (246, 92, 139), "LAB_STAFF": (250, 165, 96), "STUDENT": (129, 199, 52),
           None: (36, 191, 251)}                          # BGR: violet / blue / green / amber
 ROLE_NAMES = {"ADMIN": "Admin", "LAB_STAFF": "Staff", "STUDENT": "Student"}
+ON_HOLD = (0, 140, 255)                                  # BGR orange: named by face, not entered yet
+MISMATCH = (60, 60, 240)                                 # BGR red: the face contradicts the door's name
 ZONE_COLORS = {"OK": (160, 160, 160), "IN_USE": (250, 165, 96), "CHANGED": (60, 60, 240),
                "MOTION": (0, 165, 255), "LEARNING": (160, 160, 160)}
 
@@ -613,12 +711,19 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
                                       int((door_rect_norm[1] + door_rect_norm[3]) * h)), (200, 200, 200), 1)
         _tag(frame, "door", x, y, (200, 200, 200))
     for t in tracks:
-        c = COLORS.get(t.role if t.label else None, COLORS[None])
+        c = MISMATCH if t.mismatch else ON_HOLD if t.label and not t.entered \
+            else COLORS.get(t.role if t.label else None, COLORS[None])
         x, y, bw, bh = (int(v) for v in t.box)
         cv2.rectangle(frame, (x, y), (x + bw, y + bh), c, 2)
         if t.label:
             role = ROLE_NAMES.get(t.role, "")
             label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
+            if t.mismatch:
+                label += f" - face says {t.mismatch}"
+            elif not t.entered:
+                label += " - not entered"
+            elif t.verified:
+                label += " - verified"
         else:
             label = "Unknown"
         _tag(frame, label, x, y, c)

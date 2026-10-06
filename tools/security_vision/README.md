@@ -19,8 +19,9 @@ A person in a box makes it **in use** and pauses the comparison. Staff press
 Each event is sent once per incident, with a snapshot.
 
 Nothing is recorded except event snapshots (deleted 30 days after staff
-checked them). The stream is never open on the network: the portal fetches
-each frame from this service with the device key. It never actuates
+checked them). The stream is never open on the network: the service listens
+on this laptop only (127.0.0.1; `--host 0.0.0.0` only if the portal runs on
+another computer) and the portal fetches each frame from it with the device key. It never actuates
 anything: a camera can be wrong, and staff decide.
 
 ## Setting up the Mercusys MC210
@@ -42,7 +43,9 @@ start_security_vision.bat               (or just launch.bat - it starts it when 
 ```
 
 `SOURCE` is `rtsp://<camera account>:<password>@192.168.1.155:554/stream2`
-(the light 640x360 stream is enough for detection and keeps the laptop free),
+(MC210 measured 2026-10-06: stream1 2304x1296 ~21 fps,
+stream2 1280x720 ~24 fps - stream2 is enough for detection and keeps the laptop
+free; a "@" or ":" in the password is written as %40 / %3A),
 or `0` for the laptop webcam while testing. The first start downloads the
 detector (36 MB, `models/README.md`) and installs `requirements.txt`.
 

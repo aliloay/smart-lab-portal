@@ -88,7 +88,9 @@ export interface SecurityCameraTile {
   device_id: number; online: boolean | null; source_ok: boolean | null
   /** People the camera sees now, and how many of them it could not name. */
   people: number | null; unknown: number | null
-  named: { label: string; name: string; role: Role | null }[]
+  /** source: how the name was given; entered = false: named by face, no door entry yet (on hold). */
+  named: { label: string; name: string; role: Role | null; source?: 'door' | 'face' | null; entered?: boolean
+           /** door and face agree */ verified?: boolean; /** the face says this other person */ face?: string | null }[]
   /** People inside per the door. */
   inside: number
   open_events: number
@@ -97,6 +99,9 @@ export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null
   last_seen_at: string | null; fps: number | null
   zones: { id: number; name: string; status: 'LEARNING' | 'OK' | 'IN_USE' | 'CHANGED' | 'MOTION'; score: number }[]
+}
+export interface EquipmentSuggestion {
+  kind: string; score: number; name: string; x: number; y: number; w: number; h: number
 }
 export interface SecurityZone {
   id: number; name: string; kind: 'EQUIPMENT' | 'DOOR'; asset_id: number | null; asset_tag: string | null
@@ -204,7 +209,7 @@ export interface Device {
   id: number
   device_uid: string
   name: string
-  device_type: 'MASTER_CONTROLLER' | 'CAMERA' | 'FACE_SERVER' | 'SENSOR_NODE'
+  device_type: 'MASTER_CONTROLLER' | 'CAMERA' | 'FACE_SERVER' | 'SENSOR_NODE' | 'SECURITY_CAMERA'
   lab_id: number
   /** Uses its own key (Devices -> Issue key) rather than the shared one. */
   has_own_key?: boolean
@@ -714,12 +719,18 @@ export interface Priority {
   age_hours: number; sla_hours: number | null; overdue: boolean
   bookings_next_24h: number; score: number; reasons: string[]; link: string
 }
+/** A chart the agent answered with: data from the records; the chat draws it. */
+export interface AiChartData {
+  kind: 'bar' | 'pie'; title: string; x: string[]; stacked?: boolean
+  series: { name: string; color: string; data: number[]; colors?: string[] }[]
+}
 export interface AiAnswer {
   answer: string; tools_used: string[]; model: string
   /** Answered by the agent straight from the records (no model). */
-  instant?: boolean; link?: { label: string; to: string }
+  instant?: boolean; link?: { label: string; to: string }; charts?: AiChartData[]
 }
 export interface ManagementReport {
+  charts?: AiChartData[]
   kind: 'weekly' | 'monthly'; span: string; title: string; period_label: string; generated_at: string
   lines: string[]
   bookings: { total: number; confirmed: number; cancelled: number; rejected: number; finished: number
@@ -939,6 +950,8 @@ export const api = {
   securityCameras: () => request<SecurityCamera[]>('/security/cameras'),
   securityZones: (cam: number) => request<SecurityZone[]>(`/security/cameras/${cam}/zones`),
   addSecurityZone: (cam: number, z: SecurityZoneIn) => post<SecurityZone>(`/security/cameras/${cam}/zones`, z),
+  /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
+  securitySuggestions: (cam: number) => request<EquipmentSuggestion[]>(`/security/cameras/${cam}/suggestions`),
   updateSecurityZone: (cam: number, id: number, z: SecurityZoneIn) =>
     request<SecurityZone>(`/security/cameras/${cam}/zones/${id}`, { method: 'PUT', body: JSON.stringify(z) }),
   deleteSecurityZone: (cam: number, id: number) =>
