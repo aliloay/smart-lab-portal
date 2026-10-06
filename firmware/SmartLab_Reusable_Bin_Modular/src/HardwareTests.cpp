@@ -223,10 +223,11 @@ void HardwareTests::update() {
     if (!_p.scale.available()) { snprintf(l1, sizeof(l1), "HX711 NO ANSWER"); snprintf(l2, sizeof(l2), "check DT/SCK"); }
     else if (_p.scale.calibrated()) {
       snprintf(l1, sizeof(l1), "%9.1f g", _p.scale.grams());
-      snprintf(l2, sizeof(l2), "%s g%u", _p.scale.stable() ? "STABLE" : "moving", _p.scale.gain());
+      // How steady it is: the spread of the last readings, in grams.
+      snprintf(l2, sizeof(l2), "%s +-%.1fg", _p.scale.stable() ? "STABLE" : "moving", _p.scale.spreadGrams() / 2);
     } else {
       snprintf(l1, sizeof(l1), "raw %11.0f", _p.scale.raw());
-      snprintf(l2, sizeof(l2), "not calib. g%u", _p.scale.gain());
+      snprintf(l2, sizeof(l2), "not calibrated");
     }
   #else
     snprintf(l1, sizeof(l1), "LCD TEST OK");
