@@ -1,26 +1,28 @@
 /**
  * The portal-wide smoke / flame alarm.
  *
- * When an environment node reports a hazard, the backend opens a CRITICAL
- * alert and pushes a `hazard` message to every signed-in page. This shows it
+ * When an environment node reports a hazard, or an administrator switches the
+ * evacuation alarm on in the Emergency tab, the backend pushes a `hazard`
+ * message to every signed-in page (any role). This shows it
  * full-screen, in red, with a siren - on every device that has the portal
  * open (laptop, tablet, phone). Open hazards are also loaded over REST, so a
  * page opened after the alarm started still shows it.
  *
- * "Acknowledge" only quiets THIS screen (siren off, a red bar stays at the
- * top). The alarm itself ends when the sensor clears. Admins get a direct
+ * CLEAR ALL puts THIS screen back to normal: siren off, no overlay, no red
+ * bar, no pop-ups. Only a NEW alarm sounds again. The alarm itself ends when
+ * the sensor clears or the Emergency tab switches it off. Admins get a direct
  * way into Emergency mode. Indicators only - not a certified fire alarm.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Flame, ShieldAlert, Volume2, VolumeX, Wind } from 'lucide-react'
+import { BellRing, Flame, ShieldAlert, Volume2, VolumeX, Wind } from 'lucide-react'
 import { ActiveHazard, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
 
-const ICON = { flame: Flame, smoke: Wind } as Record<string, typeof Flame>
+const ICON = { flame: Flame, smoke: Wind, evacuation: BellRing } as Record<string, typeof Flame>
 const HEADLINE: Record<string, string> = {
-  flame: 'FLAME DETECTED', smoke: 'SMOKE / GAS DETECTED',
+  flame: 'FLAME DETECTED', smoke: 'SMOKE / GAS DETECTED', evacuation: 'EVACUATE NOW',
 }
 
 // A two-tone siren made in the browser - no sound file, works offline.
@@ -188,7 +190,7 @@ export default function HazardAlarm() {
                 + {unacked.slice(1).map(h => `${HEADLINE[h.metric] ?? h.label} (${h.lab_code})`).join(', ')}</div>
             )}
 
-            {/* Two choices only: take charge (Emergency mode) or clear it from this screen. */}
+            {/* Two choices only: take charge (Emergency mode) or clear this screen. */}
             <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
               {isAdmin(user) && (
                 <button onClick={() => { acknowledge(); nav('/admin/emergency') }}
@@ -196,13 +198,13 @@ export default function HazardAlarm() {
                              hover:scale-[1.02] transition">
                   EMERGENCY MODE</button>
               )}
-              <button onClick={acknowledge}
+              <button onClick={() => window.dispatchEvent(new Event('smartlab:clear-all'))}
                 className="rounded-xl border-4 border-white text-white text-xl font-black px-10 py-4
                            hover:bg-white/10 transition">
-                CLEAR</button>
+                CLEAR ALL</button>
             </div>
             <div className="mt-3 text-sm text-white/80">
-              Clear only closes this screen - while the sensor still detects it, a red bar stays at the bottom.</div>
+              Clear all silences this device and clears its screen. The alarm itself stays on until the sensor clears or an admin presses Back to normal.</div>
 
             {siren.blocked && (
               <button onClick={siren.start}

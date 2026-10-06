@@ -104,6 +104,29 @@ def active_hazards(db: Session) -> list[dict]:
                     "lab_code": lab.code if lab else "", "metric": metric,
                     "label": HAZARD_LABEL.get(metric, metric), "title": a.title,
                     "detail": a.detail, "at": a.created_at.isoformat() if a.created_at else None})
+    return evacuation_alarms(db) + out
+
+
+def evacuation_alarm(lab: Lab, e) -> dict:
+    """An evacuation alarm switched on in the Emergency tab, as a hazard: the
+    same full-screen alarm and siren on every signed-in page, not only the
+    door buzzer. Its id is negative (no alert row) and changes with every
+    emergency change, so a screen that cleared an earlier alarm sounds again."""
+    detail = "Evacuation alarm switched on from the Emergency tab. Leave by the nearest exit."
+    if e.message:
+        detail += f' "{e.message}"'
+    return {"alert_id": -(lab.id * 1_000_000 + e.version), "lab_id": lab.id, "lab_code": lab.code,
+            "metric": "evacuation", "label": "evacuation alarm", "title": f"EVACUATE {lab.code} now",
+            "detail": detail, "at": e.updated_at.isoformat() if e.updated_at else None}
+
+
+def evacuation_alarms(db: Session) -> list[dict]:
+    from app.models import LabEmergency
+    out = []
+    for e in db.scalars(select(LabEmergency).where(LabEmergency.alarm.is_(True))).all():
+        lab = db.get(Lab, e.lab_id)
+        if lab is not None:
+            out.append(evacuation_alarm(lab, e))
     return out
 
 

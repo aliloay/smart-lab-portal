@@ -221,3 +221,14 @@ def test_motion_start_is_a_quiet_note_not_an_alert(client, db, lab, env_node,
     _post(client, device_headers, lab, motion=1)
     assert len(motion()) == 1
     assert db.query(Alert).filter(Alert.lab_id == lab.id).count() == 0
+
+
+def test_all_labs_environment_in_one_request(client, db, alice, lab, env_node, device_headers):
+    """The overview reads every lab with a node in one request, the same data
+    as the per-lab endpoint; labs without a node are left out."""
+    _post(client, device_headers, lab, temperature=24.5, humidity=40)
+    h = auth_headers(client, alice.email)
+    rows = client.get("/api/labs/environment/all", headers=h).json()
+    assert [r["lab"]["code"] for r in rows] == [lab.code]
+    one = client.get(f"/api/labs/{lab.id}/environment", headers=h).json()
+    assert rows[0]["env"]["metrics"]["temperature"]["value"] == one["metrics"]["temperature"]["value"] == 24.5

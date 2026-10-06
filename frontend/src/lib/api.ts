@@ -762,7 +762,8 @@ export interface ManagementReport {
   equipment: { device_uid: string; name: string; kind: string; lab_code: string | null; running_h: number
     idle_h: number; fault_h: number; faults: number; users: number; master_pc: boolean }[]
   insights: { kind: string; title: string; lab_code: string | null; count: number; severity: string
-    recommendation: string; first?: string | null; last?: string | null }[]
+    recommendation: string; first?: string | null; last?: string | null
+    cause?: string; steps?: string[]; done_when?: string; ongoing?: boolean; unresolved?: number }[]
   top_denials: { reason: string; count: number; meaning: string }[]
 }
 export interface AiStatus {
@@ -823,6 +824,23 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, code)
 }
 
+// While the API restarts (about 12 s: migrations, seed, start-up) the web
+// server answers 502/503/504. Reads wait and try again for up to ~25 s instead
+// of leaving "Bad Gateway" on the page; writes are never repeated.
+const RETRY_MS = [1000, 2000, 3000, 4000, 5000, 5000, 5000]
+async function fetchRetrying(url: string, init: RequestInit): Promise<Response> {
+  const read = !init.method || init.method === 'GET'
+  for (let i = 0; ; i++) {
+    try {
+      const res = await fetch(url, init)
+      if (!read || i >= RETRY_MS.length || ![502, 503, 504].includes(res.status)) return res
+    } catch (e) {
+      if (!read || i >= RETRY_MS.length) throw e
+    }
+    await new Promise(r => setTimeout(r, RETRY_MS[i]))
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.body && !(init.body instanceof FormData)
@@ -832,7 +850,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const res = await fetch(`/api${path}`, { ...init, headers })
+  const res = await fetchRetrying(`/api${path}`, { ...init, headers })
   if (res.status === 401 && token) expired()
   if (!res.ok) throw await parseError(res)
   if (res.status === 204) return undefined as T
@@ -903,6 +921,7 @@ export const api = {
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),
   labSensors: (id: number) => request<unknown[]>(`/labs/${id}/sensors`),
   labEnvironment: (id: number) => request<LabEnvironment>(`/labs/${id}/environment`),
+  allEnvironments: () => request<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[]>('/labs/environment/all'),
   activeHazards: () => request<ActiveHazard[]>('/labs/hazards/active'),
   labIssues: (id: number) => request<LabIssueBrief[]>(`/labs/${id}/issues`),
   availability: (id: number, start: string, end: string) =>

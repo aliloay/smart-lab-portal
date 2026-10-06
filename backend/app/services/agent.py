@@ -92,29 +92,111 @@ def equipment_usage(db: Session, start: datetime, end: datetime) -> list[dict]:
 
 
 # -------------------------------------------------------------- insights ---
-# Recurring alert -> what to do about it (first matching pattern wins).
-ALERT_FIXES: list[tuple[str, str]] = [
-    (r"held open", "Check the door closer and the door sensor's magnet alignment; remind users to "
-                   "close the door behind them."),
-    (r"forced", "Check the door sensor and magnet alignment and the lock relay timing (a door that "
-                "bounces open after relocking looks forced); if it was real, review the camera."),
-    (r"weight does not match", "Recalibrate the bin's load cell (tare, cal) and check the items' "
-                               "tags; review who used the bin at those times."),
-    (r"low stock|reorder|below", "Reorder now; if it runs out this often, raise its reorder level."),
-    (r"(camera|rfid|fingerprint|reader|sensor|lcd|display).*not responding",
-     "A part of the controller stops answering: check its cable and connectors, and its 5 V "
-     "supply (a rail that sags when the lock relay switches is a common cause)."),
-    (r"offline|not responding|no heartbeat", "Check the node's power supply (a 2 A USB supply) and "
-                                             "its Wi-Fi signal; give it a fixed address on the router."),
-    (r"temperature|heat|humid", "Check ventilation and air conditioning; make sure the sensor is not "
-                                "next to a PC exhaust or in direct sun."),
-    (r"gas|smoke|flame|fire", "Inspect for a real hazard first; then check the sensor's warm-up time "
-                              "and alarm threshold."),
-    (r"moved|no longer looks|equipment", "Fix the equipment's place, or accept the new position on "
-                                         "the Security camera page so it stops alerting."),
-    (r"refusal|denied", "See the refusal reasons below: most repeated refusals have a simple fix."),
+# Recurring alert -> a plan someone can carry out (first matching pattern wins):
+# the likely cause, numbered steps, and a check that says when it is fixed.
+# No invented numbers: thresholds come from the parts' datasheets or a test.
+PLAYBOOK: list[tuple[str, dict]] = [
+    (r"held open", {
+        "cause": "The door does not latch by itself, or people leave it open.",
+        "steps": ["Open the door fully and let go: it must close and latch on its own.",
+                  "Adjust or replace the door closer; align the door-sensor magnet with the switch.",
+                  "Put a 'close the door behind you' sign on the inside."],
+        "done": "No 'held open' alert in 7 days of normal use."}),
+    (r"forced", {
+        "cause": "The door sensor saw the door open while it was locked. On a bench rig this is "
+                 "usually the magnet switch bouncing or sitting off-centre, not a break-in.",
+        "steps": ["For each time listed, check the camera events and who was there; if nobody forced "
+                  "the door, mark it a false alarm.",
+                  "Check the magnet and switch: aligned, within the switch's rated gap, firmly mounted.",
+                  "If the switch chatters, add a short debounce in the door firmware (flash it when the "
+                  "door is powered again)."],
+        "done": "10 lock / open / close cycles in a row with no false 'forced' alert, recorded as an "
+                "experiment."}),
+    (r"weight does not match", {
+        "cause": "The bin's load cell drifted, or items were taken without being scanned.",
+        "steps": ["Tare and recalibrate the load cell with a known weight.",
+                  "Check the item tags in the bin match the inventory.",
+                  "Review who used the bin at those times."],
+        "done": "A week of scans with no weight mismatch."}),
+    (r"low stock|reorder|below", {
+        "cause": "Use is faster than the reorder level assumes.",
+        "steps": ["Reorder now.", "Raise the item's reorder level to cover the time a delivery takes."],
+        "done": "The item stays above its reorder level for a month."}),
+    (r"(camera|rfid|fingerprint|reader|sensor|lcd|display).*not responding", {
+        "cause": "The controller stopped hearing that module: a loose jumper or connector, or its "
+                 "supply dipping when the lock relay or the module draws current.",
+        "steps": ["Replace the jumper wires to that module with crimped or soldered connections.",
+                  "Measure the module's supply with a multimeter while the lock relay switches; if it "
+                  "dips, give the lock its own supply and add a capacitor next to the module.",
+                  "Power the controller for 24 h and watch the Alerts page."],
+        "done": "No 'not responding' alert in a 24 h powered test."}),
+    (r"offline|not responding|no heartbeat", {
+        "cause": "The node lost power or Wi-Fi - or the laptop running the portal was off, which "
+                 "looks the same from here.",
+        "steps": ["Compare the times with when the laptop / portal was off; those are not node faults.",
+                  "Reserve the node's address on the router (DHCP reservation) and check the Wi-Fi "
+                  "signal where it is mounted.",
+                  "Use a power supply rated above the board's peak current, with a short USB cable."],
+        "done": "The node stays online for 24 h with the portal running."}),
+    (r"temperature|heat|humid", {
+        "cause": "Poor ventilation, or the sensor sits near a heat source.",
+        "steps": ["Move the sensor away from PC exhausts, windows and direct sun.",
+                  "Check the ventilation / air conditioning at the times listed."],
+        "done": "Readings stay inside the limits for a week."}),
+    (r"gas|smoke|flame|fire", {
+        "cause": "Flame (infrared) sensors also react to sunlight, lamps and IR remotes; gas sensors "
+                 "read high while they warm up after power-on.",
+        "steps": ["For each time listed, confirm there was no real flame or smoke (camera, people there).",
+                  "Shield the flame sensor from windows and lamps and turn its sensitivity down on the "
+                  "module's potentiometer.",
+                  "In the environment-node firmware, alarm only when two readings in a row agree, and "
+                  "ignore the gas sensor during its warm-up."],
+        "done": "A full day under normal lab lighting with no alarm, and a lighter at the test "
+                "distance still triggers one."}),
+    (r"moved|no longer looks|equipment", {
+        "cause": "The equipment was moved, or the camera's reference box is out of date.",
+        "steps": ["Put the equipment back, or accept the new position on the Security camera page."],
+        "done": "No 'moved' alert for that item in a week."}),
+    (r"refusal|denied", {
+        "cause": "See the refusal reasons.",
+        "steps": ["Open the refusal reasons below: most repeated refusals have a simple fix."],
+        "done": "Refusals for that reason fall week over week."}),
 ]
-DEFAULT_FIX = "Find the root cause, then resolve it or tune the threshold so the alert means something."
+DEFAULT_PLAN = {
+    "cause": "Not in the playbook yet.",
+    "steps": ["Open the alerts with this title and find what was happening at those times.",
+              "Fix the cause, or raise the threshold if nobody needs to act on this alert."],
+    "done": "The alert stops repeating, or every time it fires someone has to act."}
+# One-line versions, for older callers.
+ALERT_FIXES: list[tuple[str, str]] = [(p, " ".join(d["steps"])) for p, d in PLAYBOOK]
+DEFAULT_FIX = " ".join(DEFAULT_PLAN["steps"])
+# Proven real use; everything else may be bench testing.
+REAL = ("REAL_OPERATION", "PHYSICAL_TEST")
+ONGOING_H = 48
+
+
+def _plan(item: dict, plan: dict) -> dict:
+    """The item with its plan; `recommendation` stays the one-line summary."""
+    return {**item, "cause": plan["cause"], "steps": plan["steps"], "done_when": plan["done"],
+            "recommendation": " ".join(plan["steps"])}
+
+
+def _denial_plan(reason: str) -> dict:
+    """DENIAL_FIXES read 'what is happening: what to do' - split into cause and step."""
+    fix = DENIAL_FIXES.get(reason, DEFAULT_FIX)
+    cause, _, step = fix.partition(": ")
+    if not step:
+        cause, step = "", fix
+    return {"cause": cause + "." if cause else "", "steps": [step[0].upper() + step[1:]],
+            "done": "Refusals for this reason fall week over week (Reports page)."}
+
+
+def _timing(item: dict, end: datetime) -> dict:
+    """Still happening (in the last 48 h of the period) or quiet since its last time."""
+    last = item.get("last")
+    item["ongoing"] = bool(last and (end - _utc(last)).total_seconds() < ONGOING_H * 3600)
+    return item
+
 
 # Repeated door refusal reason -> what to do about it.
 DENIAL_FIXES = {
@@ -161,25 +243,29 @@ def insights(db: Session, start: datetime, end: datetime) -> list[dict]:
         if len(rows) < ALERT_MIN:
             continue
         title = rows[-1].title
-        fix = next((f for p, f in ALERT_FIXES if re.search(p, title.lower())), DEFAULT_FIX)
-        out.append({"kind": "ALERT", "title": title, "lab_code": labs.get(lab_id), "count": len(rows),
-                    "first": min(r.created_at for r in rows), "last": max(r.created_at for r in rows),
-                    "unresolved": sum(1 for r in rows if not r.is_resolved),
-                    "severity": "bad" if any(r.severity.value == "CRITICAL" for r in rows) else "warn",
-                    "recommendation": fix})
+        plan = next((d for p, d in PLAYBOOK if re.search(p, title.lower())), DEFAULT_PLAN)
+        out.append(_plan({"kind": "ALERT", "title": title, "lab_code": labs.get(lab_id), "count": len(rows),
+                          "first": min(r.created_at for r in rows), "last": max(r.created_at for r in rows),
+                          "unresolved": sum(1 for r in rows if not r.is_resolved),
+                          "real": sum(1 for r in rows if r.provenance in REAL),
+                          "severity": "bad" if any(r.severity.value == "CRITICAL" for r in rows) else "warn"},
+                         plan))
 
     # 2) The same door refusal reason, and the same person refused by the biometric.
     denials = db.execute(select(AccessEvent.reason, AccessEvent.lab_id, AccessEvent.user_id,
-                                AccessEvent.created_at).where(
+                                AccessEvent.created_at, AccessEvent.provenance).where(
         AccessEvent.event_type.in_([EventType.ACCESS_DENIED, EventType.IDENTITY_MISMATCH]),
         AccessEvent.created_at >= start, AccessEvent.created_at < end)).all()
     by_reason = Counter(r.reason for r in denials if r.reason)
     for reason, n in by_reason.most_common():
         if n < DENIAL_MIN:
             break
-        out.append({"kind": "DENIAL", "title": f"Door refused {n}x: {denial_sentence(reason)}",
-                    "reason": reason, "lab_code": None, "count": n, "severity": "warn",
-                    "recommendation": DENIAL_FIXES.get(reason, DEFAULT_FIX)})
+        rows = [r for r in denials if r.reason == reason]
+        out.append(_plan({"kind": "DENIAL", "title": f"Door refused {n}x: {denial_sentence(reason)}",
+                          "reason": reason, "lab_code": None, "count": n, "severity": "warn",
+                          "first": min(r.created_at for r in rows), "last": max(r.created_at for r in rows),
+                          "real": sum(1 for r in rows if r.provenance in REAL)},
+                         _denial_plan(reason)))
     per_person = Counter(r.user_id for r in denials if r.user_id and r.reason in
                          ("IDENTITY_MISMATCH", "BIOMETRIC_FAILED", "BIOMETRIC_TIMEOUT"))
     for uid, n in per_person.most_common():
@@ -187,10 +273,16 @@ def insights(db: Session, start: datetime, end: datetime) -> list[dict]:
             break
         u = db.get(User, uid)
         who = u.full_name if u else f"user {uid}"
-        out.append({"kind": "PERSON", "title": f"{who}: biometric refused {n}x", "count": n,
-                    "lab_code": None, "severity": "warn",
-                    "recommendation": f"Re-enrol {who}'s fingerprint and face (Users page); "
-                                      f"if it still fails, check the sensor."})
+        rows = [r for r in denials if r.user_id == uid]
+        out.append(_plan({"kind": "PERSON", "title": f"{who}: biometric refused {n}x", "count": n,
+                          "lab_code": None, "severity": "warn",
+                          "first": min(r.created_at for r in rows), "last": max(r.created_at for r in rows),
+                          "real": sum(1 for r in rows if r.provenance in REAL)},
+                         {"cause": "This person's stored fingerprint or face no longer matches well.",
+                          "steps": [f"Re-enrol {who}'s fingerprint (two fingers) and face (front, good "
+                                    f"light) on the Users page.",
+                                    "If it still fails, clean the fingerprint sensor and the camera lens."],
+                          "done": f"{who} passes step 2 at the first try 5 times in a row."}))
 
     # 3) The same device dropping off again and again.
     offline = Counter(r.device_id for r in db.execute(select(AccessEvent.device_id).where(
@@ -202,10 +294,9 @@ def insights(db: Session, start: datetime, end: datetime) -> list[dict]:
         d = db.get(Device, did)
         if d and any(d.name in i["title"] and "offline" in i["title"].lower() for i in out):
             continue                   # already flagged by its repeated alert
-        out.append({"kind": "DEVICE", "title": f"{d.name if d else did} went offline {n}x",
-                    "lab_code": labs.get(d.lab_id) if d else None, "count": n, "severity": "warn",
-                    "recommendation": "Check its power supply and Wi-Fi signal (move the router or "
-                                      "the node closer); reserve its IP address on the router."})
+        out.append(_plan({"kind": "DEVICE", "title": f"{d.name if d else did} went offline {n}x",
+                          "lab_code": labs.get(d.lab_id) if d else None, "count": n, "severity": "warn"},
+                         next(p for r, p in PLAYBOOK if r.startswith("offline"))))
 
     # 4) The same equipment reported broken more than once.
     per_asset = Counter(i.asset_id for i in db.scalars(select(Issue).where(
@@ -215,28 +306,73 @@ def insights(db: Session, start: datetime, end: datetime) -> list[dict]:
             break
         from app.models import Asset
         a = db.get(Asset, aid)
-        out.append({"kind": "EQUIPMENT", "title": f"{a.asset_tag if a else aid} reported {n}x",
-                    "lab_code": labs.get(a.lab_id) if a else None, "count": n, "severity": "warn",
-                    "recommendation": "A repeating fault on the same item: inspect it properly, "
-                                      "repair or replace it rather than patching each report."})
+        out.append(_plan({"kind": "EQUIPMENT", "title": f"{a.asset_tag if a else aid} reported {n}x",
+                          "lab_code": labs.get(a.lab_id) if a else None, "count": n, "severity": "warn"},
+                         {"cause": "The same item keeps failing: each report was patched, not fixed.",
+                          "steps": ["Read the reports together and find what they share.",
+                                    "Repair it properly or replace it; note the fix on the ticket."],
+                          "done": "No new report on this item for a month."}))
 
     # 5) Bookings people do not turn up for; sessions without an exit.
     r = period_report(db, start, end)
     b, s = r["bookings"], r["sessions"]
     if b["finished"] >= 5 and b["no_show"] / b["finished"] > 0.3:
-        out.append({"kind": "BOOKINGS", "title": f"{b['no_show']} of {b['finished']} bookings were no-shows",
-                    "lab_code": None, "count": b["no_show"], "severity": "warn",
-                    "recommendation": "Send a reminder before each booking (n8n workflow 02) and "
-                                      "release slots that nobody enters within the grace time."})
+        out.append(_plan({"kind": "BOOKINGS", "title": f"{b['no_show']} of {b['finished']} bookings were no-shows",
+                          "lab_code": None, "count": b["no_show"], "severity": "warn"},
+                         {"cause": "People book and do not come, which blocks the lab for others.",
+                          "steps": ["Send a reminder before each booking (n8n workflow 02).",
+                                    "Release slots that nobody enters within the grace time."],
+                          "done": "No-shows below 30 % of finished bookings."}))
     if s["started"] >= 5 and s["exit_not_recorded"] / s["started"] > 0.5:
-        out.append({"kind": "SESSIONS", "title": f"Exit not recorded for {s['exit_not_recorded']} of "
-                                                 f"{s['started']} sessions",
-                    "lab_code": None, "count": s["exit_not_recorded"], "severity": "info",
-                    "recommendation": "Occupancy is only as good as the exits: check the door "
-                                      "sensor, or ask people to tap out."})
+        out.append(_plan({"kind": "SESSIONS", "title": f"Exit not recorded for {s['exit_not_recorded']} of "
+                                                       f"{s['started']} sessions",
+                          "lab_code": None, "count": s["exit_not_recorded"], "severity": "info"},
+                         {"cause": "The portal only knows someone left when the door reports an exit.",
+                          "steps": ["Check the door sensor reports every close.",
+                                    "Ask people to tap out, or add an exit reader."],
+                          "done": "Most sessions end with a recorded exit."}))
 
+    # Still happening first, then the most serious, then the most frequent.
     rank = {"bad": 0, "warn": 1, "info": 2}
-    return sorted(out, key=lambda i: (rank.get(i["severity"], 3), -i["count"]))
+    out = [_timing(i, end) for i in out]
+    return sorted(out, key=lambda i: (not i["ongoing"], rank.get(i["severity"], 3), -i["count"]))
+
+
+def _day(dt) -> str:
+    return _utc(dt).astimezone(_tz()).strftime("%d %b")
+
+
+def plan_text(found: list[dict], days: int, limit: int = 5) -> str:
+    """The 'what should we fix / how do we do better' answer: each repeated
+    problem with its evidence, likely cause, steps and a 'done when' check."""
+    lines = [f"**Improvement plan - last {days} days** ({len(found)} repeated problem"
+             f"{'s' if len(found) != 1 else ''}, still happening first)"]
+    real = sum(i.get("real") or 0 for i in found)
+    dated = [i for i in found if i.get("first")]
+    if dated and real == 0:
+        lines.append(f"_Evidence quality: none of these is marked as real lab use. They were recorded "
+                     f"between {_day(min(i['first'] for i in dated))} and "
+                     f"{_day(max(i['last'] for i in dated))}, before the data mode existed, much of it "
+                     f"bench testing. Fix what is cheap now; confirm the rest on the installed system "
+                     f"before buying parts._")
+    for n, i in enumerate(found[:limit], 1):
+        facts = [f"{i['count']}x"]
+        if i.get("first"):
+            facts.append(f"{_day(i['first'])} - {_day(i['last'])}")
+            facts.append("still happening" if i["ongoing"] else f"not seen since {_day(i['last'])}")
+        if i.get("unresolved"):
+            facts.append(f"{i['unresolved']} still open")
+        where = f" ({i['lab_code']})" if i.get("lab_code") else ""
+        lines.append(f"\n**{n}. {i['title']}**{where} - " + " · ".join(facts))
+        if i.get("cause"):
+            lines.append(f"Likely cause: {i['cause']}")
+        lines.append("\n".join(f"{k}. {step}" for k, step in enumerate(i["steps"], 1)))
+        lines.append(f"Done when: {i['done_when']}")
+    if len(found) > limit:
+        lines.append(f"\n+ {len(found) - limit} more in the monthly report.")
+    first = next((i for i in found if i["ongoing"]), found[0])
+    lines.append(f"\n**Next single action:** {first['steps'][0]}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- report ---
@@ -402,10 +538,8 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
         found = insights(db, start, now)
         if not found:
             return _answer("Nothing has repeated enough to flag in the last 30 days.", intent)
-        return _answer("**Repeated in the last 30 days**, most urgent first:\n" + _bullets(
-            [f"**{i['title']}**" + (f" ({i['lab_code']})" if i.get("lab_code") else "")
-             + f" → {i['recommendation']}" for i in found[:6]]), intent,
-            {"label": "Open the monthly report (PDF)", "to": "/report?period=monthly"})
+        return _answer(plan_text(found, 30), intent,
+                       {"label": "Open the monthly report (PDF)", "to": "/report?period=monthly"})
 
     if intent == "equipment":
         rows = equipment_usage(db, now - timedelta(days=7), now)

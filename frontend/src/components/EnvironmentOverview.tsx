@@ -13,12 +13,10 @@ import SafetyStates from './SafetyStates'
 import { EmptyState, Spinner } from './ui'
 
 export default function EnvironmentOverview() {
-  const [rows, setRows] = useState<{ lab: Lab; env: LabEnvironment }[] | null>(null)
+  const [rows, setRows] = useState<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[] | null>(null)
+  // One request for every lab (it used to be one per lab).
   const load = useCallback(() => {
-    api.labs().then(labs => Promise.all(labs.map(l =>
-      api.labEnvironment(l.id).then(env => ({ lab: l, env })).catch(() => null))))
-      .then(list => setRows(list.filter((x): x is { lab: Lab; env: LabEnvironment } => !!x && !!x.env.node)))
-      .catch(() => setRows([]))
+    api.allEnvironments().then(setRows).catch(() => setRows(r => r ?? []))
   }, [])
   useEffect(() => {
     load()

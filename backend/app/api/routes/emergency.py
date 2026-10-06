@@ -41,12 +41,25 @@ from app.services.notifications import notify, staff_ids
 router = APIRouter(tags=["emergency"])
 
 
-def _publish(lab_id: int) -> None:
+def _publish(lab_id: int, alarm: Optional[dict] = None, alarm_was: bool = False,
+             lab_code: str = "") -> None:
+    """Staff pages refetch; when the evacuation alarm was switched on or off,
+    every signed-in page also gets the full-screen alarm (`hazard`) message."""
     try:
         from app.ws.manager import manager
         manager.publish({"type": "staff", "kind": "emergency", "lab_id": lab_id})
+        if alarm is not None:
+            manager.publish({"type": "hazard", "state": "raised", **alarm})
+        elif alarm_was:
+            manager.publish({"type": "hazard", "state": "cleared", "lab_id": lab_id,
+                             "lab_code": lab_code, "metric": "evacuation", "label": "evacuation alarm"})
     except Exception:
         pass
+
+
+def _alarm_view(lab: Lab, e) -> Optional[dict]:
+    from app.services.environment import evacuation_alarm
+    return evacuation_alarm(lab, e) if e.alarm else None
 
 
 def require_session(admin: User = Depends(require_admin),
@@ -156,6 +169,7 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     now = datetime.now(timezone.utc)
     e = em.state(db, lab.id, now)
+    alarm_was = bool(e.alarm)
     did = []
     if req.door is not None:
         e.door_mode = req.door
@@ -178,7 +192,7 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
                                                    "version": e.version}))
     _announce(db, lab, admin, "; ".join(did), e)
     db.commit()
-    _publish(lab.id)
+    _publish(lab.id, _alarm_view(lab, e), alarm_was, lab.code)
     return em.out(e, now)
 
 
@@ -189,6 +203,7 @@ def back_to_normal(lab_id: int, db: Session = Depends(get_db), admin: User = Dep
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     now = datetime.now(timezone.utc)
     e = em.state(db, lab.id, now)
+    alarm_was = bool(e.alarm)
     e.door_mode, e.door_until, e.message, e.message_until, e.alarm = "NORMAL", None, "", None, False
     e.version += 1
     e.updated_by_id, e.updated_at = admin.id, now
@@ -196,7 +211,7 @@ def back_to_normal(lab_id: int, db: Session = Depends(get_db), admin: User = Dep
                     entity_id=str(lab.id), detail={"lab": lab.code, "version": e.version}))
     _announce(db, lab, admin, "back to normal", e)
     db.commit()
-    _publish(lab.id)
+    _publish(lab.id, None, alarm_was, lab.code)
     return em.out(e, now)
 
 

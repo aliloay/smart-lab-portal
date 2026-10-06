@@ -122,3 +122,25 @@ def test_staff_report_and_who_is_inside(client, db, staff, alice, lab, monkeypat
     r = client.get("/api/ai/report?period=monthly", headers=h).json()
     assert r["kind"] == "monthly" and r["span"] == "30 days" and "insights" in r and "equipment" in r
     assert client.get("/api/ai/report", headers=auth_headers(client, alice.email)).status_code == 403
+
+
+def test_improvement_plan_is_actionable_and_honest_about_evidence(db, lab):
+    """Each repeated problem: evidence, likely cause, numbered steps, a check
+    that says when it is fixed; the answer says when none of it is proven real use."""
+    now = datetime.now(timezone.utc)
+    for i in range(3):
+        db.add(Alert(lab_id=lab.id, severity=AlertSeverity.CRITICAL, title="Flame indication at LAB_TEST",
+                     detail="", created_at=now - timedelta(days=10, hours=i)))
+    for i in range(4):
+        db.add(Alert(lab_id=lab.id, severity=AlertSeverity.WARNING, title="LAB_TEST: door held open",
+                     detail="", created_at=now - timedelta(hours=i)))
+    db.commit()
+    found = agent.insights(db, now - timedelta(days=30), now + timedelta(minutes=1))
+    assert [i["title"] for i in found][0] == "LAB_TEST: door held open"     # still happening first
+    flame = next(i for i in found if "Flame" in i["title"])
+    assert not flame["ongoing"] and flame["cause"] and len(flame["steps"]) >= 2 and flame["done_when"]
+    text = agent.plan_text(found, 30)
+    assert "not seen since" in text and "still happening" in text
+    assert "Likely cause:" in text and "Done when:" in text and "1. " in text
+    assert "Evidence quality" in text                     # the suite's rows are SOFTWARE_TEST
+    assert "**Next single action:** Open the door fully" in text

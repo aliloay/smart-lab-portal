@@ -175,3 +175,34 @@ def test_emergency_reaches_n8n_and_names_who_to_warn(client, db, admin, alice, l
     assert client.get(f"/api/automation/emergency/{lab.id}",
                       headers=key).json()["notices"][0]["title"].endswith("back to normal")
     assert client.get(f"/api/automation/emergency/{lab.id}").status_code == 401
+
+
+def test_evacuation_alarm_sounds_on_every_portal_screen(client, db, admin, alice, lab, controller, monkeypatch):
+    """The alarm is not only the door buzzer: every signed-in page (students too)
+    gets the full-screen alarm and siren, live and on a page opened later."""
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    student = auth_headers(client, alice.email)
+    _, h = _open(client, admin)
+
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"alarm": True})
+    raised = [m for m in sent if m["type"] == "hazard"]
+    assert len(raised) == 1 and raised[0]["state"] == "raised" and raised[0]["metric"] == "evacuation"
+    active = client.get("/api/labs/hazards/active", headers=student).json()
+    assert [(a["metric"], a["lab_code"]) for a in active] == [("evacuation", lab.code)]
+    first_id = active[0]["alert_id"]
+
+    sent.clear()
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"message": "Leave now"})
+    assert [m["state"] for m in sent if m["type"] == "hazard"] == ["raised"]
+    assert client.get("/api/labs/hazards/active", headers=student).json()[0]["alert_id"] != first_id
+
+    sent.clear()
+    client.post(f"/api/emergency/labs/{lab.id}/normal", headers=h)
+    assert [(m["state"], m["lab_code"]) for m in sent if m["type"] == "hazard"] == [("cleared", lab.code)]
+    assert client.get("/api/labs/hazards/active", headers=student).json() == []
+
+    sent.clear()
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"door": "LOCKDOWN"})
+    assert [m for m in sent if m["type"] == "hazard"] == []          # no alarm, no siren

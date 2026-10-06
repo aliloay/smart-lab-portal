@@ -172,8 +172,15 @@ export default function ReportPrint() {
                   <li key={n}>
                     <span className="font-semibold text-slate-900">{i.title}</span>
                     {i.lab_code && <span className="text-slate-500"> · {i.lab_code}</span>}
-                    {i.last && <span className="text-slate-500"> · last {i.last}</span>}
-                    <div className="text-slate-700">→ {i.recommendation}</div>
+                    <span className="text-slate-500"> · {i.count}x</span>
+                    {i.last && <span className="text-slate-500"> · {i.ongoing ? 'still happening' : 'not seen since'} {i.last}</span>}
+                    {!!i.unresolved && <span className="text-slate-500"> · {i.unresolved} still open</span>}
+                    {i.steps ? (<>
+                      <div className="text-slate-700"><span className="font-semibold">Likely cause:</span> {i.cause}</div>
+                      <ol className="list-[lower-alpha] pl-5 text-slate-700">
+                        {i.steps.map((st, k) => <li key={k}>{st}</li>)}</ol>
+                      <div className="text-slate-700"><span className="font-semibold">Done when:</span> {i.done_when}</div>
+                    </>) : <div className="text-slate-700">→ {i.recommendation}</div>}
                   </li>))}
               </ol>)}
           </Section>

@@ -116,6 +116,21 @@ def create_lab(req: LabCreate, db: Session = Depends(get_db),
     return lab
 
 
+@router.get("/environment/all")
+def all_environments(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Every lab that has an environment node, in one request: the overview
+    used to ask once per lab (11 requests, each re-checking every device)."""
+    from app.services import environment
+    refresh_liveness(db)
+    now = datetime.now(timezone.utc)
+    out = []
+    for lab in db.scalars(select(Lab).order_by(Lab.code)).all():
+        env = environment.latest(db, lab, now)
+        if env.get("node"):
+            out.append({"lab": {"id": lab.id, "code": lab.code, "name": lab.name}, "env": env})
+    return out
+
+
 @router.get("/{lab_id}", response_model=LabStatus)
 def lab_detail(lab_id: int, db: Session = Depends(get_db),
                user: User = Depends(get_current_user)):
@@ -190,8 +205,9 @@ def _brief(db: Session, i: Issue, viewer: User) -> LabIssueBrief:
 
 @router.get("/hazards/active")
 def hazards_active(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """Smoke / flame alarms still open in any lab - what the portal's full-screen
-    alarm shows on a page opened after the alarm started."""
+    """Smoke / flame alarms still open in any lab, and evacuation alarms switched
+    on in the Emergency tab - what the portal's full-screen alarm shows on a
+    page opened after the alarm started."""
     from app.services import environment
     return environment.active_hazards(db)
 

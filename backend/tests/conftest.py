@@ -20,6 +20,10 @@ if not _test_url.rsplit("/", 1)[-1].split("?")[0].endswith("_test"):
 os.environ["DATABASE_URL"] = _test_url
 # Everything the test suite writes is, by definition, a software test.
 os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
+# A device key of the suite's own: never the live one (the container's .env
+# holds the production key), and not the published default either.
+TEST_DEVICE_KEY = "test-suite-device-key"
+os.environ["DEVICE_API_KEY"] = TEST_DEVICE_KEY
 
 
 def _ensure_test_database(url: str) -> None:
@@ -152,7 +156,7 @@ def alice_card(db, alice) -> RfidCredential:
 
 @pytest.fixture
 def device_headers():
-    return {"X-Device-Key": "dev-device-key-change-me"}
+    return {"X-Device-Key": TEST_DEVICE_KEY}
 
 
 def auth_headers(client: TestClient, email: str,
