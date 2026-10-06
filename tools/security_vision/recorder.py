@@ -4,15 +4,19 @@ Video recording of the security camera, on THIS laptop (no cloud).
 An administrator presses Record in the portal; the portal asks this service
 (device key) to start / stop. FFmpeg copies the camera's own H.264 video
 untouched (no re-encoding, little CPU) and converts only the camera's
-G.711 audio to AAC so browsers can play it. Files are fragmented MP4: a
-recording cut by a crash or power loss is still playable up to that point.
+G.711 audio to AAC so browsers can play it.
 
-    recordings/<DEVICE>_<YYYY-MM-DD_HH-MM-SS>.mp4     the video
-    recordings/<same name>.json                         who, when, how long, why it stopped
+One recording runs until Stop and is SPLIT into parts of segment_minutes
+(default 60): a new file starts at a key frame, so nothing is lost between
+parts. Files are fragmented MP4: a part cut by a crash or power loss is
+still playable up to that point.
 
-Nothing is ever deleted here. A recording stops on Stop, after
-max_minutes, or if the camera stream ends. Start is refused while free disk
-space is below min_free_gb.
+    recordings/<DEVICE>_<YYYY-MM-DD_HH-MM-SS>.mp4   one part (named by its start time)
+    recordings/<same name>.json                      its recording: who, when, part n of N, why it stopped
+
+Nothing is ever deleted here. A recording stops on Stop, when the camera
+stream ends, or when free disk space falls below min_free_gb (checked every
+30 s); Start is refused below it.
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ from datetime import datetime
 from typing import Optional
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.mp4$")
+TIME_FMT = "%Y-%m-%d_%H-%M-%S"
 
 
 def find_ffmpeg() -> Optional[str]:
@@ -44,47 +49,81 @@ def find_ffmpeg() -> Optional[str]:
     return hits[-1] if hits else None
 
 
-def ffmpeg_command(ffmpeg: str, source: str, out: str, max_s: int) -> list[str]:
+def ffmpeg_command(ffmpeg: str, source: str, pattern: str, segment_s: int) -> list[str]:
+    """pattern: a path with strftime fields - each part is named by its start time."""
     rtsp = source.lower().startswith("rtsp://")
-    # No -nostdin: stdin stays open, "q" on it ends the file cleanly.
+    # No -nostdin: stdin stays open, "q" on it ends the current part cleanly.
     return ([ffmpeg, "-hide_banner", "-loglevel", "error"]
             + (["-rtsp_transport", "tcp"] if rtsp else [])
             + ["-i", source, "-map", "0:v:0", "-map", "0:a:0?",
                "-c:v", "copy", "-c:a", "aac", "-b:a", "32k",
-               "-t", str(max_s),
-               "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
-               "-f", "mp4", "-y", out])
+               "-f", "segment", "-segment_time", str(segment_s), "-reset_timestamps", "1",
+               "-strftime", "1", "-segment_format", "mp4",
+               "-segment_format_options", "movflags=+frag_keyframe+empty_moov+default_base_moof",
+               pattern])
+
+
+def probe_duration(ffmpeg: Optional[str], path: str) -> Optional[float]:
+    """The video's real length, read by ffprobe (next to ffmpeg); None if unavailable."""
+    if not ffmpeg:
+        return None
+    probe = os.path.join(os.path.dirname(ffmpeg), "ffprobe" + (".exe" if ffmpeg.lower().endswith(".exe") else ""))
+    if not os.path.isfile(probe):
+        probe = shutil.which("ffprobe")
+    if not probe:
+        return None
+    try:
+        out = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+        return round(float(out), 1)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _start_of(name: str) -> Optional[datetime]:
+    try:
+        return datetime.strptime(name[-23:-4], TIME_FMT)
+    except ValueError:
+        return None
 
 
 class Recorder:
     def __init__(self, device: str, source: str, folder: str, *, ffmpeg: Optional[str] = None,
-                 max_minutes: int = 60, min_free_gb: float = 2.0, command=None):
+                 segment_minutes: int = 60, min_free_gb: float = 2.0, command=None):
         self.device = device
         self.source = source
         self.folder = folder
         self.ffmpeg = ffmpeg if ffmpeg is not None else find_ffmpeg()
-        self.max_s = int(max_minutes * 60)
+        self.segment_s = int(segment_minutes * 60)
         self.min_free_gb = min_free_gb
         self._command = command or ffmpeg_command        # tests replace it
         self._lock = threading.Lock()
         self._proc: Optional[subprocess.Popen] = None
-        self._file: Optional[str] = None
         self._meta: dict = {}
+        self._watch: Optional[threading.Thread] = None
         os.makedirs(folder, exist_ok=True)
 
     # ------------------------------------------------------------ status --
     def free_gb(self) -> float:
         return shutil.disk_usage(self.folder).free / 1e9
 
+    def _parts(self) -> list[str]:
+        """The current recording's files, oldest first."""
+        t0 = self._meta.get("t0_name", "")
+        return sorted(os.path.basename(p) for p in glob.glob(os.path.join(self.folder, f"{self.device}_*.mp4"))
+                      if NAME_RE.match(os.path.basename(p)) and os.path.basename(p) >= t0)
+
     def status(self) -> dict:
         with self._lock:
             self._reap()
             rec = self._proc is not None
-            return {"recording": rec, "file": os.path.basename(self._file) if rec else None,
+            parts = self._parts() if rec else []
+            return {"recording": rec, "file": parts[-1] if parts else None, "parts": len(parts),
                     "started_at": self._meta.get("started_at") if rec else None,
                     "started_by": self._meta.get("started_by") if rec else None,
                     "elapsed_s": round(time.time() - self._meta["t0"], 1) if rec else None,
-                    "max_s": self.max_s, "ffmpeg": bool(self.ffmpeg),
+                    "segment_s": self.segment_s, "ffmpeg": bool(self.ffmpeg),
                     "free_gb": round(self.free_gb(), 1), "min_free_gb": self.min_free_gb}
 
     # ------------------------------------------------------- start / stop --
@@ -92,32 +131,32 @@ class Recorder:
         with self._lock:
             self._reap()
             if self._proc is not None:
-                return {"ok": False, "error": "already recording", "file": os.path.basename(self._file)}
+                return {"ok": False, "error": "already recording"}
             if not self.ffmpeg:
                 return {"ok": False, "error": "FFmpeg is not installed on the laptop (winget install Gyan.FFmpeg)"}
             free = self.free_gb()
             if free < self.min_free_gb:
                 return {"ok": False, "error": f"only {free:.1f} GB free on the laptop (needs {self.min_free_gb} GB)"}
             now = datetime.now()
-            name = f"{self.device}_{now:%Y-%m-%d_%H-%M-%S}.mp4"
-            path = os.path.join(self.folder, name)
-            cmd = self._command(self.ffmpeg, self.source, path, self.max_s)
+            pattern = os.path.join(self.folder, f"{self.device}_%Y-%m-%d_%H-%M-%S.mp4")
+            cmd = self._command(self.ffmpeg, self.source, pattern, self.segment_s)
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                           stderr=subprocess.PIPE, creationflags=flags)
-            self._file = path
-            self._meta = {"device": self.device, "file": name, "started_at": now.isoformat(timespec="seconds"),
-                          "started_by": by, "t0": time.time()}
-            self._write_meta()
-            return {"ok": True, "file": name}
+            self._meta = {"device": self.device, "started_at": now.isoformat(timespec="seconds"),
+                          "started_by": by, "t0": time.time(),
+                          "t0_name": f"{self.device}_{now:{TIME_FMT}}.mp4"}
+            self._watch = threading.Thread(target=self._disk_watch, args=(self._proc,), daemon=True)
+            self._watch.start()
+            return {"ok": True, "file": self._meta["t0_name"], "segment_s": self.segment_s}
 
     def stop(self, by: str = "", reason: str = "stopped") -> dict:
         with self._lock:
             self._reap()
             if self._proc is None:
                 return {"ok": False, "error": "not recording"}
-            proc, name = self._proc, os.path.basename(self._file)
-            try:                                   # "q" = finish the file cleanly
+            proc = self._proc
+            try:                                   # "q" = finish the current part cleanly
                 proc.stdin.write(b"q")
                 proc.stdin.flush()
                 proc.stdin.close()
@@ -128,35 +167,52 @@ class Recorder:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=5)
-            self._finish(reason, by)
-            return {"ok": True, "file": name, "duration_s": self._meta.get("duration_s"),
-                    "size_bytes": self._meta.get("size_bytes")}
+            return self._finish(reason, by)
+
+    def _disk_watch(self, proc) -> None:
+        while proc.poll() is None:
+            time.sleep(30)
+            if proc.poll() is None and self.free_gb() < self.min_free_gb:
+                self.stop("", "disk_low")
+                return
 
     def _reap(self) -> None:
-        """A recording that ended by itself (max length, stream lost)."""
+        """A recording that ended by itself (camera stream lost)."""
         if self._proc is not None and self._proc.poll() is not None:
             err = (self._proc.stderr.read() or b"").decode(errors="replace").strip() if self._proc.stderr else ""
-            reached = time.time() - self._meta.get("t0", time.time()) >= self.max_s - 2
-            self._finish("max_length" if reached else "stream_ended", "", err[-300:])
+            self._finish("stream_ended", "", err[-300:])
 
-    def _finish(self, reason: str, by: str, error: str = "") -> None:
-        self._meta.update({"stopped_at": datetime.now().isoformat(timespec="seconds"),
-                           "stopped_by": by, "stop_reason": reason,
-                           "duration_s": round(time.time() - self._meta["t0"], 1),
-                           "size_bytes": os.path.getsize(self._file) if os.path.isfile(self._file) else 0})
-        if error:
-            self._meta["ffmpeg_error"] = error
-        self._write_meta()
-        self._proc, self._file = None, None
-
-    def _write_meta(self) -> None:
-        meta = {k: v for k, v in self._meta.items() if k != "t0"}
-        with open(os.path.join(self.folder, meta["file"][:-4] + ".json"), "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=1)
+    def _finish(self, reason: str, by: str, error: str = "") -> dict:
+        stopped = datetime.now()
+        parts = self._parts()
+        total = 0
+        for i, name in enumerate(parts):
+            start = _start_of(name)
+            end = _start_of(parts[i + 1]) if i + 1 < len(parts) else stopped
+            size = os.path.getsize(os.path.join(self.folder, name))
+            total += size
+            meta = {"device": self.device, "file": name, "recording_started_at": self._meta["started_at"],
+                    "started_by": self._meta.get("started_by", ""), "part": i + 1, "parts": len(parts),
+                    "started_at": start.isoformat(timespec="seconds") if start else None,
+                    "stopped_at": end.isoformat(timespec="seconds"),
+                    # ffprobe's length (FFmpeg also writes the camera's buffered frames,
+                    # so clock time understates it); clock time only as a fallback.
+                    "duration_s": probe_duration(self.ffmpeg, os.path.join(self.folder, name))
+                                  or (round((end - start).total_seconds(), 1) if start else None),
+                    "size_bytes": size, "stopped_by": by, "stop_reason": reason}
+            if error:
+                meta["ffmpeg_error"] = error
+            with open(os.path.join(self.folder, name[:-4] + ".json"), "w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=1)
+        self._proc, self._meta = None, {}
+        return {"ok": True, "file": parts[0] if parts else None, "parts": len(parts),
+                "duration_s": round((stopped - _start_of(parts[0])).total_seconds(), 1) if parts and _start_of(parts[0]) else None,
+                "size_bytes": total, "stop_reason": reason}
 
     # ------------------------------------------------------------- files --
     def list(self) -> list[dict]:
-        self.status()                               # finish a recording that ended by itself
+        st = self.status()                       # also closes a recording that ended by itself
+        live = {st["file"]} if st["recording"] and st["file"] else set()   # only the part being written
         out = []
         for path in sorted(glob.glob(os.path.join(self.folder, "*.mp4")), reverse=True):
             name = os.path.basename(path)
@@ -168,10 +224,11 @@ class Recorder:
                     meta = json.load(f)
             except (OSError, ValueError):
                 pass
-            out.append({"file": name, "size_bytes": os.path.getsize(path),
-                        "recording": self._file is not None and os.path.basename(self._file) == name,
-                        **{k: meta.get(k) for k in ("started_at", "stopped_at", "duration_s",
-                                                    "started_by", "stopped_by", "stop_reason")}})
+            start = _start_of(name)
+            out.append({"file": name, "size_bytes": os.path.getsize(path), "recording": name in live,
+                        "started_at": meta.get("started_at") or (start.isoformat(timespec="seconds") if start else None),
+                        **{k: meta.get(k) for k in ("stopped_at", "duration_s", "started_by", "stopped_by",
+                                                    "stop_reason", "part", "parts", "recording_started_at")}})
         return out
 
     def path_of(self, name: str) -> Optional[str]:

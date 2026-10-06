@@ -125,11 +125,13 @@ export interface Experiment {
 /** The camera service's recorder (GET /security/cameras/{id}/recording). */
 export interface RecordingStatus {
   recording: boolean; file: string | null; started_at: string | null; started_by: string | null
-  elapsed_s: number | null; max_s: number; ffmpeg: boolean; free_gb: number; min_free_gb: number
+  elapsed_s: number | null; parts: number; segment_s: number; ffmpeg: boolean; free_gb: number; min_free_gb: number
 }
 export interface Recording {
   file: string; size_bytes: number; recording: boolean; started_at: string | null; stopped_at: string | null
   duration_s: number | null; started_by: string | null; stopped_by: string | null; stop_reason: string | null
+  /** Part n of N of one recording (split into 1-hour files). */
+  part?: number | null; parts?: number | null; recording_started_at?: string | null
 }
 export interface EquipmentSuggestion {
   kind: string; score: number; name: string; x: number; y: number; w: number; h: number

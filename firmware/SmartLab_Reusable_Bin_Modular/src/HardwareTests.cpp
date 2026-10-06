@@ -71,6 +71,8 @@ void SerialCommands::run(String line) {
   if (l == "watch on") { watchScale = true; return; }
   if (l == "watch off") { watchScale = false; return; }
   if (l == "calclear") { _p.scale.clearCalibration(); return; }
+  if (l == "hxreset") { _p.scale.hxReset(); return; }
+  if (l.startsWith("rawlog")) { int n = l.substring(6).toInt(); _p.scale.rawLog(n > 0 && n <= 100 ? n : 30); return; }
   if (l == "hxprobe") {
     // Wiring check without the library. A powered HX711 pulls DOUT LOW when a
     // reading is ready - but only while PD_SCK is LOW (PD_SCK held HIGH for
@@ -98,8 +100,23 @@ void SerialCommands::run(String line) {
     pinMode(PIN_HX711_DT, INPUT_PULLDOWN);
     delay(200);
     float c = lowShare(PIN_HX711_DT);
-    // back to normal
+    // D: does DT simply follow SCK (solder bridge DT-SCK) or stay LOW (DT-GND)?
     pinMode(PIN_HX711_DT, INPUT_PULLUP);
+    uint32_t follow = 0, stuckLow = 0;
+    for (int i = 0; i < 20; i++) {
+      digitalWrite(PIN_HX711_SCK, HIGH); delayMicroseconds(5);      // short: no power-down
+      int hi = digitalRead(PIN_HX711_DT);
+      digitalWrite(PIN_HX711_SCK, LOW); delayMicroseconds(5);
+      int lo = digitalRead(PIN_HX711_DT);
+      follow += (hi == HIGH && lo == LOW);
+      stuckLow += (hi == LOW && lo == LOW);
+      delay(2);
+    }
+    // back to normal
+    LOG("LOADCELL", "hxprobe D (SCK pulsed 20x): DT followed SCK %lu/20, stayed LOW %lu/20",
+        (unsigned long)follow, (unsigned long)stuckLow);
+    if (follow >= 18) LOG("LOADCELL", "-> DT copies SCK: DT and SCK are SHORTED together (solder bridge between those pins)");
+    else if (stuckLow >= 18 && a > 95) LOG("LOADCELL", "-> DT held LOW all the time: DT shorted to GND (solder bridge), or the HX711 output is stuck");
     LOG("LOADCELL", "hxprobe C (DT pull-DOWN):   DT GPIO%u LOW %.1f%% of the time", PIN_HX711_DT, c);
     if (a < 5 && c > 95) LOG("LOADCELL", "-> DT follows the pull resistor both ways: NOTHING drives it (HX711 DOUT not reaching GPIO%u, or the chip is not running)", PIN_HX711_DT);
     if (a < 5 && c < 5) LOG("LOADCELL", "-> DT is actively HIGH: the HX711 drives it but never has a reading ready (powered down / not converting)");

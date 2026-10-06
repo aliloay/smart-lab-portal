@@ -19,7 +19,10 @@ bool LoadCellManager::begin() {
   // No reset in begin(): the library's reset ends in a read() that waits
   // FOREVER for the HX711 - with none connected the board would hang here
   // (seen on the bare ESP32, 2026-10-07). Reset only once it has answered.
-  _hx.begin(PIN_HX711_DT, PIN_HX711_SCK, false, false);
+  // fastProcessor = true: the library stretches each clock pulse by 1 us.
+  // At the ESP32's speed the bare pulses are too short for the HX711 and the
+  // bits come out wrong (seen: wandering values, then 0x400000 / -1 frozen).
+  _hx.begin(PIN_HX711_DT, PIN_HX711_SCK, true, false);
   // With nothing connected, DT would float and read as random "samples".
   // Pulled up, a missing HX711 simply never reports ready.
   pinMode(PIN_HX711_DT, INPUT_PULLUP);
@@ -167,4 +170,30 @@ void LoadCellManager::load() {
   _offset = p.getInt("lc_off", 0);
   _factor = p.getFloat("lc_fac", 0.0f);
   p.end();
+}
+
+void LoadCellManager::hxReset() {
+  _hx.power_down();                    // PD_SCK HIGH > 60 us
+  delay(2);
+  _hx.power_up();
+  _n = 0; _stable = false; _calmSinceMs = 0;
+  _lastSampleMs = millis();
+  LOG("LOADCELL", "HX711 power-cycled (PD_SCK high 2 ms, then low)");
+}
+
+void LoadCellManager::rawLog(uint8_t n) {
+  LOG("LOADCELL", "rawlog: %u single readings (no averaging)", n);
+  uint32_t t0 = millis();
+  for (uint8_t i = 0; i < n; i++) {
+    uint32_t w0 = millis();
+    if (!_hx.wait_ready_timeout(HX711_READY_TIMEOUT_MS, 1)) {
+      LOG("LOADCELL", "  #%02u +%5lu ms  NOT READY within %lu ms", i, (unsigned long)(millis() - t0),
+          (unsigned long)HX711_READY_TIMEOUT_MS);
+      continue;
+    }
+    uint32_t waited = millis() - w0;
+    float v = _hx.read();
+    LOG("LOADCELL", "  #%02u +%5lu ms  waited %3lu ms  raw %10.0f  (0x%06lX)", i, (unsigned long)(millis() - t0),
+        (unsigned long)waited, v, (unsigned long)((int32_t)v & 0xFFFFFF));
+  }
 }

@@ -20,8 +20,9 @@ inside, receives its state every 2 s, and gets an event with a snapshot when
 something needs a look: more people seen than entered, a person with nobody
 entered, equipment moved, movement at equipment with nobody there. Staff see
 the live annotated view through the portal. Video is recorded only when an
-administrator presses Record in the portal (recorder.py: FFmpeg, MP4 files in
-recordings/ on this laptop, never deleted automatically); otherwise only event
+administrator presses Record in the portal (recorder.py: FFmpeg, until Stop,
+split into 1-hour MP4 files in recordings/ on this laptop, never deleted
+automatically); otherwise only event
 snapshots are kept. It never actuates anything.
 
 HTTP (port 5100, X-Device-Key required except /health; this laptop only
@@ -170,7 +171,7 @@ class Service:
         # the analysis reads the small one (MC210: stream1 vs stream2).
         rec_src = args.record_source or (args.source.replace("/stream2", "/stream1")
                                          if args.source.lower().startswith("rtsp://") else args.source)
-        self.recorder = Recorder(args.device, rec_src, args.recordings, max_minutes=args.record_max_min,
+        self.recorder = Recorder(args.device, rec_src, args.recordings, segment_minutes=args.record_part_min,
                                  min_free_gb=args.record_min_free_gb)
         print(f"[record] {'FFmpeg found' if self.recorder.ffmpeg else 'FFmpeg NOT found - recording unavailable'};"
               f" files in {os.path.abspath(args.recordings)}")
@@ -556,7 +557,8 @@ def main():
     ap.add_argument("--port", type=int, default=5100)
     ap.add_argument("--record-source", default="", help="stream to record (default: the full-resolution stream)")
     ap.add_argument("--recordings", default=os.path.join(HERE, "recordings"), help="folder for recordings")
-    ap.add_argument("--record-max-min", type=int, default=60, help="a recording stops by itself after this")
+    ap.add_argument("--record-part-min", type=int, default=60,
+                    help="a recording runs until Stop, split into files of this many minutes")
     ap.add_argument("--record-min-free-gb", type=float, default=2.0, help="refuse to record below this free space")
     ap.add_argument("--face-server", default=os.environ.get("FACE_SERVER_URL", "http://127.0.0.1:5000"),
                     help="face server for naming people by face ('' = door names only)")

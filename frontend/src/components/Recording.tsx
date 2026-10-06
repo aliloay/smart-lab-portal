@@ -1,7 +1,8 @@
 /**
  * Security camera recording (administrators). The video is recorded and kept
  * on the laptop by the camera service (FFmpeg): the camera's own H.264
- * video, audio converted to AAC, MP4 files. Nothing is deleted automatically.
+ * video, audio converted to AAC. A recording runs until Stop and is split
+ * into 1-hour MP4 files (no gap between them). Nothing is deleted automatically.
  *
  *   RecordButton    Record / ● REC mm:ss + Stop, for one camera
  *   RecordingsPanel every recording of a camera: play in the page, download
@@ -12,6 +13,7 @@ import { Recording, RecordingStatus, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { EmptyState, ErrorBanner, Spinner } from './ui'
 
+const hms = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}:${mmss(s % 3600)}` : mmss(s)
 const mmss = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${Math.floor(s % 60).toString().padStart(2, '0')}`
 const size = (b: number) => b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(1)} MB`
 
@@ -52,8 +54,9 @@ export function RecordButton({ deviceId, onChange }: { deviceId: number; onChang
     <span className="inline-flex items-center gap-2">
       {st.recording ? (<>
         <span className="inline-flex items-center gap-1.5 rounded-lg bg-bad/15 border border-bad/50 px-2.5 py-1 text-[12.5px] font-bold text-bad-soft"
-              title={`Started by ${st.started_by || '?'} - stops by itself after ${Math.round(st.max_s / 60)} min`}>
-          <Circle size={10} className="fill-current animate-pulse" /> REC {mmss((st.elapsed_s ?? 0) + tick)}</span>
+              title={`Started by ${st.started_by || '?'} - runs until Stop, a new file every ${Math.round(st.segment_s / 60)} min`}>
+          <Circle size={10} className="fill-current animate-pulse" /> REC {hms((st.elapsed_s ?? 0) + tick)}
+          {st.parts > 1 && <span className="font-normal text-[11px]">· part {st.parts}</span>}</span>
         <button className="btn-ghost btn-sm" disabled={busy} onClick={() => flip('stop')}>
           <Square size={13} /> Stop</button>
       </>) : (
@@ -95,7 +98,7 @@ export function RecordingsPanel({ deviceId }: { deviceId: number }) {
       <div className="flex items-center gap-3">
         <RecordButton deviceId={deviceId} onChange={load} />
         <span className="ml-auto text-[12px] text-slate-400">
-          Saved on the laptop{free !== null ? ` · ${free} GB free` : ''} · never deleted automatically</span>
+          Saved on the laptop in 1-hour files{free !== null ? ` · ${free} GB free` : ''} · never deleted automatically</span>
       </div>
       {playing && (
         <div className="card p-3 space-y-2">
@@ -117,9 +120,11 @@ export function RecordingsPanel({ deviceId }: { deviceId: number }) {
                   {r.started_at ? new Date(r.started_at).toLocaleString() : r.file}
                   {r.recording && <span className="ml-2 text-bad-soft font-bold text-[11px]">● RECORDING</span>}</div>
                 <div className="text-slate-400 text-[12px]">
-                  {r.duration_s != null ? mmss(r.duration_s) : '–'} · {size(r.size_bytes)}
+                  {r.parts && r.parts > 1 ? `part ${r.part} of ${r.parts} · ` : ''}
+                  {r.duration_s != null ? hms(r.duration_s) : r.recording ? 'recording…' : '–'} · {size(r.size_bytes)}
                   {r.started_by ? ` · started by ${r.started_by}` : ''}
-                  {r.stop_reason && r.stop_reason !== 'stopped' ? ` · ${r.stop_reason === 'max_length' ? 'stopped at the maximum length' : 'camera stream ended'}` : ''}
+                  {r.stop_reason && r.stop_reason !== 'stopped' ? ` · ${r.stop_reason === 'disk_low' ? 'stopped: laptop disk nearly full'
+                    : r.stop_reason === 'max_length' ? 'stopped at the maximum length' : 'camera stream ended'}` : ''}
                 </div>
               </div>
               <div className="ml-auto flex gap-2">

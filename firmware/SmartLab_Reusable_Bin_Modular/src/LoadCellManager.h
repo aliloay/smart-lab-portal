@@ -41,6 +41,8 @@ class LoadCellManager {
   float factor() const { return _factor; }
   void clearCalibration();
   void printStatus();
+  void hxReset();                      // power-cycle the HX711 through PD_SCK
+  void rawLog(uint8_t n);              // n single readings, each with its wait time (blocking)
 
  private:
   bool averageNow(uint8_t n, float *out);   // blocking helper for tare / cal only
