@@ -299,11 +299,15 @@ void mqStartBaseline(uint32_t now) {
   Serial.println("[MQ] BASELINE COLLECTION - keep clean air around the sensor");
 }
 
-GasLevel mqTarget(float r, bool hardCritical, GasLevel cur) {
-  if (hardCritical || r >= MQ_CRITICAL_RATIO) return GAS_CRITICAL;
-  if (cur == GAS_CRITICAL && r >= MQ_CRITICAL_CLEAR_RATIO) return GAS_CRITICAL;  // hysteresis
-  if (r >= MQ_WARNING_RATIO) return GAS_WARNING;
-  if (cur >= GAS_WARNING && r >= MQ_WARNING_CLEAR_RATIO) return GAS_WARNING;      // hysteresis
+// r = filtered / baseline; rise = filtered - baseline (mV at the pin). Both
+// must agree: the ratio alone fires on noise at the bottom of the ADC.
+GasLevel mqTarget(float r, int rise, bool hardCritical, GasLevel cur) {
+  if (hardCritical || (r >= MQ_CRITICAL_RATIO && rise >= MQ_CRITICAL_MIN_RISE_MV)) return GAS_CRITICAL;
+  if (cur == GAS_CRITICAL && r >= MQ_CRITICAL_CLEAR_RATIO && rise >= MQ_CRITICAL_CLEAR_RISE_MV)
+    return GAS_CRITICAL;                                                          // hysteresis
+  if (r >= MQ_WARNING_RATIO && rise >= MQ_WARNING_MIN_RISE_MV) return GAS_WARNING;
+  if (cur >= GAS_WARNING && r >= MQ_WARNING_CLEAR_RATIO && rise >= MQ_WARNING_CLEAR_RISE_MV)
+    return GAS_WARNING;                                                           // hysteresis
   return GAS_NORMAL;
 }
 
@@ -311,7 +315,8 @@ void mqClassify(uint32_t now) {
   mq.ratio = mq.baselineMv ? (float)mq.filtMv / mq.baselineMv : NAN;
   // Full scale or far above anything plausible: no waiting, no baseline needed.
   bool hard = mq.raw >= MQ_SATURATION_RAW || mq.filtMv >= MQ_ABS_CRITICAL_PIN_MV;
-  GasLevel t = mqTarget(isnan(mq.ratio) ? 0.0f : mq.ratio, hard, mq.level);
+  int rise = mq.baselineMv ? (int)mq.filtMv - (int)mq.baselineMv : 0;
+  GasLevel t = mqTarget(isnan(mq.ratio) ? 0.0f : mq.ratio, rise, hard, mq.level);
   if (t == mq.level) { mq.pending = t; return; }
   if (t != mq.pending) { mq.pending = t; mq.pendingSince = now; }
   uint32_t need = t > mq.level ? MQ_RISE_CONFIRM_MS : MQ_FALL_CONFIRM_MS;

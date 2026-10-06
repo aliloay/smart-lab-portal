@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, require_admin, require_device
+from app.api.deps import device_scope, get_current_user, require_admin, require_device
 from app.db.session import get_db
 from app.models import AuditLog, Device, DeviceCommand, DeviceType, Lab, User
 from app.services import commands as cmds
@@ -36,18 +36,21 @@ from app.services import emergency as em
 from app.services.access import get_device
 from app.services.devices import is_fresh
 from app.services.integration import emit
-from app.services.notifications import notify, staff_ids
+from app.services.notifications import active_user_ids, notify, staff_ids
 
 router = APIRouter(tags=["emergency"])
 
 
 def _publish(lab_id: int, alarm: Optional[dict] = None, alarm_was: bool = False,
-             lab_code: str = "") -> None:
-    """Staff pages refetch; when the evacuation alarm was switched on or off,
-    every signed-in page also gets the full-screen alarm (`hazard`) message."""
+             lab_code: str = "", state: Optional[dict] = None) -> None:
+    """Staff pages refetch; every signed-in page gets the lab's message
+    (`emergency_broadcast`); when the evacuation alarm was switched on or off,
+    every page also gets the full-screen alarm (`hazard`) message."""
     try:
         from app.ws.manager import manager
         manager.publish({"type": "staff", "kind": "emergency", "lab_id": lab_id})
+        if state is not None:
+            manager.publish({"type": "emergency_broadcast", **state})
         if alarm is not None:
             manager.publish({"type": "hazard", "state": "raised", **alarm})
         elif alarm_was:
@@ -138,6 +141,20 @@ def status_all(db: Session = Depends(get_db), _: User = Depends(require_admin)):
                     "master": sum(1 for d in pcs if d.is_master_pc)}}
 
 
+@router.get("/emergency/active")
+def active_broadcasts(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Every signed-in user (any role): the labs with an emergency message or
+    alarm right now - what a page opened after it was set shows and reads aloud."""
+    now = datetime.now(timezone.utc)
+    out = []
+    for lab in db.scalars(select(Lab).order_by(Lab.code)).all():
+        e = em.state(db, lab.id, now)
+        if e.message or e.alarm:
+            out.append(em.broadcast(lab.code, e))
+    db.commit()
+    return out
+
+
 # ---------------------------------------------------------------- labs ---
 class LabAction(BaseModel):
     door: Optional[Literal["NORMAL", "UNLOCKED", "LOCKDOWN"]] = None
@@ -147,6 +164,10 @@ class LabAction(BaseModel):
     message: Optional[str] = Field(default=None, max_length=200)
     message_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
     alarm: Optional[bool] = None
+    # Read the message aloud (tablet and every portal screen). A new message
+    # is read aloud unless this says false; "Clear sound" sends alarm=false,
+    # speak=false.
+    speak: Optional[bool] = None
 
 
 def _announce(db: Session, lab: Lab, admin: User, what: str, e=None) -> None:
@@ -170,6 +191,7 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
     now = datetime.now(timezone.utc)
     e = em.state(db, lab.id, now)
     alarm_was = bool(e.alarm)
+    new_message = False
     did = []
     if req.door is not None:
         e.door_mode = req.door
@@ -180,9 +202,15 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
         e.message = door_text(req.message)
         e.message_until = now + timedelta(minutes=req.message_minutes) if e.message and req.message_minutes else None
         did.append(f'message "{e.message}"' if e.message else "message cleared")
+        if e.message:
+            e.speak = req.speak if req.speak is not None else True
+            new_message = True
     if req.alarm is not None:
         e.alarm = req.alarm
         did.append("evacuation alarm ON" if req.alarm else "alarm off")
+    if req.speak is not None and req.message is None:
+        e.speak = req.speak
+        did.append("message read aloud" if req.speak else "message voice off")
     if not did:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Nothing to do")
     e.version += 1
@@ -191,8 +219,13 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
                     entity_id=str(lab.id), detail={"lab": lab.code, **req.model_dump(),
                                                    "version": e.version}))
     _announce(db, lab, admin, "; ".join(did), e)
+    if new_message:
+        # Everyone, not only staff: the people in the lab are the ones it is for.
+        others = [u for u in active_user_ids(db) if u not in set(staff_ids(db))]
+        notify(db, others, "EMERGENCY", f"{lab.code}: message from the lab administrator",
+               body=e.message, link="/", severity="critical")
     db.commit()
-    _publish(lab.id, _alarm_view(lab, e), alarm_was, lab.code)
+    _publish(lab.id, _alarm_view(lab, e), alarm_was, lab.code, em.broadcast(lab.code, e))
     return em.out(e, now)
 
 
@@ -205,13 +238,14 @@ def back_to_normal(lab_id: int, db: Session = Depends(get_db), admin: User = Dep
     e = em.state(db, lab.id, now)
     alarm_was = bool(e.alarm)
     e.door_mode, e.door_until, e.message, e.message_until, e.alarm = "NORMAL", None, "", None, False
+    e.speak = True
     e.version += 1
     e.updated_by_id, e.updated_at = admin.id, now
     db.add(AuditLog(actor_user_id=admin.id, action="EMERGENCY_NORMAL", entity_type="lab",
                     entity_id=str(lab.id), detail={"lab": lab.code, "version": e.version}))
     _announce(db, lab, admin, "back to normal", e)
     db.commit()
-    _publish(lab.id, None, alarm_was, lab.code)
+    _publish(lab.id, None, alarm_was, lab.code, em.broadcast(lab.code, e))
     return em.out(e, now)
 
 
@@ -284,7 +318,7 @@ def for_controller(device_uid: str = Query(max_length=64), db: Session = Depends
     d = get_device(db, device_uid)
     if d is None or d.lab_id is None:
         return {"version": 0, "door": "NORMAL", "remaining_s": 0, "message": "",
-                "message_remaining_s": 0, "alarm": False}
+                "message_remaining_s": 0, "alarm": False, "speak": False}
     now = datetime.now(timezone.utc)
     e = em.state(db, d.lab_id, now)
     view = em.device_view(e, now)

@@ -13,7 +13,7 @@
 
 // --- identity --------------------------------------------------------------
 #define NODE_NAME        "ENVIRONMENT_NODE"
-#define FIRMWARE_VERSION "0.1.0"
+#define FIRMWARE_VERSION "0.1.1"
 // The portal knows this node as ENV_LAB01 and issued its device key for that
 // name (secrets.h). Another id would be refused by the portal.
 static const char *DEVICE_ID = "ENV_LAB01";
@@ -95,6 +95,17 @@ constexpr float    MQ_WARNING_RATIO      = 1.5f;    // filtered / baseline - STA
 constexpr float    MQ_CRITICAL_RATIO     = 2.0f;    // START
 constexpr float    MQ_WARNING_CLEAR_RATIO  = 1.3f;  // hysteresis on the way down
 constexpr float    MQ_CRITICAL_CLEAR_RATIO = 1.8f;
+// A level also needs a REAL rise above the baseline, in mV at the pin. The
+// clean-air baseline sits at the bottom of the ESP32 ADC (~150 mV, raw 0-30),
+// where a ratio alone turns noise into alarms. Measured 2026-10-05/06 (env.log,
+// 7 baselines, ~13 900 READY samples): largest clean-air / electrical rise
+// +286 mV (the door's alarm and relay switching: +110 mV step at 20:41:30);
+// the one gas exposure +960 mV (21:48). Re-check with a gas test after any
+// change to the sensor or its divider.
+constexpr uint16_t MQ_WARNING_MIN_RISE_MV       = 400;
+constexpr uint16_t MQ_CRITICAL_MIN_RISE_MV      = 700;
+constexpr uint16_t MQ_WARNING_CLEAR_RISE_MV     = 300;   // hysteresis on the way down
+constexpr uint16_t MQ_CRITICAL_CLEAR_RISE_MV    = 600;
 constexpr uint32_t MQ_RISE_CONFIRM_MS    = 500;     // a worse level must hold this long
 constexpr uint32_t MQ_FALL_CONFIRM_MS    = 5000;    // a better level must hold this long
 constexpr uint16_t MQ_ABS_CRITICAL_PIN_MV = 2800;   // CRITICAL whatever the baseline (AO ~4.7 V)

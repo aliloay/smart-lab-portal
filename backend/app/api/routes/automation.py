@@ -252,7 +252,7 @@ def post_notify(req: NotifyRequest, db: Session = Depends(get_db)):
     rows = notify(db, recipients, req.kind, req.title, body=req.body,
                   link=req.link, severity=req.severity,
                   booking_id=req.booking_id, issue_id=req.issue_id,
-                  dedupe_key=req.dedupe_key)
+                  dedupe_key=req.dedupe_key, source="n8n")
     db.commit()
     return {"created": len(rows), "duplicate": not rows and bool(recipients)}
 

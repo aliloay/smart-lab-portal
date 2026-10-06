@@ -710,6 +710,7 @@ struct EmergencyState {         // what the task hands to loop()
   long    remainingS;           // door UNLOCKED: seconds left, -1 = until normal
   long    msgRemainingS;        // -1 = until cleared, 0 = no message
   bool    alarm;
+  bool    speak;                // the tablet reads the message aloud
   char    message[96];
 };
 QueueHandle_t emergencyQueue = nullptr;  // task -> loop (always the newest)
@@ -717,6 +718,7 @@ QueueHandle_t emergencyQueue = nullptr;  // task -> loop (always the newest)
 uint8_t  emDoor = EM_NORMAL;
 uint32_t emUnlockUntilMs = 0;   // 0 = until normal
 bool     emAlarm = false;
+bool     emSpeak = false;       // the tablet page reads emMessage aloud (repeated)
 char     emMessage[96] = "";
 uint32_t emMessageUntilMs = 0;  // 0 = until cleared
 long     emVersion = -1;
@@ -840,6 +842,7 @@ void fetchEmergency() {
   e.remainingS = jsonLong(reply, "remaining_s");
   e.msgRemainingS = jsonLong(reply, "message_remaining_s");
   e.alarm = reply.indexOf("\"alarm\":true") >= 0;
+  e.speak = reply.indexOf("\"speak\":true") >= 0;
   strlcpy(e.message, jsonStr(reply, "message").c_str(), sizeof(e.message));
   if (emergencyQueue) xQueueOverwrite(emergencyQueue, &e);
 }
@@ -2288,6 +2291,7 @@ void emergencyTakeUpdate() {
   emUnlockUntilMs = (e.door == EM_UNLOCKED && e.remainingS >= 0) ? millis() + (uint32_t)e.remainingS * 1000UL : 0;
   if (e.door == EM_UNLOCKED && e.remainingS == 0) emDoor = EM_NORMAL;     // already expired
   strlcpy(emMessage, e.msgRemainingS != 0 ? e.message : "", sizeof(emMessage));
+  emSpeak = e.speak;
   emMessageUntilMs = (emMessage[0] && e.msgRemainingS > 0) ? millis() + (uint32_t)e.msgRemainingS * 1000UL : 0;
   if (e.alarm != emAlarm) {
     emAlarm = e.alarm;

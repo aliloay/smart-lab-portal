@@ -16,6 +16,8 @@ import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
 import HazardAlarm from './HazardAlarm'
+import EmergencyMessage from './EmergencyMessage'
+import NotificationToasts from './NotificationToasts'
 import EnvWarnings from './EnvWarnings'
 import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
@@ -96,6 +98,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
+    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
   ]},
   { title: 'Administration', items: [
     { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
@@ -408,6 +411,8 @@ export default function Layout({ children }: { children: ReactNode }) {
         <ChatBubble />
       </div>
       <HazardAlarm />
+      <EmergencyMessage />
+      <NotificationToasts />
       <EnvWarnings />
 
       {/* phone quick action - hidden where it could cover the entry QR */}

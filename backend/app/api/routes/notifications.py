@@ -1,5 +1,6 @@
 """The caller's own notifications. Nobody can read anyone else's."""
 from datetime import datetime, timezone
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func, select, update
@@ -25,6 +26,37 @@ def list_notifications(unread_only: bool = False,
     if unread_only:
         stmt = stmt.where(Notification.is_read.is_(False))
     return db.scalars(stmt).all()
+
+
+@router.get("/inbox")
+def inbox(tab: Literal["all", "unread", "n8n", "portal", "critical"] = "all",
+          kind: Optional[str] = Query(None, max_length=48),
+          q: Optional[str] = Query(None, max_length=80),
+          offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
+          db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The Notifications page: one page of the caller's notifications with
+    the tab counts and the kinds present, newest first."""
+    ensure_booking_reminders(db, user)
+    mine = Notification.user_id == user.id
+    tabs = {"all": None, "unread": Notification.is_read.is_(False),
+            "n8n": Notification.source == "n8n", "portal": Notification.source == "portal",
+            "critical": Notification.severity == "critical"}
+    counts = {k: db.scalar(select(func.count()).select_from(Notification).where(
+        mine, *([] if c is None else [c]))) or 0 for k, c in tabs.items()}
+    stmt = select(Notification).where(mine)
+    if tabs[tab] is not None:
+        stmt = stmt.where(tabs[tab])
+    if kind:
+        stmt = stmt.where(Notification.kind == kind)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(Notification.title.ilike(like) | Notification.body.ilike(like))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    items = db.scalars(stmt.order_by(desc(Notification.created_at), desc(Notification.id))
+                       .offset(offset).limit(limit)).all()
+    kinds = sorted(db.scalars(select(Notification.kind).where(mine).distinct()).all())
+    return {"items": [NotificationOut.model_validate(n).model_dump() for n in items],
+            "total": total, "counts": counts, "kinds": kinds}
 
 
 @router.get("/unread-count")

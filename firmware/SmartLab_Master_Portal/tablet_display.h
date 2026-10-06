@@ -173,6 +173,11 @@ static void tabletHandleState() {
   tjKV(o, "portal", BACKEND_IP);
   tjKV(o, "doorClosed", doorClosed);
   tjKV(o, "lockReleased", relayUnlocked);
+  // The admin's emergency message, read aloud by this page while emSpeak
+  // (repeated until cleared, Clear sound, or "Stop message" on the tablet).
+  tjKV(o, "emMsg", emMessage);
+  tjKV(o, "emSpeak", (bool)(emSpeak && emMessage[0]));
+  tjKV(o, "emVer", emVersion);
   tjKV(o, "camera", cameraHealthy());
   tjKV(o, "fingerprint", fpOk);
   tjKV(o, "rfidReader", !rfidLinkDown);
@@ -268,11 +273,14 @@ gap:2.4vh;background:rgba(5,11,22,.84);text-align:center;padding:24px;cursor:poi
 #sndAsk b{font-size:clamp(22px,4.8vh,46px);color:var(--cy)}
 #sndAsk span{font-size:clamp(15px,2.4vh,22px);color:var(--sub)}
 #sndAsk small{font-size:clamp(14px,2.2vh,20px);color:var(--sub);text-decoration:underline;padding:8px}
+#msgStop{position:fixed;right:2vw;bottom:12vh;z-index:7;font:inherit;font-size:clamp(16px,2.6vh,24px);font-weight:700;
+color:#fff;background:#7a1d1d;border:2px solid #fff;border-radius:12px;padding:1.2vh 2.2vw;cursor:pointer}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <div id="conn"></div>
 <div id="sndAsk" hidden><b>Tap to turn on the door sound</b><span>The door speaks through this device</span>
 <small id="sndNo">Keep this device silent</small></div>
+<button id="msgStop" hidden>Stop message</button>
 <header><div class="brand"><img id="logo" alt="German International University" hidden><i class="sep" id="sep" hidden></i><span id="brandTxt">GIU &middot; SMART <b>LAB</b></span></div><div class="lab" id="lab">ACCESS STATION</div></header>
 <main><div class="card" id="card">
 <div class="hdr" id="hdr">SMART LAB</div>
@@ -445,11 +453,26 @@ function sndCheck(s){
  if(s.sayId===SND.last)return;
  SND.last=s.sayId;
  if(sndReady()&&s.sayAgeMs<3000)sndPlay(s.say||[])}
+// The admin's emergency message: read aloud now and every 20 s while the
+// portal says so, never over a door prompt; "Stop message" silences this
+// message on this tablet (a NEW message is read again).
+var MSG={key:null,stopped:null,last:0};
+function msgVoice(s){
+ var b=$('msgStop');
+ if(!s.emSpeak||!s.emMsg){b.hidden=true;return}
+ var k=s.emVer+':'+s.emMsg;
+ b.hidden=MSG.stopped===k||!sndReady();
+ if(MSG.stopped===k||!sndReady())return;
+ if(MSG.key===k&&Date.now()-MSG.last<20000)return;
+ if(window.speechSynthesis&&speechSynthesis.speaking)return;    // a door prompt is speaking
+ MSG.key=k;MSG.last=Date.now();
+ sndPlay([['v','Message from the lab administrator. '+s.emMsg]])}
+$('msgStop').onclick=function(){MSG.stopped=MSG.key;try{speechSynthesis.cancel()}catch(e){}this.hidden=true};
 sndShow();
 function poll(){
  var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},2500);
  fetch('/state'+(sndReady()?'?snd=1':''),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})
- .then(function(s){clearTimeout(t);fails=0;conn(false);render(s);sndCheck(s)})
+ .then(function(s){clearTimeout(t);fails=0;conn(false);render(s);sndCheck(s);msgVoice(s)})
  .catch(function(){clearTimeout(t);if(++fails>=3)conn(true)})
  .then(function(){setTimeout(poll,fails?1500:500)});
 }

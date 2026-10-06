@@ -686,6 +686,9 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
     read_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # Who raised it: "n8n" (the automation API) or "portal". NULL for rows
+    # from before this was recorded - not guessed.
+    source: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
 
 
 class IntegrationEvent(Base):
@@ -981,6 +984,9 @@ class LabEmergency(Base):
     message: Mapped[str] = mapped_column(String(96), default="")
     message_until: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     alarm: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The message is read aloud (door tablet, every portal screen) until it is
+    # cleared or the sound is switched off ("Clear sound").
+    speak: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     version: Mapped[int] = mapped_column(Integer, default=0)
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

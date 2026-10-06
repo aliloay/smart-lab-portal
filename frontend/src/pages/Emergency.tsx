@@ -11,7 +11,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import {
   BellRing, CircleCheck, DoorOpen, KeyRound, Lock, LockKeyhole, MessageSquare, Monitor,
-  RotateCcw, ShieldAlert, Siren, Unlock, WifiOff,
+  RotateCcw, ShieldAlert, Siren, Unlock, Volume2, VolumeX, WifiOff,
 } from 'lucide-react'
 import { ApiError, EmergencyAction, EmergencyLab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
@@ -161,7 +161,7 @@ function LabCard({ l, open, run }: {
     setBusy(false)
   }
   async function normal() {
-    if (!window.confirm(`${l.code}: back to normal? The door locks, the message and the alarm stop.`)) return
+    if (!window.confirm(`${l.code}: clear all? The door goes back to normal, the message, the alarm and the voice stop.`)) return
     setBusy(true)
     await run(t => api.emergencyNormal(t, l.lab_id))
     setBusy(false)
@@ -203,7 +203,8 @@ function LabCard({ l, open, run }: {
           {l.door_mode === 'UNLOCKED' && <div><DoorOpen size={13} className="inline -mt-0.5" /> Door held OPEN
             {l.door_remaining_s != null ? ` · ${Math.ceil(l.door_remaining_s / 60)} min left` : ' until back to normal'}</div>}
           {l.door_mode === 'LOCKDOWN' && <div><Lock size={13} className="inline -mt-0.5" /> LOCKDOWN: no QR code or card opens the door</div>}
-          {l.message && <div><MessageSquare size={13} className="inline -mt-0.5" /> “{l.message}”</div>}
+          {l.message && <div><MessageSquare size={13} className="inline -mt-0.5" /> “{l.message}”
+            <span className="text-slate-400"> · {l.speak ? 'read aloud on every screen and the tablet' : 'shown, voice off'}</span></div>}
           {l.alarm && <div className="text-bad-soft font-semibold"><BellRing size={13} className="inline -mt-0.5" /> Evacuation alarm sounding</div>}
         </div>)}
 
@@ -226,7 +227,7 @@ function LabCard({ l, open, run }: {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input className="input !py-1.5 !text-[12.5px] flex-1 min-w-[180px]" maxLength={96} disabled={dis}
-                 placeholder="Message on the door screen and tablet" value={msg} onChange={e => setMsg(e.target.value)} />
+                 placeholder="Message: door screen, tablet and every portal screen, read aloud" value={msg} onChange={e => setMsg(e.target.value)} />
           <select className="input !py-1.5 !text-[12.5px] w-auto" value={msgMinutes} disabled={dis}
                   onChange={e => setMsgMinutes(e.target.value)} aria-label="Show the message for">
             <option value="10">10 min</option><option value="30">30 min</option>
@@ -234,14 +235,24 @@ function LabCard({ l, open, run }: {
           </select>
           <button className="btn-ghost btn-sm" disabled={dis || !msg.trim()} onClick={sendMessage}>
             <MessageSquare size={13} /> Show</button>
-          {l.message && <button className="btn-ghost btn-sm" disabled={dis} onClick={() => act({ message: '' })}>
-            Clear message</button>}
         </div>
       </>}
 
       {l.active && (
-        <button className="btn-primary btn-sm" disabled={dis} onClick={normal}>
-          <RotateCcw size={13} /> Back to normal</button>)}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/10">
+          {l.message && (
+            <button className="btn-ghost btn-sm" disabled={dis} onClick={() => act({ speak: !l.speak })}>
+              {l.speak ? <><VolumeX size={13} /> Voice off</> : <><Volume2 size={13} /> Read aloud</>}</button>)}
+          {l.message && <button className="btn-ghost btn-sm" disabled={dis} onClick={() => act({ message: '' })}>
+            <MessageSquare size={13} /> Clear message</button>}
+          {(l.alarm || (l.message && l.speak)) && (
+            <button className="btn-ghost btn-sm" disabled={dis} onClick={() => act({ alarm: false, speak: false })}
+              title="Buzzer, siren and the read-aloud voice off everywhere; the message stays on the screens">
+              <VolumeX size={13} /> Clear sound</button>)}
+          <button className="btn-primary btn-sm" disabled={dis} onClick={normal}
+            title="Door back to normal, message, alarm and voice off">
+            <RotateCcw size={13} /> Clear all</button>
+        </div>)}
     </div>
   )
 }

@@ -91,7 +91,7 @@ def state(db: Session, lab_id: int, now: Optional[datetime] = None) -> LabEmerge
     now = now or datetime.now(timezone.utc)
     e = db.get(LabEmergency, lab_id)
     if e is None:
-        e = LabEmergency(lab_id=lab_id, door_mode="NORMAL", message="", alarm=False, version=0)
+        e = LabEmergency(lab_id=lab_id, door_mode="NORMAL", message="", alarm=False, speak=True, version=0)
         db.add(e)
         db.flush()
     changed = False
@@ -111,7 +111,7 @@ def active(e: LabEmergency) -> bool:
 def out(e: LabEmergency, now: datetime) -> dict:
     return {"door_mode": e.door_mode,
             "door_until": e.door_until, "message": e.message, "message_until": e.message_until,
-            "alarm": e.alarm, "version": e.version, "active": active(e),
+            "alarm": e.alarm, "speak": bool(e.speak), "version": e.version, "active": active(e),
             "door_remaining_s": max(0, int((_utc(e.door_until) - now).total_seconds()))
             if e.door_until else None,
             "updated_at": e.updated_at}
@@ -143,4 +143,15 @@ def device_view(e: LabEmergency, now: datetime) -> dict:
     if e.message:
         mrem = -1 if e.message_until is None else max(1, int((_utc(e.message_until) - now).total_seconds()))
     return {"version": e.version, "door": e.door_mode, "remaining_s": rem if e.door_mode == "UNLOCKED" else 0,
-            "message": e.message, "message_remaining_s": mrem, "alarm": e.alarm}
+            "message": e.message, "message_remaining_s": mrem, "alarm": e.alarm,
+            "speak": bool(e.message) and bool(e.speak)}
+
+
+def broadcast(lab_code: str, e: LabEmergency) -> dict:
+    """What every signed-in screen needs: the message to show and read aloud,
+    and whether the alarm sounds. version changes with every change, so a
+    screen that stopped the voice hears a NEW message again."""
+    return {"lab_id": e.lab_id, "lab_code": lab_code, "message": e.message,
+            "speak": bool(e.message) and bool(e.speak), "alarm": bool(e.alarm),
+            "version": e.version, "active": active(e),
+            "at": e.updated_at.isoformat() if e.updated_at else None}

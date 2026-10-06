@@ -72,8 +72,13 @@ export interface MonitorTile {
 
 export interface EmergencyState {
   door_mode: 'NORMAL' | 'UNLOCKED' | 'LOCKDOWN'; door_until: string | null; door_remaining_s: number | null
-  message: string; message_until: string | null; alarm: boolean; version: number; active: boolean
+  message: string; message_until: string | null; alarm: boolean; speak: boolean; version: number; active: boolean
   updated_at: string
+}
+/** A lab's emergency message / alarm, for every signed-in screen (GET /emergency/active). */
+export interface EmergencyBroadcast {
+  lab_id: number; lab_code: string; message: string; speak: boolean; alarm: boolean
+  version: number; active: boolean; at: string | null
 }
 export interface EmergencyLab extends EmergencyState {
   lab_id: number; code: string; name: string; has_door: boolean; controller_online: boolean | null
@@ -81,7 +86,7 @@ export interface EmergencyLab extends EmergencyState {
 }
 export interface EmergencyAction {
   door?: 'NORMAL' | 'UNLOCKED' | 'LOCKDOWN'; minutes?: number | null
-  message?: string; message_minutes?: number | null; alarm?: boolean
+  message?: string; message_minutes?: number | null; alarm?: boolean; speak?: boolean
 }
 
 export interface SecurityCameraTile {
@@ -587,6 +592,12 @@ export interface Notification {
   booking_id: number | null
   is_read: boolean
   created_at: string
+  /** "n8n" (automation) or "portal"; null = from before this was recorded. */
+  source?: string | null
+}
+export type InboxTab = 'all' | 'unread' | 'n8n' | 'portal' | 'critical'
+export interface Inbox {
+  items: Notification[]; total: number; counts: Record<InboxTab, number>; kinds: string[]
 }
 
 export interface SystemStatus {
@@ -965,6 +976,7 @@ export const api = {
   // Emergency tab (admin): the token comes from the password, for a few minutes.
   emergencySession: (password: string) =>
     post<{ token: string; expires_at: string }>('/emergency/session', { password }),
+  emergencyActive: () => request<EmergencyBroadcast[]>('/emergency/active'),
   emergencyStatus: () => request<{ password_set: boolean; labs: EmergencyLab[]
     pcs: { total: number; locked: number; master: number } }>('/emergency/status'),
   emergencyAct: (token: string, labId: number, a: EmergencyAction) =>
@@ -1168,6 +1180,8 @@ export const api = {
   unreadCount: () => request<{ unread: number }>('/notifications/unread-count'),
   markRead: (id: number) => post<Notification>(`/notifications/${id}/read`),
   markAllRead: () => post<{ updated: number }>('/notifications/read-all'),
+  inbox: (q: { tab?: InboxTab; kind?: string; q?: string; offset?: number; limit?: number }) =>
+    request<Inbox>(`/notifications/inbox${qs(q)}`),
 
   // --- system
   systemStatus: () => request<SystemStatus>('/system/status'),

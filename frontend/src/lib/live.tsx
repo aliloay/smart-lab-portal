@@ -20,6 +20,9 @@ export type LiveMessage =
   | { type: 'security_state'; device_id: number; lab_id: number }
   | { type: 'staff'; kind: string; issue_id?: number; event?: string
       command_id?: number; status?: string; step?: string | null }
+  /** The administrator's emergency message / alarm for one lab (everyone). */
+  | { type: 'emergency_broadcast'; lab_id: number; lab_code: string; message: string; speak: boolean
+      alarm: boolean; version: number; active: boolean; at: string | null }
   /** The door sensor or lock changed: refetch the lab's status. */
   | { type: 'door_state'; lab_id: number }
   /** Staff advisory: comfort limit or motion while the lab is closed. */

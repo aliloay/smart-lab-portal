@@ -87,7 +87,7 @@ def test_unlock_message_alarm_reach_the_controller(client, db, admin, staff, lab
     client.post(f"/api/emergency/labs/{lab.id}/normal", headers=h)
     v = _door(client, device_headers)
     assert v == {"version": 3, "door": "NORMAL", "remaining_s": 0, "message": "",
-                 "message_remaining_s": 0, "alarm": False}
+                 "message_remaining_s": 0, "alarm": False, "speak": False}
 
 
 def test_timed_unlock_runs_out(client, db, admin, lab, controller, device_headers):
@@ -206,3 +206,42 @@ def test_evacuation_alarm_sounds_on_every_portal_screen(client, db, admin, alice
     sent.clear()
     client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"door": "LOCKDOWN"})
     assert [m for m in sent if m["type"] == "hazard"] == []          # no alarm, no siren
+
+
+def test_message_reaches_everyone_and_is_read_aloud_until_sound_cleared(
+        client, db, admin, alice, lab, controller, device_headers, monkeypatch):
+    """An emergency message goes to every user (not only staff), is shown and
+    read aloud on every screen and the door tablet; Clear sound stops the
+    alarm and the voice but keeps the message; Clear all ends everything."""
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    student = auth_headers(client, alice.email)
+    _, h = _open(client, admin)
+
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"message": "Leave by the stairs", "alarm": True})
+    b = [m for m in sent if m["type"] == "emergency_broadcast"]
+    assert len(b) == 1 and b[0]["message"] == "Leave by the stairs" and b[0]["speak"] and b[0]["alarm"]
+    assert db.query(Notification).filter_by(user_id=alice.id, kind="EMERGENCY").count() == 1
+    active = client.get("/api/emergency/active", headers=student).json()
+    assert [(a["lab_code"], a["speak"], a["alarm"]) for a in active] == [(lab.code, True, True)]
+    v = _door(client, device_headers)
+    assert v["speak"] is True and v["alarm"] is True
+
+    # Clear sound: buzzer and voices off, the message stays on the screens.
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"alarm": False, "speak": False})
+    a = client.get("/api/emergency/active", headers=student).json()[0]
+    assert (a["message"], a["speak"], a["alarm"]) == ("Leave by the stairs", False, False)
+    v = _door(client, device_headers)
+    assert v["speak"] is False and v["alarm"] is False and v["message"] == "Leave by the stairs"
+
+    # A new message is read aloud again.
+    client.post(f"/api/emergency/labs/{lab.id}", headers=h, json={"message": "Meet at gate 2"})
+    assert client.get("/api/emergency/active", headers=student).json()[0]["speak"] is True
+
+    # Clear all.
+    sent.clear()
+    client.post(f"/api/emergency/labs/{lab.id}/normal", headers=h)
+    assert client.get("/api/emergency/active", headers=student).json() == []
+    last = [m for m in sent if m["type"] == "emergency_broadcast"][-1]
+    assert last["message"] == "" and not last["active"]

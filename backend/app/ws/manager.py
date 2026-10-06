@@ -62,6 +62,9 @@ class ConnectionManager:
             return client.is_staff or ev.get("user_id") == client.user_id
         if kind in ("staff", "security_state"):
             return client.is_staff
+        if kind == "emergency_broadcast":
+            # The admin's emergency message and alarm: for everyone signed in.
+            return True
         if kind == "hazard":
             # A smoke / flame alarm: safety information for everyone signed in,
             # whatever their role - every open page shows the full-screen alarm.
