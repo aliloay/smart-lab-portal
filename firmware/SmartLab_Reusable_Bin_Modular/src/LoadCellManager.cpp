@@ -113,6 +113,7 @@ bool LoadCellManager::averageNow(uint8_t n, float *out) {
   for (uint8_t k = 0; k < n; k++) {
     if (!_hx.wait_ready_timeout(HX711_READY_TIMEOUT_MS, 2)) return false;
     sum += _hx.read();
+    _lastSampleMs = millis();          // busy reading, not silent: no "stopped answering" alarm
   }
   *out = (float)(sum / n);
   return true;
@@ -213,6 +214,7 @@ void LoadCellManager::rawLog(uint8_t n) {
     }
     uint32_t waited = millis() - w0;
     float v = _hx.read();
+    _lastSampleMs = millis();
     LOG("LOADCELL", "  #%02u +%5lu ms  waited %3lu ms  raw %10.0f  (0x%06lX)", i, (unsigned long)(millis() - t0),
         (unsigned long)waited, v, (unsigned long)((int32_t)v & 0xFFFFFF));
   }
