@@ -49,3 +49,6 @@ tools/security_vision/recordings/
 
 # Robot detector training pictures (stay on this laptop)
 tools/security_vision/dataset/
+
+# Camera view anchors (room picture per camera)
+tools/security_vision/anchors/

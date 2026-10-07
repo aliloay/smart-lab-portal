@@ -185,7 +185,9 @@ class Service:
         self.versions: dict[int, int] = {}
         self.tracks = []
         # View re-alignment (realign.py): reference of the room for the current boxes.
-        self.view_ref = None
+        self.view_anchor = None           # realign.Reference of the view the boxes were drawn on
+        self.view_anchor_boxes = {}
+        self.view_applied = {}            # boxes as we last placed them (vs. staff edits)
         self.view_pending = None          # a confident move seen once; acted on when seen twice
         self.view_unstable = False        # moved, not (yet) re-aligned: box alerts held back
         self.view_lost_checks = 0
@@ -390,48 +392,67 @@ class Service:
             except Exception as e:                       # never let this stop the camera
                 print(f"[view] check failed: {e!r}")
 
+    def _anchor_path(self) -> str:
+        return os.path.join(HERE, "anchors", f"{self.args.device}.npz")
+
     def _check_view(self):
+        """Anchor = the view + boxes as staff last drew them (kept on disk).
+        Each check maps the anchor straight to the current view; boxes move
+        only when the camera has settled (two looks agree on every corner
+        within 1 %) and the match is strong. No chaining, so no drift."""
         frame, at = self.camera.latest()
         zones, door = self.cfg.get("zones", []), self.cfg.get("door")
         if frame is None or time.time() - at > 5 or not (zones or door):
             return
         with self.lock:
             people = [t.box for t in self.tracks]
-        key = realign.zones_key(zones, door)
-        if self.view_ref is None or self.view_ref.zones_key != key:
-            self.view_ref = realign.make_reference(frame, people, key)
-            self.view_pending, self.view_unstable, self.view_lost_checks = None, False, 0
-            print(f"[view] reference kept for {len(zones) + (1 if door else 0)} box(es): "
-                  f"{len(self.view_ref.keypoints)} room features")
-            return
-        m = realign.compare(self.view_ref, frame, people)
-        if not m.moved:
+        current = realign.boxes_of(zones, door)
+        if self.view_anchor is None and os.path.isfile(self._anchor_path()):
+            got = realign.load_anchor(self._anchor_path())
+            if got:
+                self.view_anchor, self.view_anchor_boxes, self.view_applied = got
+                print(f"[view] anchor loaded from disk ({len(self.view_anchor_boxes)} boxes)")
+        # Boxes that are neither the anchor's nor the ones we placed = staff drew / edited them.
+        ours = self.view_applied or self.view_anchor_boxes
+        if self.view_anchor is None or not realign.same_boxes(current, ours):
             if self.view_unstable:
-                print(f"[view] back in place ({m.summary()})")
-            self.view_pending, self.view_unstable, self.view_lost_checks = None, False, 0
+                return                       # never take a new anchor while the view is moving
+            self.view_anchor = realign.make_reference(frame, people, "")
+            self.view_anchor_boxes, self.view_applied = dict(current), {}
+            self.view_pending, self.view_lost_checks = None, 0
+            realign.save_anchor(self._anchor_path(), self.view_anchor, self.view_anchor_boxes, {})
+            print(f"[view] anchor kept: {len(current)} box(es), {len(self.view_anchor.keypoints)} room features")
             return
-        self.view_unstable = True
-        if not m.confident:
+        m = realign.compare(self.view_anchor, frame, people)
+        strong = m.confident and m.inliers >= realign.APPLY_MIN_INLIERS and m.ratio >= realign.APPLY_MIN_RATIO
+        if not strong:
             self.view_pending = None
-            self.view_lost_checks += 1
-            print(f"[view] moved, no confident match ({m.summary()})")
-            if self.view_lost_checks == 2:
-                self.event("CAMERA_VIEW_LOST", "The camera's view changed and the room could not be matched "
-                           f"confidently ({m.inliers} matching points): the boxes were left as they were - "
-                           "check them on the Boxes tab and redraw if needed.")
+            if m.moved or not m.confident:
+                self.view_unstable = True
+                self.view_lost_checks += 1
+                print(f"[view] no strong match to the anchor ({m.summary()})")
+                if self.view_lost_checks == 3:
+                    self.event("CAMERA_VIEW_LOST", "The camera's view changed and the room could not be matched "
+                               f"reliably ({m.inliers} matching points): the boxes were left as they were - "
+                               "check them on the Boxes tab and redraw if needed.")
             return
         self.view_lost_checks = 0
-        if self.view_pending is None or abs(self.view_pending.shift_fraction - m.shift_fraction) > 0.01:
-            self.view_pending = m                        # still moving? wait for a second agreeing look
-            print(f"[view] moved ({m.summary()}) - confirming")
+        predicted, lost = realign.predict(m.homography, self.view_anchor_boxes)
+        if len(lost) * 2 > len(self.view_anchor_boxes):
+            self.view_unstable = True
+            print(f"[view] {len(lost)} of {len(self.view_anchor_boxes)} boxes would leave the picture - not moving them")
             return
-        boxes, lost = [], []
-        for z in zones + ([door] if door else []):
-            nb = realign.move_box(m.homography, z)
-            if nb is None:
-                lost.append(z["id"])
-            else:
-                boxes.append({"id": z["id"], **nb})
+        if realign.max_corner_gap(predicted, current) <= realign.SETTLED and not lost:
+            if self.view_unstable:
+                print(f"[view] boxes are in place ({m.summary()})")
+            self.view_pending, self.view_unstable = None, False
+            return
+        self.view_unstable = True
+        if self.view_pending is None or realign.max_corner_gap(predicted, self.view_pending) > realign.SETTLED:
+            self.view_pending = predicted        # still moving? wait for a second look that agrees
+            print(f"[view] view moved ({m.summary()}) - waiting until it has settled")
+            return
+        boxes = [{"id": k, "x": v[0], "y": v[1], "w": v[2], "h": v[3]} for k, v in predicted.items()]
         try:
             r = self.http.post(self.portal + "/security/zones/realign", timeout=10, json={
                 "device_uid": self.args.device, "boxes": boxes, "lost": lost,
@@ -442,11 +463,15 @@ class Service:
         if r.status_code != 200:
             print(f"[view] portal refused the re-alignment: HTTP {r.status_code}")
             return
-        print(f"[view] {len(boxes)} box(es) re-aligned, {len(lost)} left the picture ({m.summary()})")
-        self.event("CAMERA_VIEW_MOVED", f"The camera's view moved ({m.shift_fraction:.1%} of the width); "
-                   f"{len(boxes)} box(es) re-aligned to the room"
+        self.view_applied = {k: v for k, v in predicted.items()}
+        for k in lost:                            # left the picture: unchanged in the portal
+            if k in current:
+                self.view_applied[k] = current[k]
+        realign.save_anchor(self._anchor_path(), self.view_anchor, self.view_anchor_boxes, self.view_applied)
+        self.view_pending = None
+        print(f"[view] {len(boxes)} box(es) re-aligned from the anchor, {len(lost)} left the picture ({m.summary()})")
+        self.event("CAMERA_VIEW_MOVED", f"The camera's view moved; {len(boxes)} box(es) re-aligned to the room"
                    + (f", {len(lost)} left the picture - redraw those" if lost else "") + ".")
-        self.view_pending = None                         # new boxes -> new reference on the next check
 
     def identify_faces(self):
         """Names by face: a head crop of each person not named yet goes to the

@@ -21,6 +21,8 @@ Pure logic (numpy + OpenCV), tested in test_realign.py.
 """
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass
 from typing import Optional
 
@@ -131,3 +133,58 @@ def zones_key(zones: list[dict], door: Optional[dict]) -> str:
     allz = list(zones) + ([door] if door else [])
     return "|".join(f"{z['id']}:{z.get('ref_version', 0)}:{z['x']:.4f},{z['y']:.4f},{z['w']:.4f},{z['h']:.4f}"
                     for z in sorted(allz, key=lambda z: z["id"]))
+
+
+# --------------------------------------------------------------- anchor ---
+# The view and the boxes as STAFF last drew them. Every re-alignment maps
+# from this anchor straight to the current view, so small errors can never
+# pile up from one automatic re-alignment to the next.
+APPLY_MIN_INLIERS = 80         # stricter than "confident" before boxes are moved
+APPLY_MIN_RATIO = 0.40
+SETTLED = 0.01                 # two looks must agree on every box corner within 1 % of the picture
+
+
+def boxes_of(zones: list[dict], door: Optional[dict]) -> dict[int, tuple]:
+    return {z["id"]: (z["x"], z["y"], z["w"], z["h"]) for z in list(zones) + ([door] if door else [])}
+
+
+def same_boxes(a: dict, b: dict, tol: float = 2e-3) -> bool:
+    return a.keys() == b.keys() and all(max(abs(p - q) for p, q in zip(a[k], b[k])) <= tol for k in a)
+
+
+def predict(Hn: np.ndarray, anchor_boxes: dict) -> tuple[dict, list]:
+    """Where each anchor box lands in the current view; ids that left the picture."""
+    moved, lost = {}, []
+    for k, (x, y, w, h) in anchor_boxes.items():
+        nb = move_box(Hn, {"x": x, "y": y, "w": w, "h": h})
+        if nb is None:
+            lost.append(k)
+        else:
+            moved[k] = (nb["x"], nb["y"], nb["w"], nb["h"])
+    return moved, lost
+
+
+def max_corner_gap(a: dict, b: dict) -> float:
+    gaps = [max(abs(a[k][0] - b[k][0]), abs(a[k][1] - b[k][1]),
+                abs(a[k][0] + a[k][2] - b[k][0] - b[k][2]), abs(a[k][1] + a[k][3] - b[k][1] - b[k][3]))
+            for k in a if k in b]
+    return max(gaps) if gaps else 0.0
+
+
+def save_anchor(path: str, ref: Reference, anchor_boxes: dict, applied: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    np.savez_compressed(path, gray=ref.gray, size=np.array(ref.size),
+                        meta=np.array(json.dumps({"anchor": {str(k): v for k, v in anchor_boxes.items()},
+                                                  "applied": {str(k): v for k, v in applied.items()}})))
+
+
+def load_anchor(path: str) -> Optional[tuple[Reference, dict, dict]]:
+    try:
+        d = np.load(path, allow_pickle=False)
+        gray = d["gray"]
+        kp, des = _orb.detectAndCompute(gray, None)
+        meta = json.loads(str(d["meta"]))
+        conv = lambda m: {int(k): tuple(v) for k, v in m.items()}
+        return Reference(gray, kp, des, tuple(int(v) for v in d["size"]), ""), conv(meta["anchor"]), conv(meta["applied"])
+    except (OSError, KeyError, ValueError):
+        return None

@@ -78,3 +78,32 @@ def test_zones_key_changes_when_a_box_changes():
     assert a == realign.zones_key([dict(BOX)], None)
     assert a != realign.zones_key([{**BOX, "x": 0.41}], None)
     assert a != realign.zones_key([BOX], {"id": 9, "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.2})
+
+
+def test_anchor_maps_straight_from_the_staff_boxes(tmp_path):
+    img = room()
+    ref = realign.make_reference(img, [], "")
+    boxes = {1: (0.40, 0.40, 0.10, 0.12), 2: (0.02, 0.40, 0.10, 0.10)}
+    m = realign.compare(ref, shifted(img, -200, 0), [])
+    moved, lost = realign.predict(m.homography, boxes)
+    assert lost == [2] and abs(moved[1][0] - (0.40 - 200 / 960)) < 0.01
+    assert realign.max_corner_gap(moved, {1: boxes[1]}) > 0.15
+    assert realign.max_corner_gap(boxes, dict(boxes)) < 1e-9
+
+
+def test_staff_edit_is_told_apart_from_noise():
+    a = {1: (0.4, 0.4, 0.1, 0.12)}
+    assert realign.same_boxes(a, {1: (0.4005, 0.4, 0.1, 0.12)})       # rounding
+    assert not realign.same_boxes(a, {1: (0.45, 0.4, 0.1, 0.12)})      # redrawn
+    assert not realign.same_boxes(a, {**a, 2: (0.1, 0.1, 0.1, 0.1)})   # box added
+
+
+def test_anchor_survives_a_restart(tmp_path):
+    img = room()
+    ref = realign.make_reference(img, [], "")
+    p = str(tmp_path / "anchors" / "CAM.npz")
+    realign.save_anchor(p, ref, {1: (0.4, 0.4, 0.1, 0.12)}, {1: (0.5, 0.4, 0.1, 0.12)})
+    ref2, anchor, applied = realign.load_anchor(p)
+    assert anchor == {1: (0.4, 0.4, 0.1, 0.12)} and applied == {1: (0.5, 0.4, 0.1, 0.12)}
+    assert ref2.size == ref.size and realign.compare(ref2, img, []).confident
+    assert realign.load_anchor(str(tmp_path / "missing.npz")) is None
