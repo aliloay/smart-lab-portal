@@ -462,7 +462,43 @@ def test_a_face_name_never_lands_on_a_small_half_hidden_person():
     lab.assign([head], [], None, now=40.0, known=KNOWN)
     assert head.label is None
     # Two big unnamed people who both fit: not clearly one of them - nobody.
-    p1 = Track(6, (100, 60, 60, 240), 50.0, 50.0, look=la)
-    p2 = Track(7, (400, 60, 60, 240), 50.0, 50.0, look=la)
-    lab.assign([p1, p2], [], None, now=50.0, known=KNOWN)
+    p1 = Track(6, (100, 60, 60, 240), 70.0, 70.0, look=la)          # long after: not by place
+    p2 = Track(7, (400, 60, 60, 240), 70.0, 70.0, look=la)
+    lab.assign([p1, p2], [], None, now=70.0, known=KNOWN)
     assert p1.label is None and p2.label is None
+
+
+def test_a_seated_person_who_drops_out_gets_the_name_back_at_the_same_place():
+    """Hemaly at the back is a 33x48 px head behind the monitors: the detector
+    loses him and finds him again as a new track. Same place, moments later:
+    same person - by place, not by look."""
+    lab = Labeler()
+    t = Track(1, (435, 235, 33, 48), 10.0, 10.0)
+    lab.face_vote(1, "USER5", 10.0)
+    lab.face_vote(1, "USER5", 11.0)
+    lab.assign([t], [], None, now=11.0, known=KNOWN5)
+    assert t.label == "USER5"
+    lab.assign([], [], None, now=14.0, known=KNOWN5)                   # lost behind the monitor
+    again = Track(2, (437, 236, 31, 47), 15.0, 15.0)
+    elsewhere = Track(3, (100, 300, 70, 150), 15.0, 15.0)
+    lab.assign([again, elsewhere], [], None, now=15.0, known=KNOWN5)
+    assert again.label == "USER5" and elsewhere.label is None
+    lab.assign([], [], None, now=16.0, known=KNOWN5)
+    late = Track(4, (437, 236, 31, 47), 60.0, 60.0)                   # long after: not handed back
+    lab.assign([late], [], None, now=60.0, known=KNOWN5)
+    assert late.label is None
+
+
+def test_no_hand_back_when_two_new_people_are_at_the_place():
+    lab = Labeler()
+    t = Track(1, (435, 235, 40, 60), 10.0, 10.0)
+    lab.face_vote(1, "USER5", 10.0)
+    lab.face_vote(1, "USER5", 11.0)
+    lab.assign([t], [], None, now=11.0, known=KNOWN5)
+    lab.assign([], [], None, now=12.0, known=KNOWN5)
+    a, b = Track(2, (436, 236, 40, 60), 13.0, 13.0), Track(3, (446, 240, 40, 60), 13.0, 13.0)
+    lab.assign([a, b], [], None, now=13.0, known=KNOWN5)
+    assert a.label is None and b.label is None
+
+
+KNOWN5 = [{"auth_subject": "USER5", "name": "Eng. Hemaly", "role": "LAB_STAFF"}]

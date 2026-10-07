@@ -53,3 +53,4 @@ tools/security_vision/dataset/
 # Camera view anchors (room picture per camera)
 tools/security_vision/anchors/
 docs/paper_images_private/
+firmware/face_server/wrong_person/

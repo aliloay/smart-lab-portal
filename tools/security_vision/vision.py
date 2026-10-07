@@ -468,6 +468,7 @@ class Labeler:
         self._face(tracks, inside, {k["auth_subject"]: k for k in (known or [])}, now)
 
         self._fix_after_crossing(tracks, inside, now)
+        self._hand_back(tracks, inside, now)
 
         taken = {t.label for t in tracks if t.label}
         free = [o for o in occupants if o["auth_subject"] not in taken]
@@ -552,6 +553,54 @@ class Labeler:
             taken.add(label)
             if label not in inside:
                 self.face_named[label] = (who, now)
+
+    HANDBACK_S = 20.0                  # a lost named track's name waits this long at its place
+
+    def _hand_back(self, tracks: list[Track], inside: dict, now: float):
+        """Same place, moments later: a person sitting behind monitors keeps
+        dropping out of detection and comes back as a NEW track. The name of a
+        track lost here goes to the one new unnamed track that appears where
+        it was (any size - by place, not by look). Never when two could fit."""
+        if not hasattr(self, "lost"):
+            self.lost: dict[int, tuple] = {}         # track id -> (box, who, source, lost at)
+            self.last_named: dict[int, tuple] = {}
+        live = {t.id: t for t in tracks}
+        for tid, rec in list(self.last_named.items()):
+            if tid not in live:
+                self.lost[tid] = (*rec, now)
+                del self.last_named[tid]
+        for tid in [k for k, v in self.lost.items() if now - v[3] > self.HANDBACK_S]:
+            del self.lost[tid]
+        held = {t.label for t in tracks if t.label}
+        claims: dict[int, list] = {}
+        for tid, (box, who, source, at) in self.lost.items():
+            label = who["auth_subject"]
+            if label in held or (source == "door" and label not in inside):
+                continue
+            cx, cy = _center(box)
+            reach = 0.6 * max(box[2], box[3])
+            near = [t for t in tracks if not t.label and not t.crowded and t.first_seen >= at - 1.0
+                    and math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
+                    and 0.5 <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= 2.0]
+            # Big enough to judge the look: the look must agree too (someone
+            # else walking through that place is not them).
+            near = [t for t in near if t.box[3] < self.MIN_LOOK_H or
+                    ((d := self._distance(t, label)) is not None and d <= self.REACQUIRE_MAX)]
+            if len(near) == 1:
+                claims.setdefault(near[0].id, []).append((tid, who, source))
+        for t_id, cl in claims.items():
+            if len(cl) != 1:
+                continue                            # two lost names fit this one: nobody
+            tid, who, source = cl[0]
+            self._give(live[t_id], who, source)
+            held.add(who["auth_subject"])
+            del self.lost[tid]
+        for t in tracks:
+            if t.label:
+                self.last_named[t.id] = (t.box, {"auth_subject": t.label, "name": t.name, "role": t.role},
+                                         t.source)
+            else:
+                self.last_named.pop(t.id, None)
 
     def _agreed(self, t: Track) -> Optional[str]:
         """The one person FACE_VOTES recent face matches agree on, else None."""
