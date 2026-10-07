@@ -177,6 +177,7 @@ class StateReport(BaseModel):
     unknown: int = 0
     zones: list[ZoneStatus] = Field(default_factory=list, max_length=100)
     source_ok: bool = True
+    door_open: Optional[bool] = None          # from the red door leaf in the door box (None: no door box)
 
 
 @router.post("/state", tags=["devices"])
@@ -192,14 +193,14 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     # 2 s and every staff page refetches on a push - pushing each report made
     # the whole portal reload every 2 s.
     def seen(s: dict) -> tuple:
-        return (s.get("people"), s.get("unknown"), s.get("source_ok"),
+        return (s.get("people"), s.get("unknown"), s.get("source_ok"), s.get("door_open"),
                 tuple(sorted((n.get("label") or "", n.get("name") or "") for n in s.get("named", []))),
                 tuple(sorted((z.get("id"), z.get("status")) for z in s.get("zones", []))))
     was_online = d.is_online
     d.last_seen_at, d.is_online = now, True
     d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
-                         "named": req.named[:50], "source_ok": req.source_ok,
+                         "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
                          "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
     db.commit()
     if seen(prev) != seen(d.component_state) or not was_online:
@@ -283,6 +284,7 @@ def camera_summary(db: Session, d: Device, now: datetime) -> dict:
             "unknown": st.get("unknown") if online else None,
             "named": st.get("named", []) if online else [],
             "zones": st.get("zones", []) if online else [],
+            "door_open": st.get("door_open") if online else None,
             "inside": len(occupants(db, d.lab_id)),
             "open_events": db.query(SecurityEvent).filter_by(
                 device_id=d.id, acknowledged_at=None).count()}

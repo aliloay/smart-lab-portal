@@ -54,7 +54,8 @@ from equipwatch import NOT_SEEN_SCANS, EquipmentWatch, Found
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
-from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw, head_crop, predicted
+from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, head_crop, iou
+from vision import predicted, red_share
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -185,6 +186,8 @@ class Service:
         print(f"[record] {'FFmpeg found' if self.recorder.ffmpeg else 'FFmpeg NOT found - recording unavailable'};"
               f" files in {os.path.abspath(args.recordings)}")
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
+        self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
+        self.door_open: Optional[bool] = None
         self.cfg = {"zones": [], "door": None, "occupants": []}
         self.versions: dict[int, int] = {}
         self.tracks = []
@@ -271,7 +274,7 @@ class Service:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
                     "device_uid": self.args.device, "fps": self.fps, "people": len(tracks),
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
-                    "source_ok": self.camera.ok})
+                    "source_ok": self.camera.ok, "door_open": self.door_open})
             except requests.RequestException:
                 pass
 
@@ -321,6 +324,15 @@ class Service:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
             states = self.zones.update(self.cfg.get("zones", []), gray, pnorm, t0)
+            if door:
+                was = self.door_open
+                drect = (door["x"], door["y"], door["w"], door["h"])
+                self.door_open = self.door_watch.update(red_share(frame, drect),
+                                                        any(iou(drect, p) > 0.02 for p in pnorm))
+                if was is not None and self.door_open is not None and was != self.door_open:
+                    print(f"[door] {'opened' if self.door_open else 'closed'} (camera)")
+            else:
+                self.door_open = None
             with self.lock:
                 self.tracks = tracks
             self.check(tracks, occupants, states)
@@ -611,7 +623,7 @@ class Service:
                     tracks = predicted(list(self.tracks), time.time())   # boxes keep up between detections
                 door = self.cfg.get("door")
                 draw(frame, tracks, self.cfg.get("zones", []), dict(self.zones.states),
-                     (door["x"], door["y"], door["w"], door["h"]) if door else None)
+                     (door["x"], door["y"], door["w"], door["h"]) if door else None, self.door_open)
                 jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
                 with self.lock:
                     self.raw_jpeg, self.jpeg = raw, jpeg

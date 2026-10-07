@@ -621,23 +621,34 @@ class ZoneWatcher:
       CHANGED  the box no longer looks like the reference for HOLD_S
                (moved, removed, covered) - normalised correlation, so a light
                switched on or off does not count;
-      MOTION   pixels in the box keep changing frame to frame (something
-               moving there with no person detected, e.g. a robot running).
+      MOTION   part of the box changes frame to frame (something moving there
+               with no person detected, e.g. a robot running): shown after two
+               moving frames, kept until the box has been still MOTION_LINGER_S
+               - an arm that pauses between moves stays "moving".
+
+    A robot (a box with alert_on_motion off - it runs programs on its own) that
+    stops in a new pose is not "changed": once still for SETTLE_S the new pose
+    becomes its normal look. A PC that looks different stays CHANGED.
 
     A person overlapping the box makes it IN_USE and pauses the comparison.
     """
     CHANGE_AT = 0.45
-    MOTION_AT = 12.0                   # mean abs pixel change (0-255) between frames
+    MOTION_AT = 12.0                   # mean abs pixel change (0-255) between frames, or
+    PIXEL_AT = 25                      # a pixel changing by this much ...
+    MOVING_SHARE = 0.03                # ... in this share of the box (an arm in a big box)
     HOLD_S = 3.0
+    MOTION_LINGER_S = 4.0
+    SETTLE_S = 5.0
 
     def __init__(self):
         self.refs: dict[int, np.ndarray] = {}
         self.prev: dict[int, np.ndarray] = {}
         self.states: dict[int, ZoneState] = {}
         self._pending: dict[int, tuple[str, float]] = {}
+        self._moving: dict[int, tuple[int, float]] = {}    # consecutive moving frames, last moving time
 
     def reset(self, zone_id: Optional[int] = None):
-        for d in (self.refs, self.prev, self.states, self._pending):
+        for d in (self.refs, self.prev, self.states, self._pending, self._moving):
             if zone_id is None:
                 d.clear()
             else:
@@ -687,9 +698,29 @@ class ZoneWatcher:
                 out.append(st)
                 continue
             st.score = round(self._difference(ref, patch), 3)
-            motion = prev is not None and prev.shape == patch.shape and \
-                float(cv2.absdiff(prev, patch).mean()) > self.MOTION_AT
-            want = "MOTION" if motion else "CHANGED" if st.score > self.CHANGE_AT else "OK"
+            moving = False
+            if prev is not None and prev.shape == patch.shape:
+                # Brightness evened out first: a light switched on/off is not movement.
+                gain = float(patch.mean()) / max(float(prev.mean()), 1.0)
+                d = np.abs(prev.astype(np.float32) * gain - patch.astype(np.float32))
+                moving = float(d.mean()) > self.MOTION_AT or \
+                    float((d > self.PIXEL_AT).mean()) >= self.MOVING_SHARE
+            run, last = self._moving.get(zid, (0, -1e9))
+            run, last = (run + 1, now) if moving else (0, last)
+            self._moving[zid] = (run, last)
+            if run >= 2 or (st.status == "MOTION" and now - last < self.MOTION_LINGER_S):
+                self._pending.pop(zid, None)
+                self._set(st, "MOTION", now)
+                out.append(st)
+                continue
+            if moving:                         # a single moving frame: wait for the next one
+                out.append(st)
+                continue
+            if z.get("alert_on_motion", True) is False and st.score > self.CHANGE_AT \
+                    and now - last >= self.SETTLE_S:
+                self.refs[zid] = patch         # a robot parked in a new pose: that is normal now
+                st.score = 0.0
+            want = "CHANGED" if st.score > self.CHANGE_AT else "OK"
             if want == "OK":
                 self._pending.pop(zid, None)
                 self._set(st, "OK", now)
@@ -740,9 +771,52 @@ ON_HOLD = (0, 140, 255)                                  # BGR orange: named by 
 MISMATCH = (60, 60, 240)                                 # BGR red: the face contradicts the door's name
 ZONE_COLORS = {"OK": (160, 160, 160), "IN_USE": (250, 165, 96), "CHANGED": (60, 60, 240),
                "MOTION": (0, 165, 255), "LEARNING": (160, 160, 160)}
+ZONE_WORDS = {"MOTION": "moving", "IN_USE": "in use"}
 
 
-def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_norm=None):
+def red_share(frame: np.ndarray, rect_norm) -> Optional[float]:
+    """Share of strongly red pixels in a box (0-1): the lab's red door leaf is
+    seen only while the door is open."""
+    h, w = frame.shape[:2]
+    x0, y0 = int(rect_norm[0] * w), int(rect_norm[1] * h)
+    x1, y1 = int((rect_norm[0] + rect_norm[2]) * w), int((rect_norm[1] + rect_norm[3]) * h)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    hsv = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+    red = ((hsv[..., 0] < 10) | (hsv[..., 0] > 170)) & (hsv[..., 1] > 110) & (hsv[..., 2] > 60)
+    return float(red.mean())
+
+
+class DoorWatcher:
+    """Open / closed from the red door leaf in the door box. The share of red
+    when open is learnt (the reddest clear look); open above 60 % of it,
+    closed below 25 % of it - in between keeps the last state (no flicker).
+    A person in the doorway hides the red: that never counts as closed."""
+    MIN_OPEN = 0.15                    # less red than this is never taken as "open"
+
+    def __init__(self):
+        self.open_share: Optional[float] = None
+        self.is_open: Optional[bool] = None
+
+    def update(self, share: Optional[float], occupied: bool = False) -> Optional[bool]:
+        if share is None:
+            return self.is_open
+        if share >= self.MIN_OPEN and not occupied:
+            self.open_share = max(self.open_share or 0.0, share)
+        full = self.open_share
+        if full is None:                               # never seen open yet
+            if share < 0.05 and not occupied:
+                self.is_open = False
+            return self.is_open
+        if share >= 0.6 * full:
+            self.is_open = True
+        elif share <= 0.25 * full and not occupied:
+            self.is_open = False
+        return self.is_open
+
+
+def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_norm=None,
+         door_open: Optional[bool] = None):
     h, w = frame.shape[:2]
     for z in zones:
         st = states.get(z["id"])
@@ -751,13 +825,14 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
         x, y = int(z["x"] * w), int(z["y"] * h)
         cv2.rectangle(frame, (x, y), (int((z["x"] + z["w"]) * w), int((z["y"] + z["h"]) * h)), c, 2)
         # Box labels sit at the bottom so they never hide a person's name tag.
-        _tag(frame, f'{z["name"]} {status.lower().replace("_", " ")}', x,
+        _tag(frame, f'{z["name"]} {ZONE_WORDS.get(status, status.lower())}', x,
              int((z["y"] + z["h"]) * h) + 18, c)
     if door_rect_norm:
         x, y = int(door_rect_norm[0] * w), int(door_rect_norm[1] * h)
         cv2.rectangle(frame, (x, y), (int((door_rect_norm[0] + door_rect_norm[2]) * w),
                                       int((door_rect_norm[1] + door_rect_norm[3]) * h)), (200, 200, 200), 1)
-        _tag(frame, "door", x, y, (200, 200, 200))
+        word = {True: "door OPEN", False: "door closed"}.get(door_open, "door")
+        _tag(frame, word, x, y, (0, 165, 255) if door_open else (200, 200, 200))
     for t in tracks:
         c = MISMATCH if t.mismatch else ON_HOLD if t.label and not t.entered \
             else COLORS.get(t.role if t.label else None, COLORS[None])

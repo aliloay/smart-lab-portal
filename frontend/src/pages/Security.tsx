@@ -192,6 +192,11 @@ function Live({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) 
           <div className="text-[12px] text-slate-400">
             {cam.fps ? `Analysing ${cam.fps} times a second` : 'Not analysing'} · last report{' '}
             {cam.last_seen_at ? relative(cam.last_seen_at) : 'never'}</div>
+          {cam.door_open != null && (
+            <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <DoorOpen size={13} className="text-slate-400" /> Door (seen by the camera)
+              <Chip tone={cam.door_open ? 'warn' : 'ok'} dot className="ml-auto">{cam.door_open ? 'open' : 'closed'}</Chip>
+            </div>)}
         </div>
         <div className={`card p-4 ${extra ? 'border-bad/60' : ''}`}>
           <div className="label mb-2 flex items-center gap-1.5"><Users size={13} /> People</div>
@@ -230,7 +235,7 @@ function Live({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) 
               {cam.zones.map(z => (
                 <li key={z.id} className="flex items-center gap-2">
                   <span className="text-slate-100 flex-1 truncate">{z.name}</span>
-                  <Chip tone={ZONE_TONE[z.status] ?? 'idle'} dot>{z.status.toLowerCase().replace('_', ' ')}</Chip>
+                  <Chip tone={ZONE_TONE[z.status] ?? 'idle'} dot>{z.status === 'MOTION' ? 'moving' : z.status.toLowerCase().replace('_', ' ')}</Chip>
                   {(z.status === 'CHANGED' || z.status === 'MOTION') && (
                     <button className="btn-ghost btn-sm" title="The new position/look is fine - relearn it"
                             onClick={() => accept(z.id)}><Check size={13} /> Accept</button>)}

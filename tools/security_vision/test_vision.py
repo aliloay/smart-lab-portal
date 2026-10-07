@@ -361,3 +361,53 @@ def test_find_equipment_keeps_screens_and_drops_containers_and_weak_hits():
                     Detection(0, 0.95, (600, 200, 60, 200))]     # a person: not equipment
     kept = find_equipment(Fake(), np.zeros((540, 960, 3), np.uint8))
     assert sorted(round(d.score, 2) for d in kept) == [0.73, 0.89]
+
+
+def _arm(angle):
+    """A big box with a small 'arm' in it (like the UR5e in its frame)."""
+    img = np.full((360, 640), 90, np.uint8)
+    cv2.rectangle(img, (100, 100), (300, 300), 140, 3)
+    cv2.line(img, (200, 120), (200 + angle, 200), 230, 9)
+    return img
+
+
+ARM = [{"id": 2, "name": "UR5e", "x": 80 / 640, "y": 80 / 360, "w": 240 / 640, "h": 240 / 360,
+        "alert_on_motion": False}]
+
+
+def test_a_moving_robot_shows_moving_until_it_really_stops_then_its_pose_is_normal():
+    zw = ZoneWatcher()
+    zw.update(ARM, _arm(0), [], 0.0)
+    zw.update(ARM, _arm(25), [], 0.5)                          # one moving frame: not yet
+    assert zw.update(ARM, _arm(50), [], 1.0)[0].status == "MOTION"
+    assert zw.update(ARM, _arm(50), [], 3.0)[0].status == "MOTION"   # a pause: still moving
+    assert zw.update(ARM, _arm(50), [], 6.0)[0].status != "MOTION"   # still for > 4 s
+    assert zw.update(ARM, _arm(50), [], 12.0)[0].status == "OK"      # parked: the new pose is normal
+    assert zw.update(ARM, _arm(50), [], 16.0)[0].status == "OK"
+
+
+def test_a_pc_that_moved_stays_changed():
+    zw = ZoneWatcher()
+    pc = [{**ARM[0], "name": "PC-01", "alert_on_motion": True}]
+    zw.update(pc, _arm(0), [], 0.0)
+    zw.update(pc, _arm(25), [], 0.5)
+    zw.update(pc, _arm(50), [], 1.0)
+    for t in (6.0, 8.0, 12.0, 16.0):
+        st = zw.update(pc, _arm(50), [], t)[0]
+    assert st.status == "CHANGED"
+
+
+def test_door_open_from_the_red_leaf():
+    from vision import DoorWatcher, red_share
+    wall = np.full((100, 100, 3), 200, np.uint8)
+    door = wall.copy()
+    door[10:90, 10:60] = (30, 30, 200)                     # BGR red leaf
+    box = (0.0, 0.0, 1.0, 1.0)
+    dw = DoorWatcher()
+    assert dw.update(red_share(wall, box)) is False        # never seen red: closed
+    assert dw.update(red_share(door, box)) is True
+    half = wall.copy()
+    half[10:90, 10:35] = (30, 30, 200)                     # someone half in front: no flicker
+    assert dw.update(red_share(half, box)) is True
+    assert dw.update(red_share(wall, box), occupied=True) is True   # a person hides it: not "closed"
+    assert dw.update(red_share(wall, box)) is False

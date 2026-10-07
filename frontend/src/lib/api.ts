@@ -104,6 +104,8 @@ export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null
   last_seen_at: string | null; fps: number | null
   zones: { id: number; name: string; status: 'LEARNING' | 'OK' | 'IN_USE' | 'CHANGED' | 'MOTION'; score: number }[]
+  /** Seen by the camera (red door leaf in the door box); null = no door box / offline. */
+  door_open?: boolean | null
 }
 /** Where a record came from (thesis traceability); set once, never rewritten. */
 export type Provenance = 'REAL_OPERATION' | 'PHYSICAL_TEST' | 'BENCH_TEST' | 'SOFTWARE_TEST'
