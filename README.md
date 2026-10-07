@@ -89,6 +89,12 @@ two chat screenshots are from the owner's laptop with the free local models.
 | ![Report an issue](docs/screenshots/report-issue.png) | ![Maintenance queue](docs/screenshots/maintenance-queue.png) |
 | **Issue workflow** | **Devices** |
 | ![Issue detail](docs/screenshots/issue-detail.png) | ![Devices](docs/screenshots/devices.png) |
+| **Security camera: the robotics lab (MC210)** | **Security camera: people, PCs and robots watched** |
+| ![Security camera view](docs/screenshots/security-camera-lab.jpg) | ![Security camera boxes](docs/screenshots/security-camera-boxes.jpg) |
+
+The two security camera pictures are real frames from the lab (7 Oct 2026):
+faces are blurred for publication. Each PC (PC-01...PC-11), the UR5e and the
+Fanuc has a box; "Unknown" is a person with no door entry and no enrolled face.
 
 ## Documentation
 
