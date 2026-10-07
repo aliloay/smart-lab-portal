@@ -342,3 +342,22 @@ def test_face_named_person_who_then_enters_is_verified():
     assert (t.entered, t.verified) == (False, False)          # on hold
     lab.assign([t], [occ("USER1", "Ali", "STUDENT", 12.0)], None, 13.0, known=KNOWN)
     assert (t.entered, t.verified) == (True, True)
+
+
+def test_find_equipment_keeps_screens_and_drops_containers_and_weak_hits():
+    """Tiled equipment search: weak hits dropped, a box that mostly contains
+    another (cabinet around a monitor) keeps only the more confident one."""
+    import numpy as np
+    from vision import Detection, find_equipment
+
+    class Fake:
+        def detect(self, img):
+            if img.shape[1] < 900:                    # tiles: nothing extra
+                return []
+            return [Detection(62, 0.89, (100, 100, 140, 120)),   # monitor
+                    Detection(62, 0.66, (450, 90, 120, 160)),    # cabinet...
+                    Detection(62, 0.73, (480, 150, 80, 80)),     # ...around this monitor
+                    Detection(62, 0.22, (280, 220, 130, 80)),    # chair back
+                    Detection(0, 0.95, (600, 200, 60, 200))]     # a person: not equipment
+    kept = find_equipment(Fake(), np.zeros((540, 960, 3), np.uint8))
+    assert sorted(round(d.score, 2) for d in kept) == [0.73, 0.89]

@@ -47,6 +47,7 @@ import requests
 from flask import Flask, Response, jsonify, request, send_file
 
 from recorder import Recorder
+from vision import EQUIPMENT_CLASSES, find_equipment
 from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw, head_crop, predicted
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -183,6 +184,7 @@ class Service:
         self.jpeg = self.raw_jpeg = None
         self.lock = threading.Lock()
         self.label_lock = threading.Lock()   # labeler: analysis + face checks
+        self.equipment_detector = None        # 640 model for "Find equipment", loaded on first use
         self.det_lock = threading.Lock()     # the detector network: analysis + equipment search
         self.face_asked: dict[int, float] = {}
         self.mismatch_reported: set = set()
@@ -431,12 +433,15 @@ def make_app(svc: Service) -> Flask:
         if frame is None:
             return jsonify({"items": []})
         h, w = frame.shape[:2]
+        # On demand only: the full 640 model over overlapping tiles (vision.
+        # find_equipment) - the live 416 settings miss small, side-on screens.
+        if svc.equipment_detector is None:
+            svc.equipment_detector = Detector(svc.args.model, conf=0.15, size=640)
         with svc.det_lock:
-            found = svc.detector.detect(frame)
-        kinds = {62: "Monitor", 63: "Laptop"}
+            found = find_equipment(svc.equipment_detector, frame)
         return jsonify({"items": [
-            {"kind": kinds[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4), "y": round(d.box[1] / h, 4),
-             "w": round(d.box[2] / w, 4), "h": round(d.box[3] / h, 4)} for d in found if d.cls in kinds]})
+            {"kind": EQUIPMENT_CLASSES[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4),
+             "y": round(d.box[1] / h, 4), "w": round(d.box[2] / w, 4), "h": round(d.box[3] / h, 4)} for d in found]})
 
     @app.get("/health")
     def health():

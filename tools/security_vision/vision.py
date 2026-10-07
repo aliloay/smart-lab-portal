@@ -89,6 +89,46 @@ HUE_BINS, VAL_BINS = 12, 4
 BODY_PARTS = ((0.0, 0.18), (0.18, 0.55), (0.55, 1.0))    # head/hair, upper body, legs
 
 
+EQUIPMENT_CLASSES = {62: "Monitor", 63: "Laptop"}
+
+
+def find_equipment(det: Detector, img: np.ndarray, *, nx: int = 3, ny: int = 2, overlap: float = 0.25,
+                   min_score: float = 0.30, contain: float = 0.7) -> list[Detection]:
+    """Monitors / laptops for "Find equipment" (on demand, so it can be slow):
+    the whole picture plus overlapping tiles, so small far-away screens become
+    big enough to recognise. Measured on the lab camera (2026-10-07): live
+    settings found 3 monitors, this finds 7 real ones.
+      * below min_score is dropped (chair backs, keyboards scored 0.22-0.25);
+      * a box that mostly contains another (a cabinet around a monitor, a
+        monitor's stand under it) keeps only the more confident of the two."""
+    h, w = img.shape[:2]
+    tw, th = int(w / (nx - (nx - 1) * overlap)), int(h / (ny - (ny - 1) * overlap))
+    found: list[Detection] = [d for d in det.detect(img)]
+    for j in range(ny):
+        for i in range(nx):
+            x0, y0 = int(i * tw * (1 - overlap)), int(j * th * (1 - overlap))
+            for d in det.detect(img[y0:min(h, y0 + th), x0:min(w, x0 + tw)]):
+                bx, by, bw, bh = d.box
+                found.append(Detection(d.cls, d.score, (bx + x0, by + y0, bw, bh)))
+    found = [d for d in found if d.cls in EQUIPMENT_CLASSES and d.score >= min_score]
+    found.sort(key=lambda d: -d.score)
+    kept: list[Detection] = []
+    for d in found:
+        dx, dy, dw, dh = d.box
+        clash = False
+        for k in kept:
+            kx, ky, kw, kh = k.box
+            iw = max(0.0, min(dx + dw, kx + kw) - max(dx, kx))
+            ih = max(0.0, min(dy + dh, ky + kh) - max(dy, ky))
+            inter = iw * ih
+            if inter >= contain * min(dw * dh, kw * kh) or iou(d.box, k.box) > 0.4:
+                clash = True
+                break
+        if not clash:
+            kept.append(d)
+    return kept
+
+
 def color_signature(frame: np.ndarray, box) -> Optional[np.ndarray]:
     """
     Colour histograms of the head, upper body and lower body, from the
