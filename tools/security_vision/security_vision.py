@@ -189,6 +189,7 @@ class Service:
         self.view_pending = None          # a confident move seen once; acted on when seen twice
         self.view_unstable = False        # moved, not (yet) re-aligned: box alerts held back
         self.view_lost_checks = 0
+        self.view_wake = threading.Event()  # set when many boxes change at once: check the view now
         self.fps = 0.0
         self.jpeg = self.raw_jpeg = None
         self.lock = threading.Lock()
@@ -349,6 +350,15 @@ class Service:
                            f"{known.get(t.mismatch, t.mismatch)} ({t.mismatch}). Someone may be using another "
                            f"person's card.", zone_id=None, people_seen=seen, people_inside=inside)
         motion_ok = {z["id"]: z.get("alert_on_motion", True) for z in self.cfg.get("zones", [])}
+        # Most boxes changing in the same moment = the camera moved, not the items:
+        # no equipment alerts, and the view is checked at once (not in 15 s).
+        busy = [st for st in states if st.status in ("CHANGED", "MOTION")]
+        if len(states) >= 3 and len(busy) >= max(3, (len(states) + 1) // 2) and not self.view_unstable:
+            self.view_unstable = True
+            for st in busy:
+                st.reported = True
+            print(f"[view] {len(busy)} of {len(states)} boxes changed at once - the camera moved? checking now")
+            self.view_wake.set()
         for st in states:
             if st.reported or st.status not in ("CHANGED", "MOTION"):
                 continue
@@ -364,6 +374,7 @@ class Service:
                            zone_id=st.id, people_seen=seen, people_inside=inside)
 
     VIEW_CHECK_S = 15.0
+    VIEW_CHECK_UNSETTLED_S = 3.0     # while the view is moving / just moved
 
     def watch_view(self):
         """Every 15 s: has the camera's view moved? Confident (twice in a row)
@@ -372,7 +383,8 @@ class Service:
         if self.demo:
             return
         while True:
-            time.sleep(self.VIEW_CHECK_S)
+            self.view_wake.wait(self.VIEW_CHECK_UNSETTLED_S if self.view_unstable else self.VIEW_CHECK_S)
+            self.view_wake.clear()
             try:
                 self._check_view()
             except Exception as e:                       # never let this stop the camera
