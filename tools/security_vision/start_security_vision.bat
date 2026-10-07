@@ -23,6 +23,8 @@ if not exist models\person_reid_youtu_2021nov.onnx (
 )
 set "PY=py"
 %PY% -c "import cv2, flask, requests, waitress" >nul 2>&1 || %PY% -m pip install -r requirements.txt
+rem The camera forgets its clock when it loses power: set it from this laptop.
+%PY% cam_clock.py --set 2>nul | findstr /b "LocalDateTime" || echo Camera clock not set ^(camera unreachable?^)
 echo Do NOT click inside this window: Windows pauses the program while text is
 echo selected. If the title says "Select", press Esc.
 echo.
