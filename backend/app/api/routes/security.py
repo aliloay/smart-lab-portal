@@ -54,6 +54,9 @@ KINDS = {
     "CAMERA_VIEW_MOVED": (AlertSeverity.INFO, "Camera view moved - boxes re-aligned"),
     # ...or it could not match the room confidently: boxes left as they were.
     "CAMERA_VIEW_LOST": (AlertSeverity.WARNING, "Camera view changed - check / redraw the boxes"),
+    # The background equipment scan: an item with no box / a named item gone.
+    "EQUIPMENT_UNNAMED": (AlertSeverity.INFO, "Equipment found with no box"),
+    "EQUIPMENT_NOT_SEEN": (AlertSeverity.WARNING, "Equipment not seen for a while"),
 }
 MAX_SNAPSHOT = 2_000_000
 
@@ -129,6 +132,8 @@ class RealignReport(BaseModel):
     lost: list[int] = Field(default_factory=list, max_length=200)     # left the picture: unchanged
     inliers: int = 0
     shift: float = 0.0                                                 # fraction of the width
+    # "view": the camera turned (room matched); "detector": a box nudged onto its item.
+    reason: Literal["view", "detector"] = "view"
 
 
 @router.post("/zones/realign", tags=["devices"])
@@ -151,7 +156,8 @@ def realign_zones(req: RealignReport, db: Session = Depends(get_db), identity: s
         moved.append({"id": z.id, "name": z.name, "from": before, "to": (b.x, b.y, b.w, b.h)})
     db.add(AuditLog(actor_user_id=None, action="SECURITY_ZONES_REALIGNED", entity_type="device",
                     entity_id=str(d.id), detail={"device": d.device_uid, "moved": moved, "lost": req.lost,
-                                                 "inliers": req.inliers, "shift": req.shift}))
+                                                 "inliers": req.inliers, "shift": req.shift,
+                                                 "reason": req.reason}))
     db.commit()
     return {"moved": len(moved), "lost": req.lost}
 
@@ -323,8 +329,11 @@ def _overlap(a: dict, b) -> float:
 @router.get("/cameras/{device_id}/suggestions")
 def suggestions(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
     """Equipment the detector finds in the picture now (monitors, laptops) as
-    boxes to add: numbered after the boxes already saved, skipping any item a
-    saved box already covers. Nothing is saved until staff add them."""
+    boxes to add, numbered after the boxes already saved. An item a saved box
+    already sits on (overlap > 0.6) is skipped. An item a saved box only
+    partly covers - the box is off its item, e.g. after the camera turned -
+    is offered as "move that box here" (replaces = its id; staff can pick
+    another box or a new one instead). Nothing is saved until staff add them."""
     d = _camera(db, device_id)
     try:
         r = httpx.get(_service_url(d, "/equipment"), headers={"X-Device-Key": settings.DEVICE_API_KEY},
@@ -334,18 +343,30 @@ def suggestions(device_id: int, db: Session = Depends(get_db), _: User = Depends
                             "The security camera service is not reachable - start it on the laptop.")
     if r.status_code != 200:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service could not look for equipment.")
-    zones = db.scalars(select(SecurityZone).where(SecurityZone.device_id == d.id)).all()
+    zones = [z for z in db.scalars(select(SecurityZone).where(SecurityZone.device_id == d.id)).all()
+             if z.kind == "EQUIPMENT"]
     names = {z.name for z in zones}
+    items = [it for it in r.json().get("items", []) if not any(_overlap(it, z) > 0.6 for z in zones)]
+    # Each misplaced box is offered for the one item it overlaps most (best item first).
+    claim: dict[int, tuple[float, int]] = {}
+    for i, it in enumerate(items):
+        for z in zones:
+            o = _overlap(it, z)
+            if o > 0.05 and o > claim.get(z.id, (0.0, -1))[0]:
+                claim[z.id] = (o, i)
+    replaces = {i: z for z in zones for (o, i) in [claim.get(z.id, (0.0, -1))] if i >= 0}
     out = []
-    for it in sorted(r.json().get("items", []), key=lambda i: (round(i["y"], 2), i["x"])):
-        if any(_overlap(it, z) > 0.3 for z in zones):
+    for i, it in sorted(enumerate(items), key=lambda p: (round(p[1]["y"], 2), p[1]["x"])):
+        z = replaces.get(i)
+        if z is not None:
+            out.append({**it, "name": z.name, "replaces": z.id})
             continue
         prefix = "PC" if it["kind"] == "Monitor" else it["kind"]
         n = 1
         while f"{prefix}-{n:02d}" in names:
             n += 1
         names.add(f"{prefix}-{n:02d}")
-        out.append({**it, "name": f"{prefix}-{n:02d}"})
+        out.append({**it, "name": f"{prefix}-{n:02d}", "replaces": None})
     return out
 
 

@@ -13,7 +13,10 @@ camera, or a webcam), and three times a second:
     only one name is left - otherwise "Unknown" (see vision.Labeler);
   * watches a box around each fixed item (PC, robot): moved / missing, or
     moving with nobody at it (vision.ZoneWatcher);
-  * compares people seen with people inside per the door.
+  * compares people seen with people inside per the door;
+  * every 60 s looks for monitors / laptops in the background and checks
+    them against the named boxes (equipwatch.py): nudges a box a little off
+    its item, reports an item with no box, or a named item not seen for long.
 
 The portal (device key, like every node) gives it the boxes and who is
 inside, receives its state every 2 s, and gets an event with a snapshot when
@@ -47,6 +50,7 @@ import requests
 from flask import Flask, Response, jsonify, request, send_file
 
 from dataset import Collector
+from equipwatch import NOT_SEEN_SCANS, EquipmentWatch, Found
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
@@ -188,6 +192,7 @@ class Service:
         self.view_anchor = None           # realign.Reference of the view the boxes were drawn on
         self.view_anchor_boxes = {}
         self.view_applied = {}            # boxes as we last placed them (vs. staff edits)
+        self.view_before = {}             # the boxes just before our last move (portal not re-read yet)
         self.view_pending = None          # a confident move seen once; acted on when seen twice
         self.view_unstable = False        # moved, not (yet) re-aligned: box alerts held back
         self.view_lost_checks = 0
@@ -197,6 +202,9 @@ class Service:
         self.lock = threading.Lock()
         self.label_lock = threading.Lock()   # labeler: analysis + face checks
         self.equipment_detector = None        # 640 model for "Find equipment", loaded on first use
+        self.equip_watch = EquipmentWatch()
+        self.equip_cache = None               # (time, items) of the last background scan
+        self.equip_key = None                 # the boxes the watch's counts belong to
         self.det_lock = threading.Lock()     # the detector network: analysis + equipment search
         self.face_asked: dict[int, float] = {}
         self.mismatch_reported: set = set()
@@ -412,6 +420,11 @@ class Service:
             if got:
                 self.view_anchor, self.view_anchor_boxes, self.view_applied = got
                 print(f"[view] anchor loaded from disk ({len(self.view_anchor_boxes)} boxes)")
+        # Our last move sent, but the boxes not re-read from the portal yet:
+        # wait (otherwise the same move is sent again, or taken for an edit).
+        if self.view_before and realign.same_boxes(current, self.view_before):
+            return
+        self.view_before = {}
         # Boxes that are neither the anchor's nor the ones we placed = staff drew / edited them.
         ours = self.view_applied or self.view_anchor_boxes
         if self.view_anchor is None or not realign.same_boxes(current, ours):
@@ -463,6 +476,7 @@ class Service:
         if r.status_code != 200:
             print(f"[view] portal refused the re-alignment: HTTP {r.status_code}")
             return
+        self.view_before = dict(current)
         self.view_applied = {k: v for k, v in predicted.items()}
         for k in lost:                            # left the picture: unchanged in the portal
             if k in current:
@@ -472,6 +486,79 @@ class Service:
         print(f"[view] {len(boxes)} box(es) re-aligned from the anchor, {len(lost)} left the picture ({m.summary()})")
         self.event("CAMERA_VIEW_MOVED", f"The camera's view moved; {len(boxes)} box(es) re-aligned to the room"
                    + (f", {len(lost)} left the picture - redraw those" if lost else "") + ".")
+
+    EQUIP_SCAN_S = 60.0              # background equipment scan (~5 s of CPU, between people passes)
+    EQUIP_CACHE_S = 75.0             # "Find equipment" answers from a scan this recent: instant
+
+    def scan_equipment(self) -> Optional[list[dict]]:
+        """Monitors / laptops in the plain picture now, as boxes (0-1)."""
+        frame, at = self.camera.latest()
+        if frame is None or time.time() - at > 5:
+            return None
+        if self.equipment_detector is None:
+            self.equipment_detector = Detector(self.args.model, conf=0.15, size=640)
+        h, w = frame.shape[:2]
+        found = find_equipment(self.equipment_detector, frame, lock=self.det_lock)
+        items = [{"kind": EQUIPMENT_CLASSES[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4),
+                  "y": round(d.box[1] / h, 4), "w": round(d.box[2] / w, 4), "h": round(d.box[3] / h, 4)}
+                 for d in found]
+        self.equip_cache = (time.time(), items, (w, h))
+        return items
+
+    def watch_equipment(self):
+        """Every 60 s: what the detector finds vs. the named boxes (equipwatch.py)."""
+        if self.demo:
+            return
+        time.sleep(10)
+        while True:
+            try:
+                self._watch_equipment_once()
+            except Exception as e:                       # never let this stop the camera
+                print(f"[equipment] check failed: {e!r}")
+            time.sleep(self.EQUIP_SCAN_S)
+
+    def _watch_equipment_once(self):
+        zones = list(self.cfg.get("zones", []))
+        if self.view_unstable:                           # the whole view is moving: not now
+            self.equip_watch.forget()
+            return
+        items = self.scan_equipment()
+        if items is None or self.view_unstable or zones != self.cfg.get("zones", []):
+            return                                       # changed during the scan: next time
+        key = realign.zones_key(zones, None)
+        if key != self.equip_key:
+            self.equip_watch.forget()
+            self.equip_key = key
+        _, _, (w, h) = self.equip_cache
+        with self.lock:
+            people = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in self.tracks)]
+        boxes = {z["id"]: (z["x"], z["y"], z["w"], z["h"]) for z in zones}
+        names = {z["id"]: z["name"] for z in zones}
+        res = self.equip_watch.update(
+            boxes, [Found(i["kind"], i["score"], (i["x"], i["y"], i["w"], i["h"])) for i in items], people)
+        if res.nudge:
+            body = [{"id": k, "x": round(v[0], 4), "y": round(v[1], 4), "w": round(v[2], 4), "h": round(v[3], 4)}
+                    for k, v in res.nudge.items()]
+            try:
+                r = self.http.post(self.portal + "/security/zones/realign", timeout=10, json={
+                    "device_uid": self.args.device, "boxes": body, "reason": "detector"})
+                ok = r.status_code == 200
+            except requests.RequestException:
+                ok = False
+            print(f"[equipment] {'nudged' if ok else 'could not nudge'} onto the item the detector found: "
+                  + ", ".join(names.get(k, str(k)) for k in res.nudge))
+        if res.unnamed:
+            where = "; ".join(f"{f.kind.lower()} about {f.box[0] + f.box[2] / 2:.0%} across, "
+                              f"{f.box[1] + f.box[3] / 2:.0%} down ({f.score:.0%} sure)" for f in res.unnamed)
+            self.event("EQUIPMENT_UNNAMED", f"Found with no box: {where}. Add it on the Boxes tab "
+                       "(Find equipment) if it belongs to the lab.")
+        mins = round(NOT_SEEN_SCANS * self.EQUIP_SCAN_S / 60)
+        for k in res.not_seen:
+            self.event("EQUIPMENT_NOT_SEEN", f"{names.get(k, k)} has not been seen by the camera for about "
+                       f"{mins} min and nobody is at it - moved, switched off and covered, or taken away?",
+                       zone_id=k)
+        for k in res.seen_again:
+            print(f"[equipment] {names.get(k, k)} is seen again")
 
     def identify_faces(self):
         """Names by face: a head crop of each person not named yet goes to the
@@ -553,19 +640,15 @@ def make_app(svc: Service) -> Flask:
         boxes (0-1) to suggest; the portal numbers them and staff choose."""
         if not authorised():
             return Response("device key required", status=401)
-        frame, _ = svc.camera.latest()
-        if frame is None:
-            return jsonify({"items": []})
-        h, w = frame.shape[:2]
-        # On demand only: the full 640 model over overlapping tiles (vision.
-        # find_equipment) - the live 416 settings miss small, side-on screens.
-        if svc.equipment_detector is None:
-            svc.equipment_detector = Detector(svc.args.model, conf=0.15, size=640)
-        with svc.det_lock:
-            found = find_equipment(svc.equipment_detector, frame)
-        return jsonify({"items": [
-            {"kind": EQUIPMENT_CLASSES[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4),
-             "y": round(d.box[1] / h, 4), "w": round(d.box[2] / w, 4), "h": round(d.box[3] / h, 4)} for d in found]})
+        # The full 640 model over overlapping tiles (vision.find_equipment) takes
+        # ~5 s; the background watch runs it every 60 s, so a recent scan of a
+        # still view answers at once. ?fresh=1 forces a new look.
+        c = svc.equip_cache
+        if (c and not svc.view_unstable and request.args.get("fresh") != "1"
+                and time.time() - c[0] <= svc.EQUIP_CACHE_S):
+            return jsonify({"items": c[1], "age_s": round(time.time() - c[0], 1)})
+        items = svc.scan_equipment()
+        return jsonify({"items": items or [], "age_s": 0.0})
 
     @app.get("/health")
     def health():
@@ -730,7 +813,7 @@ def main():
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
     for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces,
-                   svc.watch_view):
+                   svc.watch_view, svc.watch_equipment):
         threading.Thread(target=target, daemon=True).start()
     host = "127.0.0.1" if svc.demo else args.host
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")

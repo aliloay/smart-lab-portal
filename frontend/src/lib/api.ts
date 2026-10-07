@@ -135,6 +135,7 @@ export interface Recording {
 }
 export interface EquipmentSuggestion {
   kind: string; score: number; name: string; x: number; y: number; w: number; h: number
+  replaces: number | null          // a saved box that is off this item: "move it here"
 }
 export interface SecurityZone {
   id: number; name: string; kind: 'EQUIPMENT' | 'DOOR'; asset_id: number | null; asset_tag: string | null

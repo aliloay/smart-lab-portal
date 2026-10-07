@@ -195,6 +195,32 @@ def test_equipment_suggestions_skip_items_already_boxed(client, db, lab, staff, 
     items = r.json()
     assert [i["kind"] for i in items] == ["Monitor", "Laptop"]        # the first is PC-01 already
     assert items[0]["name"] == "PC-02" and items[1]["name"] == "Laptop-01"
+    assert items[0]["replaces"] is None
+
+
+def test_a_box_off_its_item_is_offered_to_move_there(client, db, lab, staff, device_headers, monkeypatch):
+    """After the camera turned, a saved box half-covers a monitor: that monitor
+    is offered as "move PC-01 here", not hidden and not a new PC."""
+    cid = _register(client, device_headers, lab)["device_id"]
+    h = auth_headers(client, staff.email)
+    z = client.post(f"/api/security/cameras/{cid}/zones", headers=h, json={
+        "name": "PC-01", "x": 0.10, "y": 0.10, "w": 0.20, "h": 0.20}).json()
+
+    class R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"items": [{"kind": "Monitor", "score": 0.9, "x": 0.18, "y": 0.18, "w": 0.20, "h": 0.20},
+                              {"kind": "Monitor", "score": 0.8, "x": 0.25, "y": 0.25, "w": 0.20, "h": 0.20},
+                              {"kind": "Monitor", "score": 0.8, "x": 0.70, "y": 0.20, "w": 0.15, "h": 0.15}]}
+
+    monkeypatch.setattr(security.httpx, "get", lambda url, headers=None, timeout=None: R())
+    items = client.get(f"/api/security/cameras/{cid}/suggestions", headers=h).json()
+    by_x = sorted(items, key=lambda i: i["x"])
+    assert by_x[0]["replaces"] == z["id"] and by_x[0]["name"] == "PC-01"     # the closest one only
+    assert by_x[1]["replaces"] is None and by_x[2]["replaces"] is None
+    assert {by_x[1]["name"], by_x[2]["name"]} == {"PC-02", "PC-03"}
     assert client.get(f"/api/security/cameras/{cid}/suggestions",
                       headers=auth_headers(client, "alice@test.edu") if False else {}).status_code == 401
 
@@ -300,5 +326,12 @@ def test_camera_realigns_its_boxes_after_the_view_moved(client, db, lab, staff, 
     assert (moved.x, moved.ref_version) == (0.39, 2) and (left.x, left.ref_version) == (0.02, 1)
     log = db.query(AuditLog).filter_by(action="SECURITY_ZONES_REALIGNED").one()
     assert log.actor_user_id is None and log.detail["moved"][0]["name"] == "PC-01"
+    assert log.detail["reason"] == "view"
+    # The background scan nudging one box onto its item says so in the log.
+    r = client.post("/api/security/zones/realign", headers=device_headers, json={
+        "device_uid": "SECCAM_LAB01", "reason": "detector",
+        "boxes": [{"id": z2["id"], "x": 0.03, "y": 0.3, "w": 0.1, "h": 0.1}]})
+    assert r.status_code == 200
+    assert db.query(AuditLog).filter_by(action="SECURITY_ZONES_REALIGNED").count() == 2
     assert client.post("/api/security/zones/realign", headers=device_headers,
                        json={"device_uid": "NOT_A_CAMERA", "boxes": []}).status_code in (403, 404)

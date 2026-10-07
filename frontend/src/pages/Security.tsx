@@ -298,16 +298,20 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
     setFinding(true); setError('')
     try {
       const s = await api.securitySuggestions(cam.device_id)
-      setFound(s.map(x => ({ ...x, pick: true })))
+      setFound(s.map(x => ({ ...x, replaces: x.replaces ?? null, pick: true })))
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not look for equipment') }
     setFinding(false)
   }
   async function addFound() {
     for (const f of (found ?? []).filter(f => f.pick && f.name.trim())) {
+      const old = f.replaces != null ? zones.find(z => z.id === f.replaces) : undefined
       try {
-        await api.addSecurityZone(cam.device_id, { name: f.name.trim(), kind: 'EQUIPMENT', asset_id: null,
+        // Moving a saved box keeps its name, history and settings.
+        if (old) await api.updateSecurityZone(cam.device_id, old.id, { name: old.name, kind: old.kind,
+          asset_id: old.asset_id, alert_on_motion: old.alert_on_motion, x: f.x, y: f.y, w: f.w, h: f.h })
+        else await api.addSecurityZone(cam.device_id, { name: f.name.trim(), kind: 'EQUIPMENT', asset_id: null,
           alert_on_motion: true, x: f.x, y: f.y, w: f.w, h: f.h })
-      } catch (e) { setError(e instanceof Error ? e.message : `Could not add ${f.name}`) }
+      } catch (e) { setError(e instanceof Error ? e.message : `Could not save ${f.name}`) }
     }
     setFound(null); load()
   }
@@ -336,7 +340,8 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
           {found?.map((f, i) => (
             <div key={`f${i}`} className={`absolute border-2 border-dashed ${f.pick ? 'border-ok bg-ok/10' : 'border-slate-500'}`}
                  style={{ left: pct(f.x), top: pct(f.y), width: pct(f.w), height: pct(f.h) }}>
-              <span className="absolute left-0 -top-0 px-1.5 py-0.5 text-[11px] font-semibold bg-black/70 text-white">{f.name}</span>
+              <span className="absolute left-0 -top-0 px-1.5 py-0.5 text-[11px] font-semibold bg-black/70 text-white">
+                {f.replaces != null ? `${zones.find(z => z.id === f.replaces)?.name ?? f.name} → here` : f.name}</span>
             </div>))}
           {shown && <div className="absolute border-2 border-warn bg-warn/10"
                          style={{ left: pct(shown.x), top: pct(shown.y), width: pct(shown.w), height: pct(shown.h) }} />}
@@ -351,13 +356,14 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
         <div className="card p-4 space-y-2">
           <div className="label">Find equipment automatically</div>
           <p className="text-[12px] text-slate-400">The detector (YOLO) looks for every monitor and laptop in the picture
-            and proposes a numbered box for each - you choose which to keep. Robots and other machines it does not
-            know: draw those by hand below.</p>
+            and proposes a numbered box for each - you choose which to keep. A saved box that is off its monitor
+            (e.g. after the camera turned) is offered as "Move PC-xx" - pick the right box for each monitor.
+            Robots and other machines it does not know: draw those by hand below.</p>
           {!found ? (
             <button className="btn-primary btn-sm w-full" disabled={finding} onClick={findEquipment}>
               <ScanSearch size={14} /> {finding ? 'Looking…' : 'Find PCs automatically'}</button>
           ) : !found.length ? (
-            <p className="text-[12.5px] text-slate-400">Nothing new found (items already boxed are skipped).
+            <p className="text-[12.5px] text-slate-400">Nothing found that is not already boxed.
               <button className="ml-1 underline" onClick={() => setFound(null)}>OK</button></p>
           ) : (<>
             <ul className="space-y-1.5 max-h-56 overflow-auto">
@@ -365,15 +371,22 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
                 <li key={i} className="flex items-center gap-2 text-[13px]">
                   <input type="checkbox" className="accent-emerald-500" checked={f.pick}
                          onChange={e => setFound(l => l!.map((x, k) => k === i ? { ...x, pick: e.target.checked } : x))} />
-                  <input className="input py-1 flex-1" value={f.name} maxLength={64}
-                         onChange={e => setFound(l => l!.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
+                  <select className="input py-1 w-24" value={f.replaces ?? ''} title="New box, or move a saved box onto this item"
+                          onChange={e => setFound(l => l!.map((x, k) => k === i ? { ...x, replaces: e.target.value ? Number(e.target.value) : null } : x))}>
+                    <option value="">New</option>
+                    {zones.filter(z => z.kind === 'EQUIPMENT').map(z => <option key={z.id} value={z.id}>Move {z.name}</option>)}
+                  </select>
+                  {f.replaces == null
+                    ? <input className="input py-1 flex-1 min-w-0" value={f.name} maxLength={64}
+                             onChange={e => setFound(l => l!.map((x, k) => k === i ? { ...x, name: e.target.value } : x))} />
+                    : <span className="flex-1 truncate text-slate-300">{zones.find(z => z.id === f.replaces)?.name} here</span>}
                   <span className="text-[11px] text-slate-500 w-20 text-right">{f.kind} {Math.round(f.score * 100)}%</span>
                 </li>))}
             </ul>
             <div className="flex gap-2">
               <button className="btn-ghost btn-sm" onClick={() => setFound(null)}>Cancel</button>
               <button className="btn-primary btn-sm flex-1" disabled={!found.some(f => f.pick)} onClick={addFound}>
-                Add selected ({found.filter(f => f.pick).length})</button>
+                Save selected ({found.filter(f => f.pick).length})</button>
             </div>
           </>)}
         </div>

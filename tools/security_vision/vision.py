@@ -93,21 +93,29 @@ EQUIPMENT_CLASSES = {62: "Monitor", 63: "Laptop"}
 
 
 def find_equipment(det: Detector, img: np.ndarray, *, nx: int = 3, ny: int = 2, overlap: float = 0.25,
-                   min_score: float = 0.30, contain: float = 0.7) -> list[Detection]:
+                   min_score: float = 0.30, contain: float = 0.7, lock=None) -> list[Detection]:
     """Monitors / laptops for "Find equipment" (on demand, so it can be slow):
     the whole picture plus overlapping tiles, so small far-away screens become
     big enough to recognise. Measured on the lab camera (2026-10-07): live
     settings found 3 monitors, this finds 7 real ones.
       * below min_score is dropped (chair backs, keyboards scored 0.22-0.25);
       * a box that mostly contains another (a cabinet around a monitor, a
-        monitor's stand under it) keeps only the more confident of the two."""
+        monitor's stand under it) keeps only the more confident of the two.
+    `lock` is taken per pass, not for the whole search (~0.6 s each, 7
+    passes): the live people detection keeps running in between."""
+    import contextlib
+    held = lock if lock is not None else contextlib.nullcontext()
+
+    def run(part):
+        with held:
+            return det.detect(part)
     h, w = img.shape[:2]
     tw, th = int(w / (nx - (nx - 1) * overlap)), int(h / (ny - (ny - 1) * overlap))
-    found: list[Detection] = [d for d in det.detect(img)]
+    found: list[Detection] = list(run(img))
     for j in range(ny):
         for i in range(nx):
             x0, y0 = int(i * tw * (1 - overlap)), int(j * th * (1 - overlap))
-            for d in det.detect(img[y0:min(h, y0 + th), x0:min(w, x0 + tw)]):
+            for d in run(img[y0:min(h, y0 + th), x0:min(w, x0 + tw)]):
                 bx, by, bw, bh = d.box
                 found.append(Detection(d.cls, d.score, (bx + x0, by + y0, bw, bh)))
     found = [d for d in found if d.cls in EQUIPMENT_CLASSES and d.score >= min_score]
