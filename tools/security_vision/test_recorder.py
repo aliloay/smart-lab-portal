@@ -129,3 +129,16 @@ def test_training_collector_saves_only_changed_pictures(tmp_path):
     assert c.offer(a, now=16.0) and c.total() == 3
     assert c.offer(b, now=18.0) is None and not c.status()["collecting"]   # limit reached: stops itself
     assert not c.start()["ok"]
+
+
+def test_delete_moves_the_video_to_deleted_never_erases(tmp_path):
+    r = make(tmp_path)
+    r.start("Admin"); time.sleep(0.5)
+    assert not r.remove(r.status()["file"])["ok"]          # the part being written: Stop first
+    name = r.stop()["file"]
+    done = r.remove(name, "Admin")
+    assert done["ok"] and r.list() == []
+    trash = tmp_path / "rec" / "deleted"
+    assert (trash / name).exists() and (trash / (name[:-4] + ".json")).exists()
+    assert json.loads((trash / (name[:-4] + ".deleted.json")).read_text())["deleted_by"] == "Admin"
+    assert not r.remove(name)["ok"] and not r.remove("../x.mp4")["ok"]

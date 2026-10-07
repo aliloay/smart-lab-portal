@@ -335,3 +335,30 @@ def test_camera_realigns_its_boxes_after_the_view_moved(client, db, lab, staff, 
     assert db.query(AuditLog).filter_by(action="SECURITY_ZONES_REALIGNED").count() == 2
     assert client.post("/api/security/zones/realign", headers=device_headers,
                        json={"device_uid": "NOT_A_CAMERA", "boxes": []}).status_code in (403, 404)
+
+
+def test_recording_delete_admin_only_moves_it_and_is_audited(client, db, lab, admin, staff,
+                                                             device_headers, monkeypatch):
+    from app.models import AuditLog
+    cid = _register(client, device_headers, lab)["device_id"]
+    name = "SECCAM_LAB01_2026-10-07_01-15-39.mp4"
+    sent = []
+
+    class J:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        @staticmethod
+        def json():
+            return {"ok": True, "file": name}
+
+    monkeypatch.setattr(security.httpx, "request",
+                        lambda method, url, headers=None, timeout=None, json=None: sent.append(url) or J())
+    url = f"/api/security/cameras/{cid}/recordings/{name}/delete"
+    assert client.post(url, headers=auth_headers(client, staff.email)).status_code == 403
+    assert client.post(url, headers=auth_headers(client, admin.email)).status_code == 200
+    assert sent[-1].endswith(f"/recordings/{name}/delete")
+    log = db.query(AuditLog).filter_by(action="SECURITY_RECORDING_DELETED").one()
+    assert log.actor_user_id == admin.id and log.detail["file"] == name
+    assert client.post(f"/api/security/cameras/{cid}/recordings/..%2Fx.mp4/delete",
+                       headers=auth_headers(client, admin.email)).status_code == 404

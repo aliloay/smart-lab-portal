@@ -231,6 +231,24 @@ class Recorder:
                                                     "stop_reason", "part", "parts", "recording_started_at")}})
         return out
 
+    def remove(self, name: str, by: str = "") -> dict:
+        """"Delete" from the list: the video and its notes move to deleted/
+        next to the recordings - recoverable by hand, never erased here."""
+        path = self.path_of(name)
+        if path is None:
+            return {"ok": False, "error": "No such recording"}
+        st = self.status()
+        if st["recording"] and st["file"] == name:
+            return {"ok": False, "error": "This part is being recorded - press Stop first"}
+        trash = os.path.join(self.folder, "deleted")
+        os.makedirs(trash, exist_ok=True)
+        for src in (path, path[:-4] + ".json"):
+            if os.path.isfile(src):
+                os.replace(src, os.path.join(trash, os.path.basename(src)))
+        with open(os.path.join(trash, name[:-4] + ".deleted.json"), "w", encoding="utf-8") as f:
+            json.dump({"deleted_by": by, "deleted_at": datetime.now().astimezone().isoformat(timespec="seconds")}, f)
+        return {"ok": True, "file": name, "moved_to": trash}
+
     def path_of(self, name: str) -> Optional[str]:
         if not NAME_RE.match(name or ""):
             return None

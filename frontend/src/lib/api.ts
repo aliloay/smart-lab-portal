@@ -1035,6 +1035,8 @@ export const api = {
   datasetSwitch: (cam: number, action: 'start' | 'stop') =>
     post<{ ok: boolean; saved?: number }>(`/security/cameras/${cam}/dataset/${action}`),
   recordings: (cam: number) => request<{ items: Recording[]; free_gb: number }>(`/security/cameras/${cam}/recordings`),
+  recordingDelete: (cam: number, file: string) =>
+    post<{ ok: boolean }>(`/security/cameras/${cam}/recordings/${encodeURIComponent(file)}/delete`),
   recordingLink: (cam: number, file: string) =>
     post<{ url: string; expires_at: string }>(`/security/cameras/${cam}/recordings/${encodeURIComponent(file)}/link`),
   updateSecurityZone: (cam: number, id: number, z: SecurityZoneIn) =>

@@ -57,6 +57,8 @@ KINDS = {
     # The background equipment scan: an item with no box / a named item gone.
     "EQUIPMENT_UNNAMED": (AlertSeverity.INFO, "Equipment found with no box"),
     "EQUIPMENT_NOT_SEEN": (AlertSeverity.WARNING, "Equipment not seen for a while"),
+    # A robot box (motion alert off) moving / parking in a new pose: a log, not an alarm.
+    "ROBOT_ACTIVITY": (AlertSeverity.INFO, "Robot moved"),
 }
 MAX_SNAPSHOT = 2_000_000
 
@@ -545,7 +547,8 @@ def purge_old_snapshots(db: Session, now: Optional[datetime] = None) -> int:
 # tools/security_vision/recorder.py); the portal only switches it on/off for
 # an administrator, lists the files and plays them through a short signed
 # link (a <video> tag cannot send the sign-in header). Every start / stop is
-# in the audit log. Nothing is deleted here.
+# in the audit log. "Delete" (administrators) only moves a file into the
+# deleted/ folder on the laptop - recoverable, and in the audit log.
 import re as _re
 from jose import JWTError, jwt as _jwt
 
@@ -616,6 +619,23 @@ def recordings(device_id: int, db: Session = Depends(get_db), _: User = Depends(
     if r.status_code != 200:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no recorder (update it).")
     return r.json()
+
+
+@router.post("/cameras/{device_id}/recordings/{name}/delete")
+def recording_delete(device_id: int, name: str, db: Session = Depends(get_db),
+                     admin: User = Depends(require_admin)):
+    d = _camera(db, device_id)
+    if not _REC_NAME.match(name):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such recording")
+    r = _service(d, "POST", f"/recordings/{name}/delete", json={"by": admin.full_name})
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if not body.get("ok"):
+        raise HTTPException(status.HTTP_409_CONFLICT, body.get("error") or "The recording could not be removed.")
+    db.add(AuditLog(actor_user_id=admin.id, action="SECURITY_RECORDING_DELETED", entity_type="device",
+                    entity_id=str(d.id), detail={"device_uid": d.device_uid, "file": name,
+                                                 "moved_to": "recordings/deleted"}))
+    db.commit()
+    return body
 
 
 @router.post("/cameras/{device_id}/recordings/{name}/link")

@@ -431,10 +431,14 @@ class Labeler:
     LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
     FACE_VOTES = 2                     # agreeing face matches before a face names someone
     FACE_WINDOW_S = 10.0               # ...within this long
+    FACE_KEEP_S = 15 * 60.0            # a face-named look is remembered this long out of view
 
     def __init__(self):
         self.identities: dict[str, Identity] = {}
         self.votes: dict[int, list[tuple[str, float]]] = {}
+        # Named by face (not entered at the door): who, and when last seen -
+        # so they get their name back by their look after the track was lost.
+        self.face_named: dict[str, tuple[dict, float]] = {}
 
     def face_vote(self, track_id: int, label: str, now: float):
         """The face server matched this track's face to `label`."""
@@ -450,8 +454,14 @@ class Labeler:
                 t.label = t.name = t.role = t.source = t.mismatch = None
                 t.verified = False
         held = {t.label for t in tracks if t.label}
+        for t in tracks:
+            if t.label and t.source == "face" and t.label in self.face_named:
+                self.face_named[t.label] = (self.face_named[t.label][0], now)
+        for label in list(self.face_named):
+            if label in inside or now - self.face_named[label][1] > self.FACE_KEEP_S:
+                del self.face_named[label]     # entered at the door (named by it now), or long gone
         for label in list(self.identities):
-            if label not in inside and label not in held:
+            if label not in inside and label not in held and label not in self.face_named:
                 del self.identities[label]
         self._face(tracks, inside, {k["auth_subject"]: k for k in (known or [])}, now)
 
@@ -473,12 +483,14 @@ class Labeler:
                 self._give(t, o)
                 free.remove(o)
 
-        # 2) Someone named before, back in view: by their locked look.
+        # 2) Someone named before, back in view: by their locked look (door
+        #    names, and face names not entered yet - those stay on hold).
+        faced = {k: v[0] for k, v in self.face_named.items() if k not in taken}
         for t in sorted(tracks, key=lambda t: t.first_seen):
-            if t.label or t.crowded or not free:
+            if t.label or t.crowded or not (free or faced):
                 continue
             scored = []
-            for o in free:
+            for o in free + list(faced.values()):
                 d = self._distance(t, o["auth_subject"])
                 if d is not None:
                     scored.append((d, o["auth_subject"]))
@@ -487,7 +499,11 @@ class Labeler:
                 continue
             if len(scored) > 1 and scored[1][0] - scored[0][0] < self.REACQUIRE_MARGIN:
                 continue
-            o = inside[scored[0][1]]
+            label = scored[0][1]
+            if label in faced:
+                self._give(t, faced.pop(label), "face")
+                continue
+            o = inside[label]
             self._give(t, o)
             free.remove(o)
 
@@ -519,6 +535,8 @@ class Labeler:
                 continue
             self._give(t, who, "face")
             taken.add(label)
+            if label not in inside:
+                self.face_named[label] = (who, now)
 
     def _agreed(self, t: Track) -> Optional[str]:
         """The one person FACE_VOTES recent face matches agree on, else None."""
@@ -611,6 +629,7 @@ class ZoneState:
     score: float = 0.0                 # 0 = as normal, 1 = completely different
     since: float = field(default_factory=time.time)
     reported: bool = False
+    new_pose: bool = False             # a robot stopped in a new pose (logged, not an alert)
 
 
 class ZoneWatcher:
@@ -639,6 +658,7 @@ class ZoneWatcher:
     HOLD_S = 3.0
     MOTION_LINGER_S = 4.0
     SETTLE_S = 5.0
+    POSE_AT = 0.15                     # a robot this different from its last pose moved (logged)
 
     def __init__(self):
         self.refs: dict[int, np.ndarray] = {}
@@ -716,10 +736,11 @@ class ZoneWatcher:
             if moving:                         # a single moving frame: wait for the next one
                 out.append(st)
                 continue
-            if z.get("alert_on_motion", True) is False and st.score > self.CHANGE_AT \
+            if z.get("alert_on_motion", True) is False and st.score > self.POSE_AT \
                     and now - last >= self.SETTLE_S:
                 self.refs[zid] = patch         # a robot parked in a new pose: that is normal now
                 st.score = 0.0
+                st.new_pose = True
             want = "CHANGED" if st.score > self.CHANGE_AT else "OK"
             if want == "OK":
                 self._pending.pop(zid, None)

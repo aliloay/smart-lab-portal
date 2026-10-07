@@ -394,6 +394,15 @@ class Service:
             elif motion_ok.get(st.id, True):
                 self.event("EQUIPMENT_MOTION", f"Movement at {st.name} with nobody at it.",
                            zone_id=st.id, people_seen=seen, people_inside=inside)
+            else:                       # a robot running on its own: logged, not an alert
+                self.event("ROBOT_ACTIVITY", f"{st.name} is moving.", zone_id=st.id,
+                           people_seen=seen, people_inside=inside)
+        for st in states:
+            if st.new_pose:
+                st.new_pose = False
+                if not self.view_unstable:
+                    self.event("ROBOT_ACTIVITY", f"{st.name} moved to a new position and stopped there.",
+                               zone_id=st.id, people_seen=seen, people_inside=inside)
 
     VIEW_CHECK_S = 15.0
     VIEW_CHECK_UNSETTLED_S = 3.0     # while the view is moving / just moved
@@ -732,6 +741,15 @@ def make_app(svc: Service) -> Flask:
         if not authorised():
             return Response("device key required", status=401)
         return jsonify({"items": svc.recorder.list(), "free_gb": round(svc.recorder.free_gb(), 1)})
+
+    @app.post("/recordings/<name>/delete")
+    def recording_delete(name):
+        if not authorised():
+            return Response("device key required", status=401)
+        by = (request.get_json(silent=True) or {}).get("by", "")
+        r = svc.recorder.remove(name, by)
+        print(f"[record] delete {name} by {by or '?'}: {r}")
+        return jsonify(r), (200 if r.get("ok") else 409)
 
     @app.get("/recordings/<name>")
     def recording_file(name):

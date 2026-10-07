@@ -8,7 +8,7 @@
  *   RecordingsPanel every recording of a camera: play in the page, download
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Circle, Download, Play, Square, X } from 'lucide-react'
+import { Circle, Download, Play, Square, Trash2, X } from 'lucide-react'
 import { Recording, RecordingStatus, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { EmptyState, ErrorBanner, Spinner } from './ui'
@@ -125,6 +125,16 @@ export function RecordingsPanel({ deviceId }: { deviceId: number }) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
   }
 
+  async function remove(r: Recording) {
+    const when = r.started_at ? new Date(r.started_at).toLocaleString() : r.file
+    if (!window.confirm(`Delete the recording of ${when}?\n\nIt is moved to the "deleted" folder on the laptop (recoverable from there).`)) return
+    try {
+      await api.recordingDelete(deviceId, r.file)
+      if (playing?.file === r.file) setPlaying(null)
+      load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+  }
+
   if (items === null) return <Spinner label="Loading recordings" />
   return (
     <div className="space-y-3">
@@ -165,6 +175,8 @@ export function RecordingsPanel({ deviceId }: { deviceId: number }) {
               <div className="ml-auto flex gap-2">
                 <button className="btn-ghost btn-sm" disabled={r.recording} onClick={() => open(r)}><Play size={13} /> Play</button>
                 <button className="btn-ghost btn-sm" disabled={r.recording} onClick={() => open(r, true)}><Download size={13} /> Download</button>
+                <button className="btn-ghost btn-sm hover:text-bad-soft" disabled={r.recording} aria-label={`Delete ${r.file}`}
+                        onClick={() => remove(r)}><Trash2 size={13} /> Delete</button>
               </div>
             </div>))}
         </div>)}

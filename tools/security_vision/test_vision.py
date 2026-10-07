@@ -411,3 +411,37 @@ def test_door_open_from_the_red_leaf():
     assert dw.update(red_share(half, box)) is True
     assert dw.update(red_share(wall, box), occupied=True) is True   # a person hides it: not "closed"
     assert dw.update(red_share(wall, box)) is False
+
+
+def test_a_face_name_comes_back_by_look_after_the_track_was_lost():
+    """Ali is named by face near the camera, walks back to his laptop (the
+    track breaks, the face is too small there): he gets 'Ali - not entered'
+    back by his look. A stranger does not."""
+    img, (a,) = _frame((100, ALI))
+    la = _looks(img, [a])[0]
+    lab = Labeler()
+    t = Track(1, a, 10.0, 10.0, look=la)
+    lab.face_vote(1, "USER1", 10.0)
+    lab.face_vote(1, "USER1", 11.0)
+    for k in range(4):                                   # seen clear: the look is learnt
+        lab.assign([t], [], None, now=11.0 + k, known=KNOWN)
+    assert (t.label, t.source, t.entered) == ("USER1", "face", False)
+    back = Track(9, (400, 60, 60, 240), 40.0, 40.0, look=la)    # a new track, no face match
+    lab.assign([back], [], None, now=40.0, known=KNOWN)
+    assert (back.label, back.source, back.entered) == ("USER1", "face", False)
+    stranger_img, (s,) = _frame((300, ((0, 0, 0), (0, 200, 255), (200, 200, 0))))
+    lab2 = Labeler()
+    lab2.face_named = dict(lab.face_named)
+    lab2.identities = dict(lab.identities)
+    stranger = Track(10, s, 50.0, 50.0, look=_looks(stranger_img, [s])[0])
+    lab2.assign([stranger], [], None, now=50.0, known=KNOWN)
+    assert stranger.label is None
+
+
+def test_a_small_robot_move_is_logged_as_a_new_pose():
+    zw = ZoneWatcher()
+    zw.update(ARM, _arm(0), [], 0.0)
+    zw.update(ARM, _arm(14), [], 0.5)                    # moved a bit, in one frame
+    for t in (1.0, 3.0, 7.0):
+        st = zw.update(ARM, _arm(14), [], t)[0]
+    assert st.new_pose and st.status == "OK"
