@@ -110,3 +110,22 @@ def test_ffmpeg_command_splits_copies_video_and_converts_audio():
     assert c[c.index("-f") + 1] == "segment" and c[c.index("-segment_time") + 1] == "3600"
     assert c[c.index("-strftime") + 1] == "1" and "-t" not in c and "-nostdin" not in c
     assert "+frag_keyframe" in c[c.index("-segment_format_options") + 1]
+
+
+def test_training_collector_saves_only_changed_pictures(tmp_path):
+    import numpy as np
+    from dataset import Collector
+    c = Collector("SECCAM_LAB01", str(tmp_path), interval_s=1.0, min_change=4.0, max_pictures=3)
+    a = np.full((90, 160, 3), 100, np.uint8)
+    b = np.full((90, 160, 3), 160, np.uint8)
+    assert c.offer(a, now=10.0) is None                    # not collecting
+    assert c.start("Admin")["ok"]
+    assert c.offer(a, now=11.0)                            # first picture
+    assert c.offer(a, now=11.5) is None                    # too soon
+    assert c.offer(a, now=12.5) is None                    # due, but the same picture
+    assert c.offer(b, now=14.0)                            # changed: saved
+    st = c.status()
+    assert (st["saved_this_run"], st["skipped_unchanged"], st["total"]) == (2, 1, 2)
+    assert c.offer(a, now=16.0) and c.total() == 3
+    assert c.offer(b, now=18.0) is None and not c.status()["collecting"]   # limit reached: stops itself
+    assert not c.start()["ok"]

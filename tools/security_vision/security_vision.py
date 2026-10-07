@@ -46,6 +46,7 @@ import numpy as np
 import requests
 from flask import Flask, Response, jsonify, request, send_file
 
+from dataset import Collector
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
@@ -175,6 +176,8 @@ class Service:
                                          if args.source.lower().startswith("rtsp://") else args.source)
         self.recorder = Recorder(args.device, rec_src, args.recordings, segment_minutes=args.record_part_min,
                                  min_free_gb=args.record_min_free_gb)
+        # Training pictures for the robot detector (admin, Start / Stop in the portal).
+        self.dataset = Collector(args.device, os.path.join(HERE, "dataset"))
         print(f"[record] {'FFmpeg found' if self.recorder.ffmpeg else 'FFmpeg NOT found - recording unavailable'};"
               f" files in {os.path.abspath(args.recordings)}")
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
@@ -477,6 +480,9 @@ class Service:
             frame, at = self.camera.latest()
             if frame is not None and t0 - at < 5:
                 raw = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+                saved = self.dataset.offer(frame)          # plain frame, before boxes are drawn
+                if saved:
+                    print(f"[dataset] saved {saved}")
                 with self.lock:
                     tracks = predicted(list(self.tracks), time.time())   # boxes keep up between detections
                 door = self.cfg.get("door")
@@ -566,6 +572,27 @@ def make_app(svc: Service) -> Flask:
         else:
             return Response("unknown action", status=404)
         print(f"[record] {action} by {by or '?'}: {r}")
+        return jsonify(r), (200 if r.get("ok") else 409)
+
+    # ---- training pictures (robot detector) ------------------------------
+    @app.get("/dataset/status")
+    def dataset_status():
+        if not authorised():
+            return Response("device key required", status=401)
+        return jsonify(svc.dataset.status())
+
+    @app.post("/dataset/<action>")
+    def dataset_switch(action):
+        if not authorised():
+            return Response("device key required", status=401)
+        by = str((request.get_json(silent=True) or {}).get("by", ""))[:80]
+        if action == "start":
+            r = svc.dataset.start(by)
+        elif action == "stop":
+            r = svc.dataset.stop()
+        else:
+            return Response("unknown action", status=404)
+        print(f"[dataset] {action} by {by or '?'}: {r}")
         return jsonify(r), (200 if r.get("ok") else 409)
 
     @app.get("/recordings")

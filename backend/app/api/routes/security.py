@@ -564,6 +564,29 @@ def recording_switch(device_id: int, action: Literal["start", "stop"], db: Sessi
     return body
 
 
+@router.get("/cameras/{device_id}/dataset")
+def dataset_status(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Training pictures for the robot detector, kept on the laptop."""
+    r = _service(_camera(db, device_id), "GET", "/dataset/status")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no collector (update it).")
+    return r.json()
+
+
+@router.post("/cameras/{device_id}/dataset/{action}")
+def dataset_switch(device_id: int, action: Literal["start", "stop"], db: Session = Depends(get_db),
+                   admin: User = Depends(require_admin)):
+    d = _camera(db, device_id)
+    r = _service(d, "POST", f"/dataset/{action}", json={"by": admin.full_name})
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if not body.get("ok"):
+        raise HTTPException(status.HTTP_409_CONFLICT, body.get("error") or "Could not switch collecting.")
+    db.add(AuditLog(actor_user_id=admin.id, action=f"SECURITY_DATASET_{action.upper()}", entity_type="device",
+                    entity_id=str(d.id), detail={"device_uid": d.device_uid, **body}))
+    db.commit()
+    return body
+
+
 @router.get("/cameras/{device_id}/recordings")
 def recordings(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     r = _service(_camera(db, device_id), "GET", "/recordings")

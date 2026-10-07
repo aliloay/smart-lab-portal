@@ -71,6 +71,40 @@ export function RecordButton({ deviceId, onChange }: { deviceId: number; onChang
   )
 }
 
+/** Pictures for teaching the camera the robots: one every few seconds, only when the scene changed. */
+export function TrainingPictures({ deviceId }: { deviceId: number }) {
+  const [st, setSt] = useState<Awaited<ReturnType<typeof api.datasetStatus>> | null>(null)
+  const [error, setError] = useState('')
+  const load = useCallback(() => { api.datasetStatus(deviceId).then(setSt).catch(() => setSt(null)) }, [deviceId])
+  useEffect(() => { load(); const t = window.setInterval(load, 3000); return () => window.clearInterval(t) }, [load])
+  if (!st) return null
+  async function flip(action: 'start' | 'stop') {
+    setError('')
+    try { await api.datasetSwitch(deviceId, action); load() } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+  }
+  return (
+    <div className="card p-4 space-y-2" data-testid="training-pictures">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="text-white font-semibold text-[14px]">Robot training pictures</div>
+        {st.collecting
+          ? <span className="text-[12px] font-bold text-bad-soft inline-flex items-center gap-1.5">
+              <Circle size={9} className="fill-current animate-pulse" /> collecting · {st.saved_this_run} this run</span>
+          : <span className="text-[12px] text-slate-400">{st.total} saved</span>}
+        <span className="ml-auto">
+          {st.collecting
+            ? <button className="btn-ghost btn-sm" onClick={() => flip('stop')}><Square size={13} /> Stop</button>
+            : <button className="btn-ghost btn-sm" onClick={() => flip('start')}><Circle size={12} className="fill-current" /> Start collecting</button>}
+        </span>
+      </div>
+      <p className="text-[12px] text-slate-400">
+        Point the camera at the robots, then collect while they move and people work around them. A picture is kept
+        every {st.interval_s} s, only when the scene changed ({st.skipped_unchanged} unchanged skipped). Aim for
+        100-200 per robot; {st.total} of {st.max_pictures} so far. They stay on the laptop; labelling comes next.</p>
+      {error && <p className="text-[12px] text-bad-soft">{error}</p>}
+    </div>
+  )
+}
+
 export function RecordingsPanel({ deviceId }: { deviceId: number }) {
   const [items, setItems] = useState<Recording[] | null>(null)
   const [free, setFree] = useState<number | null>(null)
@@ -95,6 +129,7 @@ export function RecordingsPanel({ deviceId }: { deviceId: number }) {
   return (
     <div className="space-y-3">
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      <TrainingPictures deviceId={deviceId} />
       <div className="flex items-center gap-3">
         <RecordButton deviceId={deviceId} onChange={load} />
         <span className="ml-auto text-[12px] text-slate-400">

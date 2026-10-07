@@ -1027,6 +1027,10 @@ export const api = {
   recordingStatus: (cam: number) => request<RecordingStatus>(`/security/cameras/${cam}/recording`),
   recordingSwitch: (cam: number, action: 'start' | 'stop') =>
     post<{ ok: boolean; file?: string; duration_s?: number; size_bytes?: number }>(`/security/cameras/${cam}/recording/${action}`),
+  datasetStatus: (cam: number) => request<{ collecting: boolean; started_by: string; saved_this_run: number
+    skipped_unchanged: number; total: number; interval_s: number; max_pictures: number }>(`/security/cameras/${cam}/dataset`),
+  datasetSwitch: (cam: number, action: 'start' | 'stop') =>
+    post<{ ok: boolean; saved?: number }>(`/security/cameras/${cam}/dataset/${action}`),
   recordings: (cam: number) => request<{ items: Recording[]; free_gb: number }>(`/security/cameras/${cam}/recordings`),
   recordingLink: (cam: number, file: string) =>
     post<{ url: string; expires_at: string }>(`/security/cameras/${cam}/recordings/${encodeURIComponent(file)}/link`),

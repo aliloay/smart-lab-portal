@@ -46,3 +46,6 @@ firmware/**/build/
 
 # Security camera recordings (videos stay on this laptop; never committed)
 tools/security_vision/recordings/
+
+# Robot detector training pictures (stay on this laptop)
+tools/security_vision/dataset/
