@@ -50,6 +50,10 @@ KINDS = {
     "EQUIPMENT_CHANGED": (AlertSeverity.WARNING, "Equipment moved or missing"),
     "EQUIPMENT_MOTION": (AlertSeverity.WARNING, "Movement at equipment with nobody there"),
     "FACE_MISMATCH": (AlertSeverity.CRITICAL, "Face does not match the door entry (card sharing?)"),
+    # The camera's view moved (panned / bumped): boxes re-aligned by the camera...
+    "CAMERA_VIEW_MOVED": (AlertSeverity.INFO, "Camera view moved - boxes re-aligned"),
+    # ...or it could not match the room confidently: boxes left as they were.
+    "CAMERA_VIEW_LOST": (AlertSeverity.WARNING, "Camera view changed - check / redraw the boxes"),
 }
 MAX_SNAPSHOT = 2_000_000
 
@@ -109,6 +113,47 @@ def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_lengt
             "known": [{"auth_subject": u.auth_subject, "name": u.full_name, "role": u.role.value}
                       for u in db.scalars(select(User).where(User.is_active.is_(True),
                                                              User.auth_subject.is_not(None))).all()]}
+
+
+class RealignedBox(BaseModel):
+    id: int
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0, le=1)
+    h: float = Field(gt=0, le=1)
+
+
+class RealignReport(BaseModel):
+    device_uid: str = Field(max_length=64)
+    boxes: list[RealignedBox] = Field(default_factory=list, max_length=200)
+    lost: list[int] = Field(default_factory=list, max_length=200)     # left the picture: unchanged
+    inliers: int = 0
+    shift: float = 0.0                                                 # fraction of the width
+
+
+@router.post("/zones/realign", tags=["devices"])
+def realign_zones(req: RealignReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """The camera matched its moved view to the room and reports where each
+    box went. Each box is moved and relearns its normal look; boxes that left
+    the picture are left as they were. In the audit log (no person: the camera)."""
+    device_scope(identity, req.device_uid)
+    d = get_device(db, req.device_uid)
+    if d is None or d.device_type != DeviceType.SECURITY_CAMERA:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown camera")
+    moved = []
+    for b in req.boxes:
+        z = db.get(SecurityZone, b.id)
+        if z is None or z.device_id != d.id:
+            continue
+        before = (round(z.x, 4), round(z.y, 4), round(z.w, 4), round(z.h, 4))
+        z.x, z.y, z.w, z.h = b.x, b.y, min(b.w, 1 - b.x), min(b.h, 1 - b.y)
+        z.ref_version += 1
+        moved.append({"id": z.id, "name": z.name, "from": before, "to": (b.x, b.y, b.w, b.h)})
+    db.add(AuditLog(actor_user_id=None, action="SECURITY_ZONES_REALIGNED", entity_type="device",
+                    entity_id=str(d.id), detail={"device": d.device_uid, "moved": moved, "lost": req.lost,
+                                                 "inliers": req.inliers, "shift": req.shift}))
+    db.commit()
+    return {"moved": len(moved), "lost": req.lost}
 
 
 class ZoneStatus(BaseModel):

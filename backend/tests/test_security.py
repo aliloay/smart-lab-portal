@@ -277,3 +277,28 @@ def test_recording_admin_only_audited_and_played_through_a_signed_link(client, d
     from app.core.security import create_access_token
     login_token = create_access_token(admin.id, admin.role.value)      # a sign-in token is not a recording link
     assert client.get(f"/api/security/recordings/play?t={login_token}").status_code == 401
+
+
+def test_camera_realigns_its_boxes_after_the_view_moved(client, db, lab, staff, device_headers):
+    """The camera reports where each box went after its view moved: boxes move
+    and relearn (ref_version up), boxes of another camera are untouched, lost
+    boxes stay, the change is in the audit log (no person - the camera)."""
+    from app.models import AuditLog, SecurityZone
+    cid = _register(client, device_headers, lab)["device_id"]
+    h = auth_headers(client, staff.email)
+    z = client.post(f"/api/security/cameras/{cid}/zones", headers=h,
+                    json={"name": "PC-01", "kind": "EQUIPMENT", "x": 0.35, "y": 0.26, "w": 0.13, "h": 0.2}).json()
+    z2 = client.post(f"/api/security/cameras/{cid}/zones", headers=h,
+                     json={"name": "PC-02", "kind": "EQUIPMENT", "x": 0.02, "y": 0.3, "w": 0.1, "h": 0.1}).json()
+    r = client.post("/api/security/zones/realign", headers=device_headers, json={
+        "device_uid": "SECCAM_LAB01", "boxes": [{"id": z["id"], "x": 0.39, "y": 0.26, "w": 0.13, "h": 0.2},
+                                                {"id": 99999, "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1}],
+        "lost": [z2["id"]], "inliers": 1779, "shift": 0.039})
+    assert r.status_code == 200 and r.json() == {"moved": 1, "lost": [z2["id"]]}
+    db.expire_all()
+    moved, left = db.get(SecurityZone, z["id"]), db.get(SecurityZone, z2["id"])
+    assert (moved.x, moved.ref_version) == (0.39, 2) and (left.x, left.ref_version) == (0.02, 1)
+    log = db.query(AuditLog).filter_by(action="SECURITY_ZONES_REALIGNED").one()
+    assert log.actor_user_id is None and log.detail["moved"][0]["name"] == "PC-01"
+    assert client.post("/api/security/zones/realign", headers=device_headers,
+                       json={"device_uid": "NOT_A_CAMERA", "boxes": []}).status_code in (403, 404)

@@ -47,6 +47,7 @@ import requests
 from flask import Flask, Response, jsonify, request, send_file
 
 from recorder import Recorder
+import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
 from vision import PERSON, Appearance, Detector, Labeler, Tracker, ZoneWatcher, draw, head_crop, predicted
 
@@ -180,6 +181,11 @@ class Service:
         self.cfg = {"zones": [], "door": None, "occupants": []}
         self.versions: dict[int, int] = {}
         self.tracks = []
+        # View re-alignment (realign.py): reference of the room for the current boxes.
+        self.view_ref = None
+        self.view_pending = None          # a confident move seen once; acted on when seen twice
+        self.view_unstable = False        # moved, not (yet) re-aligned: box alerts held back
+        self.view_lost_checks = 0
         self.fps = 0.0
         self.jpeg = self.raw_jpeg = None
         self.lock = threading.Lock()
@@ -343,6 +349,8 @@ class Service:
         for st in states:
             if st.reported or st.status not in ("CHANGED", "MOTION"):
                 continue
+            if self.view_unstable:          # the whole view moved: not an item moving
+                continue
             st.reported = True
             if st.status == "CHANGED":
                 self.event("EQUIPMENT_CHANGED", f"{st.name} no longer looks as usual (moved, removed "
@@ -351,6 +359,79 @@ class Service:
             elif motion_ok.get(st.id, True):
                 self.event("EQUIPMENT_MOTION", f"Movement at {st.name} with nobody at it.",
                            zone_id=st.id, people_seen=seen, people_inside=inside)
+
+    VIEW_CHECK_S = 15.0
+
+    def watch_view(self):
+        """Every 15 s: has the camera's view moved? Confident (twice in a row)
+        -> every box re-aligned through the portal; not confident -> say so
+        once, change nothing (see realign.py)."""
+        if self.demo:
+            return
+        while True:
+            time.sleep(self.VIEW_CHECK_S)
+            try:
+                self._check_view()
+            except Exception as e:                       # never let this stop the camera
+                print(f"[view] check failed: {e!r}")
+
+    def _check_view(self):
+        frame, at = self.camera.latest()
+        zones, door = self.cfg.get("zones", []), self.cfg.get("door")
+        if frame is None or time.time() - at > 5 or not (zones or door):
+            return
+        with self.lock:
+            people = [t.box for t in self.tracks]
+        key = realign.zones_key(zones, door)
+        if self.view_ref is None or self.view_ref.zones_key != key:
+            self.view_ref = realign.make_reference(frame, people, key)
+            self.view_pending, self.view_unstable, self.view_lost_checks = None, False, 0
+            print(f"[view] reference kept for {len(zones) + (1 if door else 0)} box(es): "
+                  f"{len(self.view_ref.keypoints)} room features")
+            return
+        m = realign.compare(self.view_ref, frame, people)
+        if not m.moved:
+            if self.view_unstable:
+                print(f"[view] back in place ({m.summary()})")
+            self.view_pending, self.view_unstable, self.view_lost_checks = None, False, 0
+            return
+        self.view_unstable = True
+        if not m.confident:
+            self.view_pending = None
+            self.view_lost_checks += 1
+            print(f"[view] moved, no confident match ({m.summary()})")
+            if self.view_lost_checks == 2:
+                self.event("CAMERA_VIEW_LOST", "The camera's view changed and the room could not be matched "
+                           f"confidently ({m.inliers} matching points): the boxes were left as they were - "
+                           "check them on the Boxes tab and redraw if needed.")
+            return
+        self.view_lost_checks = 0
+        if self.view_pending is None or abs(self.view_pending.shift_fraction - m.shift_fraction) > 0.01:
+            self.view_pending = m                        # still moving? wait for a second agreeing look
+            print(f"[view] moved ({m.summary()}) - confirming")
+            return
+        boxes, lost = [], []
+        for z in zones + ([door] if door else []):
+            nb = realign.move_box(m.homography, z)
+            if nb is None:
+                lost.append(z["id"])
+            else:
+                boxes.append({"id": z["id"], **nb})
+        try:
+            r = self.http.post(self.portal + "/security/zones/realign", timeout=10, json={
+                "device_uid": self.args.device, "boxes": boxes, "lost": lost,
+                "inliers": m.inliers, "shift": round(m.shift_fraction, 4)})
+        except requests.RequestException as e:
+            print(f"[view] portal unreachable: {e.__class__.__name__}")
+            return
+        if r.status_code != 200:
+            print(f"[view] portal refused the re-alignment: HTTP {r.status_code}")
+            return
+        print(f"[view] {len(boxes)} box(es) re-aligned, {len(lost)} left the picture ({m.summary()})")
+        self.event("CAMERA_VIEW_MOVED", f"The camera's view moved ({m.shift_fraction:.1%} of the width); "
+                   f"{len(boxes)} box(es) re-aligned to the room"
+                   + (f", {len(lost)} left the picture - redraw those" if lost else "") + ".")
+        self.view_pending = None                         # new boxes -> new reference on the next check
 
     def identify_faces(self):
         """Names by face: a head crop of each person not named yet goes to the
@@ -584,7 +665,8 @@ def main():
     if not os.path.isfile(args.model):
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
-    for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces):
+    for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces,
+                   svc.watch_view):
         threading.Thread(target=target, daemon=True).start()
     host = "127.0.0.1" if svc.demo else args.host
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")
