@@ -445,3 +445,24 @@ def test_a_small_robot_move_is_logged_as_a_new_pose():
     for t in (1.0, 3.0, 7.0):
         st = zw.update(ARM, _arm(14), [], t)[0]
     assert st.new_pose and st.status == "OK"
+
+
+def test_a_face_name_never_lands_on_a_small_half_hidden_person():
+    """18:27 in the lab: Ali's face name jumped onto Eng. Hemaly, seen only as
+    a small head behind the monitors. Small people are never given a face name."""
+    img, (a,) = _frame((100, ALI))
+    la = _looks(img, [a])[0]
+    lab = Labeler()
+    t = Track(1, a, 10.0, 10.0, look=la)
+    lab.face_vote(1, "USER1", 10.0)
+    lab.face_vote(1, "USER1", 11.0)
+    for k in range(4):
+        lab.assign([t], [], None, now=11.0 + k, known=KNOWN)
+    head = Track(5, (440, 237, 32, 45), 40.0, 40.0, look=la)         # same colours, but tiny
+    lab.assign([head], [], None, now=40.0, known=KNOWN)
+    assert head.label is None
+    # Two big unnamed people who both fit: not clearly one of them - nobody.
+    p1 = Track(6, (100, 60, 60, 240), 50.0, 50.0, look=la)
+    p2 = Track(7, (400, 60, 60, 240), 50.0, 50.0, look=la)
+    lab.assign([p1, p2], [], None, now=50.0, known=KNOWN)
+    assert p1.label is None and p2.label is None

@@ -432,6 +432,8 @@ class Labeler:
     FACE_VOTES = 2                     # agreeing face matches before a face names someone
     FACE_WINDOW_S = 10.0               # ...within this long
     FACE_KEEP_S = 15 * 60.0            # a face-named look is remembered this long out of view
+    FACE_REACQUIRE_MAX = 0.22          # stricter than a door name: no door entry backs it up
+    MIN_LOOK_H = 80                    # px: a smaller (far / half-hidden) person's look is not judged
 
     def __init__(self):
         self.identities: dict[str, Identity] = {}
@@ -485,12 +487,28 @@ class Labeler:
 
         # 2) Someone named before, back in view: by their locked look (door
         #    names, and face names not entered yet - those stay on hold).
+        #    A face name (nobody entered: no door to back it up) is given back
+        #    only to a person seen big enough to judge their look, who fits it
+        #    clearly better than every other unnamed person in view - else it
+        #    could land on a small, half-hidden stranger.
         faced = {k: v[0] for k, v in self.face_named.items() if k not in taken}
+        for label, who in faced.items():
+            cands = sorted((d, t.id, t) for t in tracks
+                           if not t.label and not t.crowded and t.box[3] >= self.MIN_LOOK_H
+                           and (d := self._distance(t, label)) is not None)
+            others = [d for t in tracks if not t.label and t.box[3] < self.MIN_LOOK_H
+                      and (d := self._distance(t, label)) is not None]
+            if not cands or cands[0][0] > self.FACE_REACQUIRE_MAX:
+                continue
+            rivals = [c[0] for c in cands[1:]] + others
+            if rivals and min(rivals) - cands[0][0] < self.REACQUIRE_MARGIN:
+                continue
+            self._give(cands[0][2], who, "face")
         for t in sorted(tracks, key=lambda t: t.first_seen):
-            if t.label or t.crowded or not (free or faced):
+            if t.label or t.crowded or not free or t.box[3] < self.MIN_LOOK_H:
                 continue
             scored = []
-            for o in free + list(faced.values()):
+            for o in free:
                 d = self._distance(t, o["auth_subject"])
                 if d is not None:
                     scored.append((d, o["auth_subject"]))
@@ -500,9 +518,6 @@ class Labeler:
             if len(scored) > 1 and scored[1][0] - scored[0][0] < self.REACQUIRE_MARGIN:
                 continue
             label = scored[0][1]
-            if label in faced:
-                self._give(t, faced.pop(label), "face")
-                continue
             o = inside[label]
             self._give(t, o)
             free.remove(o)
@@ -601,8 +616,8 @@ class Labeler:
 
     def _learn(self, tracks: list[Track]):
         for t in tracks:
-            if not t.label or t.crowded or t.look is None:
-                continue
+            if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H:
+                continue                   # a tiny / half-hidden view would blur the locked look
             ident = self.identities.get(t.label)
             if ident is None:
                 self.identities[t.label] = Identity(t.look)
