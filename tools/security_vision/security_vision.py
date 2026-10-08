@@ -194,6 +194,7 @@ class Service:
         self.appearance = Appearance(reid)
         print(f"[vision] identity lock: colours{' + body re-id model' if reid else ' only (no re-id model)'}")
         self.metrics = PipelineMetrics()
+        process_load()                                 # primes psutil's CPU counter (its first reading is 0)
         self.camera = Camera(args.source, args.max_width, self.metrics)
         # Recording (admin, from the portal): the full-resolution stream when
         # the analysis reads the small one (MC210: stream1 vs stream2).
