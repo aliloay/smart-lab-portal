@@ -83,6 +83,12 @@ void LoadCellManager::update() {
   _raw = sum / _n;
 
   if (!calibrated() || _n < WEIGHT_SAMPLE_COUNT) { _stable = false; _state = WeightState::NO_STABLE_READING; return; }
+  static bool warned = false;
+  if (overloaded() != warned) {
+    warned = !warned;
+    if (warned) LOG("LOADCELL", "OVERLOAD: %.0f g is above the %.0f g load cell - remove weight", grams(), LOAD_CELL_CAPACITY_G);
+    else LOG("LOADCELL", "back within the %.0f g range", LOAD_CELL_CAPACITY_G);
+  }
   bool calm = spreadGrams() <= WEIGHT_STABILITY_THRESHOLD_G;
   if (!calm) { _calmSinceMs = 0; _stable = false; _state = WeightState::NO_STABLE_READING; return; }
   if (_calmSinceMs == 0) _calmSinceMs = now;

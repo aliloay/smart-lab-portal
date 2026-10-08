@@ -224,7 +224,8 @@ void HardwareTests::update() {
     else if (_p.scale.calibrated()) {
       snprintf(l1, sizeof(l1), "%9.1f g", _p.scale.grams());
       // How steady it is: the spread of the last readings, in grams.
-      snprintf(l2, sizeof(l2), "%s +-%.1fg", _p.scale.stable() ? "STABLE" : "moving", _p.scale.spreadGrams() / 2);
+      if (_p.scale.overloaded()) snprintf(l2, sizeof(l2), "OVER 1kg-REMOVE!");
+      else snprintf(l2, sizeof(l2), "%s +-%.1fg", _p.scale.stable() ? "STABLE" : "moving", _p.scale.spreadGrams() / 2);
     } else {
       snprintf(l1, sizeof(l1), "raw %11.0f", _p.scale.raw());
       snprintf(l2, sizeof(l2), "not calibrated");

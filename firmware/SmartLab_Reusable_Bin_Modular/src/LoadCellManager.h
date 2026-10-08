@@ -30,6 +30,7 @@ class LoadCellManager {
   float kilograms() const { float g = grams(); return isnan(g) ? NAN : g / 1000.0f; }
   bool stable() const { return _stable; }
   float stableGrams() const { return _stable ? grams() : NAN; }
+  bool overloaded() const { float g = grams(); return !isnan(g) && g > LOAD_CELL_CAPACITY_G; }
   float spreadGrams() const;                               // window spread (calibrated only)
   WeightState state() const { return _state; }
   // The last change event (one-shot): returns true once per change.

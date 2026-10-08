@@ -50,6 +50,9 @@ constexpr uint8_t PIN_REED      = 27;   // reed between this pin and GND, intern
 // HX711 gain (channel A): 128 = +-0.5*AVDD/128 (~+-10 mV here), 64 = twice the
 // range. Changed with "gain 64|128" (saved); this is only the first-boot value.
 constexpr uint8_t  LOAD_CELL_GAIN_DEFAULT       = 128;
+// The bin's load cell is a 1 kg bar (label on the cell, 2026-10-08). Above this
+// the reading is flagged OVERLOAD (a heavier load can bend the bar for good).
+constexpr float    LOAD_CELL_CAPACITY_G         = 1000.0f;
 constexpr uint8_t  WEIGHT_SAMPLE_COUNT          = 10;     // moving window (samples)
 constexpr float    WEIGHT_STABILITY_THRESHOLD_G = 2.0f;   // VERIFY: max spread in the window to call it stable
 constexpr uint32_t WEIGHT_STABLE_TIME_MS        = 1000;   // VERIFY: spread must hold this long
