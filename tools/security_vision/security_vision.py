@@ -37,6 +37,7 @@ by default - the portal in Docker reaches it through host.docker.internal):
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import hmac
 import json
 import os
@@ -51,6 +52,7 @@ from flask import Flask, Response, jsonify, request, send_file
 
 from dataset import Collector
 from equipwatch import NOT_SEEN_SCANS, EquipmentWatch, Found
+from latency import PipelineMetrics, process_load
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
@@ -76,11 +78,13 @@ def device_key() -> str:
 class Camera:
     """Keeps only the newest frame (an RTSP buffer would otherwise lag)."""
 
-    def __init__(self, source: str, max_width: int):
+    def __init__(self, source: str, max_width: int, metrics: Optional[PipelineMetrics] = None):
         self.source, self.max_width = source, max_width
         self.frame: Optional[np.ndarray] = None
         self.at = 0.0
+        self.seq = 0                                  # frames received so far (skips = latest-frame policy)
         self.ok = False
+        self.metrics = metrics
         self._lock = threading.Lock()
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -94,12 +98,16 @@ class Camera:
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
         return cv2.VideoCapture(s, cv2.CAP_FFMPEG)
 
-    def _store(self, frame):
+    def _store(self, frame, read_ms: float = 0.0):
+        now = time.time()
         h, w = frame.shape[:2]
         if w > self.max_width:
             frame = cv2.resize(frame, (self.max_width, int(h * self.max_width / w)))
         with self._lock:
-            self.frame, self.at, self.ok = frame, time.time(), True
+            self.frame, self.at, self.ok = frame, now, True
+            self.seq += 1
+        if self.metrics:
+            self.metrics.frame_in(now, read_ms)
 
     def _run(self):
         still = None
@@ -122,7 +130,9 @@ class Camera:
             print(f"[camera] streaming from {self._safe()}")
             fails = 0
             while fails < 30:
+                r0 = time.perf_counter()
                 ok, frame = cap.read()
+                read_ms = (time.perf_counter() - r0) * 1000
                 if not ok or frame is None:
                     fails += 1
                     time.sleep(0.05)
@@ -130,11 +140,13 @@ class Camera:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # loop a test video
                     continue
                 fails = 0
-                self._store(frame)
+                self._store(frame, read_ms)
                 if self.source.lower().endswith((".mp4", ".avi", ".mkv")):
                     time.sleep(1 / 15)
             cap.release()
             self.ok = False
+            if self.metrics:
+                self.metrics.reconnects += 1
             print("[camera] stream lost - reconnecting")
             time.sleep(1)
 
@@ -149,6 +161,11 @@ class Camera:
     def latest(self):
         with self._lock:
             return (None if self.frame is None else self.frame.copy()), self.at
+
+    def latest_seq(self):
+        """(frame, received at, sequence number) - the newest only; older frames are gone."""
+        with self._lock:
+            return (None if self.frame is None else self.frame.copy()), self.at, self.seq
 
 
 # --------------------------------------------------------------- service ---
@@ -174,7 +191,8 @@ class Service:
         reid = args.reid if args.reid and os.path.isfile(args.reid) else None
         self.appearance = Appearance(reid)
         print(f"[vision] identity lock: colours{' + body re-id model' if reid else ' only (no re-id model)'}")
-        self.camera = Camera(args.source, args.max_width)
+        self.metrics = PipelineMetrics()
+        self.camera = Camera(args.source, args.max_width, self.metrics)
         # Recording (admin, from the portal): the full-resolution stream when
         # the analysis reads the small one (MC210: stream1 vs stream2).
         rec_src = args.record_source or (args.source.replace("/stream2", "/stream1")
@@ -202,6 +220,7 @@ class Service:
         self.view_wake = threading.Event()  # set when many boxes change at once: check the view now
         self.fps = 0.0
         self.jpeg = self.raw_jpeg = None
+        self.jpeg_at = 0.0                  # when the frame in self.jpeg was received from the camera
         self.lock = threading.Lock()
         self.label_lock = threading.Lock()   # labeler: analysis + face checks
         self.equipment_detector = None        # 640 model for "Find equipment", loaded on first use
@@ -210,6 +229,7 @@ class Service:
         self.equip_key = None                 # the boxes the watch's counts belong to
         self.det_lock = threading.Lock()     # the detector network: analysis + equipment search
         self.face_asked: dict[int, float] = {}
+        self.identity_log = deque(maxlen=300)      # identity decisions, newest last (/identity)
         self.mismatch_reported: set = set()
         self.face_http = requests.Session()
         self.extra_since: Optional[float] = None
@@ -268,13 +288,16 @@ class Service:
                 zones = [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
                          for s in self.zones.states.values()]
             named = [{"label": t.label, "name": t.name, "role": t.role, "source": t.source,
-                      "entered": t.entered, "verified": t.verified, "face": t.mismatch}
+                      "entered": t.entered, "verified": t.verified, "face": t.mismatch,
+                      "track_id": t.id, "identity_state": t.identity_state,
+                      "confidence": t.identity_confidence, "named_by": t.named_by}
                      for t in tracks if t.label]
             try:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
                     "device_uid": self.args.device, "fps": self.fps, "people": len(tracks),
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
-                    "source_ok": self.camera.ok, "door_open": self.door_open})
+                    "source_ok": self.camera.ok, "door_open": self.door_open,
+                    "metrics": self._metrics_brief()})
             except requests.RequestException:
                 pass
 
@@ -308,19 +331,27 @@ class Service:
         times = []
         while True:
             t0 = time.time()
-            frame, at = self.camera.latest()
+            frame, at, seq = self.camera.latest_seq()
             if frame is None or t0 - at > 5:
                 time.sleep(0.2)
                 continue
+            age_ms = (t0 - at) * 1000
             h, w = frame.shape[:2]
             with self.det_lock:
+                d0 = time.perf_counter()
                 people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+                detect_ms = (time.perf_counter() - d0) * 1000
+            k0 = time.perf_counter()
             tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
             occupants = self.cfg.get("occupants", [])
             door = self.cfg.get("door")
             door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
             with self.label_lock:
                 self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
+                id_events = list(self.labeler.events)
+            self._identity_events(id_events, tracks, occupants)
+            track_ms = (time.perf_counter() - k0) * 1000
+            z0 = time.perf_counter()
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
             states = self.zones.update(self.cfg.get("zones", []), gray, pnorm, t0)
@@ -336,10 +367,35 @@ class Service:
             with self.lock:
                 self.tracks = tracks
             self.check(tracks, occupants, states)
+            zones_ms = (time.perf_counter() - z0) * 1000
+            self.metrics.analysed(seq, age_ms, detect_ms, track_ms, zones_ms, (time.time() - t0) * 1000)
             times.append(time.time() - t0)
             times = times[-20:]
             self.fps = round(1.0 / max(sum(times) / len(times), period), 1)
             time.sleep(max(0.0, period - (time.time() - t0)))
+
+    def _metrics_brief(self) -> dict:
+        m = self.metrics.summary()
+        g = lambda d, k: (d or {}).get(k)
+        return {"input_fps": m["capture"]["fps"], "analysis_fps": m["analysis"]["fps"],
+                "render_fps": m["render"]["fps"],
+                "frame_age_ms_p50": g(m["analysis"]["frame_age_ms"], "p50"),
+                "frame_age_ms_p95": g(m["analysis"]["frame_age_ms"], "p95"),
+                "pass_ms_p50": g(m["analysis"]["pass_ms"], "p50"),
+                "detect_ms_p50": g(m["analysis"]["detect_ms"], "p50"),
+                "serve_age_ms_p50": g(m["serve"]["frame_age_ms"], "p50"),
+                "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"]}
+
+    def _identity_events(self, events, tracks, occupants):
+        """Identity decisions: all kept in a short local log (/identity, the
+        evidence panel); a conflict is also an event for staff."""
+        for e in events:
+            self.identity_log.append({"t": round(time.time(), 2), "kind": e.kind, "track_id": e.track_id,
+                                      "label": e.label, "detail": e.detail})
+            print(f"[identity] {e.kind} track {e.track_id}: {e.detail}")
+            if e.kind == "PERSON_IDENTITY_CONFLICT":
+                self.event("PERSON_IDENTITY_CONFLICT", f"Track {e.track_id}: {e.detail}. The name was NOT "
+                           "changed - check who this is.", people_seen=len(tracks), people_inside=len(occupants))
 
     def check(self, tracks, occupants, states):
         seen, inside = len(tracks), len(occupants)
@@ -616,7 +672,7 @@ class Service:
                 name, score, second = res.get("name"), res.get("score"), res.get("second")
                 if name and (second is None or score - second >= self.FACE_MARGIN):
                     with self.label_lock:
-                        self.labeler.face_vote(t.id, name, time.time())
+                        self.labeler.face_vote(t.id, name, time.time(), score)
 
     def render(self):
         """Annotated stream: newest frame + latest boxes, RENDER_FPS a second."""
@@ -624,6 +680,8 @@ class Service:
             t0 = time.time()
             frame, at = self.camera.latest()
             if frame is not None and t0 - at < 5:
+                self.metrics.age_at_render_ms.add((t0 - at) * 1000)
+                e0 = time.perf_counter()
                 raw = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
                 saved = self.dataset.offer(frame)          # plain frame, before boxes are drawn
                 if saved:
@@ -634,8 +692,10 @@ class Service:
                 draw(frame, tracks, self.cfg.get("zones", []), dict(self.zones.states),
                      (door["x"], door["y"], door["w"], door["h"]) if door else None, self.door_open)
                 jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+                self.metrics.encode_ms.add((time.perf_counter() - e0) * 1000)
+                self.metrics.render.tick()
                 with self.lock:
-                    self.raw_jpeg, self.jpeg = raw, jpeg
+                    self.raw_jpeg, self.jpeg, self.jpeg_at = raw, jpeg, at
             else:
                 with self.lock:
                     self.raw_jpeg = self.jpeg = None
@@ -653,7 +713,14 @@ def make_app(svc: Service) -> Flask:
             return Response("device key required", status=401)
         if data is None:
             return Response(status=204)
-        return Response(data, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+        # The frame's receive time and age travel with it, so the portal and the
+        # browser can measure the rest of the way (latency.py, docs/LATENCY.md).
+        at = svc.jpeg_at
+        age = (time.time() - at) * 1000 if at else 0.0
+        svc.metrics.age_at_serve_ms.add(age)
+        return Response(data, mimetype="image/jpeg", headers={
+            "Cache-Control": "no-store", "X-Frame-Received-At-Ms": str(int(at * 1000)),
+            "X-Frame-Age-Ms": str(int(age))})
 
     @app.get("/equipment")
     def equipment():
@@ -690,9 +757,32 @@ def make_app(svc: Service) -> Flask:
             return Response("device key required", status=401)
         return jsonify({"fps": svc.fps, "camera": svc.camera.ok,
                         "tracks": [{"id": t.id, "label": t.label, "name": t.name, "role": t.role,
-                                    "box": t.box} for t in svc.tracks],
+                                    "box": t.box, "identity_state": t.identity_state,
+                                    "confidence": t.identity_confidence, "named_by": t.named_by}
+                                   for t in svc.tracks],
                         "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
                                   for s in svc.zones.states.values()]})
+
+    @app.get("/metrics")
+    def metrics():
+        """Measured stage timings (latency.py) + this process's load."""
+        if not authorised():
+            return Response("device key required", status=401)
+        return jsonify({**svc.metrics.summary(), "process": process_load(),
+                        "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
+                                     "max_width": svc.args.max_width, "render_fps": svc.RENDER_FPS}})
+
+    @app.get("/identity")
+    def identity():
+        """Evidence panel: why each person in view has (or has not) a name, and
+        the recent identity decisions. Names, states, scores and times only -
+        no face data."""
+        if not authorised():
+            return Response("device key required", status=401)
+        with svc.label_lock:
+            people = [{"track_id": t.id, "label": t.label, "name": t.name,
+                       "explain": svc.labeler.ledger.explain(t.id)} for t in svc.tracks]
+        return jsonify({"people": people, "decisions": list(svc.identity_log)[-100:]})
 
     # ---- recording (the portal calls these for an administrator) ----------
     @app.get("/record/status")

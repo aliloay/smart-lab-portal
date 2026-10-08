@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
     ENVIRONMENT: str = "development"
 
+    # --- API docs -------------------------------------------------------------
+    # /api/docs + /api/openapi.json list every endpoint: development only.
+    EXPOSE_API_DOCS: bool = False
+
     # --- CORS ---------------------------------------------------------------
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 

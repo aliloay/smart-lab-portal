@@ -13,6 +13,8 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.core import errors
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -71,17 +73,21 @@ app = FastAPI(
         "backend authorizes and records; the ESP32 master is the only thing "
         "that opens a door."
     ),
-    openapi_url=f"{settings.API_V1}/openapi.json",
-    docs_url=f"{settings.API_V1}/docs",
+    # The API map is useful in development; off unless EXPOSE_API_DOCS is set
+    # (it lists every endpoint to anyone who asks).
+    openapi_url=f"{settings.API_V1}/openapi.json" if settings.EXPOSE_API_DOCS else None,
+    docs_url=f"{settings.API_V1}/docs" if settings.EXPOSE_API_DOCS else None,
+    redoc_url=None,
     lifespan=lifespan,
 )
+errors.install(app)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
 for r in (auth.router, labs.router, bookings.router, access.router,

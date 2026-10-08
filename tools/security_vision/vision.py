@@ -281,6 +281,9 @@ class Track:
     crowded: bool = False              # touching someone else right now
     crowded_at: float = -1e9           # last time it was
     separated_at: float = -1e9         # when it last came apart from someone
+    named_by: Optional[str] = None     # door / face / look / place / elimination (identity.py evidence)
+    identity_state: str = "UNKNOWN"    # set by identity.IdentityLedger
+    identity_confidence: float = 0.0
 
     def center(self):
         return (self.box[0] + self.box[2] / 2, self.box[1] + self.box[3] / 2)
@@ -436,15 +439,19 @@ class Labeler:
     MIN_LOOK_H = 80                    # px: a smaller (far / half-hidden) person's look is not judged
 
     def __init__(self):
+        from identity import IdentityLedger
         self.identities: dict[str, Identity] = {}
         self.votes: dict[int, list[tuple[str, float]]] = {}
+        self.ledger = IdentityLedger()          # evidence, state, confidence per track
+        self.events: list = []                  # identity events of the last assign()
         # Named by face (not entered at the door): who, and when last seen -
         # so they get their name back by their look after the track was lost.
         self.face_named: dict[str, tuple[dict, float]] = {}
 
-    def face_vote(self, track_id: int, label: str, now: float):
+    def face_vote(self, track_id: int, label: str, now: float, score: Optional[float] = None):
         """The face server matched this track's face to `label`."""
         self.votes.setdefault(track_id, []).append((label, now))
+        self.ledger.face_observation(track_id, label, score, now)
 
     def assign(self, tracks: list[Track], occupants: list[dict], door_rect, now: float,
                known: Optional[list[dict]] = None):
@@ -483,7 +490,7 @@ class Labeler:
             recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
             if recent:
                 o = min(recent, key=lambda o: abs(t.first_seen - o["entered_at"]))
-                self._give(t, o)
+                self._give(t, o, how="door")
                 free.remove(o)
 
         # 2) Someone named before, back in view: by their locked look (door
@@ -504,7 +511,7 @@ class Labeler:
             rivals = [c[0] for c in cands[1:]] + others
             if rivals and min(rivals) - cands[0][0] < self.REACQUIRE_MARGIN:
                 continue
-            self._give(cands[0][2], who, "face")
+            self._give(cands[0][2], who, "face", how="look")
         for t in sorted(tracks, key=lambda t: t.first_seen):
             if t.label or t.crowded or not free or t.box[3] < self.MIN_LOOK_H:
                 continue
@@ -520,18 +527,19 @@ class Labeler:
                 continue
             label = scored[0][1]
             o = inside[label]
-            self._give(t, o)
+            self._give(t, o, how="look")
             free.remove(o)
 
         # 3) Elimination: one free name, one unlabelled person.
         unlabelled = [t for t in tracks if not t.label]
         if len(free) == 1 and len(unlabelled) == 1:
-            self._give(unlabelled[0], free[0])
+            self._give(unlabelled[0], free[0], how="elimination")
 
         self._learn(tracks)
         for t in tracks:
             t.entered = bool(t.label and t.label in inside)
         self._verify(tracks)
+        self.events = self.ledger.update(tracks, now, self._distance, self._agreed)
 
     def _face(self, tracks: list[Track], inside: dict, known: dict, now: float):
         live = {t.id for t in tracks}
@@ -549,7 +557,7 @@ class Labeler:
             who = inside.get(label) or known.get(label)
             if who is None or label in taken:
                 continue
-            self._give(t, who, "face")
+            self._give(t, who, "face", how="face")
             taken.add(label)
             if label not in inside:
                 self.face_named[label] = (who, now)
@@ -592,7 +600,7 @@ class Labeler:
             if len(cl) != 1:
                 continue                            # two lost names fit this one: nobody
             tid, who, source = cl[0]
-            self._give(live[t_id], who, source)
+            self._give(live[t_id], who, source, how="place")
             held.add(who["auth_subject"])
             del self.lost[tid]
         for t in tracks:
@@ -661,7 +669,7 @@ class Labeler:
             if t.label in labels:
                 t.label = t.name = t.role = None
         for t, label in zip(best, labels):
-            self._give(t, inside[label])
+            self._give(t, inside[label], how="crossing")
 
     def _learn(self, tracks: list[Track]):
         for t in tracks:
@@ -678,9 +686,10 @@ class Labeler:
             ident.samples += 1
 
     @staticmethod
-    def _give(t: Track, o: dict, source: str = "door"):
+    def _give(t: Track, o: dict, source: str = "door", how: Optional[str] = None):
         t.label, t.name, t.role = o["auth_subject"], o.get("name") or o["auth_subject"], o.get("role")
         t.source = source
+        t.named_by = how or source
         t.verified, t.mismatch = False, None
 
 
@@ -932,9 +941,17 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
                 label += " - not entered"
             elif t.verified:
                 label += " - verified"
+            # How sure (identity.py): shown, never hidden for a cleaner picture.
+            st = t.identity_state
+            if st == "IDENTITY_CONFLICT":
+                label += " - IDENTITY CONFLICT"
+            elif st == "IDENTITY_UNCERTAIN":
+                label += f" ? {t.identity_confidence:.0%}"
+            elif t.identity_confidence:
+                label += f" {t.identity_confidence:.0%}"
         else:
             label = "Unknown"
-        _tag(frame, label, x, y, c)
+        _tag(frame, label, x, y, MISMATCH if t.identity_state == "IDENTITY_CONFLICT" else c)
     return frame
 
 

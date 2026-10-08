@@ -66,6 +66,10 @@ services:
             echo "BACKUP FAILED at $$now"
             rm -f "$$f.part"
             status false "$$now" "$$last_ok" null null
+            # A failure (e.g. a moment without DNS) is retried in 5 min, not
+            # after a whole interval - one glitch once left 26 h without a backup.
+            sleep 300
+            continue
           fi
           sleep $$((BACKUP_EVERY_HOURS * 3600))
         done
@@ -135,7 +139,12 @@ services:
     # The portal for browsers and phones: http://<laptop LAN IP>/
     # nginx serves the app and forwards /api and /ws to the backend, so the
     # browser only ever talks to this one address (no CORS, no API URL).
-    ports: ["80:80"]
+    #   80    the portal                       8080  the IoT Command Center (opens on /command)
+    #   443 / 8443  the same over HTTPS, only once deploy/tls has a certificate
+    #               from tools/tls/make_local_ca.py (docs/SECURITY.md)
+    ports: ["80:80", "8080:8080", "443:443", "8443:8443"]
+    volumes:
+      - ./deploy/tls:/etc/nginx/tls:ro
 
   # Optional self-hosted n8n: `docker compose --profile automation up -d`.
   # It reaches the API as http://backend:8000 inside this network, so no

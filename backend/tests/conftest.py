@@ -210,3 +210,12 @@ def image_bytes(fmt: str = "JPEG", size=(640, 480), color=(40, 90, 160),
     kwargs = {"exif": exif} if exif else {}
     img.save(buf, fmt, **kwargs)
     return buf.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """Failed-sign-in counts live in memory: every test starts clean."""
+    from app.core import throttle
+    for t in (throttle.login_by_account, throttle.login_by_address):
+        t._hits.clear()
+    yield

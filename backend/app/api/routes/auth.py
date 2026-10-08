@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin
 from app.core.config import settings
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core import throttle
+from app.core.security import create_access_token, hash_password, verify_and_upgrade
 from app.db.session import get_db
 from app.models import AuditLog, Role, User
 from app.schemas import (LoginRequest, SignupRequest, TokenResponse,
@@ -21,19 +22,38 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == req.email.lower()))
+    email = req.email.lower()
+    ip = request.client.host if request.client else None
+    account_key, address_key = f"acct:{email}", f"ip:{ip}"
+    wait = max(throttle.login_by_account.blocked_for(account_key),
+               throttle.login_by_address.blocked_for(address_key))
+    if wait > 0:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"Too many failed sign-ins. Try again in {int(wait // 60) + 1} min.",
+                            headers={"Retry-After": str(int(wait) + 1)})
+    user = db.scalar(select(User).where(User.email == email))
 
     # Same message and same work either way: a different response for "no such
     # user" would let anyone enumerate valid accounts.
-    if user is None or not verify_password(req.password, user.hashed_password):
+    ok, new_hash = verify_and_upgrade(req.password, user.hashed_password if user else None)
+    if not ok:
+        throttle.login_by_account.fail(account_key)
+        throttle.login_by_address.fail(address_key)
+        # Logged without the password; the attempted email only when it is a real account.
+        db.add(AuditLog(actor_user_id=user.id if user else None, action="LOGIN_FAILED",
+                        entity_type="user", entity_id=str(user.id) if user else None,
+                        detail={"known_account": user is not None}, ip_address=ip))
+        db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
                             "Incorrect email or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
+    throttle.login_by_account.clear(account_key)
+    if new_hash:                                     # bcrypt -> Argon2id on a successful sign-in
+        user.hashed_password = new_hash
 
     db.add(AuditLog(actor_user_id=user.id, action="LOGIN", entity_type="user",
-                    entity_id=str(user.id),
-                    ip_address=request.client.host if request.client else None))
+                    entity_id=str(user.id), ip_address=ip))
     # Accounts made before this reminder existed get it on their next sign-in
     # (once - the dedupe key stops repeats; the banner shows every time).
     enrolment.welcome(db, user)

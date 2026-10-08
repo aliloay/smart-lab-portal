@@ -117,20 +117,23 @@ def test_frame_comes_through_the_portal(client, db, lab, staff, alice, device_he
 
     class R:
         status_code, content = 200, JPEG
+        headers = {"X-Frame-Received-At-Ms": "1700000000000", "X-Frame-Age-Ms": "42"}
 
     def get(url, headers=None, timeout=None):
         calls.append((url, headers))
         return R()
 
-    monkeypatch.setattr(security.httpx, "get", get)
+    monkeypatch.setattr(security._frames, "get", get)
     r = client.get(f"/api/security/cameras/{cid}/frame.jpg", headers=h)
     assert r.status_code == 200 and r.content == JPEG
     assert calls[0][0].endswith(":5100/frame.jpg") and "X-Device-Key" in calls[0][1]
+    # The frame's timing travels with it (docs/LATENCY.md).
+    assert r.headers["X-Frame-Age-Ms"] == "42" and float(r.headers["X-Proxy-Ms"]) >= 0
 
     def down(url, headers=None, timeout=None):
         raise httpx.ConnectError("down")
 
-    monkeypatch.setattr(security.httpx, "get", down)
+    monkeypatch.setattr(security._frames, "get", down)
     assert client.get(f"/api/security/cameras/{cid}/frame.jpg", headers=h).status_code == 503
     assert client.get(f"/api/security/cameras/{cid}/frame.jpg",
                       headers=auth_headers(client, alice.email)).status_code == 403

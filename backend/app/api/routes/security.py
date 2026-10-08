@@ -24,6 +24,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
+import time
+
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -59,8 +61,15 @@ KINDS = {
     "EQUIPMENT_NOT_SEEN": (AlertSeverity.WARNING, "Equipment not seen for a while"),
     # A robot box (motion alert off) moving / parking in a new pose: a log, not an alarm.
     "ROBOT_ACTIVITY": (AlertSeverity.INFO, "Robot moved"),
+    # A face clearly says someone other than the name the camera holds: the
+    # name is NOT switched (identity.py); staff check who it is.
+    "PERSON_IDENTITY_CONFLICT": (AlertSeverity.WARNING, "Identity conflict - face does not match the name"),
 }
 MAX_SNAPSHOT = 2_000_000
+# One kept-alive connection pool for live frames: a new TCP connection per
+# frame (15 a second per viewer) added a handshake to every picture.
+_frames = httpx.Client(timeout=httpx.Timeout(3.0, connect=1.5),
+                       limits=httpx.Limits(max_connections=20, max_keepalive_connections=10))
 
 
 def _utc(dt: datetime) -> datetime:
@@ -180,6 +189,8 @@ class StateReport(BaseModel):
     zones: list[ZoneStatus] = Field(default_factory=list, max_length=100)
     source_ok: bool = True
     door_open: Optional[bool] = None          # from the red door leaf in the door box (None: no door box)
+    # Measured pipeline timings (tools/security_vision/latency.py): fps per stage, frame ages.
+    metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/state", tags=["devices"])
@@ -203,6 +214,8 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
+                         "metrics": {k: v for k, v in list(req.metrics.items())[:30]
+                                     if isinstance(v, (int, float, type(None)))},
                          "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
     db.commit()
     if seen(prev) != seen(d.component_state) or not was_online:
@@ -287,6 +300,7 @@ def camera_summary(db: Session, d: Device, now: datetime) -> dict:
             "named": st.get("named", []) if online else [],
             "zones": st.get("zones", []) if online else [],
             "door_open": st.get("door_open") if online else None,
+            "metrics": st.get("metrics") if online else None,
             "inside": len(occupants(db, d.lab_id)),
             "open_events": db.query(SecurityEvent).filter_by(
                 device_id=d.id, acknowledged_at=None).count()}
@@ -309,17 +323,23 @@ def frame(device_id: int, raw: bool = False, db: Session = Depends(get_db),
           _: User = Depends(require_staff)):
     """The latest frame (annotated, or raw for drawing boxes). 204 = none."""
     d = _camera(db, device_id)
+    t0 = time.perf_counter()
     try:
-        r = httpx.get(_service_url(d, "/raw.jpg" if raw else "/frame.jpg"),
-                      headers={"X-Device-Key": settings.DEVICE_API_KEY},
-                      timeout=httpx.Timeout(3.0, connect=1.5))
+        r = _frames.get(_service_url(d, "/raw.jpg" if raw else "/frame.jpg"),
+                        headers={"X-Device-Key": settings.DEVICE_API_KEY})
     except httpx.HTTPError:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The security camera service is not reachable - start it on the laptop.")
     if r.status_code != 200:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    return Response(content=r.content, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
+    # Timing travels with the frame (docs/LATENCY.md): when the camera service
+    # received it, its age when served, and how long this hop took.
+    return Response(content=r.content, media_type="image/jpeg", headers={
+        "Cache-Control": "no-store",
+        "X-Frame-Received-At-Ms": r.headers.get("X-Frame-Received-At-Ms", ""),
+        "X-Frame-Age-Ms": r.headers.get("X-Frame-Age-Ms", ""),
+        "X-Proxy-Ms": str(round((time.perf_counter() - t0) * 1000, 1)),
+        "Access-Control-Expose-Headers": "X-Frame-Received-At-Ms, X-Frame-Age-Ms, X-Proxy-Ms"})
 
 
 def _overlap(a: dict, b) -> float:
@@ -328,6 +348,23 @@ def _overlap(a: dict, b) -> float:
     inter = iw * ih
     union = a["w"] * a["h"] + b.w * b.h - inter
     return inter / union if union > 0 else 0.0
+
+
+@router.get("/cameras/{device_id}/identity")
+def identity_evidence(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Why each person in view has (or has not) a name: state, confidence and
+    the evidence behind it, plus recent identity decisions. Staff only; names,
+    scores and times - never face data."""
+    d = _camera(db, device_id)
+    try:
+        r = httpx.get(_service_url(d, "/identity"), headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                      timeout=httpx.Timeout(3.0, connect=1.5))
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "The security camera service is not reachable - start it on the laptop.")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service has no identity log (update it).")
+    return r.json()
 
 
 @router.get("/cameras/{device_id}/suggestions")

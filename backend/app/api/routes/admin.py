@@ -910,7 +910,7 @@ def reports_overview(days: int = Query(30, ge=1, le=365),
 
 
 class PasswordSet(BaseModel):
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(max_length=128)
 
 
 @router.put("/users/{user_id}/password")
@@ -924,7 +924,11 @@ def set_user_password(user_id: int, req: PasswordSet, db: Session = Depends(get_
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     if not _may_manage(actor, u):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Lab staff can set a student's password only")
+    from app.core import password_policy
     from app.core.security import hash_password
+    bad = password_policy.problems(req.new_password, u.email, u.full_name)
+    if bad:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Password needs " + "; ".join(bad) + ".")
     u.hashed_password = hash_password(req.new_password)
     db.add(AuditLog(actor_user_id=actor.id, action="USER_PASSWORD_SET", entity_type="user",
                     entity_id=str(u.id), detail={"email": u.email, "by_role": actor.role.value}))

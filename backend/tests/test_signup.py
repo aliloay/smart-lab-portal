@@ -5,7 +5,7 @@ from app.core.config import settings
 from app.models import Notification, Role, User
 
 NEW = {"email": "New.Student@Example.com", "full_name": "New Student",
-       "password": "Password123", "student_id": "S-9", "department": "EE"}
+       "password": "Lab-Secure#2026", "student_id": "S-9", "department": "EE"}
 
 
 def test_signup_creates_student_and_logs_in(client, db, admin):
@@ -84,7 +84,7 @@ def test_auth_subjects_are_sequential_and_never_reused(client, db, admin, alice,
     ).json()["access_token"]}
     assert client.get("/api/users/next-auth-subject", headers=h).json() == {"auth_subject": "USER3"}
     r = client.post("/api/auth/register", headers=h, json={
-        "email": "staff2@example.com", "full_name": "New Staff", "password": "Password123",
+        "email": "staff2@example.com", "full_name": "New Staff", "password": "Lab-Secure#2026",
         "role": "LAB_STAFF"})
     assert r.json()["auth_subject"] == "USER3"
     # Clearing the highest number must not hand it out again.

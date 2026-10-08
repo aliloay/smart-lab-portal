@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from app.core import password_policy
 
 from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
                               AuthMethod, BookingStatus, DeviceType, EventType,
@@ -18,7 +20,7 @@ class ORM(BaseModel):
 # --- auth ------------------------------------------------------------------
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=256)       # an old password may be shorter than today's rule
 
 
 class TokenResponse(BaseModel):
@@ -46,20 +48,30 @@ class UserOut(ORM):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=255)
-    password: str = Field(min_length=8)
+    password: str = Field(max_length=password_policy.MAX_LENGTH)
     role: Role = Role.STUDENT
     auth_subject: Optional[str] = Field(default=None, max_length=32)
-    student_id: Optional[str] = None
-    department: Optional[str] = None
+    student_id: Optional[str] = Field(default=None, max_length=64)
+    department: Optional[str] = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _strong(self):
+        password_policy.check(self.password, self.email, self.full_name)
+        return self
 
 
 class SignupRequest(BaseModel):
     """Public sign-up. No role and no auth_subject: always a plain student."""
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=255)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(max_length=password_policy.MAX_LENGTH)
     student_id: Optional[str] = Field(default=None, max_length=64)
     department: Optional[str] = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _strong(self):
+        password_policy.check(self.password, self.email, self.full_name)
+        return self
 
 
 class UserUpdate(BaseModel):

@@ -1,24 +1,28 @@
-fastapi==0.115.6
+fastapi==0.143.0
+# Pinned (FastAPI pulls it in): 1.7.0 fixes the advisories found by pip-audit on 2026-10-08.
+starlette==1.7.0
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 alembic==1.14.0
 psycopg[binary]==3.2.3
 pydantic==2.10.4
 pydantic-settings==2.7.0
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
+# Argon2id for new password hashes (bcrypt hashes still verify, upgraded on sign-in).
+argon2-cffi==23.1.0
 bcrypt==4.0.1
-python-multipart==0.0.20
+python-multipart==0.0.32
 qrcode[pil]==8.0
-Pillow==11.0.0
+Pillow==12.3.0
 # The door's QR decoder (the face server's cv2.QRCodeDetector, same pin):
 # every issued token is checked to be readable before it is handed out.
 opencv-python-headless==4.10.0.84
 numpy==2.1.3
 slowapi==0.1.9
 httpx==0.28.1
-pytest==8.3.4
-pytest-asyncio==0.25.0
+pytest==9.1.1
+pytest-asyncio==1.3.0
 email-validator==2.2.0
 # IANA time zones for LOCAL_TIMEZONE: the slim image has no system tz database.
 tzdata==2024.2

@@ -17,12 +17,12 @@ def _login(client, email, password):
 
 def test_admin_sets_anyones_password(client, db, admin, staff):
     h = auth_headers(client, admin.email)
-    r = client.put(f"/api/users/{staff.id}/password", headers=h, json={"new_password": "NewStaff#2026"})
+    r = client.put(f"/api/users/{staff.id}/password", headers=h, json={"new_password": "Bench-Ready#2026"})
     assert r.status_code == 200, r.text
-    assert _login(client, staff.email, "NewStaff#2026") == 200
+    assert _login(client, staff.email, "Bench-Ready#2026") == 200
     assert _login(client, staff.email, "Password123") == 401
     log = db.query(AuditLog).filter_by(action="USER_PASSWORD_SET", entity_id=str(staff.id)).one()
-    assert "NewStaff#2026" not in str(log.detail)
+    assert "Bench-Ready#2026" not in str(log.detail)
 
 
 def test_staff_manage_students_only(client, db, staff, alice, admin):
