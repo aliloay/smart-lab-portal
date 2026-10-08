@@ -16,10 +16,10 @@ import { RobotModel, forward } from './kinematics'
 function Controls({ resetKey }: { resetKey: number }) {
   const { camera, gl, invalidate } = useThree()
   useEffect(() => {
-    camera.position.set(0.85, 0.7, 0.95)
-    camera.lookAt(0, 0.35, 0)
+    camera.position.set(1.05, 0.8, 1.15)
+    camera.lookAt(0, 0.3, 0)
     const c = new OrbitControls(camera, gl.domElement)
-    c.target.set(0, 0.35, 0)
+    c.target.set(0, 0.3, 0)
     c.enableDamping = false
     c.minDistance = 0.4
     c.maxDistance = 4
@@ -77,6 +77,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
   const { invalidate } = useThree()
   useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, invalidate])
   const q = props.q ?? new Array(6).fill(0)
+  const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
   return (
     <>
       <Controls resetKey={props.resetKey} />
@@ -84,6 +85,11 @@ function Scene(props: TwinProps & { resetKey: number }) {
       <directionalLight position={[2, 3, 2]} intensity={1.1} />
       <directionalLight position={[-2, 1.5, -1]} intensity={0.35} />
       <gridHelper args={[3, 30, '#334155', '#1e293b']} />
+      {/* reach ring: the arm's working circle on the floor (from its geometry) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
+        <ringGeometry args={[reach - 0.006, reach, 96]} />
+        <meshBasicMaterial color={props.model.accent} transparent opacity={0.35} />
+      </mesh>
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
         <mesh position={[0, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
@@ -107,7 +113,8 @@ export interface TwinProps {
 
 export default function RobotTwin(props: TwinProps & { resetKey?: number; className?: string; label?: string }) {
   return (
-    <div className={`relative ${props.className ?? 'h-80'}`} aria-label={props.label ?? `${props.model.label} 3D view`}>
+    <div className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
+         aria-label={props.label ?? `${props.model.label} 3D view`}>
       <Canvas frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
               style={{ opacity: props.q ? 1 : 0.45 }}>
         <Scene {...props} resetKey={props.resetKey ?? 0} />

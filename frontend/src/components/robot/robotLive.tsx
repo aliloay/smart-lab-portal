@@ -47,7 +47,7 @@ export const STATE_TEXT: Record<string, string> = {
 }
 export const HOME_TONE: Record<string, Tone> = { HOME: 'ok', NEAR_HOME: 'info', NOT_HOME: 'warn', UNKNOWN: 'idle' }
 export const HOME_TEXT: Record<string, string> = {
-  HOME: 'Home', NEAR_HOME: 'Near home', NOT_HOME: 'Not home', UNKNOWN: 'Home: not calibrated / no data',
+  HOME: 'Home', NEAR_HOME: 'Near home', NOT_HOME: 'Not home', UNKNOWN: 'Home: not set',
 }
 
 export function RobotStateChip({ state }: { state: string }) {

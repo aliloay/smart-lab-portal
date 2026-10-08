@@ -16,8 +16,9 @@ import { Activity, Bot, Cctv, DoorClosed, DoorOpen, Radar, ShieldAlert, Thermome
 import { MonitorTile, RobotEventRow, SecurityCamera, SecurityEvent, ServiceHealth, api } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
+import LabFloor from '../components/LabFloor'
 import LiveCameraFeed from '../components/LiveCameraFeed'
-import { Chip, Dot, ErrorBanner, Skeleton, Timeline, Tone } from '../components/ui'
+import { AnimatedCounter, Chip, Dot, ErrorBanner, Skeleton, Timeline, Tone } from '../components/ui'
 import { modelFor } from '../components/robot/kinematics'
 import { DemoBadge, HomeChip, RobotStateChip, useRobots } from '../components/robot/robotLive'
 
@@ -126,6 +127,26 @@ function People({ cam }: { cam: SecurityCamera }) {
 
 type Ev = { key: string; at: string; title: string; detail: string; tone: Tone }
 
+function Clock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(t) }, [])
+  return (
+    <div className="text-right">
+      <div className="mono text-3xl font-semibold text-white tnum tracking-tight">{now.toLocaleTimeString([], { hour12: false })}</div>
+      <div className="text-[11.5px] text-slate-400">{now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+    </div>)
+}
+
+function Counter({ label, value, tone = 'idle', sub }: { label: string; value: number | null; tone?: Tone; sub?: string }) {
+  const color = tone === 'ok' ? 'text-ok-soft' : tone === 'warn' ? 'text-warn-soft' : tone === 'bad' ? 'text-bad-soft' : tone === 'info' ? 'text-accent-300' : 'text-white'
+  return (
+    <div className="rounded-xl border border-ink-600/60 bg-ink-900/40 px-3 py-2.5">
+      <div className="text-[10.5px] uppercase tracking-[0.12em] text-slate-500">{label}</div>
+      <div className={`text-2xl font-bold tnum ${color}`}>{value == null ? '–' : <AnimatedCounter value={value} />}</div>
+      {sub && <div className="text-[11px] text-slate-500 truncate">{sub}</div>}
+    </div>)
+}
+
 export default function CommandCenter() {
   const [tiles, setTiles] = useState<MonitorTile[] | null>(null)
   const [cams, setCams] = useState<SecurityCamera[] | null>(null)
@@ -174,15 +195,24 @@ export default function CommandCenter() {
       </div>
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
       <HealthBar />
-      <LabStrip tiles={tiles} />
-      <div className="grid 2xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4">
-        <div className="space-y-4">
-          {cams === null ? <Skeleton className="aspect-video" /> : cam ? <><CameraPanel cam={cam} /><People cam={cam} /></>
-            : <div className="card p-4 text-[12.5px] text-slate-500">No security camera registered.</div>}
+      <div className="grid 2xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4">
+        <div className="card p-4 overflow-hidden relative">
+          <div className="label mb-2 flex items-center gap-1.5"><Radar size={13} /> Robotics Lab · live floor</div>
+          <LabFloor tile={tiles?.find(t => t.lab_id === cam?.lab_id) ?? tiles?.[0] ?? null} cam={cam} robots={robots ?? []} />
         </div>
-        <div className="space-y-4">
-          <div className="card p-4">
-            <div className="label mb-3 flex items-center gap-1.5"><Bot size={13} /> Robots
+        <div className="card p-4 flex flex-col gap-3">
+          <Clock />
+          <div className="grid grid-cols-2 gap-2.5">
+            <Counter label="People inside" value={tiles ? tiles.reduce((n, t) => n + t.people.length, 0) : null} tone="info" sub="per the door, all labs" />
+            <Counter label="Robots moving" value={robots ? robots.filter(r => r.state === 'MOVING').length : null}
+                     tone={robots?.some(r => r.state === 'MOVING') ? 'ok' : 'idle'} sub={robots ? `${robots.length} reporting` : ''} />
+            <Counter label="Active alerts" value={tiles ? tiles.reduce((n, t) => n + t.alert_count, 0) : null}
+                     tone={tiles?.some(t => t.alert_count) ? 'warn' : 'ok'} sub="open, all labs" />
+            <Counter label="Camera frame age" value={cam?.online ? (cam.metrics?.frame_age_ms_p50 ?? null) : null}
+                     tone="idle" sub={cam?.online ? 'ms, median (measured)' : 'camera offline'} />
+          </div>
+          <div>
+            <div className="label mb-2 flex items-center gap-1.5"><Bot size={13} /> Robots
               <Link to="/robots" className="ml-auto text-accent-300 normal-case tracking-normal text-[12px]">All robots</Link></div>
             {robots === null ? <Skeleton className="h-40" /> : !robots.length ? (
               <p className="text-[12.5px] text-slate-500">No robot is reporting yet (collectors: tools/robot_monitor; the UR5e needs the lab switch).</p>
@@ -191,7 +221,7 @@ export default function CommandCenter() {
                 {robots.map(r => (
                   <Link key={r.device_id} to={`/robots/${r.device_id}`} className="rounded-xl border border-ink-600/70 overflow-hidden hover:border-accent-500/40">
                     <Suspense fallback={<Skeleton className="h-40 rounded-none" />}>
-                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} className="h-40 bg-ink-950/40" />
+                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} className="h-36 bg-ink-950/40" />
                     </Suspense>
                     <div className="p-2.5 space-y-1.5">
                       <div className="text-[13px] font-semibold text-white">{r.name}</div>
@@ -200,6 +230,15 @@ export default function CommandCenter() {
                   </Link>))}
               </div>)}
           </div>
+        </div>
+      </div>
+      <LabStrip tiles={tiles} />
+      <div className="grid 2xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-4">
+        <div className="space-y-4">
+          {cams === null ? <Skeleton className="aspect-video" /> : cam ? <><CameraPanel cam={cam} /><People cam={cam} /></>
+            : <div className="card p-4 text-[12.5px] text-slate-500">No security camera registered.</div>}
+        </div>
+        <div className="space-y-4">
           <div className="card p-4">
             <div className="label mb-3 flex items-center gap-1.5"><ShieldAlert size={13} /> Timeline
               <Link to="/admin/security" className="ml-auto text-accent-300 normal-case tracking-normal text-[12px]">Camera events</Link></div>

@@ -4,7 +4,7 @@
  * (administrators), the lab camera next to it, and its events with the
  * evidence stored for each. Monitoring only.
  */
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Bot, Crosshair, Home, RotateCcw } from 'lucide-react'
 import { RobotDetail as RD, RobotEventRow, SecurityCamera, api } from '../lib/api'
@@ -30,6 +30,16 @@ function eventTitle(e: RobotEventRow) {
     return `J${e.joint + 1} ${Number(d.delta_deg) > 0 ? '+' : ''}${d.delta_deg}°`
   if (e.kind === 'MOVEMENT_STARTED' && Array.isArray(d.joints)) return `Started moving (${(d.joints as string[]).join(', ')})`
   return KIND[e.kind] ?? e.kind
+}
+
+/** The last ~30 s of one joint (live robot_state samples, ~5 a second). */
+function Trace({ values, moving }: { values: number[]; moving: boolean }) {
+  if (values.length < 2) return <svg width="84" height="18" />
+  const lo = Math.min(...values), hi = Math.max(...values)
+  const span = Math.max(hi - lo, 0.5)                      // degrees: a still joint stays a flat line
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * 84},${16 - ((v - lo) / span) * 14}`).join(' ')
+  return <svg width="84" height="18" aria-hidden><polyline points={pts} fill="none" strokeWidth="1.4"
+    stroke={moving ? '#22c55e' : '#38bdf8'} strokeLinejoin="round" /></svg>
 }
 
 function Evidence({ e }: { e: RobotEventRow }) {
@@ -61,6 +71,7 @@ export default function RobotDetail() {
   const [cam, setCam] = useState<SecurityCamera | null>(null)
   const [busy, setBusy] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const hist = useRef<number[][]>([])                       // degrees per joint, last 150 samples
 
   const load = useCallback(() => {
     api.robot(rid).then(setR).catch(e => setError(e instanceof Error ? e.message : 'Could not load the robot'))
@@ -71,6 +82,9 @@ export default function RobotDetail() {
     api.securityCameras().then(cs => setCam(cs.find(c => c.lab_id === r.lab_id) ?? null)).catch(() => {})
   }, [r?.lab_id])   // eslint-disable-line react-hooks/exhaustive-deps
   useLiveMessages(m => {
+    if (m.type === 'robot_state' && m.device_id === rid && m.q) {
+      hist.current = [...hist.current, m.q.map(deg)].slice(-150)
+    }
     if (m.type === 'robot_state' && m.device_id === rid)
       setR(p => p && { ...p, state: m.state as RD['state'], q: m.q, qd: m.qd, joints_moving: m.joints_moving,
                        home: m.home as RD['home'], telemetry_age_ms: m.telemetry_age_ms, last_seen_at: new Date().toISOString() })
@@ -97,8 +111,8 @@ export default function RobotDetail() {
         actions={<div className="flex flex-wrap gap-1.5">
           {r.demo && <DemoBadge />}<RobotStateChip state={r.state} /><HomeChip home={r.home} state={r.state} /></div>} />
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
-      <div className="grid xl:grid-cols-[1fr_380px] gap-4">
-        <div className="card overflow-hidden">
+      <div className="grid xl:grid-cols-[1fr_460px] gap-4">
+        <div className="card overflow-hidden flex flex-col">
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-2 border-b border-ink-700/60 text-[12.5px]">
             <Bot size={14} className="text-accent-300" /><span className="text-slate-200 font-medium">Digital twin</span>
             {!model.exact && <Chip tone="warn">placeholder geometry</Chip>}
@@ -108,11 +122,13 @@ export default function RobotDetail() {
               <button className="btn-ghost btn-sm" onClick={() => setReset(k => k + 1)}><RotateCcw size={12} /> Reset view</button>
             </span>
           </div>
-          <Suspense fallback={<Skeleton className="h-[460px] rounded-none" />}>
-            <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={r.joints_moving}
-                       onSelect={j => setSel(s => s === j ? null : j)} resetKey={reset}
-                       className="h-[460px] bg-ink-950/40" />
-          </Suspense>
+          <div className="flex-1 min-h-[460px] relative">
+            <Suspense fallback={<Skeleton className="absolute inset-0 rounded-none" />}>
+              <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={r.joints_moving}
+                         onSelect={j => setSel(s => s === j ? null : j)} resetKey={reset}
+                         className="absolute inset-0 bg-ink-950/40" />
+            </Suspense>
+          </div>
           <p className="px-4 py-2 text-[11.5px] text-slate-500 border-t border-ink-700/60">{model.note} Drag to orbit, scroll to zoom, click a joint to select it.
             {ghost && home ? ' The faint arm is the calibrated HOME pose.' : ''}</p>
         </div>
@@ -122,7 +138,8 @@ export default function RobotDetail() {
             <table className="w-full text-[12.5px] tnum">
               <thead><tr className="text-slate-500 text-left">
                 <th className="font-medium pb-1">Joint</th><th className="font-medium pb-1 text-right">Position</th>
-                <th className="font-medium pb-1 text-right">Velocity</th><th className="font-medium pb-1 text-right">From HOME</th></tr></thead>
+                <th className="font-medium pb-1 text-right">Velocity</th><th className="font-medium pb-1 text-right">From HOME</th>
+                <th className="font-medium pb-1 text-right">Last 30 s</th></tr></thead>
               <tbody>
                 {Array.from({ length: 6 }, (_, i) => {
                   const moving = !!r.joints_moving?.[i]
@@ -135,6 +152,7 @@ export default function RobotDetail() {
                       <td className="text-right mono">{q ? `${deg(q[i]).toFixed(2)}°` : '—'}</td>
                       <td className="text-right mono">{r.qd ? `${deg(r.qd[i]).toFixed(1)}°/s` : '—'}</td>
                       <td className="text-right mono">{r.deviation_deg ? `${r.deviation_deg[i].toFixed(1)}°` : '—'}</td>
+                      <td className="text-right pl-2"><Trace values={hist.current.map(h => h[i])} moving={moving} /></td>
                     </tr>)
                 })}
               </tbody>
