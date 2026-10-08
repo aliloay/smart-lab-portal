@@ -26,6 +26,8 @@ export interface UrdfModel {
   format: 'dae' | 'stl'
   /** End effector: fixed (COLLADA) visuals in the last link's frame. */
   tool?: LinkVisual[]
+  /** Mounted upside down under a gantry at this height (m): the lab's UR5e. */
+  ceilingHeight?: number
   toolLabel?: string
   note: string
 }
@@ -35,6 +37,8 @@ const D = (deg: number) => (deg * PI) / 180
 
 export const UR5E: UrdfModel = {
   key: 'UR5E', label: 'Universal Robots UR5e', format: 'dae',
+  // In the lab the UR5e hangs from the gantry frame (photos 2026-10-08); height approximate.
+  ceilingHeight: 1.15,
   // The lab arm carries a Robotiq 2F-85 (photos 2026-10-08): UR-to-Robotiq adapter on the tool flange.
   toolLabel: 'Robotiq 2F-85 gripper',
   tool: [

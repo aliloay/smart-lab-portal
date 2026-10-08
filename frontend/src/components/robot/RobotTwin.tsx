@@ -119,7 +119,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
   const urdf = urdfFor(props.model.key)
   return (
     <>
-      <Controls resetKey={props.resetKey} size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1)} />
+      <Controls resetKey={props.resetKey} size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 1.35 : 1)} />
       <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
       <ambientLight intensity={0.35} />
       <directionalLight position={[2, 3, 2]} intensity={1.4} />
@@ -132,6 +132,9 @@ function Scene(props: TwinProps & { resetKey: number }) {
       </mesh>
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
+       <group position={[0, 0, urdf.ceilingHeight ?? 0]} rotation={[urdf.ceilingHeight ? Math.PI : 0, 0, 0]}>
+        {urdf.ceilingHeight && <mesh position={[0, 0, -0.012]}>
+          <boxGeometry args={[0.5, 0.5, 0.02]} /><meshStandardMaterial color="#9ca3af" metalness={0.5} roughness={0.4} /></mesh>}
         {/* The manufacturer's meshes; the simple cylinder arm shows while they load. */}
         {props.trail && <Trail points={props.trail} color={props.trailColor ?? props.model.accent} />}
         <Suspense fallback={<Arm model={props.model} q={q} selected={props.selected} moving={props.moving} />}>
@@ -140,6 +143,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
           <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
                    onSelect={props.onSelect} />
         </Suspense>
+       </group>
       </group>
     </>)
 }
