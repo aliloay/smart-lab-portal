@@ -9,30 +9,71 @@ import Login from './pages/Login'
 import StudentDashboard from './pages/dashboards/StudentDashboard'
 import StaffDashboard from './pages/dashboards/StaffDashboard'
 import AdminDashboard from './pages/dashboards/AdminDashboard'
-import Labs from './pages/Labs'
-import LabDetail from './pages/LabDetail'
-import Book from './pages/Book'
-import MyBookings from './pages/MyBookings'
-import Reservations from './pages/Reservations'
-import BookingDetail from './pages/BookingDetail'
-import BookingQr from './pages/BookingQr'
-import SessionDetail from './pages/SessionDetail'
-import Simulation from './pages/Simulation'
-import Experiments from './pages/Experiments'
-import AccessMonitor from './pages/AccessMonitor'
-import Devices from './pages/Devices'
-import Equipment from './pages/Equipment'
-import Security from './pages/Security'
-import AssetDetail from './pages/AssetDetail'
-import Alerts from './pages/Alerts'
-import Users from './pages/Users'
-import Settings from './pages/Settings'
-import Emergency from './pages/Emergency'
-import ReportIssue from './pages/issues/ReportIssue'
-import IssueList from './pages/issues/IssueList'
-import IssueDetail from './pages/issues/IssueDetail'
-import Notifications from './pages/Notifications'
-import Profile from './pages/Profile'
+// Every page is its own small file, loaded when first opened - and all of
+// them are fetched quietly in the background right after sign-in
+// (prefetchPages), so later clicks are instant without a big first load.
+const loadLabs = () => import('./pages/Labs')
+const Labs = lazy(loadLabs)
+const loadLabDetail = () => import('./pages/LabDetail')
+const LabDetail = lazy(loadLabDetail)
+const loadBook = () => import('./pages/Book')
+const Book = lazy(loadBook)
+const loadMyBookings = () => import('./pages/MyBookings')
+const MyBookings = lazy(loadMyBookings)
+const loadReservations = () => import('./pages/Reservations')
+const Reservations = lazy(loadReservations)
+const loadBookingDetail = () => import('./pages/BookingDetail')
+const BookingDetail = lazy(loadBookingDetail)
+const loadBookingQr = () => import('./pages/BookingQr')
+const BookingQr = lazy(loadBookingQr)
+const loadSessionDetail = () => import('./pages/SessionDetail')
+const SessionDetail = lazy(loadSessionDetail)
+const loadSimulation = () => import('./pages/Simulation')
+const Simulation = lazy(loadSimulation)
+const loadExperiments = () => import('./pages/Experiments')
+const Experiments = lazy(loadExperiments)
+const loadAccessMonitor = () => import('./pages/AccessMonitor')
+const AccessMonitor = lazy(loadAccessMonitor)
+const loadDevices = () => import('./pages/Devices')
+const Devices = lazy(loadDevices)
+const loadEquipment = () => import('./pages/Equipment')
+const Equipment = lazy(loadEquipment)
+const loadSecurity = () => import('./pages/Security')
+const Security = lazy(loadSecurity)
+const loadAssetDetail = () => import('./pages/AssetDetail')
+const AssetDetail = lazy(loadAssetDetail)
+const loadAlerts = () => import('./pages/Alerts')
+const Alerts = lazy(loadAlerts)
+const loadUsers = () => import('./pages/Users')
+const Users = lazy(loadUsers)
+const loadSettings = () => import('./pages/Settings')
+const Settings = lazy(loadSettings)
+const loadEmergency = () => import('./pages/Emergency')
+const Emergency = lazy(loadEmergency)
+const loadReportIssue = () => import('./pages/issues/ReportIssue')
+const ReportIssue = lazy(loadReportIssue)
+const loadIssueList = () => import('./pages/issues/IssueList')
+const IssueList = lazy(loadIssueList)
+const loadIssueDetail = () => import('./pages/issues/IssueDetail')
+const IssueDetail = lazy(loadIssueDetail)
+const loadNotifications = () => import('./pages/Notifications')
+const Notifications = lazy(loadNotifications)
+const loadProfile = () => import('./pages/Profile')
+const Profile = lazy(loadProfile)
+const PREFETCH = [loadLabs, loadLabDetail, loadBook, loadMyBookings, loadReservations, loadBookingDetail, loadBookingQr, loadSessionDetail, loadSimulation, loadExperiments, loadAccessMonitor, loadDevices, loadEquipment, loadSecurity, loadAssetDetail, loadAlerts, loadUsers, loadSettings, loadEmergency, loadReportIssue, loadIssueList, loadIssueDetail, loadNotifications, loadProfile,
+  () => import('./pages/Reports'), () => import('./pages/Operations'), () => import('./pages/CommandCenter'),
+  () => import('./pages/Robots')]
+let prefetched = false
+function prefetchPages() {
+  if (prefetched) return
+  prefetched = true
+  const idle = (cb: () => void) => ('requestIdleCallback' in window
+    ? (window as unknown as { requestIdleCallback: (f: () => void) => void }).requestIdleCallback(cb)
+    : globalThis.setTimeout(cb, 300))
+  // One after another while the browser is idle: never competes with the page in use.
+  const next = (i: number) => { if (i < PREFETCH.length) idle(() => { PREFETCH[i]().catch(() => {}).finally(() => next(i + 1)) }) }
+  window.setTimeout(() => next(0), 1500)
+}
 
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))
@@ -76,6 +117,7 @@ export default function App() {
   const adminOnly = (el: ReactNode) => admin ? el : <Navigate to="/" replace />
 
   const home = admin ? <AdminDashboard /> : staff ? <StaffDashboard /> : <StudentDashboard />
+  prefetchPages()
 
   // The wall screen: full screen, outside the portal frame (no sidebar).
   if (staff && loc.pathname === '/monitor') {
@@ -89,6 +131,7 @@ export default function App() {
   return (
     <LiveProvider>
       <Layout>
+        <Suspense fallback={<Spinner label="Loading" />}>
         <Routes>
           <Route path="/" element={home} />
           <Route path="/labs" element={<Labs />} />
@@ -132,6 +175,7 @@ export default function App() {
           <Route path="/login" element={<Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </Layout>
     </LiveProvider>
   )
