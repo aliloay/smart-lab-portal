@@ -37,6 +37,10 @@ import Profile from './pages/Profile'
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))
 const Operations = lazy(() => import('./pages/Operations'))
+// Command Center and robot pages carry three.js: loaded only when opened.
+const CommandCenter = lazy(() => import('./pages/CommandCenter'))
+const Robots = lazy(() => import('./pages/Robots'))
+const RobotDetail = lazy(() => import('./pages/RobotDetail'))
 const Monitor = lazy(() => import('./pages/Monitor'))
 const ReportPrint = lazy(() => import('./pages/ReportPrint'))
 
@@ -107,6 +111,9 @@ export default function App() {
           <Route path="/admin/devices" element={staffOnly(<Devices />)} />
           <Route path="/admin/equipment" element={staffOnly(<Equipment />)} />
           <Route path="/admin/security" element={staffOnly(<Security />)} />
+          <Route path="/command" element={staffOnly(<Chunk><CommandCenter /></Chunk>)} />
+          <Route path="/robots" element={<Chunk><Robots /></Chunk>} />
+          <Route path="/robots/:id" element={staffOnly(<Chunk><RobotDetail /></Chunk>)} />
           <Route path="/inventory" element={<Navigate to="/admin/equipment?tab=consumables" replace />} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />

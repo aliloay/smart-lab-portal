@@ -8,6 +8,7 @@ import {
   Sparkles, UserRound, Users, Wrench, X,
   Cctv, Siren,
   FlaskConical,
+  Bot,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
@@ -52,6 +53,7 @@ const STUDENT_NAV: Section[] = [
     { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
   ]},
   { title: 'Support', items: [
+    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
     { to: '/issues', label: 'My reports', icon: <Wrench size={17} /> },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
     { to: '/profile', label: 'Profile', icon: <UserRound size={17} /> },
@@ -64,9 +66,11 @@ const STAFF_NAV: Section[] = [
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
+    { to: '/command', label: 'Command Center', icon: <Radar size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
@@ -87,9 +91,11 @@ const ADMIN_NAV: Section[] = [
   { title: 'Access & audit', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
+    { to: '/command', label: 'Command Center', icon: <Radar size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
     { to: '/admin/experiments', label: 'Experiments', icon: <FlaskConical size={17} /> },
   ]},

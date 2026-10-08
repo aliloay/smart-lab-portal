@@ -36,6 +36,7 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, classN
   useEffect(() => {
     let stop = false, timer = 0
     async function tick() {
+      let ok = false
       try {
         const blob = await fetchBlob(`/security/cameras/${deviceId}/frame.jpg${plain ? '?raw=true' : ''}`)
         if (stop) return
@@ -45,12 +46,14 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, classN
           urlRef.current = url
           setSrc(url)
           setState('live')
+          ok = true
         } else setState('nodata')
       } catch {
         if (!stop) setState('error')
       }
-      // Hidden tab: slow right down.
-      if (!stop) timer = window.setTimeout(tick, document.hidden ? 2000 : intervalMs)
+      // Hidden tab, or no picture (service down / camera offline): wait 3 s
+      // between tries instead of hammering the portal 15 times a second.
+      if (!stop) timer = window.setTimeout(tick, document.hidden ? 2000 : ok ? intervalMs : Math.max(intervalMs, 3000))
     }
     tick()
     return () => {

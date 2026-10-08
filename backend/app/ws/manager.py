@@ -62,6 +62,13 @@ class ConnectionManager:
             return client.is_staff or ev.get("user_id") == client.user_id
         if kind in ("staff", "security_state"):
             return client.is_staff
+        if kind == "robot_state":
+            # Live joint telemetry (up to 5 a second per robot): staff only.
+            return client.is_staff and (client.lab_filter is None or message.get("lab_id") == client.lab_filter)
+        if kind == "robot_status":
+            # Moving / stationary / offline changed - the same summary GET /robots
+            # shows everyone (availability), no joint values.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
         if kind == "emergency_broadcast":
             # The admin's emergency message and alarm: for everyone signed in.
             return True

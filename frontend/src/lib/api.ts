@@ -95,7 +95,9 @@ export interface SecurityCameraTile {
   people: number | null; unknown: number | null
   /** source: how the name was given; entered = false: named by face, no door entry yet (on hold). */
   named: { label: string; name: string; role: Role | null; source?: 'door' | 'face' | null; entered?: boolean
-           /** door and face agree */ verified?: boolean; /** the face says this other person */ face?: string | null }[]
+           /** door and face agree */ verified?: boolean; /** the face says this other person */ face?: string | null
+           /** identity.py: evidence state + confidence (0-1) of this name */
+           track_id?: number; identity_state?: string; confidence?: number; named_by?: string | null }[]
   /** People inside per the door. */
   inside: number
   open_events: number
@@ -106,6 +108,8 @@ export interface SecurityCamera extends SecurityCameraTile {
   zones: { id: number; name: string; status: 'LEARNING' | 'OK' | 'IN_USE' | 'CHANGED' | 'MOTION'; score: number }[]
   /** Seen by the camera (red door leaf in the door box); null = no door box / offline. */
   door_open?: boolean | null
+  /** Measured camera pipeline timings (tools/security_vision/latency.py); null until reported. */
+  metrics?: Record<string, number | null> | null
 }
 /** Where a record came from (thesis traceability); set once, never rewritten. */
 export type Provenance = 'REAL_OPERATION' | 'PHYSICAL_TEST' | 'BENCH_TEST' | 'SOFTWARE_TEST'
@@ -139,6 +143,47 @@ export interface EquipmentSuggestion {
   kind: string; score: number; name: string; x: number; y: number; w: number; h: number
   replaces: number | null          // a saved box that is off this item: "move it here"
 }
+/** A robot (read-only monitoring). Staff get the joint fields; students only the summary. */
+export type RobotState = 'MOVING' | 'STATIONARY' | 'TELEMETRY_STALE' | 'OFFLINE' | 'UNKNOWN'
+export type HomeState = 'HOME' | 'NEAR_HOME' | 'NOT_HOME' | 'UNKNOWN'
+export interface Robot {
+  device_id: number; device_uid: string; name: string; lab_id: number; model: string | null
+  source: string | null; state: RobotState; home: HomeState; last_seen_at: string | null
+  /** Telemetry comes from the simulator: shown as DEMO DATA, never as the real robot. */
+  demo: boolean
+  q?: number[] | null; qd?: number[] | null; tcp?: number[] | null; joints_moving?: boolean[] | null
+  telemetry_age_ms?: number | null; telemetry_age_s?: number | null; rate_hz?: number | null
+  extra?: Record<string, string | number | boolean | null> | null
+  deviation_deg?: number[] | null; worst_joint?: string | null; worst_deg?: number | null
+  calibration_version?: number | null; transport_ms?: number | null
+}
+export interface RobotEventRow {
+  id: number; kind: string; joint: number | null; detail: Record<string, unknown> | null; source: string
+  occurred_at: string; received_at: string; severity: 'INFO' | 'NOTICE' | 'WARNING' | 'CRITICAL'
+  booking_id: number | null; provenance: string
+  context: { booking: { id: number; holder: string | null } | null; inside_per_door: string[]
+             camera?: 'online' | 'offline' | 'none'
+             camera_robot_box: { name: string; status: string } | null
+             camera_named: { label: string; name: string; state: string; confidence: number }[] } | null
+}
+export interface RobotDetail extends Robot {
+  home_calibration: { version: number; home_q: number[]; home_tcp: number[] | null; tolerance_deg: number
+                      created_at: string; note: string } | null
+  last_24h: Record<string, number>
+  events: RobotEventRow[]
+}
+export interface ServiceHealth {
+  key: string; name: string; group?: string; device_id?: number
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN' | 'SIMULATION'
+  latency_ms: number | null; detail: string
+}
+export interface IdentityEvidence {
+  people: { track_id: number; label: string | null; name: string | null
+            explain: { state: string; confidence: number; source: string | null; conflict_with: string | null
+                       evidence: { t: number; kind: string; detail: string; score: number | null }[] } | null }[]
+  decisions: { t: number; kind: string; track_id: number; label: string | null; detail: string }[]
+}
+
 export interface SecurityZone {
   id: number; name: string; kind: 'EQUIPMENT' | 'DOOR'; asset_id: number | null; asset_tag: string | null
   x: number; y: number; w: number; h: number; alert_on_motion: boolean; ref_version: number
@@ -1025,6 +1070,13 @@ export const api = {
     post<Experiment>(`/experiments/${id}/stop`, body),
   addTrial: (id: number, t: Partial<ExperimentTrial>) => post<ExperimentTrial>(`/experiments/${id}/trials`, t),
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
+  robots: () => request<Robot[]>('/robots'),
+  robot: (id: number) => request<RobotDetail>(`/robots/${id}`),
+  robotEvents: (id: number, limit = 100) => request<RobotEventRow[]>(`/robots/${id}/events?limit=${limit}`),
+  calibrateHome: (id: number, body: { tolerance_deg?: number; note?: string }) =>
+    post<{ version: number; home_q: number[] }>(`/robots/${id}/home`, body),
+  systemServices: () => request<{ checked_at: string; services: ServiceHealth[] }>('/system/services'),
+  securityIdentity: (cam: number) => request<IdentityEvidence>(`/security/cameras/${cam}/identity`),
   securitySuggestions: (cam: number) => request<EquipmentSuggestion[]>(`/security/cameras/${cam}/suggestions`),
   // Recording (administrators): the video stays on the laptop.
   recordingStatus: (cam: number) => request<RecordingStatus>(`/security/cameras/${cam}/recording`),

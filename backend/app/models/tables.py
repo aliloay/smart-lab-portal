@@ -1050,3 +1050,49 @@ class ExperimentTrial(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     recorded_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+# ===========================================================================
+# Robots (read-only monitoring: tools/robot_monitor)
+# ===========================================================================
+class RobotEvent(ProvenanceMixin, Base):
+    """
+    A robot motion / telemetry transition reported by its collector:
+    MOVEMENT_STARTED / MOVEMENT_STOPPED / JOINT_MOVED (joint, from, to,
+    delta, peak velocity) / TELEMETRY_STALE / TELEMETRY_RESTORED, and the
+    portal's own HOME_LEFT / HOME_RETURNED. Context is what was true at that
+    moment (booking in force, who was inside per the door, who the camera
+    named) - evidence for a likely actor, never a claim of who moved it.
+    Simulated telemetry is stored with provenance DEMO_DATA.
+    """
+    __tablename__ = "robot_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    lab_id: Mapped[int] = mapped_column(ForeignKey("labs.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    joint: Mapped[int | None] = mapped_column(Integer, nullable=True)      # 0-5 = J1-J6
+    detail: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="RTDE")        # RTDE / SIMULATION / PORTAL ...
+    occurred_at: Mapped[datetime] = mapped_column(TS, index=True)           # source time
+    received_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    booking_id: Mapped[int | None] = mapped_column(ForeignKey("bookings.id"), nullable=True)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)       # inside / camera names / zone
+    severity: Mapped[str] = mapped_column(String(12), default="INFO")
+
+
+class RobotHomeCalibration(Base):
+    """A robot's HOME pose, taken from live telemetry by an administrator.
+    Versioned: a new calibration never overwrites an old one; the newest
+    active one is used."""
+    __tablename__ = "robot_home_calibrations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    home_q: Mapped[list] = mapped_column(JSON)                               # rad, J1..J6
+    home_tcp: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    tolerance_deg: Mapped[float] = mapped_column(Float, default=1.0)
+    note: Mapped[str] = mapped_column(String(255), default="")
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

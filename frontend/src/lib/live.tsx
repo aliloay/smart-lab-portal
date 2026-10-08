@@ -31,6 +31,11 @@ export type LiveMessage =
       alert_id: number | null; at: string }
   /** New environment readings for a lab: refetch. */
   | { type: 'env_update'; lab_id: number }
+  /** Live robot joints (staff, up to 5 a second per robot). */
+  | { type: 'robot_state'; device_id: number; lab_id: number; state: string; q: number[] | null
+      qd: number[] | null; joints_moving: boolean[]; home: string; source: string; telemetry_age_ms: number | null }
+  /** A robot's moving / stationary / home summary changed (everyone). */
+  | { type: 'robot_status'; device_id: number; lab_id: number; state: string; home: string; source: string }
   /** An environment node raised or cleared a smoke / flame alarm. */
   | { type: 'hazard'; state: 'raised' | 'cleared'; lab_id: number; lab_code: string
       metric: string; label: string; title: string; detail: string
