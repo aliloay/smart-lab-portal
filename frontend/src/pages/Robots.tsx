@@ -10,7 +10,7 @@ import { isStaff, useAuth } from '../lib/auth'
 import { relative } from '../lib/time'
 import { EmptyState, ErrorBanner, PageHeader, Skeleton } from '../components/ui'
 import { modelFor } from '../components/robot/kinematics'
-import { DemoBadge, HomeChip, RobotStateChip, useRobots } from '../components/robot/robotLive'
+import { DemoBadge, FusionChip, HomeChip, RobotStateChip, useRobots } from '../components/robot/robotLive'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
 
@@ -42,6 +42,7 @@ export default function Robots() {
                       {r.demo && <DemoBadge />}
                       <RobotStateChip state={r.state} />
                       <HomeChip home={r.home} state={r.state} />
+                      {staff && <FusionChip fusion={r.fusion} />}
                     </span>
                   </div>
                   {staff ? (

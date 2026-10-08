@@ -14,7 +14,7 @@ import { relative } from '../lib/time'
 import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, KV, PageHeader, Skeleton, Timeline, Tone } from '../components/ui'
 import { deg, modelFor } from '../components/robot/kinematics'
-import { DemoBadge, HomeChip, RobotStateChip } from '../components/robot/robotLive'
+import { DemoBadge, FUSION, FusionChip, HomeChip, RobotStateChip } from '../components/robot/robotLive'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
 const SEV: Record<string, Tone> = { INFO: 'idle', NOTICE: 'info', WARNING: 'warn', CRITICAL: 'bad' }
@@ -141,6 +141,16 @@ export default function RobotDetail() {
             </table>
             {sel != null && <div className="mt-3 p-2.5 rounded-lg bg-ink-900/60 text-[12px] text-slate-300 flex items-center gap-2">
               <Crosshair size={13} className="text-accent-300" /> J{sel + 1} selected · limits {model.limitsDeg[sel][0]}° to {model.limitsDeg[sel][1]}°</div>}
+          </div>
+          <div className="card p-4 space-y-2">
+            <div className="label flex items-center gap-2">Telemetry + camera <span className="ml-auto"><FusionChip fusion={r.fusion} /></span></div>
+            <p className="text-[12px] text-slate-400">{(FUSION[r.fusion ?? 'UNKNOWN'] ?? FUSION.UNKNOWN).why}</p>
+            {r.fusion_evidence && <ul className="space-y-1 text-[12px]">
+              {r.fusion_evidence.map(e => <li key={e.source} className="flex gap-2">
+                <span className="text-slate-500 w-20 shrink-0 capitalize">{e.source}</span>
+                <span className="text-slate-200 font-medium">{e.value}</span>
+                <span className="text-slate-500 truncate" title={e.detail}>{e.detail}</span></li>)}
+            </ul>}
           </div>
           <div className="card p-4 space-y-1.5">
             <div className="label mb-1">Telemetry</div>

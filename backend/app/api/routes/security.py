@@ -178,6 +178,8 @@ class ZoneStatus(BaseModel):
     name: str = ""
     status: str = Field(max_length=16)
     score: float = 0.0
+    # Robot boxes: the camera's own motion evidence (tools/security_vision/robotvision.py).
+    visual: Optional[dict[str, Any]] = None
 
 
 class StateReport(BaseModel):
@@ -217,6 +219,11 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
                          "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
+    # Robots in this lab: the camera's view of each robot's box feeds the
+    # telemetry + camera comparison (robot_fusion) - also when telemetry is gone.
+    from app.api.routes.robots import update_fusion
+    for r in db.scalars(select(Device).where(Device.lab_id == d.lab_id, Device.device_type == DeviceType.ROBOT)).all():
+        update_fusion(db, r, now)
     db.commit()
     if seen(prev) != seen(d.component_state) or not was_online:
         try:

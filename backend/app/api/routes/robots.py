@@ -34,6 +34,7 @@ from app.api.deps import device_scope, get_current_user, require_admin, require_
 from app.db.session import get_db
 from app.models import (AuditLog, Booking, BookingStatus, Device, DeviceType, RobotEvent,
                         RobotHomeCalibration, User)
+from app.services import robot_fusion
 from app.services.access import get_device, get_lab_by_code
 
 router = APIRouter(prefix="/robots", tags=["robots"])
@@ -120,6 +121,49 @@ def _severity(kind: str, source: str, booking_id: Optional[int], ctx: dict) -> s
     return "WARNING"                                       # moving, no booking
 
 
+def _camera_for(db: Session, d: Device, now: datetime) -> tuple[bool, Optional[dict]]:
+    """(camera reporting now, the camera's visual result for this robot's box)."""
+    from app.services.devices import is_fresh
+    cam = db.scalar(select(Device).where(Device.lab_id == d.lab_id,
+                                         Device.device_type == DeviceType.SECURITY_CAMERA).limit(1))
+    if cam is None or not is_fresh(cam, now):
+        return False, None
+    model = ((d.component_state or {}).get("model") or "").lower()
+    for z in (cam.component_state or {}).get("zones", []):
+        name = (z.get("name") or "").lower()
+        if model and (model in name or name in model):
+            return True, z.get("visual")
+    return True, None
+
+
+def update_fusion(db: Session, d: Device, now: datetime) -> dict:
+    """Recompute telemetry + camera fusion for one robot; record transitions as
+    events (abnormal ones only once they have lasted DISAGREE_HOLD_S)."""
+    cs = dict(d.component_state or {})
+    online, visual = _camera_for(db, d, now)
+    t_state = _effective_state(d, now)
+    view = robot_fusion.camera_view(visual, online, now.timestamp())
+    new = robot_fusion.fuse(t_state, cs.get("source"), view)
+    state, since, kind = robot_fusion.transition(cs.get("fusion"), cs.get("fusion_since"), new, now.timestamp())
+    reported = cs.get("fusion_reported", False) if state == cs.get("fusion") else False
+    late = robot_fusion.held(state, since, reported, now.timestamp())
+    seen = _utc(d.last_seen_at)
+    ev = robot_fusion.evidence(t_state, cs.get("source"), view, visual, online,
+                               (now - seen).total_seconds() if seen else None)
+    for k in (kind, late):
+        if k:
+            booking_id, ctx = _context(db, d, now)
+            sev = "WARNING" if k in ("VISUAL_TELEMETRY_DISAGREEMENT", "VISUAL_MOVEMENT_DURING_TELEMETRY_OUTAGE") else "INFO"
+            db.add(RobotEvent(device_id=d.id, lab_id=d.lab_id, kind=k[:32], source="FUSION", occurred_at=now,
+                              detail={"fusion": state, "evidence": ev}, booking_id=booking_id, context=ctx,
+                              severity=sev))
+            if k == late:
+                reported = True
+    cs.update(fusion=state, fusion_since=since, fusion_reported=reported, fusion_evidence=ev, camera_view=view)
+    d.component_state = cs
+    return cs
+
+
 # ------------------------------------------------------------- device side ---
 class Telemetry(BaseModel):
     device_uid: str = Field(max_length=64)
@@ -170,6 +214,7 @@ def telemetry(req: Telemetry, db: Session = Depends(get_db), identity: str = Dep
                           detail={k: h.get(k) for k in ("worst_joint", "worst_deg", "calibration_version")},
                           booking_id=booking_id, context=ctx, severity="INFO",
                           provenance="DEMO_DATA" if req.source == "SIMULATION" else None))
+    update_fusion(db, d, now)
     db.commit()
     summary = {"state": req.state, "home": is_, "source": req.source}
     if {k: prev.get(k) for k in summary} != summary:
@@ -248,7 +293,8 @@ def _summary(d: Device, now: datetime, staff: bool) -> dict:
     if staff:
         out.update({k: cs.get(k) for k in ("q", "qd", "tcp", "joints_moving", "telemetry_age_ms", "rate_hz",
                                            "extra", "deviation_deg", "worst_joint", "worst_deg",
-                                           "calibration_version", "transport_ms")})
+                                           "calibration_version", "transport_ms", "fusion", "fusion_evidence",
+                                           "camera_view")})
         out["telemetry_age_s"] = round((now - seen).total_seconds(), 1) if seen else None
     return out
 

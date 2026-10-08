@@ -90,3 +90,58 @@ def test_no_endpoint_can_send_anything_to_a_robot():
     from app.main import app
     paths = [r.path for r in app.routes if getattr(r, "path", "").startswith("/api/robots")]
     assert not [p for p in paths if any(w in p for w in ("command", "move", "program", "write", "io"))]
+
+
+# ---------------------------------------------------------------- fusion ---
+from app.services import robot_fusion as rf
+
+
+def test_fusion_table():
+    assert rf.fuse("MOVING", "RTDE", "MOVING") == "MOVEMENT_VERIFIED"
+    assert rf.fuse("MOVING", "RTDE", "OCCLUDED") == "VISUALLY_OCCLUDED"
+    assert rf.fuse("MOVING", "RTDE", "STILL") == "MOVEMENT_TELEMETRY_ONLY"
+    assert rf.fuse("STATIONARY", "RTDE", "STILL") == "STATIONARY_VERIFIED"
+    assert rf.fuse("STATIONARY", "RTDE", "UNKNOWN") == "STATIONARY"
+    assert rf.fuse("STATIONARY", "RTDE", "MOVING") == "VISUAL_ANOMALY"
+    assert rf.fuse("TELEMETRY_STALE", "RTDE", "MOVING") == "VISUAL_MOVEMENT_DURING_TELEMETRY_OUTAGE"
+    assert rf.fuse("OFFLINE", "RTDE", "UNKNOWN") == "OFFLINE"
+    assert rf.fuse("MOVING", "SIMULATION", "MOVING") == "SIMULATION"     # demo never vs the real camera
+    # Recent motion within the window counts; an offline camera is no evidence.
+    assert rf.camera_view({"state": "STILL", "last_motion_at": 99.0}, True, 100.0) == "MOVING"
+    assert rf.camera_view({"state": "MOVING"}, False, 100.0) == "UNKNOWN"
+
+
+def _camera_state(client, device_headers, visual):
+    client.get("/api/security/config", headers=device_headers,
+               params={"device_uid": "SECCAM_LAB01", "lab_id": "LAB_TEST"})
+    return client.post("/api/security/state", headers=device_headers, json={
+        "device_uid": "SECCAM_LAB01", "fps": 3, "people": 0, "unknown": 0,
+        "zones": [{"id": 1, "name": "UR5e", "status": "MOTION", "visual": visual}]})
+
+
+def test_camera_sees_motion_while_telemetry_says_still_raises_disagreement_after_hold(client, db, lab, staff,
+                                                                                        device_headers):
+    tele(client, device_headers)
+    assert _camera_state(client, device_headers, {"state": "MOVING", "moving_share": 0.2}).status_code == 200
+    d = db.query(Device).filter_by(device_uid="UR5E_TEST").one()
+    db.refresh(d)
+    assert d.component_state["fusion"] == "VISUAL_ANOMALY"
+    assert db.query(RobotEvent).filter_by(kind="VISUAL_TELEMETRY_DISAGREEMENT").count() == 0   # not yet: held 3 s
+    cs = dict(d.component_state)
+    cs["fusion_since"] -= 5                                              # it has lasted 5 s
+    d.component_state = cs
+    db.commit()
+    _camera_state(client, device_headers, {"state": "MOVING", "moving_share": 0.2})
+    _camera_state(client, device_headers, {"state": "MOVING", "moving_share": 0.2})
+    ev = db.query(RobotEvent).filter_by(kind="VISUAL_TELEMETRY_DISAGREEMENT").all()
+    assert len(ev) == 1 and ev[0].severity == "WARNING"                  # once, not every report
+    body = client.get("/api/robots", headers=auth_headers(client, staff.email)).json()[0]
+    assert body["fusion"] == "VISUAL_ANOMALY" and body["fusion_evidence"][0]["source"] == "telemetry"
+
+
+def test_telemetry_and_camera_agreeing_is_verified(client, db, lab, device_headers):
+    _camera_state(client, device_headers, {"state": "MOVING", "moving_share": 0.2})
+    tele(client, device_headers, state="MOVING")
+    d = db.query(Device).filter_by(device_uid="UR5E_TEST").one()
+    assert d.component_state["fusion"] == "MOVEMENT_VERIFIED"
+    assert db.query(RobotEvent).filter_by(kind="MOVEMENT_VISUALLY_VERIFIED").count() == 1

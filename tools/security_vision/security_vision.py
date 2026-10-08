@@ -53,6 +53,7 @@ from flask import Flask, Response, jsonify, request, send_file
 from dataset import Collector
 from equipwatch import NOT_SEEN_SCANS, EquipmentWatch, Found
 from latency import PipelineMetrics, process_load
+from robotvision import RobotVisualMotion
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
@@ -171,6 +172,7 @@ class Camera:
 # --------------------------------------------------------------- service ---
 class Service:
     STATE_PERIOD_S = 2.0
+    ROBOT_STATE_PERIOD_S = 0.5         # with robot boxes: report faster (telemetry vs camera fusion)
     CONFIG_PERIOD_S = 3.0
     EXTRA_PERSON_HOLD_S = 8.0          # more people than entered for this long -> event
     EVENT_COOLDOWN_S = 120.0
@@ -205,6 +207,8 @@ class Service:
               f" files in {os.path.abspath(args.recordings)}")
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
         self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
+        self.robot_vis = RobotVisualMotion() # optical flow in robot boxes (alert_on_motion off)
+        self.robot_visual: dict[int, dict] = {}
         self.door_open: Optional[bool] = None
         self.cfg = {"zones": [], "door": None, "occupants": []}
         self.versions: dict[int, int] = {}
@@ -282,10 +286,11 @@ class Service:
         if self.demo:
             return
         while True:
-            time.sleep(self.STATE_PERIOD_S)
+            time.sleep(self.STATE_PERIOD_S if not self.robot_visual else self.ROBOT_STATE_PERIOD_S)
             with self.lock:
                 tracks = list(self.tracks)
-                zones = [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
+                zones = [{"id": s.id, "name": s.name, "status": s.status, "score": s.score,
+                          "visual": self.robot_visual.get(s.id)}
                          for s in self.zones.states.values()]
             named = [{"label": t.label, "name": t.name, "role": t.role, "source": t.source,
                       "entered": t.entered, "verified": t.verified, "face": t.mismatch,
@@ -355,6 +360,9 @@ class Service:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
             states = self.zones.update(self.cfg.get("zones", []), gray, pnorm, t0)
+            robot_boxes = [z for z in self.cfg.get("zones", []) if z.get("alert_on_motion", True) is False]
+            if robot_boxes:
+                self.robot_visual = self.robot_vis.update(robot_boxes, gray, pnorm, t0)
             if door:
                 was = self.door_open
                 drect = (door["x"], door["y"], door["w"], door["h"])

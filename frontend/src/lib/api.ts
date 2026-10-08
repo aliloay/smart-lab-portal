@@ -156,6 +156,9 @@ export interface Robot {
   extra?: Record<string, string | number | boolean | null> | null
   deviation_deg?: number[] | null; worst_joint?: string | null; worst_deg?: number | null
   calibration_version?: number | null; transport_ms?: number | null
+  /** Telemetry vs camera (backend/app/services/robot_fusion.py). */
+  fusion?: string | null; camera_view?: string | null
+  fusion_evidence?: { source: string; value: string; detail: string }[] | null
 }
 export interface RobotEventRow {
   id: number; kind: string; joint: number | null; detail: Record<string, unknown> | null; source: string
