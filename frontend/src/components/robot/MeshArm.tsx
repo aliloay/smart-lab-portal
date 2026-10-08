@@ -69,6 +69,8 @@ export default function MeshArm({ model, q, ghost = false, selected, moving, acc
     <group position={j.xyz} rotation={euler(j.rpy)}>
       <group quaternion={new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...j.axis), q[i] ?? 0)}>
         <Visual model={model} v={model.links[i]} look={look(i)} onClick={onSelect ? () => onSelect(i) : undefined} />
+        {i === model.joints.length - 1 && model.tool?.map(t =>
+          <Visual key={t.mesh} model={{ ...model, format: 'dae' }} v={t} look={look(i)} />)}
         {child}
       </group>
     </group>), null)

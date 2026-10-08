@@ -123,6 +123,10 @@ export default function App() {
   if (staff && loc.pathname === '/monitor') {
     return <LiveProvider><Chunk><Monitor /></Chunk></LiveProvider>
   }
+  // The Command Center on a wall screen: no sidebar, full screen.
+  if (staff && loc.pathname === '/wall') {
+    return <LiveProvider><Chunk><CommandCenter wall /></Chunk></LiveProvider>
+  }
   // The printable weekly / monthly report: its own page, white, for "Save as PDF".
   if (staff && loc.pathname === '/report') {
     return <Chunk><ReportPrint /></Chunk>

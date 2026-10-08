@@ -95,15 +95,23 @@ class SimSource:
         self.t0 = time.time()
         self.home = self.HOME_FANUC if "FANUC" in model.upper() else self.HOME
 
-    def read(self) -> Sample:
-        t = (time.time() - self.t0) % 24.0
+    def pose(self, t: float) -> list:
+        t = t % 24.0
         q = list(self.home)
         s = lambda a, b: 0.5 - 0.5 * math.cos(math.pi * min(1.0, max(0.0, (t - a) / (b - a))))
         q[0] += math.radians(35) * (s(3, 6) - s(15, 18))
         q[2] += math.radians(-25) * (s(7, 10) - s(18, 21))
         q[3] += math.radians(30) * (s(7, 10) - s(18, 21))
         q[5] += math.radians(90) * (s(11, 13) - s(21, 23))
-        return Sample(t=time.time(), q=q, extra={"robot_mode": "SIMULATION", "safety_mode": 1, "runtime_state": 2})
+        return q
+
+    def read(self) -> Sample:
+        now = time.time()
+        t = now - self.t0
+        q = self.pose(t)
+        # Velocities like a real controller reports them (central difference of the script).
+        qd = [(a - b) / 0.02 for a, b in zip(self.pose(t + 0.01), self.pose(t - 0.01))]
+        return Sample(t=now, q=q, qd=qd, extra={"robot_mode": "SIMULATION", "safety_mode": 1, "runtime_state": 2})
 
     def close(self):
         pass
@@ -176,8 +184,14 @@ class Collector:
         a = self.args
         period = 1.0 / a.hz
         print(f"[robot] {a.device} ({a.model}) source={a.source} read-only. Ctrl+C stops.")
+        # A simulation stops by itself (default 30 min) so a forgotten demo
+        # does not keep writing demo events for hours.
+        until = time.time() + a.max_minutes * 60 if (a.source == "sim" and a.max_minutes > 0) else None
         while True:
             now = time.time()
+            if until is not None and now >= until:
+                print(f"[robot] simulation ran {a.max_minutes:g} min - stopping (use --max-minutes 0 for no limit)")
+                return
             if self.source is None:
                 try:
                     self.source = self.open_source()
@@ -231,6 +245,7 @@ def main():
     ap.add_argument("--hz", type=float, default=50.0, help="samples per second read from the robot")
     ap.add_argument("--report-s", type=float, default=0.2, help="latest state to the portal this often")
     ap.add_argument("--stale-s", type=float, default=2.0)
+    ap.add_argument("--max-minutes", type=float, default=30.0, help="simulation only: stop after this long (0 = never)")
     args = ap.parse_args()
     try:
         Collector(args).run()

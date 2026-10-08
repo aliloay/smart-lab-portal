@@ -315,7 +315,10 @@ def _robot(db: Session, device_id: int) -> Device:
 
 
 def _event_out(e: RobotEvent) -> dict:
-    return {"id": e.id, "kind": e.kind, "joint": e.joint, "detail": e.detail, "source": e.source,
+    # A movement's recorded path (for 3D replay) is fetched on its own - lists stay small.
+    detail = {k: v for k, v in (e.detail or {}).items() if k != "trajectory"} if e.detail else e.detail
+    return {"id": e.id, "kind": e.kind, "joint": e.joint, "detail": detail, "source": e.source,
+            "has_trajectory": bool(e.detail and e.detail.get("trajectory")),
             "occurred_at": _utc(e.occurred_at), "received_at": _utc(e.received_at), "severity": e.severity,
             "booking_id": e.booking_id, "context": e.context, "provenance": e.provenance}
 
@@ -345,6 +348,27 @@ def robot_events(device_id: int, limit: int = Query(100, ge=1, le=500), kind: Op
     if kind:
         q = q.where(RobotEvent.kind == kind)
     return [_event_out(e) for e in db.scalars(q.order_by(desc(RobotEvent.occurred_at)).limit(limit)).all()]
+
+
+@router.get("/{device_id}/movements")
+def movements(device_id: int, limit: int = Query(30, ge=1, le=200), db: Session = Depends(get_db),
+              _: User = Depends(require_staff)):
+    """Recent completed movements that carry their recorded path (3D replay)."""
+    d = _robot(db, device_id)
+    rows = db.scalars(select(RobotEvent).where(RobotEvent.device_id == d.id, RobotEvent.kind == "MOVEMENT_STOPPED")
+                      .order_by(desc(RobotEvent.occurred_at)).limit(limit * 3)).all()
+    return [_event_out(e) for e in rows if e.detail and e.detail.get("trajectory")][:limit]
+
+
+@router.get("/{device_id}/movements/{event_id}")
+def movement(device_id: int, event_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """One movement's recorded joint path: t (s from its start) and q (rad, J1..J6)."""
+    d = _robot(db, device_id)
+    e = db.get(RobotEvent, event_id)
+    if e is None or e.device_id != d.id or not (e.detail and e.detail.get("trajectory")):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No recorded path for this movement")
+    tr = e.detail["trajectory"]
+    return {**_event_out(e), "trajectory": {"t": tr.get("t", []), "q": tr.get("q", [])}}
 
 
 class HomeIn(BaseModel):

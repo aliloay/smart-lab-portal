@@ -145,3 +145,18 @@ def test_telemetry_and_camera_agreeing_is_verified(client, db, lab, device_heade
     d = db.query(Device).filter_by(device_uid="UR5E_TEST").one()
     assert d.component_state["fusion"] == "MOVEMENT_VERIFIED"
     assert db.query(RobotEvent).filter_by(kind="MOVEMENT_VISUALLY_VERIFIED").count() == 1
+
+
+def test_a_movement_path_is_stored_and_served_on_its_own(client, db, lab, staff, device_headers):
+    tele(client, device_headers)
+    now = datetime.now(timezone.utc).timestamp()
+    path = {"t": [0.0, 0.1, 0.2], "q": [HOME, HOME, HOME]}
+    client.post("/api/robots/events", headers=device_headers, json={"device_uid": "UR5E_TEST", "events": [
+        {"kind": "MOVEMENT_STOPPED", "t": now, "detail": {"duration_s": 0.2, "trajectory": path}}]})
+    h = auth_headers(client, staff.email)
+    rid = db.query(Device).filter_by(device_uid="UR5E_TEST").one().id
+    listed = client.get(f"/api/robots/{rid}/events", headers=h).json()
+    assert listed[0]["has_trajectory"] and "trajectory" not in listed[0]["detail"]     # lists stay small
+    mv = client.get(f"/api/robots/{rid}/movements", headers=h).json()
+    one = client.get(f"/api/robots/{rid}/movements/{mv[0]['id']}", headers=h).json()
+    assert one["trajectory"]["t"] == [0.0, 0.1, 0.2] and len(one["trajectory"]["q"]) == 3

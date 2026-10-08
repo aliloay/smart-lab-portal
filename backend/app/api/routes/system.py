@@ -193,7 +193,9 @@ def services(db: Session = Depends(get_db), _: User = Depends(require_staff)):
         cs = d.component_state or {}
         if d.device_type == DeviceType.SECURITY_CAMERA and fresh and cs.get("source_ok") is False:
             state = "DEGRADED"                              # service up, camera picture lost
-        if d.device_type == DeviceType.ROBOT and fresh and cs.get("source") == "SIMULATION":
+        if d.device_type == DeviceType.ROBOT and cs.get("source") == "SIMULATION":
+            if not fresh:
+                continue                                # a stopped simulation is not a system fault
             state = "SIMULATION"
         last = d.last_seen_at
         out.append({"key": f"{groups[d.device_type]}:{d.id}", "group": groups[d.device_type],

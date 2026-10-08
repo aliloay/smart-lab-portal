@@ -13,7 +13,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
 import MeshArm from './MeshArm'
-import { urdfFor } from './robotModels'
+import { Vec3, urdfFor } from './robotModels'
 
 function Controls({ resetKey, size }: { resetKey: number; size: number }) {
   const { camera, gl, invalidate } = useThree()
@@ -77,6 +77,34 @@ function Arm({ model, q, ghost = false, selected, moving, onSelect }: {
     </group>)
 }
 
+/** The tool tip's path as a glowing tube: newest part bright, older part fading. */
+function Trail({ points, color }: { points: Vec3[]; color: string }) {
+  const mesh = useMemo(() => {
+    const pts: THREE.Vector3[] = []
+    for (const p of points) {                     // drop repeats (a still arm adds the same point)
+      const v = new THREE.Vector3(...p)
+      if (!pts.length || pts[pts.length - 1].distanceTo(v) > 0.002) pts.push(v)
+    }
+    if (pts.length < 2) return null
+    const curve = new THREE.CatmullRomCurve3(pts)
+    const seg = Math.min(400, pts.length * 4)
+    const g = new THREE.TubeGeometry(curve, seg, 0.009, 8, false)
+    // Colour along the tube: dark (old) -> full colour (new).
+    const c = new THREE.Color(color), bg = new THREE.Color('#0b1220')
+    const n = g.attributes.position.count, ring = 9
+    const col = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      const m = bg.clone().lerp(c, 0.45 + 0.55 * (Math.floor(i / ring) / seg))
+      col.set([m.r, m.g, m.b], i * 3)
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }))
+  }, [points, color])
+  useEffect(() => () => { if (mesh) { mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose() } }, [mesh])
+  if (!mesh) return null
+  return <primitive object={mesh} />
+}
+
 /** Draws one frame once the meshes are in (on-demand rendering). */
 function Loaded({ onLoad }: { onLoad: () => void }) {
   useEffect(() => { onLoad() }, [onLoad])
@@ -85,7 +113,7 @@ function Loaded({ onLoad }: { onLoad: () => void }) {
 
 function Scene(props: TwinProps & { resetKey: number }) {
   const { invalidate } = useThree()
-  useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, invalidate])
+  useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, props.trail, invalidate])
   const q = props.q ?? new Array(6).fill(0)
   const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
   const urdf = urdfFor(props.model.key)
@@ -105,6 +133,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
         {/* The manufacturer's meshes; the simple cylinder arm shows while they load. */}
+        {props.trail && <Trail points={props.trail} color={props.trailColor ?? props.model.accent} />}
         <Suspense fallback={<Arm model={props.model} q={q} selected={props.selected} moving={props.moving} />}>
           <Loaded onLoad={invalidate} />
           {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
@@ -116,6 +145,11 @@ function Scene(props: TwinProps & { resetKey: number }) {
 }
 
 export interface TwinProps {
+  /** Tool-tip path to draw (m, robot base frame). */
+  trail?: Vec3[] | null
+  trailColor?: string
+  /** No fresh telemetry: the pose is the last one known. */
+  stale?: boolean
   /** Small card: a closer camera. */
   compact?: boolean
   model: RobotModel
@@ -129,12 +163,14 @@ export interface TwinProps {
 export default function RobotTwin(props: TwinProps & { resetKey?: number; className?: string; label?: string }) {
   return (
     <div className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
-         aria-label={props.label ?? `${props.model.label} 3D view`}>
+         aria-label={props.label ?? `${props.model.label} 3D view`} data-trail-points={props.trail?.length ?? 0}>
       <Canvas frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
-              style={{ opacity: props.q ? 1 : 0.45 }}>
+              style={{ opacity: props.q ? (props.stale ? 0.55 : 1) : 0.45, filter: props.stale ? 'grayscale(0.7)' : undefined }}>
         <Scene {...props} resetKey={props.resetKey ?? 0} />
       </Canvas>
       {!props.q && <div className="absolute inset-0 grid place-items-center pointer-events-none text-[12.5px] text-slate-400">
         No telemetry - pose unknown</div>}
+      {props.q && props.stale && <div className="absolute top-2 left-2 pointer-events-none text-[11.5px] px-2 py-0.5 rounded-md bg-ink-900/80 text-warn-soft border border-warn/30">
+        Last known pose - no fresh telemetry</div>}
     </div>)
 }

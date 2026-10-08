@@ -11,6 +11,7 @@
  *
  * Meshes: public/models (licences and sources in public/models/README.md).
  */
+import * as THREE from 'three'
 export type Vec3 = [number, number, number]
 export interface LinkVisual { mesh: string; xyz: Vec3; rpy: Vec3; color?: string }
 export interface UrdfJoint { xyz: Vec3; rpy: Vec3; axis: Vec3 }
@@ -23,6 +24,9 @@ export interface UrdfModel {
   joints: UrdfJoint[]                 // J1..J6
   links: LinkVisual[]                 // the link each joint moves, J1..J6
   format: 'dae' | 'stl'
+  /** End effector: fixed (COLLADA) visuals in the last link's frame. */
+  tool?: LinkVisual[]
+  toolLabel?: string
   note: string
 }
 
@@ -31,6 +35,20 @@ const D = (deg: number) => (deg * PI) / 180
 
 export const UR5E: UrdfModel = {
   key: 'UR5E', label: 'Universal Robots UR5e', format: 'dae',
+  // The lab arm carries a Robotiq 2F-85 (photos 2026-10-08): UR-to-Robotiq adapter on the tool flange.
+  toolLabel: 'Robotiq 2F-85 gripper',
+  tool: [
+    { mesh: '/models/robotiq_2f85/ur_to_robotiq_adapter.dae', xyz: [0.00000, 0, 0.00000], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/robotiq_base.dae', xyz: [0.00000, 0, 0.01100], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/left_knuckle.dae', xyz: [0.03060, 0, 0.06590], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/right_knuckle.dae', xyz: [-0.03060, 0, 0.06590], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/left_finger.dae', xyz: [0.06213, 0, 0.06214], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/right_finger.dae', xyz: [-0.06213, 0, 0.06214], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/left_inner_knuckle.dae', xyz: [0.01270, 0, 0.07242], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/right_inner_knuckle.dae', xyz: [-0.01270, 0, 0.07242], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/left_finger_tip.dae', xyz: [0.06776, 0, 0.10933], rpy: [0, 0, 0] },
+    { mesh: '/models/robotiq_2f85/right_finger_tip.dae', xyz: [-0.06776, 0, 0.10933], rpy: [0, 0, 0] },
+  ],
   note: 'Universal Robots\' own UR5e meshes and kinematics (Universal_Robots_ROS2_Description, BSD-3).',
   baseRpy: [0, 0, PI],                                           // base_link -> base_link_inertia
   base: { mesh: '/models/ur5e/base.dae', xyz: [0, 0, 0], rpy: [0, 0, D(180)] },
@@ -75,4 +93,22 @@ export const FANUC_LRMATE200ID: UrdfModel = {
 
 export function urdfFor(model: string | null | undefined): UrdfModel {
   return (model || '').toUpperCase().includes('FANUC') ? FANUC_LRMATE200ID : UR5E
+}
+
+// ------------------------------------------------------------ tool tip ---
+
+const _m = new THREE.Matrix4()
+const _q = new THREE.Quaternion()
+const _e = new THREE.Euler()
+
+/** Tool flange position (m, robot base frame, Z up) for joint values q - the
+ *  same chain MeshArm draws, so the path and the arm always agree. */
+export function tipPosition(model: UrdfModel, q: number[]): Vec3 {
+  const M = new THREE.Matrix4().makeRotationFromEuler(_e.set(model.baseRpy[0], model.baseRpy[1], model.baseRpy[2], 'ZYX'))
+  model.joints.forEach((j, i) => {
+    M.multiply(_m.makeTranslation(j.xyz[0], j.xyz[1], j.xyz[2]))
+    M.multiply(_m.makeRotationFromEuler(_e.set(j.rpy[0], j.rpy[1], j.rpy[2], 'ZYX')))
+    M.multiply(_m.makeRotationFromQuaternion(_q.setFromAxisAngle(new THREE.Vector3(...j.axis), q[i] ?? 0)))
+  })
+  return [M.elements[12], M.elements[13], M.elements[14]]
 }

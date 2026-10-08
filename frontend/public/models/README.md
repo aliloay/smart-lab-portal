@@ -11,3 +11,5 @@ packages' `ur_macro.xacro` + `config/ur5e/*.yaml` and
 
 The FANUC arm in the lab is shown as an LR Mate 200iD: the model is NOT yet
 confirmed from the robot's plate - replace the folder and chain if it differs.
+
+| `robotiq_2f85/` | PickNik `ros2_robotiq_gripper` (robotiq_description/meshes/visual/2f_85), https://github.com/PickNikRobotics/ros2_robotiq_gripper - the Robotiq 2F-85 gripper on the lab's UR5e, mounted with the UR-to-Robotiq adapter; drawn open | BSD-3-Clause |

@@ -12,7 +12,7 @@
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, Bot, Cctv, DoorClosed, DoorOpen, Radar, ShieldAlert, Thermometer, Users } from 'lucide-react'
+import { Activity, Bot, Cctv, DoorClosed, DoorOpen, Expand, MonitorUp, Radar, ShieldAlert, Thermometer, Users } from 'lucide-react'
 import { MonitorTile, RobotEventRow, SecurityCamera, SecurityEvent, ServiceHealth, api } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
@@ -147,7 +147,7 @@ function Counter({ label, value, tone = 'idle', sub }: { label: string; value: n
     </div>)
 }
 
-export default function CommandCenter() {
+export default function CommandCenter({ wall = false }: { wall?: boolean }) {
   const [tiles, setTiles] = useState<MonitorTile[] | null>(null)
   const [cams, setCams] = useState<SecurityCamera[] | null>(null)
   const [secEvents, setSecEvents] = useState<SecurityEvent[]>([])
@@ -184,14 +184,20 @@ export default function CommandCenter() {
 
   const cam = cams?.[0] ?? null
   return (
-    <div className="space-y-4">
+    <div className={wall ? 'min-h-screen bg-ink-950 p-4 2xl:p-6 space-y-4' : 'space-y-4'}>
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <div className="eyebrow flex items-center gap-1.5"><Radar size={13} /> Smart Lab</div>
-          <h1 className="text-2xl font-bold text-white font-display">Command Center</h1>
+          <div className="eyebrow flex items-center gap-1.5"><Radar size={13} /> Smart Lab{wall ? ' · GIU Robotics Lab' : ''}</div>
+          <h1 className={`${wall ? 'text-3xl' : 'text-2xl'} font-bold text-white font-display`}>Command Center</h1>
         </div>
-        <p className="text-[12.5px] text-slate-400 max-w-xl">Everything below is reported by the lab's own devices and services and checked live.
-          Unknown means unknown - nothing is shown green without a report.</p>
+        {!wall && <p className="text-[12.5px] text-slate-400 max-w-xl">Everything below is reported by the lab's own devices and services and checked live.
+          Unknown means unknown - nothing is shown green without a report.</p>}
+        <span className="ml-auto flex gap-2">
+          {wall ? <button className="btn-ghost btn-sm" onClick={() => document.documentElement.requestFullscreen?.().catch(() => {})}>
+                    <Expand size={13} /> Full screen</button>
+                : <a className="btn-ghost btn-sm" href="/wall" target="_blank" rel="noreferrer" title="For a lab monitor: no sidebar, full screen">
+                    <MonitorUp size={13} /> Wall mode</a>}
+        </span>
       </div>
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
       <HealthBar />
@@ -221,7 +227,7 @@ export default function CommandCenter() {
                 {robots.map(r => (
                   <Link key={r.device_id} to={`/robots/${r.device_id}`} className="rounded-xl border border-ink-600/70 overflow-hidden hover:border-accent-500/40">
                     <Suspense fallback={<Skeleton className="h-40 rounded-none" />}>
-                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} compact className="h-36 bg-ink-950/40" />
+                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} stale={r.stale} compact className="h-36 bg-ink-950/40" />
                     </Suspense>
                     <div className="p-2.5 space-y-1.5">
                       <div className="text-[13px] font-semibold text-white">{r.name}</div>

@@ -14,7 +14,9 @@ import { relative } from '../lib/time'
 import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, KV, PageHeader, Skeleton, Timeline, Tone } from '../components/ui'
 import { deg, modelFor } from '../components/robot/kinematics'
-import { DemoBadge, FUSION, FusionChip, HomeChip, RobotStateChip } from '../components/robot/robotLive'
+import { DemoBadge, FUSION, FusionChip, HomeChip, RobotStateChip, effective, useNow } from '../components/robot/robotLive'
+import Replay, { ReplayFrame } from '../components/robot/Replay'
+import { tipPosition, urdfFor } from '../components/robot/robotModels'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
 const SEV: Record<string, Tone> = { INFO: 'idle', NOTICE: 'info', WARNING: 'warn', CRITICAL: 'bad' }
@@ -72,6 +74,9 @@ export default function RobotDetail() {
   const [busy, setBusy] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const hist = useRef<number[][]>([])                       // degrees per joint, last 150 samples
+  const histQ = useRef<number[][]>([])                      // the same in radians (tool trail)
+  const [replay, setReplay] = useState<ReplayFrame | null>(null)
+  const now = useNow()
 
   const load = useCallback(() => {
     api.robot(rid).then(setR).catch(e => setError(e instanceof Error ? e.message : 'Could not load the robot'))
@@ -84,6 +89,7 @@ export default function RobotDetail() {
   useLiveMessages(m => {
     if (m.type === 'robot_state' && m.device_id === rid && m.q) {
       hist.current = [...hist.current, m.q.map(deg)].slice(-150)
+      histQ.current = [...histQ.current, m.q].slice(-150)
     }
     if (m.type === 'robot_state' && m.device_id === rid)
       setR(p => p && { ...p, state: m.state as RD['state'], q: m.q, qd: m.qd, joints_moving: m.joints_moving,
@@ -102,17 +108,22 @@ export default function RobotDetail() {
   }
 
   if (!r) return error ? <ErrorBanner message={error} /> : <Skeleton className="h-[70vh]" />
-  const q = r.q ?? null
+  const live = effective(r, now)
+  const urdf = urdfFor(r.model)
+  const q = replay ? replay.q : r.q ?? null
+  // Tool path: the whole replayed movement, or the last ~30 s live.
+  const trail = (replay ? replay.path : histQ.current).map(p => tipPosition(urdf, p))
   const home = r.home_calibration?.home_q ?? null
   return (
     <div className="space-y-4">
       <Link to="/robots" className="btn-ghost btn-sm w-fit"><ArrowLeft size={13} /> Robots</Link>
       <PageHeader eyebrow="Robot" title={r.name} sub={`${model.label} · read-only monitoring`}
         actions={<div className="flex flex-wrap gap-1.5">
-          {r.demo && <DemoBadge />}<RobotStateChip state={r.state} /><HomeChip home={r.home} state={r.state} /></div>} />
+          {replay && <span className="chip bg-violet-500/15 text-violet-200 border border-violet-400/40 font-bold">REPLAY</span>}
+          {r.demo && <DemoBadge />}<RobotStateChip state={live.state} /><HomeChip home={r.home} state={live.state} /></div>} />
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
-      <div className="grid xl:grid-cols-[1fr_460px] gap-4">
-        <div className="card overflow-hidden flex flex-col">
+      <div className="grid xl:grid-cols-[1fr_460px] gap-4 items-start">
+        <div className="card overflow-hidden flex flex-col h-[min(640px,calc(100vh-180px))] min-h-[480px] xl:sticky xl:top-20">
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-2 border-b border-ink-700/60 text-[12.5px]">
             <Bot size={14} className="text-accent-300" /><span className="text-slate-200 font-medium">Digital twin</span>
             {!model.exact && <Chip tone="warn">arm model to be confirmed</Chip>}
@@ -122,10 +133,11 @@ export default function RobotDetail() {
               <button className="btn-ghost btn-sm" onClick={() => setReset(k => k + 1)}><RotateCcw size={12} /> Reset view</button>
             </span>
           </div>
-          <div className="flex-1 min-h-[460px] relative">
+          <div className="flex-1 relative">
             <div className="absolute inset-0">
               <Suspense fallback={<Skeleton className="h-full rounded-none" />}>
-                <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={r.joints_moving}
+                <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={replay ? null : r.joints_moving}
+                           trail={trail} trailColor={replay ? '#a78bfa' : undefined} stale={!replay && live.stale}
                            onSelect={j => setSel(s => s === j ? null : j)} resetKey={reset}
                            className="h-full bg-ink-950/40" />
               </Suspense>
@@ -162,6 +174,7 @@ export default function RobotDetail() {
             {sel != null && <div className="mt-3 p-2.5 rounded-lg bg-ink-900/60 text-[12px] text-slate-300 flex items-center gap-2">
               <Crosshair size={13} className="text-accent-300" /> J{sel + 1} selected · limits {model.limitsDeg[sel][0]}° to {model.limitsDeg[sel][1]}°</div>}
           </div>
+          <Replay robotId={rid} active onFrame={setReplay} />
           <div className="card p-4 space-y-2">
             <div className="label flex items-center gap-2">Telemetry + camera <span className="ml-auto"><FusionChip fusion={r.fusion} /></span></div>
             <p className="text-[12px] text-slate-400">{(FUSION[r.fusion ?? 'UNKNOWN'] ?? FUSION.UNKNOWN).why}</p>

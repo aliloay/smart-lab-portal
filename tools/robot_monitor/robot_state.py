@@ -15,7 +15,9 @@ Robot:   MOVING (any joint moving) > STATIONARY;  TELEMETRY_STALE when no
 
 Events (state transitions only, never per sample):
 
-    MOVEMENT_STARTED / MOVEMENT_STOPPED   the robot
+    MOVEMENT_STARTED / MOVEMENT_STOPPED   the robot; STOPPED carries the
+                                           movement's path (10 samples a second,
+                                           at most 60 s) for 3D replay
     JOINT_MOVED                            one joint, after it settles:
                                            from / to / delta (rad and deg),
                                            peak velocity, duration
@@ -41,6 +43,8 @@ class MotionConfig:
     settle_s: float = 0.5              # still this long before "stopped"
     min_event_delta: float = 0.0017    # rad (~0.1 deg): smaller completed moves are not logged
     stale_s: float = 2.0               # no sample this long = TELEMETRY_STALE
+    path_every_s: float = 0.1          # movement path kept at this interval for replay ...
+    path_max: int = 600                # ... at most this many samples (60 s)
 
 
 @dataclass
@@ -82,6 +86,7 @@ class RobotMotion:
         self.last_arrival: Optional[float] = None
         self.stale = False
         self.samples = 0
+        self.path: list = []                       # (t, q) of the movement in progress
 
     # -- feeding --------------------------------------------------------------
     def update(self, s: Sample, arrival: Optional[float] = None) -> list[RobotEvent]:
@@ -119,12 +124,22 @@ class RobotMotion:
             j.last_q = q
             any_moving = any_moving or j.moving
         new_state = "MOVING" if any_moving else "STATIONARY"
+        if new_state == "MOVING" and self.state != "MOVING":
+            self.path = [(prev.t, list(prev.q))] if prev else []
+        if new_state == "MOVING" or (self.state == "MOVING" and new_state != "MOVING"):
+            if (not self.path or s.t - self.path[-1][0] >= c.path_every_s) and len(self.path) < c.path_max:
+                self.path.append((s.t, list(s.q)))
         if new_state != self.state:
             if new_state == "MOVING":
                 ev.append(RobotEvent("MOVEMENT_STARTED", s.t, detail={
                     "joints": [f"J{i + 1}" for i, j in enumerate(self.joints) if j.moving]}))
             elif self.state == "MOVING":
-                ev.append(RobotEvent("MOVEMENT_STOPPED", s.t))
+                t0 = self.path[0][0] if self.path else s.t
+                ev.append(RobotEvent("MOVEMENT_STOPPED", s.t, detail={
+                    "duration_s": round(s.t - t0, 2),
+                    "trajectory": {"t": [round(t - t0, 2) for t, _ in self.path],
+                                   "q": [[round(v, 4) for v in q] for _, q in self.path]}}))
+                self.path = []
             self.state = new_state
         self.last_sample, self.last_arrival = s, arrival
         self.samples += 1

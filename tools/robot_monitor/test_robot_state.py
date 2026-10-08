@@ -86,3 +86,16 @@ def test_home_states():
     far = HOME[:2] + [HOME[2] + math.radians(20)] + HOME[3:]
     h = home_state(far, HOME)
     assert h["home"] == "NOT_HOME" and h["worst_joint"] == "J3" and abs(h["worst_deg"] - 20) < 0.01
+
+
+def test_a_movement_is_recorded_for_replay():
+    m = RobotMotion()
+    feed(m, 0.0, 0.5, lambda t: HOME)
+    target = math.radians(20)
+    ev, _ = feed(m, 0.5, 2.5, lambda t: [HOME[0] + target * min(1.0, max(0.0, t - 0.5))] + HOME[1:])
+    stop = [e for e in ev if e.kind == "MOVEMENT_STOPPED"][0]
+    tr = stop.detail["trajectory"]
+    assert len(tr["t"]) == len(tr["q"]) >= 10                      # ~10 a second
+    assert tr["t"][0] == 0.0 and tr["t"] == sorted(tr["t"])
+    assert abs(tr["q"][0][0] - HOME[0]) < 0.01                       # starts where it was still
+    assert abs(tr["q"][-1][0] - (HOME[0] + target)) < 0.01           # ends where it stopped

@@ -163,6 +163,8 @@ export interface Robot {
 export interface RobotEventRow {
   id: number; kind: string; joint: number | null; detail: Record<string, unknown> | null; source: string
   occurred_at: string; received_at: string; severity: 'INFO' | 'NOTICE' | 'WARNING' | 'CRITICAL'
+  /** A completed movement whose recorded path can be replayed in 3D. */
+  has_trajectory?: boolean
   booking_id: number | null; provenance: string
   context: { booking: { id: number; holder: string | null } | null; inside_per_door: string[]
              camera?: 'online' | 'offline' | 'none'
@@ -1076,6 +1078,9 @@ export const api = {
   robots: () => request<Robot[]>('/robots'),
   robot: (id: number) => request<RobotDetail>(`/robots/${id}`),
   robotEvents: (id: number, limit = 100) => request<RobotEventRow[]>(`/robots/${id}/events?limit=${limit}`),
+  robotMovements: (id: number, limit = 30) => request<RobotEventRow[]>(`/robots/${id}/movements?limit=${limit}`),
+  robotMovement: (id: number, eventId: number) =>
+    request<RobotEventRow & { trajectory: { t: number[]; q: number[][] } }>(`/robots/${id}/movements/${eventId}`),
   calibrateHome: (id: number, body: { tolerance_deg?: number; note?: string }) =>
     post<{ version: number; home_q: number[] }>(`/robots/${id}/home`, body),
   systemServices: () => request<{ checked_at: string; services: ServiceHealth[] }>('/system/services'),
