@@ -115,7 +115,7 @@ export default function RobotDetail() {
         <div className="card overflow-hidden flex flex-col">
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-2 border-b border-ink-700/60 text-[12.5px]">
             <Bot size={14} className="text-accent-300" /><span className="text-slate-200 font-medium">Digital twin</span>
-            {!model.exact && <Chip tone="warn">placeholder geometry</Chip>}
+            {!model.exact && <Chip tone="warn">arm model to be confirmed</Chip>}
             <span className="ml-auto flex gap-1.5">
               {home && <button className={`btn-sm ${ghost ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setGhost(g => !g)}>
                 <Home size={12} /> HOME pose</button>}
@@ -123,11 +123,13 @@ export default function RobotDetail() {
             </span>
           </div>
           <div className="flex-1 min-h-[460px] relative">
-            <Suspense fallback={<Skeleton className="absolute inset-0 rounded-none" />}>
-              <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={r.joints_moving}
-                         onSelect={j => setSel(s => s === j ? null : j)} resetKey={reset}
-                         className="absolute inset-0 bg-ink-950/40" />
-            </Suspense>
+            <div className="absolute inset-0">
+              <Suspense fallback={<Skeleton className="h-full rounded-none" />}>
+                <RobotTwin model={model} q={q} homeQ={ghost ? home : null} selected={sel} moving={r.joints_moving}
+                           onSelect={j => setSel(s => s === j ? null : j)} resetKey={reset}
+                           className="h-full bg-ink-950/40" />
+              </Suspense>
+            </div>
           </div>
           <p className="px-4 py-2 text-[11.5px] text-slate-500 border-t border-ink-700/60">{model.note} Drag to orbit, scroll to zoom, click a joint to select it.
             {ghost && home ? ' The faint arm is the calibrated HOME pose.' : ''}</p>

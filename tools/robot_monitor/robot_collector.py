@@ -88,14 +88,16 @@ class SimSource:
     """DEMO: a scripted cycle - still, J1 swing, J3 + J4 together, J6 twist,
     back home. Marked SIMULATION everywhere."""
     name = "SIMULATION"
-    HOME = [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    HOME = [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]           # UR "upright" pose
+    HOME_FANUC = [0.0, 0.0, 0.0, 0.0, -1.5708, 0.0]                  # FANUC: arm up, wrist down
 
-    def __init__(self, hz: float):
+    def __init__(self, hz: float, model: str = "UR5e"):
         self.t0 = time.time()
+        self.home = self.HOME_FANUC if "FANUC" in model.upper() else self.HOME
 
     def read(self) -> Sample:
         t = (time.time() - self.t0) % 24.0
-        q = list(self.HOME)
+        q = list(self.home)
         s = lambda a, b: 0.5 - 0.5 * math.cos(math.pi * min(1.0, max(0.0, (t - a) / (b - a))))
         q[0] += math.radians(35) * (s(3, 6) - s(15, 18))
         q[2] += math.radians(-25) * (s(7, 10) - s(18, 21))
@@ -123,7 +125,7 @@ class Collector:
     def open_source(self):
         a = self.args
         if a.source == "sim":
-            return SimSource(a.hz)
+            return SimSource(a.hz, a.model)
         if a.source == "ur":
             if not a.robot:
                 sys.exit("--robot <IP> is required for --source ur")

@@ -1,0 +1,78 @@
+/**
+ * Real robot models for the twins: the manufacturers' meshes, placed exactly
+ * as their robot description packages place them (URDF semantics:
+ * joint origin xyz + rpy, rotation about `axis` by the joint value, visual
+ * origin per link). Values copied from:
+ *
+ *   UR5e   Universal_Robots_ROS2_Description: urdf/ur_macro.xacro,
+ *          config/ur5e/default_kinematics.yaml, config/ur5e/visual_parameters.yaml
+ *   FANUC  ros-industrial/fanuc: fanuc_lrmate200id_support/urdf/lrmate200id_macro.xacro
+ *          (the lab arm's exact model is NOT confirmed yet - shown as LR Mate 200iD)
+ *
+ * Meshes: public/models (licences and sources in public/models/README.md).
+ */
+export type Vec3 = [number, number, number]
+export interface LinkVisual { mesh: string; xyz: Vec3; rpy: Vec3; color?: string }
+export interface UrdfJoint { xyz: Vec3; rpy: Vec3; axis: Vec3 }
+export interface UrdfModel {
+  key: string
+  label: string
+  /** fixed transform base_link -> first visual link */
+  baseRpy: Vec3
+  base: LinkVisual
+  joints: UrdfJoint[]                 // J1..J6
+  links: LinkVisual[]                 // the link each joint moves, J1..J6
+  format: 'dae' | 'stl'
+  note: string
+}
+
+const PI = Math.PI
+const D = (deg: number) => (deg * PI) / 180
+
+export const UR5E: UrdfModel = {
+  key: 'UR5E', label: 'Universal Robots UR5e', format: 'dae',
+  note: 'Universal Robots\' own UR5e meshes and kinematics (Universal_Robots_ROS2_Description, BSD-3).',
+  baseRpy: [0, 0, PI],                                           // base_link -> base_link_inertia
+  base: { mesh: '/models/ur5e/base.dae', xyz: [0, 0, 0], rpy: [0, 0, D(180)] },
+  joints: [
+    { xyz: [0, 0, 0.1625], rpy: [0, 0, 0], axis: [0, 0, 1] },                       // shoulder_pan
+    { xyz: [0, 0, 0], rpy: [1.570796327, 0, 0], axis: [0, 0, 1] },                  // shoulder_lift
+    { xyz: [-0.425, 0, 0], rpy: [0, 0, 0], axis: [0, 0, 1] },                       // elbow
+    { xyz: [-0.3922, 0, 0.1333], rpy: [0, 0, 0], axis: [0, 0, 1] },                 // wrist_1
+    { xyz: [0, -0.0997, 0], rpy: [1.570796327, 0, 0], axis: [0, 0, 1] },            // wrist_2
+    { xyz: [0, 0.0996, 0], rpy: [1.570796326589793, PI, PI], axis: [0, 0, 1] },     // wrist_3
+  ],
+  links: [
+    { mesh: '/models/ur5e/shoulder.dae', xyz: [0, 0, 0], rpy: [0, 0, D(180)] },
+    { mesh: '/models/ur5e/upperarm.dae', xyz: [0, 0, 0.138], rpy: [D(90), 0, D(-90)] },
+    { mesh: '/models/ur5e/forearm.dae', xyz: [0, 0, 0.007], rpy: [D(90), 0, D(-90)] },
+    { mesh: '/models/ur5e/wrist1.dae', xyz: [0, 0, -0.127], rpy: [D(90), 0, 0] },
+    { mesh: '/models/ur5e/wrist2.dae', xyz: [0, 0, -0.0997], rpy: [0, 0, 0] },
+    { mesh: '/models/ur5e/wrist3.dae', xyz: [0, -0.0005, -0.0989], rpy: [D(90), 0, 0] },
+  ],
+}
+
+// fanuc_resources/urdf/common_materials.xacro colours
+const YELLOW = '#f5c21f', GRAY = '#474747', BLACK = '#262626'
+
+export const FANUC_LRMATE200ID: UrdfModel = {
+  key: 'FANUC', label: 'FANUC LR Mate 200iD (model to be confirmed)', format: 'stl',
+  note: 'ROS-Industrial fanuc_lrmate200id_support meshes and kinematics (BSD). The lab arm\'s exact model is not confirmed yet.',
+  baseRpy: [0, 0, 0],
+  base: { mesh: '/models/fanuc_lrmate200id/base_link.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: GRAY },
+  joints: [
+    { xyz: [0, 0, 0.330], rpy: [0, 0, 0], axis: [0, 0, 1] },
+    { xyz: [0.050, 0, 0], rpy: [0, 0, 0], axis: [0, 1, 0] },
+    { xyz: [0, 0, 0.330], rpy: [0, 0, 0], axis: [0, -1, 0] },
+    { xyz: [0, 0, 0.035], rpy: [0, 0, 0], axis: [-1, 0, 0] },
+    { xyz: [0.335, 0, 0], rpy: [0, 0, 0], axis: [0, -1, 0] },
+    { xyz: [0.080, 0, 0], rpy: [0, 0, 0], axis: [-1, 0, 0] },
+  ],
+  links: [1, 2, 3, 4, 5].map(i => ({ mesh: `/models/fanuc_lrmate200id/link_${i}.stl`, xyz: [0, 0, 0] as Vec3,
+                                      rpy: [0, 0, 0] as Vec3, color: YELLOW }))
+    .concat([{ mesh: '/models/fanuc_lrmate200id/link_6.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: BLACK }]),
+}
+
+export function urdfFor(model: string | null | undefined): UrdfModel {
+  return (model || '').toUpperCase().includes('FANUC') ? FANUC_LRMATE200ID : UR5E
+}

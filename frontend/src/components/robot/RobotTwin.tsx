@@ -8,18 +8,22 @@
  * while the robot is still. Loaded lazily (three.js stays out of other pages).
  */
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber'
-import { useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
+import MeshArm from './MeshArm'
+import { urdfFor } from './robotModels'
 
-function Controls({ resetKey }: { resetKey: number }) {
+function Controls({ resetKey, size }: { resetKey: number; size: number }) {
   const { camera, gl, invalidate } = useThree()
   useEffect(() => {
-    camera.position.set(1.05, 0.8, 1.15)
-    camera.lookAt(0, 0.3, 0)
+    // Framed from the arm's own size: the whole robot in view, from front-right, slightly above.
+    const k = size / 0.85
+    camera.position.set(1.55 * k, 1.05 * k, 1.65 * k)
+    camera.lookAt(0, 0.38 * k, 0)
     const c = new OrbitControls(camera, gl.domElement)
-    c.target.set(0, 0.3, 0)
+    c.target.set(0, 0.38 * k, 0)
     c.enableDamping = false
     c.minDistance = 0.4
     c.maxDistance = 4
@@ -27,7 +31,7 @@ function Controls({ resetKey }: { resetKey: number }) {
     c.update()
     invalidate()
     return () => c.dispose()
-  }, [camera, gl, invalidate, resetKey])
+  }, [camera, gl, invalidate, resetKey, size])
   return null
 }
 
@@ -73,16 +77,24 @@ function Arm({ model, q, ghost = false, selected, moving, onSelect }: {
     </group>)
 }
 
+/** Draws one frame once the meshes are in (on-demand rendering). */
+function Loaded({ onLoad }: { onLoad: () => void }) {
+  useEffect(() => { onLoad() }, [onLoad])
+  return null
+}
+
 function Scene(props: TwinProps & { resetKey: number }) {
   const { invalidate } = useThree()
   useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, invalidate])
   const q = props.q ?? new Array(6).fill(0)
   const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
+  const urdf = urdfFor(props.model.key)
   return (
     <>
-      <Controls resetKey={props.resetKey} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[2, 3, 2]} intensity={1.1} />
+      <Controls resetKey={props.resetKey} size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1)} />
+      <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[2, 3, 2]} intensity={1.4} />
       <directionalLight position={[-2, 1.5, -1]} intensity={0.35} />
       <gridHelper args={[3, 30, '#334155', '#1e293b']} />
       {/* reach ring: the arm's working circle on the floor (from its geometry) */}
@@ -92,17 +104,20 @@ function Scene(props: TwinProps & { resetKey: number }) {
       </mesh>
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
-        <mesh position={[0, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.09, 0.1, 0.04, 32]} />
-          <meshStandardMaterial color="#1f2937" />
-        </mesh>
-        {props.homeQ && <Arm model={props.model} q={props.homeQ} ghost />}
-        <Arm model={props.model} q={q} selected={props.selected} moving={props.moving} onSelect={props.onSelect} />
+        {/* The manufacturer's meshes; the simple cylinder arm shows while they load. */}
+        <Suspense fallback={<Arm model={props.model} q={q} selected={props.selected} moving={props.moving} />}>
+          <Loaded onLoad={invalidate} />
+          {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
+          <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
+                   onSelect={props.onSelect} />
+        </Suspense>
       </group>
     </>)
 }
 
 export interface TwinProps {
+  /** Small card: a closer camera. */
+  compact?: boolean
   model: RobotModel
   q: number[] | null
   homeQ?: number[] | null

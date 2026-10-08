@@ -221,7 +221,7 @@ export default function CommandCenter() {
                 {robots.map(r => (
                   <Link key={r.device_id} to={`/robots/${r.device_id}`} className="rounded-xl border border-ink-600/70 overflow-hidden hover:border-accent-500/40">
                     <Suspense fallback={<Skeleton className="h-40 rounded-none" />}>
-                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} className="h-36 bg-ink-950/40" />
+                      <RobotTwin model={modelFor(r.model)} q={r.q ?? null} moving={r.joints_moving} compact className="h-36 bg-ink-950/40" />
                     </Suspense>
                     <div className="p-2.5 space-y-1.5">
                       <div className="text-[13px] font-semibold text-white">{r.name}</div>

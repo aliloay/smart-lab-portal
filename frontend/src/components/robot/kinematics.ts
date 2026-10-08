@@ -29,7 +29,7 @@ const PI = Math.PI
 export const MODELS: Record<string, RobotModel> = {
   UR5E: {
     key: 'UR5E', label: 'Universal Robots UR5e', exact: true,
-    note: 'UR5e DH parameters (Universal Robots). Links drawn as cylinders, not CAD meshes.',
+    note: "Universal Robots' own UR5e meshes and kinematics (the cylinders show only while they load).",
     dh: [
       { a: 0, d: 0.1625, alpha: PI / 2 },
       { a: -0.425, d: 0, alpha: 0 },
@@ -42,8 +42,8 @@ export const MODELS: Record<string, RobotModel> = {
     color: '#c9d1d9', accent: '#38bdf8',
   },
   FANUC: {
-    key: 'FANUC', label: 'FANUC (model to be confirmed)', exact: false,
-    note: 'PLACEHOLDER geometry: a generic 6-axis arm. The lab robot\'s exact model is not confirmed yet.',
+    key: 'FANUC', label: 'FANUC LR Mate 200iD (model to be confirmed)', exact: false,
+    note: "ROS-Industrial LR Mate 200iD meshes and kinematics. The lab arm's exact model is not confirmed yet.",
     dh: [
       { a: 0.05, d: 0.33, alpha: -PI / 2 },
       { a: 0.33, d: 0, alpha: 0, offset: -PI / 2 },

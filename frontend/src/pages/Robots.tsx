@@ -48,14 +48,14 @@ export default function Robots() {
                   {staff ? (
                     <>
                       <Suspense fallback={<Skeleton className="h-64 rounded-none" />}>
-                        <RobotTwin model={model} q={r.q ?? null} moving={r.joints_moving} className="h-64 bg-ink-950/40" />
+                        <RobotTwin model={model} q={r.q ?? null} moving={r.joints_moving} compact className="h-64 bg-ink-950/40" />
                       </Suspense>
                       <div className="p-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px] text-slate-400">
                         <span className="flex items-center gap-1.5"><Radio size={13} />
                           {r.rate_hz ? `${r.rate_hz} samples/s` : 'no rate yet'}</span>
                         <span>source {r.source ?? '—'}</span>
                         <span>last report {r.last_seen_at ? relative(r.last_seen_at) : 'never'}</span>
-                        {!model.exact && <span className="text-warn-soft">3D geometry is a placeholder</span>}
+                        {!model.exact && <span className="text-warn-soft">arm model to be confirmed</span>}
                         <Link to={`/robots/${r.device_id}`} className="ml-auto btn-ghost btn-sm">
                           Open <ChevronRight size={13} /></Link>
                       </div>
