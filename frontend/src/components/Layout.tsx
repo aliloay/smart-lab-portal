@@ -66,7 +66,7 @@ const STAFF_NAV: Section[] = [
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
-    { to: '/command', label: 'Command Center', icon: <Radar size={17} /> },
+    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
@@ -74,7 +74,7 @@ const STAFF_NAV: Section[] = [
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
@@ -91,7 +91,7 @@ const ADMIN_NAV: Section[] = [
   { title: 'Access & audit', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
-    { to: '/command', label: 'Command Center', icon: <Radar size={17} /> },
+    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
@@ -101,7 +101,7 @@ const ADMIN_NAV: Section[] = [
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
     { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },

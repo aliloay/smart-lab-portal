@@ -96,8 +96,16 @@ def active_hazards(db: Session) -> list[dict]:
     rows = db.scalars(select(Alert).where(
         Alert.dedupe_key.like("env:%"), Alert.is_resolved.is_(False))
         .order_by(desc(Alert.created_at))).all()
+    from app.models import Device
+    from app.services.devices import is_fresh
     out = []
     for a in rows:
+        # A sensor node that stopped reporting cannot say the hazard is still
+        # there: no full-screen alarm from a stale reading (the alert stays
+        # open on the Alerts page for staff to check and resolve).
+        dev = db.get(Device, a.device_id) if a.device_id else None
+        if dev is not None and not is_fresh(dev):
+            continue
         metric = a.dedupe_key.split(":")[2]
         lab = db.get(Lab, a.lab_id) if a.lab_id else None
         out.append({"alert_id": a.id, "lab_id": a.lab_id,

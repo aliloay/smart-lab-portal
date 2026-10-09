@@ -44,7 +44,8 @@ class ServoManager {
 
  private:
   bool moveTo(int angle);
-  int _idle = -1, _open = -1, _target = -1;
+  int _idle = -1, _open = -1, _target = -1, _sweepAt = -1, _sweepTo = -1;
+  uint32_t _lastStepMs = 0;
   ServoState _state = ServoState::SAFE_IDLE;
   uint32_t _since = 0;
   bool _locked = false;

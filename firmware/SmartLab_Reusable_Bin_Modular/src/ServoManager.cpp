@@ -56,9 +56,14 @@ bool ServoManager::open() {
 void ServoManager::release() {
   if (_state == ServoState::SAFE_IDLE) return;
   int to = _idle >= 0 ? _idle : _target;       // no idle angle saved: stay put, then detach
-  moveTo(to);
+  // Close gently: step 1 degree every SERVO_CLOSE_STEP_MS (update() does the steps).
+  _sweepTo = to;
+  _sweepAt = _target >= 0 ? _target : to;
+  _lastStepMs = millis();
   _state = ServoState::RELEASING;
-  LOG("SERVO", "Releasing -> %d deg", to);
+  _since = millis();
+  LOG("SERVO", "Releasing -> %d deg (gently, ~%lu ms)", to,
+      (unsigned long)(abs(to - _sweepAt) * SERVO_CLOSE_STEP_MS));
 }
 
 bool ServoManager::manualAngle(int a) {
@@ -89,6 +94,14 @@ void ServoManager::update() {
       if (el >= SERVO_MAX_HOLD_MS) { LOG("SERVO", "Max hold %lu ms reached - releasing", (unsigned long)SERVO_MAX_HOLD_MS); release(); }
       break;
     case ServoState::RELEASING:
+      if (_sweepAt != _sweepTo) {                     // still sweeping towards the idle angle
+        if (millis() - _lastStepMs >= SERVO_CLOSE_STEP_MS) {
+          _lastStepMs = millis();
+          _sweepAt += _sweepTo > _sweepAt ? 1 : -1;
+          moveTo(_sweepAt);                             // also restarts _since
+        }
+        break;
+      }
       if (el >= SERVO_MOVE_MS) {
         if (g_servo.attached()) g_servo.detach();     // no holding torque at rest
         _state = ServoState::SAFE_IDLE;

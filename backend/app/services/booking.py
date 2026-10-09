@@ -51,7 +51,7 @@ def find_conflicts(db: Session, lab_id: int, start: datetime, end: datetime,
 
 def create_booking(db: Session, user: User, lab: Lab, start: datetime,
                    end: datetime, reason: str,
-                   actor: Optional[User] = None) -> Booking:
+                   actor: Optional[User] = None, equipment=None) -> Booking:
     start, end = _as_utc(start), _as_utc(end)
 
     if start >= end:
@@ -79,11 +79,20 @@ def create_booking(db: Session, user: User, lab: Lab, start: datetime,
                 f"{_as_utc(c.start_time):%H:%M}-{_as_utc(c.end_time):%H:%M} "
                 f"on {_as_utc(c.start_time):%Y-%m-%d}.")
 
+    from app.services.booking_equipment import EquipmentError, resolve
+    try:
+        items = resolve(db, lab.id, start, end, equipment)
+    except EquipmentError as e:
+        raise BookingError(e.code, e.message)
+
     booking = Booking(user_id=user.id, lab_id=lab.id, start_time=start,
                       end_time=end, reason=reason,
                       status=BookingStatus.PENDING)
     db.add(booking)
     db.flush()
+    for it in items:
+        it.booking_id = booking.id
+        db.add(it)
 
     on_behalf = actor is not None and actor.id != user.id
     log_event(db, EventType.BOOKING_CREATED, lab_id=lab.id, user_id=user.id,

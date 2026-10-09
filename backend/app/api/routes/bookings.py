@@ -16,7 +16,8 @@ from app.api.deps import get_current_user, require_staff
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessSession, Booking, BookingStatus,
                         Lab, QrToken, Role, SessionEndReason, User)
-from app.schemas import (BookingCreate, BookingOut, BookingTrace, LabOut,
+from app.services.booking_equipment import items_of, options as equipment_options
+from app.schemas import (BookingCreate, BookingItemOut, BookingOut, BookingTrace, LabOut,
                          NoteBody, QrOut, SessionOut, TokenInfo, UserBrief)
 from app.services.booking import (BookingError, active_token, cancel_booking,
                                   confirm_booking, create_booking,
@@ -46,6 +47,7 @@ def _decorate(db: Session, b: Booking) -> BookingOut:
     out.lab_category = lab.category if lab else None
     out.user_name = user.full_name if user else None
     out.user_email = user.email if user else None
+    out.equipment = [BookingItemOut.model_validate(i) for i in items_of(db, b.id)]
 
     # Punctuality, computed rather than stored: derived values go stale the
     # moment either input changes.
@@ -104,11 +106,21 @@ def create(req: BookingCreate, db: Session = Depends(get_db),
             raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     try:
         booking = create_booking(db, owner, lab, req.start_time, req.end_time,
-                                 req.reason, actor=user)
+                                 req.reason, actor=user, equipment=req.equipment)
     except BookingError as e:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"code": e.code, "message": e.message})
     return _decorate(db, booking)
+
+
+@router.get("/equipment-options")
+def booking_equipment_options(lab_id: int, start_time: datetime, end_time: datetime,
+                              db: Session = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """What can be chosen for this lab and window (reserved items are marked)."""
+    if db.get(Lab, lab_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    return equipment_options(db, lab_id, _utc(start_time), _utc(end_time))
 
 
 @router.get("", response_model=list[BookingOut])

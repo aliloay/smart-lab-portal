@@ -295,7 +295,7 @@ export interface Device {
   id: number
   device_uid: string
   name: string
-  device_type: 'MASTER_CONTROLLER' | 'CAMERA' | 'FACE_SERVER' | 'SENSOR_NODE' | 'SECURITY_CAMERA'
+  device_type: 'MASTER_CONTROLLER' | 'CAMERA' | 'FACE_SERVER' | 'SENSOR_NODE' | 'SECURITY_CAMERA' | 'ROBOT' | 'PC' | 'OTHER'
   lab_id: number
   /** Uses its own key (Devices -> Issue key) rather than the shared one. */
   has_own_key?: boolean
@@ -309,6 +309,8 @@ export interface Device {
   /** ONLINE / OFFLINE / NO_DATA (never reported). */
   state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'
   seconds_since_seen: number | null
+  /** Why the state is what it is when another device or the portal reports it. */
+  state_note?: string | null
 }
 
 export interface LabIssueBrief {
@@ -341,8 +343,29 @@ export interface LabStatus {
   recent_issues: LabIssueBrief[]
 }
 
+export interface BookingEquipmentChoice {
+  bin_asset_ids: number[]
+  consumables: { inventory_bin_id: number; quantity: number }[]
+  /** Each "PC" or "ASSET:<id>"; several allowed (robot + PC); empty = none. */
+  workstations: string[]
+}
+export interface BookingItem {
+  kind: 'BIN_ITEM' | 'CONSUMABLE' | 'WORKSTATION'
+  asset_id?: number | null
+  inventory_bin_id?: number | null
+  quantity?: number | null
+  label: string
+}
+export interface EquipmentOptions {
+  bin_items: { id: number; name: string; asset_tag: string; state: string }[]
+  consumables: { id: number; name: string; category: string }[]
+  workstations: { key: string; name: string; state: string }[]
+}
+
 export interface Booking {
   id: number
+  /** Equipment chosen while booking. */
+  equipment?: BookingItem[]
   user_id: number
   lab_id: number
   start_time: string
@@ -985,6 +1008,9 @@ export const api = {
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
       '/auth/login', { email, password }),
   me: () => request<User>('/auth/me'),
+  myDoorQr: () => request<{ active: boolean; issued_at?: string | null }>('/auth/me/door-qr'),
+  createMyDoorQr: () => post<{ payload: string; png_base64: string | null; message: string }>('/auth/me/door-qr'),
+  revokeMyDoorQr: () => request<{ revoked: number }>('/auth/me/door-qr', { method: 'DELETE' }),
   signupConfig: () => request<{ enabled: boolean; email_domains: string[]; requires_approval: boolean }>(
     '/auth/signup-config'),
   signup: (u: { email: string; full_name: string; password: string; student_id?: string; department?: string }) =>
@@ -1010,8 +1036,10 @@ export const api = {
     request<Booking[]>(`/bookings${qs(q)}`),
   booking: (id: number) => request<Booking>(`/bookings/${id}`),
   createBooking: (b: { lab_id: number; start_time: string; end_time: string;
-                       reason: string; user_id?: number }) =>
+                       reason: string; user_id?: number; equipment?: BookingEquipmentChoice }) =>
     post<Booking>('/bookings', b),
+  bookingEquipmentOptions: (lab_id: number, start_time: string, end_time: string) =>
+    request<EquipmentOptions>(`/bookings/equipment-options${qs({ lab_id: String(lab_id), start_time, end_time })}`),
   cancelBooking: (id: number) => post<Booking>(`/bookings/${id}/cancel`),
   confirmBooking: (id: number) => post<Booking>(`/bookings/${id}/confirm`),
   rejectBooking: (id: number, note = '') => post<Booking>(`/bookings/${id}/reject`, { note }),

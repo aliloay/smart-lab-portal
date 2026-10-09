@@ -1,7 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Camera, Cpu, DoorClosed, Fingerprint, Lock, Plus, Radio, Server, Thermometer, Wrench,
+  Bot, Camera, Cpu, DoorClosed, Fingerprint, Lock, Monitor, Plus, Radio, Server, Thermometer, Wrench,
   Video,
 } from 'lucide-react'
 import { Device, Lab, api } from '../lib/api'
@@ -19,6 +19,9 @@ const TYPE: Record<Device['device_type'], { label: string; icon: JSX.Element }> 
   FACE_SERVER: { label: 'Face recognition server', icon: <Server size={18} /> },
   SENSOR_NODE: { label: 'Sensor node', icon: <Thermometer size={18} /> },
   SECURITY_CAMERA: { label: 'Security camera', icon: <Video size={18} /> },
+  ROBOT: { label: 'Robot (read-only monitoring)', icon: <Bot size={18} /> },
+  PC: { label: 'Lab PC', icon: <Monitor size={18} /> },
+  OTHER: { label: 'Other device', icon: <Cpu size={18} /> },
 }
 // A device type this page does not know yet still shows (never a crash).
 const typeOf = (t: string) => TYPE[t as Device['device_type']] ?? { label: t.replace(/_/g, ' ').toLowerCase(), icon: <Cpu size={18} /> }
@@ -54,7 +57,7 @@ export default function Devices() {
 
   return (
     <div>
-      <PageHeader eyebrow="Connected devices" title="Devices"
+      <PageHeader eyebrow="Connected devices" title="System Devices"
         sub="Each laboratory's access hardware, as last reported by the devices themselves."
         actions={isAdmin(user) ? <button className="btn-primary" onClick={() => setAdding(true)}>
           <Plus size={16} />Register device</button> : undefined} />
@@ -109,9 +112,11 @@ export default function Devices() {
                     <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : 'idle'} dot>
                       {d.state === 'NO_DATA' ? 'No data' : d.state.toLowerCase()}</Chip>
                   </div>
+                  {d.state_note && <p className={`mt-2 text-[12px] ${d.state === 'ONLINE' ? 'text-slate-400' : 'text-warn-soft'}`}>{d.state_note}</p>}
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">
                     <div><dt className="text-slate-500">Last heartbeat</dt>
-                      <dd className="text-slate-200">{d.last_seen_at ? relative(d.last_seen_at) : 'Never'}</dd></div>
+                      <dd className="text-slate-200">{d.last_seen_at ? relative(d.last_seen_at)
+                        : d.seconds_since_seen != null ? `${d.seconds_since_seen}s ago (via door)` : 'Never'}</dd></div>
                     <div><dt className="text-slate-500">Address</dt>
                       <dd className="mono text-slate-200">{d.ip_address ?? '—'}</dd></div>
                     <div><dt className="text-slate-500">Device ID</dt>

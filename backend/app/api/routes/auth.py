@@ -182,3 +182,47 @@ def me(user: User = Depends(get_current_user)):
 def my_access_setup(user: User = Depends(get_current_user)):
     """What this person still needs before a lab door will open for them."""
     return enrolment.status(user)
+
+
+# ------------------------------------------------------- personal door QR ---
+# A card that lives in a QR code (e.g. in the phone's Wallet). Shown once:
+# only its hash is stored. Same rules as an RFID card at the door.
+@router.post("/me/door-qr")
+def create_my_door_qr(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    import base64
+    from app.services.access import issue_personal_qr
+    from app.services.qr import render_qr_png
+    if not user.auth_subject:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Your door identity is not set up yet - ask lab staff to enrol you first.")
+    token = issue_personal_qr(db, user)
+    db.add(AuditLog(actor_user_id=user.id, action="PERSONAL_QR_ISSUED",
+                    entity_type="user", entity_id=str(user.id), detail={}))
+    db.commit()
+    png = render_qr_png(token)
+    return {"payload": token,
+            "png_base64": base64.b64encode(png).decode() if png else None,
+            "message": "Any earlier door QR of yours no longer works."}
+
+
+@router.get("/me/door-qr")
+def my_door_qr_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.models import PersonalQrCredential
+    cred = db.scalar(select(PersonalQrCredential).where(
+        PersonalQrCredential.user_id == user.id, PersonalQrCredential.revoked_at.is_(None)))
+    return {"active": cred is not None, "issued_at": cred.issued_at if cred else None}
+
+
+@router.delete("/me/door-qr")
+def revoke_my_door_qr(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from app.models import PersonalQrCredential
+    now = datetime.now(timezone.utc)
+    n = 0
+    for c in db.scalars(select(PersonalQrCredential).where(
+            PersonalQrCredential.user_id == user.id, PersonalQrCredential.revoked_at.is_(None))).all():
+        c.revoked_at = now
+        n += 1
+    db.add(AuditLog(actor_user_id=user.id, action="PERSONAL_QR_REVOKED",
+                    entity_type="user", entity_id=str(user.id), detail={"revoked": n}))
+    db.commit()
+    return {"revoked": n}

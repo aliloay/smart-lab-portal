@@ -10,7 +10,19 @@ RETURN (scan-driven)
      waits for it to close, then POST /reusable/complete; the item becomes
      AVAILABLE (transaction source BIN).
 
-CHECKOUT (portal-driven, selected item + tag confirmation)
+CHECKOUT BY WEIGHT (portal-driven, the bin holds one kind of item)
+  person picks the item in the portal -> OPEN_LID -> the node weighs before,
+  opens, waits for the weight to settle, closes, weighs after, then
+  POST /reusable/checkout-complete. A drop of about one item = CHECKED_OUT
+  to that person; no drop = nothing was taken (the request fails). The
+  person is notified either way, staff are told who took what.
+
+UNEXPLAINED WEIGHT CHANGES
+  The node reports a settled weight change while no request is running:
+  POST /reusable/weight-change. Staff get an alert with the likely number
+  of items (change / the items' learnt mass).
+
+CHECKOUT (portal-driven, selected item + tag confirmation - older nodes)
   person, inside the lab: POST /reusable/checkout {asset_id}
   -> a device command OPEN_LID for the lab's bin node (fetched while idle)
   -> the person takes the item and scans its tag at the bin
@@ -41,7 +53,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, get_current_user, require_device, require_staff
 from app.db.session import get_db
-from app.models import (AccessSession, Alert, AlertSeverity, Asset, AssetStatus,
+from app.models import (AccessSession, Alert, AlertSeverity, Asset, AssetStatus, Booking, BookingStatus,
                         AssetTransaction, AuditLog, Device, DeviceCommand, DeviceType,
                         EventType, Role, User)
 from app.services import commands as cmds
@@ -119,6 +131,41 @@ def _inside(db: Session, user_id: int, lab_id: int) -> Optional[AccessSession]:
         AccessSession.ended_at.is_(None)))
 
 
+def may_take(db: Session, user: User, lab_id: int) -> tuple[bool, Optional[int]]:
+    """(allowed, booking_id): staff always; a person inside the lab; or a person
+    in their confirmed booking's window whom the door already let in."""
+    session = _inside(db, user.id, lab_id)
+    if session is not None:
+        return True, session.booking_id
+    now = datetime.now(timezone.utc)
+    b = db.scalar(select(Booking).where(
+        Booking.user_id == user.id, Booking.lab_id == lab_id,
+        Booking.status == BookingStatus.CONFIRMED, Booking.start_time <= now,
+        Booking.end_time > now, Booking.first_entry_at.is_not(None)))
+    if b is not None:
+        return True, b.id
+    return _staff(user), None
+
+
+def kind_name(name: str) -> str:
+    """'Breadboard 2' -> 'Breadboard': identical items differ only by their number.
+    A take-out is 'a breadboard'; which one is known when its tag is scanned back."""
+    import re
+    return re.sub(r"\s*#?\d+$", "", name).strip() or name
+
+
+def _swapped_for(db: Session, a: Asset) -> Optional[Asset]:
+    """The bin holds interchangeable items and a checkout is confirmed by weight,
+    so the item picked in the portal may not be the one physically taken. A tag
+    scanned for return that is recorded as IN the bin, while another bin item
+    of this lab is recorded as OUT, stands for that checked-out item (oldest first)."""
+    if a.status != AssetStatus.AVAILABLE or not a.bin_item:
+        return None
+    return db.scalar(select(Asset).where(
+        Asset.lab_id == a.lab_id, Asset.bin_item.is_(True), Asset.id != a.id,
+        Asset.status == AssetStatus.CHECKED_OUT).order_by(Asset.checked_out_at))
+
+
 def _active_checkout(db: Session, device_id: int) -> Optional[DeviceCommand]:
     cmds.expire_stale(db)
     return db.scalar(select(DeviceCommand).where(
@@ -141,10 +188,10 @@ def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT, f"The item is {a.status.value.lower()}.")
     if not a.nfc_uid:
         raise HTTPException(status.HTTP_409_CONFLICT, "This item has no NFC tag - ask lab staff.")
-    session = _inside(db, user.id, a.lab_id)
-    if session is None and not _staff(user):
+    allowed, booking_id = may_take(db, user, a.lab_id)
+    if not allowed:
         raise HTTPException(status.HTTP_409_CONFLICT,
-                            "You can take items only while you are inside the lab.")
+                            "You can take items while you are inside the lab (or in your booking, after the door let you in).")
     node = bin_node(db, a.lab_id)
     if node is None or not is_fresh(node, datetime.now(timezone.utc)):
         raise HTTPException(status.HTTP_409_CONFLICT, "The smart bin is offline.")
@@ -154,8 +201,9 @@ def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
     now = datetime.now(timezone.utc)
     c = DeviceCommand(device_id=node.id, command=OPEN_LID, status="PENDING",
                       args={"intent": "CHECKOUT", "asset_id": a.id, "asset_tag": a.asset_tag,
+                            "asset_name": kind_name(a.name),
                             "user_id": user.id,
-                            "booking_id": session.booking_id if session else None},
+                            "booking_id": booking_id},
                       target_user_id=user.id, requested_by_id=user.id,
                       created_at=now, expires_at=now + cmds.PICKUP_WINDOW)
     db.add(c)
@@ -166,7 +214,7 @@ def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
     cmds.publish_later(db, c)
     db.commit()
     cmds.flush_published(db)
-    return {**cmds.out(c), "message": f"The bin opens - take {a.asset_tag} and scan its tag."}
+    return {**cmds.out(c), "message": f"The bin opens - take one {kind_name(a.name).lower()}; the bin weighs to confirm."}
 
 
 @router.get("/items")
@@ -194,7 +242,7 @@ def bin_items(lab_id: int, db: Session = Depends(get_db),
                     **({"nfc_uid": a.nfc_uid} if _staff(user) else {})})
     return {"bin_online": bool(node and is_fresh(node, datetime.now(timezone.utc))),
             "bin_device": node.device_uid if node else None,
-            "inside": _inside(db, user.id, lab_id) is not None, "items": out}
+            "inside": may_take(db, user, lab_id)[0], "items": out}
 
 
 # --------------------------------------------------------------- staff ---
@@ -310,9 +358,9 @@ def scan(req: ScanReport, db: Session = Depends(get_db),
                 "lcd2": "CHECK WEIGHT" if verdict == "MISMATCH" else "CHECKED OUT",
                 "weight_check": verdict}
 
-    if a.status == AssetStatus.CHECKED_OUT:
+    if a.status == AssetStatus.CHECKED_OUT or _swapped_for(db, a) is not None:
         db.commit()
-        return {"action": "OPEN_FOR_RETURN", "asset_tag": a.asset_tag,
+        return {"action": "OPEN_FOR_RETURN", "asset_tag": a.asset_tag, "asset_name": a.name,
                 "lcd1": a.asset_tag[:16], "lcd2": "RETURNING..."}
     db.commit()
     return {"action": "NOT_ALLOWED", "lcd1": a.asset_tag[:16],
@@ -340,8 +388,20 @@ def complete_return(req: CompleteReport, db: Session = Depends(get_db),
     a = db.scalar(select(Asset).where(Asset.nfc_uid == norm_uid(req.nfc_uid)))
     if device is None or a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown device or item")
+    scanned = returned = a
     if a.status != AssetStatus.CHECKED_OUT:
-        return {"recorded": False, "lcd1": a.asset_tag[:16], "lcd2": "ALREADY IN"}
+        a = _swapped_for(db, scanned)
+        if a is None:
+            return {"recorded": False, "lcd1": scanned.asset_tag[:16], "lcd2": "ALREADY IN"}
+        # The person had the scanned one; the record said the other: the open
+        # checkout is closed by this return, and staff are told about the swap.
+        note = (f"{scanned.name} was returned while {a.name} was recorded as taken - "
+                f"the item taken was {scanned.name}. {a.name}'s checkout is closed by this return.")
+        db.add(AuditLog(actor_user_id=None, action="BIN_ITEM_SWAPPED", entity_type="asset",
+                        entity_id=str(a.id), detail={"recorded": a.id, "returned": scanned.id}))
+        notify(db, staff_ids(db), "BIN_RETURN", f"Smart bin: {scanned.name} returned for {a.name}",
+               body=note, link="/admin/equipment?tab=reusables")
+    returned = scanned
     if not req.lid_opened:
         return {"recorded": False, "lcd1": "LID DID NOT OPEN", "lcd2": "CALL STAFF"}
     holder = a.holder_id
@@ -354,11 +414,128 @@ def complete_return(req: CompleteReport, db: Session = Depends(get_db),
                   if req.mass_before_g is not None and req.mass_after_g is not None else None)
         verdict = _weight(db, a, device, tx, put_in, "RETURN")
     log_event(db, EventType.ASSET_RETURN, lab_id=a.lab_id, user_id=holder,
-              message=f"{a.name} returned to the smart bin"
+              message=f"{returned.name} returned to the smart bin"
                       + ("" if req.lid_closed else " - lid did not close")
                       + (" - weight does not match" if verdict == "MISMATCH" else ""))
+    if holder:
+        notify(db, [holder], "BIN_RETURN", f"Returned: {returned.name}",
+               body=f"{returned.name} is back in the smart bin. Thank you."
+                    + ("" if verdict != "MISMATCH" else " The weight did not match - staff will check."),
+               link=f"/labs/{a.lab_id}")
+    who = db.get(User, holder) if holder else None
+    notify(db, staff_ids(db), "BIN_RETURN", f"{returned.name} returned",
+           body=f"{who.full_name if who else 'Someone'} returned {returned.name} ({returned.asset_tag})"
+                + (f", +{put_in:.1f} g" if holder and put_in is not None else ""),
+           link="/admin/equipment?tab=reusables", exclude=holder)
     db.commit()
     return {"recorded": True, "lcd1": a.asset_tag[:16],
             "lcd2": "CLOSE THE LID" if not req.lid_closed
             else "CHECK WEIGHT" if verdict == "MISMATCH" else "RETURN RECORDED",
             "weight_check": verdict}
+
+
+# ----------------------------------------------- checkout by weight ---
+class CheckoutCompleteReport(BaseModel):
+    device_uid: str = Field(max_length=64)
+    command_id: int
+    lid_opened: bool
+    lid_closed: bool
+    mass_before_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
+    mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
+
+
+@router.post("/checkout-complete", tags=["devices"])
+def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db),
+                      identity: str = Depends(require_device)):
+    """After OPEN_LID for a checkout: the bin weighed before and after.
+    About one item less = the selected item is CHECKED_OUT to the person."""
+    device_scope(identity, req.device_uid)
+    device = get_device(db, req.device_uid)
+    c = db.get(DeviceCommand, req.command_id)
+    if device is None or c is None or c.device_id != device.id or c.command != OPEN_LID:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown device or request")
+    args = c.args or {}
+    a = db.get(Asset, args.get("asset_id"))
+    user_id = args.get("user_id")
+    if a is None or user_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown item")
+    now = datetime.now(timezone.utc)
+    taken = (req.mass_before_g - req.mass_after_g
+             if req.mass_before_g is not None and req.mass_after_g is not None else None)
+
+    def fail(msg: str, lcd2: str):
+        c.status, c.completed_at, c.message = "FAILED", now, msg
+        cmds.publish_later(db, c)
+        notify(db, [user_id], "BIN_CHECKOUT", f"Not taken: {a.name}", body=msg,
+               link=f"/labs/{a.lab_id}", severity="warning")
+        db.commit()
+        cmds.flush_published(db)
+        return {"recorded": False, "lcd1": a.name[:16], "lcd2": lcd2}
+
+    if c.status not in cmds.ACTIVE:
+        return {"recorded": False, "lcd1": a.name[:16], "lcd2": "REQUEST EXPIRED"}
+    if not req.lid_opened:
+        return fail("The bin lid did not open.", "LID DID NOT OPEN")
+    if a.status != AssetStatus.AVAILABLE:
+        return fail(f"{a.name} is {a.status.value.lower()}.", "NOT AVAILABLE")
+    if taken is not None and taken < MIN_ITEM_G:
+        return fail("The bin's weight did not drop - nothing was taken.", "NOTHING TAKEN")
+
+    a.status, a.holder_id, a.checked_out_at = AssetStatus.CHECKED_OUT, user_id, now
+    tx = _tx(db, a, user_id, "CHECKOUT", device, args.get("booking_id"))
+    verdict = _weight(db, a, device, tx, taken, "CHECKOUT")
+    who = db.get(User, user_id)
+    log_event(db, EventType.ASSET_CHECKOUT, lab_id=a.lab_id, user_id=user_id,
+              message=f"{a.name} taken from the smart bin"
+                      + (" - weight does not match" if verdict == "MISMATCH" else ""))
+    c.status, c.step, c.completed_at = "DONE", "WEIGHT_CONFIRMED", now
+    kind = kind_name(a.name)
+    c.message = f"{kind} taken" + (f" (-{taken:.1f} g)" if taken is not None else "")
+    cmds.publish_later(db, c)
+    notify(db, [user_id], "BIN_CHECKOUT", f"Taken: {kind}",
+           body=f"You took a {kind.lower()} from the smart bin. Scan its tag at the bin to return it.",
+           link=f"/labs/{a.lab_id}")
+    notify(db, staff_ids(db), "BIN_CHECKOUT", f"{kind} taken",
+           body=f"{who.full_name if who else 'Someone'} took a {kind.lower()} from the smart bin"
+                + (f", -{taken:.1f} g" if taken is not None else ""),
+           link="/admin/equipment?tab=reusables", exclude=user_id)
+    db.commit()
+    cmds.flush_published(db)
+    return {"recorded": True, "lcd1": kind[:16],
+            "lcd2": "CHECK WEIGHT" if verdict == "MISMATCH" else "ENJOY!",
+            "weight_check": verdict}
+
+
+class WeightChangeReport(BaseModel):
+    device_uid: str = Field(max_length=64)
+    delta_g: float = Field(ge=-10000, le=10000)
+    mass_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
+
+
+@router.post("/weight-change", tags=["devices"])
+def weight_change(req: WeightChangeReport, db: Session = Depends(get_db),
+                  identity: str = Depends(require_device)):
+    """A settled weight change with no request running: nobody explained it."""
+    device_scope(identity, req.device_uid)
+    device = get_device(db, req.device_uid)
+    if device is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown device")
+    if abs(req.delta_g) < MIN_ITEM_G:
+        return {"alerted": False}
+    masses = [m for m in db.scalars(select(Asset.unit_mass_g).where(
+        Asset.lab_id == device.lab_id, Asset.bin_item.is_(True), Asset.unit_mass_g.is_not(None))).all()]
+    guess = ""
+    if masses:
+        unit = sum(masses) / len(masses)
+        n = round(abs(req.delta_g) / unit)
+        if n >= 1:
+            guess = f" - about {n} item{'s' if n > 1 else ''} ({unit:.0f} g each)"
+    what = "removed" if req.delta_g < 0 else "added"
+    title = f"Smart bin: {abs(req.delta_g):.1f} g {what} without a request"
+    detail = f"The bin's weight changed by {req.delta_g:+.1f} g with no checkout or return{guess}."
+    db.add(Alert(lab_id=device.lab_id, device_id=device.id, severity=AlertSeverity.WARNING,
+                 title=title[:128], detail=detail))
+    notify(db, staff_ids(db), "SECURITY_EVENT", title[:160], body=detail,
+           link="/admin/equipment?tab=reusables", severity="warning")
+    db.commit()
+    return {"alerted": True, "guess": guess.strip(" -")}

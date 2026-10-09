@@ -8,21 +8,17 @@
 static constexpr uint8_t NO_PIN = 255;   // IRQ and RESET not wired (as on the door)
 
 bool NFCManager::begin() {
-  LOG("NFC", "Looking for the PN532 on I2C 0x%02X...", PN532_ADDR);
-  if (!i2cPresent(PN532_ADDR)) {
-    LOG("ERROR", "PN532 not found at 0x%02X: check S1=ON S2=OFF (I2C mode), VCC, GND, SDA, SCL",
-        PN532_ADDR);
-    return false;
-  }
-  _pn = new Adafruit_PN532(NO_PIN, NO_PIN, &Wire);
+  LOG("NFC", "Looking for the PN532 on I2C 0x%02X (SDA %u, SCL %u)...", PN532_ADDR, PIN_NFC_SDA, PIN_NFC_SCL);
+  Wire1.begin(PIN_NFC_SDA, PIN_NFC_SCL, 100000);
+  _pn = new Adafruit_PN532(NO_PIN, NO_PIN, &Wire1);
   _pn->begin();
-  _fw = _pn->getFirmwareVersion();
+  for (int i = 0; i < 3 && !_fw; i++) { _fw = _pn->getFirmwareVersion(); if (!_fw) delay(200); }
   if (!_fw) {
-    LOG("ERROR", "A device answers at 0x%02X but gives no PN532 firmware version", PN532_ADDR);
+    LOG("ERROR", "PN532 gives no firmware version on 0x%02X: check S1=ON S2=OFF (I2C mode), VCC 3.3 V, GND, SDA GPIO %u, SCL GPIO %u",
+        PN532_ADDR, PIN_NFC_SDA, PIN_NFC_SCL);
     return false;
   }
   _pn->SAMConfig();
-  _pn->setPassiveActivationRetries(0x01);     // one try per look: the loop stays responsive
   _ok = true;
   LOG("NFC", "PN532 detected: chip PN5%02X, firmware %u.%u", (unsigned)((_fw >> 24) & 0xFF),
       (unsigned)((_fw >> 16) & 0xFF), (unsigned)((_fw >> 8) & 0xFF));
@@ -35,10 +31,13 @@ bool NFCManager::poll(NfcScan *out) {
   if (now - _lastPollMs < NFC_POLL_INTERVAL_MS) return false;
   _lastPollMs = now;
   uint8_t uid[10], len = 0;
+  // Exactly the door's read (proven; read Breadboard 1-3 here at 02:20).
   if (!_pn->readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &len, NFC_READ_TIMEOUT_MS)) return false;
+  now = millis();
   String hex;
   for (uint8_t i = 0; i < len; i++) { if (uid[i] < 0x10) hex += '0'; hex += String(uid[i], HEX); }
   hex.toUpperCase();
+  // Still lying on the reader = the same scan. Lifted for NFC_DUPLICATE_MS = a new scan.
   if (hex == _lastUid && now - _lastUidMs < NFC_DUPLICATE_MS) { _lastUidMs = now; return false; }
   _lastUid = hex;
   _lastUidMs = now;

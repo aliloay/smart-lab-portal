@@ -1,5 +1,5 @@
 /**
- * Guided booking: laboratory, date, time, purpose, review, confirmed.
+ * Guided booking: laboratory, date, time, purpose, equipment, review, confirmed.
  *
  * Availability comes from /labs/{id}/availability, which returns every
  * reserved interval - everyone's, without identities - so a taken hour looks
@@ -11,18 +11,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft, ArrowRight, Calendar, Check, CircuitBoard, Clock, FileText, FlaskConical,
+  ArrowLeft, ArrowRight, Boxes, Calendar, Check, CircuitBoard, Clock, FileText, FlaskConical,
   MapPin, QrCode, Search, ShieldCheck, UserRound,
 } from 'lucide-react'
-import { Booking, BookingSlot, Lab, User, api } from '../lib/api'
+import { Booking, BookingEquipmentChoice, BookingSlot, EquipmentOptions, Lab, User, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
 import { dateStr, localDayBounds, pad2, todayStr } from '../lib/time'
 import { Chip, ErrorBanner, Notice, PageHeader, Skeleton, SuccessMark } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
+import BookingEquipment, { NO_EQUIPMENT, equipmentSummary } from '../components/BookingEquipment'
 import { GridField } from '../components/visual'
 
-const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Review', 'Confirmed'] as const
+const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Equipment', 'Review', 'Confirmed'] as const
 const DAY_START = 8
 const DAY_END = 22
 const MAX_HOURS = 8
@@ -52,6 +53,8 @@ export default function Book() {
   const [exStart, setExStart] = useState<Clock12>(() => nowClock12(0))
   const [exEnd, setExEnd] = useState<Clock12>(() => nowClock12(60))
   const [reason, setReason] = useState('')
+  const [equipment, setEquipment] = useState<BookingEquipmentChoice>(NO_EQUIPMENT)
+  const [equipOpts, setEquipOpts] = useState<EquipmentOptions | null>(null)
   const [forUser, setForUser] = useState<string>('')
   const [slots, setSlots] = useState<BookingSlot[] | null>(null)
   const [fortnight, setFortnight] = useState<BookingSlot[]>([])
@@ -169,7 +172,7 @@ export default function Book() {
     : win.end <= new Date() ? 'That time has already passed.' : ''
 
   const canNext = [labId !== null, !!date, win !== null && !exactProblem,
-                   true, true][step] ?? false
+                   true, true, true][step] ?? false
 
   async function submit() {
     if (!win || !labId) return
@@ -181,9 +184,10 @@ export default function Book() {
         end_time: win.end.toISOString(),
         reason: reason.trim(),
         user_id: forUser ? Number(forUser) : undefined,
+        equipment,
       })
       setDone(b)
-      setStep(5)
+      setStep(6)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Booking failed')
       // Most likely someone else just took the slot: show the fresh picture.
@@ -221,7 +225,7 @@ export default function Book() {
 
   // ------------------------------------------------------------ confirmed
   if (done) return <Confirmed b={done} onAnother={() => {
-    setDone(null); setStep(0); setStartHour(null); setEndHour(null); setReason('')
+    setDone(null); setStep(0); setStartHour(null); setEndHour(null); setReason(''); setEquipment(NO_EQUIPMENT)
   }} onQr={() => nav(`/bookings/${done.id}/qr`)} />
 
   return (
@@ -435,6 +439,15 @@ export default function Book() {
 
               {step === 4 && lab && win && (
                 <div>
+                  <StepTitle icon={<Boxes size={16} />} title="What will you need?"
+                    sub="Choose None in any group to skip it." />
+                  <BookingEquipment labId={lab.id} start={win.start} end={win.end}
+                                    value={equipment} onChange={setEquipment} onOptions={setEquipOpts} />
+                </div>
+              )}
+
+              {step === 5 && lab && win && (
+                <div>
                   <StepTitle icon={<ShieldCheck size={16} />} title="Review and confirm" />
                   <dl className="well p-4 space-y-3 text-[13.5px]">
                     <Row k="Laboratory" v={<>{lab.name} <span className="mono text-slate-400">· {lab.code}</span></>} />
@@ -443,6 +456,10 @@ export default function Book() {
                       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} />
                     <Row k="Time" v={<span className="tnum">{fmtWin(win)}</span>} />
                     <Row k="Purpose" v={reason || '—'} />
+                    <Row k="Equipment" v={(() => {
+                      const lines = equipmentSummary(equipment, equipOpts)
+                      return lines.length ? lines.join(', ') : 'None'
+                    })()} />
                     {forUser && <Row k="Booked for" v={people.find(p => String(p.id) === forUser)?.full_name} />}
                     <Row k="Door access" v={<span className="inline-flex items-center gap-2">
                       <QrCode size={14} className="text-accent-300" />QR code, then fingerprint or face</span>} />
@@ -483,7 +500,7 @@ export default function Book() {
         <button className="btn-quiet" disabled={step === 0} onClick={() => { setError(''); setStep(s => Math.max(0, s - 1)) }}>
           <ArrowLeft size={15} />Back
         </button>
-        {step < 4 ? (
+        {step < 5 ? (
           <button className="btn-primary" disabled={!canNext} onClick={() => { setError(''); setStep(s => s + 1) }}>
             Continue<ArrowRight size={15} />
           </button>
@@ -616,7 +633,7 @@ function Confirmed({ b, onAnother, onQr }: { b: Booking; onAnother: () => void; 
   const pending = b.status === 'PENDING'
   return (
     <div className="max-w-xl mx-auto">
-      <Stepper step={5} />
+      <Stepper step={6} />
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                   className="mt-6 card overflow-hidden text-center">
         <div className="relative h-28">

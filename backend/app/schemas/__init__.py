@@ -165,6 +165,9 @@ class DeviceOut(ORM):
     # ONLINE / OFFLINE / NO_DATA - NO_DATA means it has never reported.
     state: str = "NO_DATA"
     seconds_since_seen: Optional[int] = None
+    # Why the state is what it is when it is not the device's own heartbeat
+    # (e.g. "reported by the door controller", "no picture from the camera").
+    state_note: Optional[str] = None
 
 
 class LabIssueBrief(BaseModel):
@@ -201,6 +204,29 @@ class LabStatus(BaseModel):
 
 
 # --- bookings --------------------------------------------------------------
+class ConsumableChoice(BaseModel):
+    inventory_bin_id: int
+    quantity: int = Field(ge=1, le=10000)
+
+
+class BookingEquipment(BaseModel):
+    """Chosen in the booking step 'Equipment'. Empty everywhere = none needed."""
+    bin_asset_ids: list[int] = Field(default_factory=list, max_length=50)
+    consumables: list[ConsumableChoice] = Field(default_factory=list, max_length=50)
+    # Each "PC" or "ASSET:<id>" (a robot); several at once (robot + PC). Empty = none.
+    workstations: list[str] = Field(default_factory=list, max_length=10)
+    # Older clients: one choice, "NONE" / "PC" / "ASSET:<id>".
+    workstation: str = Field(default="NONE", max_length=32)
+
+
+class BookingItemOut(ORM):
+    kind: str
+    asset_id: Optional[int] = None
+    inventory_bin_id: Optional[int] = None
+    quantity: Optional[int] = None
+    label: str
+
+
 class BookingCreate(BaseModel):
     lab_id: int
     start_time: datetime
@@ -208,6 +234,7 @@ class BookingCreate(BaseModel):
     reason: str = Field(default="", max_length=500)
     # Staff only: book on behalf of someone else.
     user_id: Optional[int] = None
+    equipment: Optional[BookingEquipment] = None
 
 
 class BookingOut(ORM):
@@ -229,6 +256,7 @@ class BookingOut(ORM):
     lab_name: Optional[str] = None
     lab_code: Optional[str] = None
     lab_category: Optional[str] = None
+    equipment: list[BookingItemOut] = []
     user_name: Optional[str] = None
     user_email: Optional[str] = None
 

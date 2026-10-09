@@ -232,3 +232,18 @@ def test_all_labs_environment_in_one_request(client, db, alice, lab, env_node, d
     assert [r["lab"]["code"] for r in rows] == [lab.code]
     one = client.get(f"/api/labs/{lab.id}/environment", headers=h).json()
     assert rows[0]["env"]["metrics"]["temperature"]["value"] == one["metrics"]["temperature"]["value"] == 24.5
+
+
+def test_no_full_screen_alarm_from_a_node_that_stopped_reporting(client, db, alice, lab, env_node,
+                                                                  device_headers):
+    """A flame reading from a node that has since gone silent is not a fire now:
+    no page-load alarm; the alert stays open for staff on the Alerts page."""
+    from datetime import timedelta
+    from app.models import Alert
+    _post(client, device_headers, lab, flame=1)
+    h = auth_headers(client, alice.email)
+    assert len(client.get("/api/labs/hazards/active", headers=h).json()) == 1
+    env_node.last_seen_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    db.commit()
+    assert client.get("/api/labs/hazards/active", headers=h).json() == []
+    assert db.query(Alert).filter(Alert.is_resolved.is_(False)).count() >= 1

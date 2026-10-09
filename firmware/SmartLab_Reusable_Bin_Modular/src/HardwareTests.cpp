@@ -215,7 +215,7 @@ void HardwareTests::update() {
   }
 #endif
 #ifdef ENABLE_LCD_TEST
-  if (_p.lcd.available() && now - _lastLcdMs >= 500) {
+  if (_p.lcd.available() && now - _lastLcdMs >= 500 && !(_nfcShown && (int32_t)(now - _nfcShownMs) < (int32_t)NFC_LCD_HOLD_MS)) {
     _lastLcdMs = now;
     char l1[17], l2[17];
   #ifdef ENABLE_LOAD_CELL_TEST
@@ -239,7 +239,90 @@ void HardwareTests::update() {
 #endif
 #ifdef ENABLE_NFC_TEST
   NfcScan s;
-  _p.nfc.poll(&s);                        // logs UID, length and time
+  if (_p.nfc.poll(&s)) {                  // logs UID, length and time
+    const char *name = nullptr;
+    for (const KnownTag &k : TEST_KNOWN_TAGS) if (s.uid == k.uid) name = k.name;
+    // Line 1: the item, line 2: what the bin does with it.
+    if (name) _p.lcd.show(name, "BIN OPENING!");
+    else _p.lcd.show("UNKNOWN TAG", s.uid.substring(0, 16));
+    _nfcShown = true;
+    _nfcShownMs = millis();
+  #ifdef ENABLE_SERVO_TEST
+    // A known item opens the lid (saved angles only), then it closes by itself.
+    if (name) {
+      _lastName = name;
+      if (!_p.servo.calibrated()) {
+        LOG("SERVO", "Lid not moved: angles not saved yet ('servo set idle <n>', 'servo set open <n>')");
+        _p.lcd.show(name, "LID NOT SET UP");
+      } else if (_p.servo.open()) {
+        _lidOpenedByScan = true;
+        _lidOpenedMs = _scanMs = millis();
+        _itemSeenMs = 0;
+        _settledMs = 0;
+        _lidSeenOpen = false;
+        _weightBeforeG = _p.scale.grams();            // soft zero for this opening (memory only, no flash write)
+        _nfcShownMs = millis() + LID_MAX_OPEN_MS; // keep the item on the LCD while the lid is open
+        LOG("SERVO", "%s scanned: lid opening (weight before %.1f g)", name, _weightBeforeG);
+      }
+    }
+  #endif
+  }
+#endif
+#ifdef ENABLE_SERVO_TEST
+  // No "stable" needed: the servo shakes the bin, so the scale may never settle
+  // while the lid is open. A change of LID_ITEM_MIN_CHANGE_G lasting LID_CHANGE_HOLD_MS counts.
+  bool changed = _lidOpenedByScan && !_itemSeenMs && !isnan(_weightBeforeG) &&
+                 fabsf(_p.scale.grams() - _weightBeforeG) >= LID_ITEM_MIN_CHANGE_G;
+  if (!changed) _changeSinceMs = 0;
+  else if (!_changeSinceMs) _changeSinceMs = millis();
+  if (changed && millis() - _changeSinceMs >= LID_CHANGE_HOLD_MS) {
+    _itemSeenMs = millis();                       // item going in (or out); wait for it to settle
+    _settledMs = 0;
+    _lastDeltaG = NAN;
+    LOG("SERVO", "Weight changing: waiting for it to settle");
+  }
+  // While the weight still moves (the scale averages its last readings), show the
+  // amount live; once it has not moved for LID_SETTLE_MS, the hand time starts.
+  if (_lidOpenedByScan && _itemSeenMs && !_settledMs) {
+    float d = _p.scale.grams() - _weightBeforeG;
+    if (isnan(_lastDeltaG) || fabsf(d - _lastDeltaG) >= LID_SETTLE_BAND_G) {
+      _lastDeltaG = d;
+      _lastMoveMs = millis();
+      char l2[17];
+      snprintf(l2, sizeof l2, "%s %+.1f g", d > 0 ? "IN" : "OUT", d);
+      _p.lcd.show(_lastName, l2);
+    } else if (millis() - _lastMoveMs >= LID_SETTLE_MS) {
+      _settledMs = millis();
+      LOG("SERVO", "Weight settled at %+.1f g: closing in %lu ms", _lastDeltaG, (unsigned long)LID_HAND_CLEAR_MS);
+    }
+  }
+  // The 5 s start when the lid sensor sees OPEN (the servo needs time to get there),
+  // not at the scan. Without a lid sensor reading, they run from the scan.
+  if (_lidOpenedByScan && !_lidSeenOpen && _p.lid.state() == LidState::LID_OPEN) {
+    _lidSeenOpen = true;
+    _lidOpenedMs = millis();
+    LOG("SERVO", "Lid sensor: OPEN after %lu ms", (unsigned long)(millis() - _scanMs));
+  }
+  bool handClear = _settledMs && millis() - _settledMs >= LID_HAND_CLEAR_MS;
+  // Safety: never wait for ever - no change for 5 s, or a weight that never settles within 5 s.
+  bool tooLong = !_itemSeenMs ? millis() - _lidOpenedMs >= LID_MAX_OPEN_MS
+                              : !_settledMs && millis() - _itemSeenMs >= LID_MAX_OPEN_MS;
+  bool neverOpened = _p.lid.fitted() && !_lidSeenOpen && !_itemSeenMs;
+  if (_lidOpenedByScan && (handClear || tooLong)) {
+    if (neverOpened) {
+      LOG("SERVO", "Lid sensor never showed OPEN in %lu ms: closing", (unsigned long)LID_MAX_OPEN_MS);
+      _p.lcd.show("LID DID NOT OPEN", "Check servo");
+    } else if (!handClear) LOG("SERVO", "No weight change in %lu ms with the lid open: closing", (unsigned long)LID_MAX_OPEN_MS);
+    _lidOpenedByScan = false;
+    _p.servo.release();
+    if (_itemSeenMs) {                            // keep the amount on screen while it closes
+      char l2[17];
+      snprintf(l2, sizeof l2, "CLOSING %+.1fg", _lastDeltaG);
+      _p.lcd.show(_lastName, l2);
+    } else _p.lcd.show(_lastName, "BIN CLOSING");
+    _nfcShownMs = millis();                       // shown for NFC_LCD_HOLD_MS, then the weight again
+    LOG("SERVO", "Lid closing");
+  }
 #endif
 #ifdef ENABLE_REED_TEST
   if (now - _lastReedMs >= 1000) { _lastReedMs = now; LOG("REED", "%s", lidStateName(_p.lid.state())); }

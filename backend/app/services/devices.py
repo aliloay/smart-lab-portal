@@ -106,7 +106,51 @@ def device_out(d: Device, lab_code: Optional[str] = None,
                               if d.last_seen_at else None)
     out.lab_code = lab_code
     out.has_own_key = d.key_hash is not None
+    _derived_state(d, out, now)
     return out
+
+
+_face_probe: dict = {"at": 0.0, "ok": None}
+
+
+def _face_server_up() -> Optional[bool]:
+    """The face server never reports; ask it directly (cached 15 s, 1 s timeout)."""
+    import time
+    import httpx
+    from app.core.config import settings
+    if time.monotonic() - _face_probe["at"] < 15:
+        return _face_probe["ok"]
+    try:
+        ok = httpx.get(settings.FACE_SERVER_URL.rstrip("/") + "/users", timeout=1.0).status_code < 500
+    except Exception:
+        ok = False
+    _face_probe.update(at=time.monotonic(), ok=ok)
+    return ok
+
+
+def _derived_state(d: Device, out, now: datetime) -> None:
+    """Devices that do not report for themselves get their state from who does."""
+    from sqlalchemy.orm import object_session
+    from app.models import DeviceType
+    comps = d.component_state or {}
+    if d.device_type == DeviceType.SECURITY_CAMERA and out.state == "ONLINE" and comps.get("source_ok") is False:
+        # The heartbeat is the laptop's camera service; it gets no picture.
+        out.state, out.is_online = "OFFLINE", False
+        out.state_note = "Camera service running, but no picture from the camera"
+    elif d.device_type == DeviceType.CAMERA and out.state != "ONLINE":
+        db = object_session(d)
+        master = db and db.scalar(select(Device).where(
+            Device.lab_id == d.lab_id, Device.device_type == DeviceType.MASTER_CONTROLLER))
+        cam = (master.component_state or {}).get("camera") if master else None
+        if master is not None and is_fresh(master, now) and cam is not None:
+            out.state, out.is_online = ("ONLINE", True) if cam else ("OFFLINE", False)
+            out.seconds_since_seen = int((now - _utc(master.last_seen_at)).total_seconds())
+            out.state_note = "Reported by the door controller"
+    elif d.device_type == DeviceType.FACE_SERVER and out.state != "ONLINE":
+        up = _face_server_up()
+        if up is not None:
+            out.state, out.is_online = ("ONLINE", True) if up else ("OFFLINE", False)
+            out.state_note = "Checked by the portal" if up else "Not answering on port 5000"
 
 
 def resolve_offline_alerts(db: Session, device: Device) -> None:

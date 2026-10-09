@@ -25,5 +25,10 @@ class HardwareTests {
  private:
   Parts _p;
   SerialCommands &_cmd;
-  uint32_t _lastScaleMs = 0, _lastLcdMs = 0, _lastReedMs = 0, _lastRfidMs = 0;
+  uint32_t _lastScaleMs = 0, _lastLcdMs = 0, _lastReedMs = 0, _lastRfidMs = 0, _nfcShownMs = 0;
+  bool _nfcShown = false, _lidOpenedByScan = false;
+  uint32_t _lidOpenedMs = 0, _itemSeenMs = 0, _changeSinceMs = 0, _scanMs = 0, _settledMs = 0, _lastMoveMs = 0;
+  bool _lidSeenOpen = false;
+  float _weightBeforeG = NAN, _lastDeltaG = 0;
+  String _lastName;
 };

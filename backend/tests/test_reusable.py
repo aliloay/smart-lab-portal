@@ -235,3 +235,96 @@ def test_staff_set_the_mass(client, db, staff, alice, arduino):
     r = client.put(f"/api/reusable/assets/{arduino.id}/mass", headers=auth_headers(client, staff.email),
                    json={"unit_mass_g": 30})
     assert r.status_code == 200 and r.json()["unit_mass_g"] == 30
+
+
+# ------------------------------------------------ checkout by weight ---
+from app.models import DeviceCommand, Notification  # noqa: E402
+
+
+def _take(client, db, alice, arduino):
+    h = auth_headers(client, alice.email)
+    r = client.post("/api/reusable/checkout", headers=h, json={"asset_id": arduino.id})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _done(client, device_headers, cid, before, after, opened=True):
+    return client.post("/api/reusable/checkout-complete", headers=device_headers, json={
+        "device_uid": "REUSE_BIN_1", "command_id": cid, "lid_opened": opened, "lid_closed": True,
+        "mass_before_g": before, "mass_after_g": after}).json()
+
+
+def test_checkout_confirmed_by_the_weight_drop(client, db, alice, staff, lab, bin_node, arduino,
+                                               device_headers):
+    _inside(db, alice, lab)
+    cid = _take(client, db, alice, arduino)
+    r = _done(client, device_headers, cid, 105.9, 70.6)
+    assert r["recorded"] is True
+    db.expire_all()
+    a = db.get(Asset, arduino.id)
+    assert a.status == AssetStatus.CHECKED_OUT and a.holder_id == alice.id
+    assert db.get(DeviceCommand, cid).status == "DONE"
+    tx = db.query(AssetTransaction).one()
+    assert tx.action == "CHECKOUT" and tx.mass_delta_g == -35.3
+    mine = [n.title for n in db.query(Notification).filter_by(user_id=alice.id)]
+    assert "Taken: Arduino Uno" in mine
+    assert any(n.title == "Arduino Uno taken" for n in db.query(Notification).filter_by(user_id=staff.id))
+
+
+def test_no_weight_drop_means_nothing_was_taken(client, db, alice, lab, bin_node, arduino,
+                                                device_headers):
+    _inside(db, alice, lab)
+    cid = _take(client, db, alice, arduino)
+    r = _done(client, device_headers, cid, 105.9, 105.5)
+    assert r["recorded"] is False and r["lcd2"] == "NOTHING TAKEN"
+    db.expire_all()
+    assert db.get(Asset, arduino.id).status == AssetStatus.AVAILABLE
+    assert db.get(DeviceCommand, cid).status == "FAILED"
+    assert db.query(AssetTransaction).count() == 0
+    assert any(n.title == "Not taken: Arduino Uno" for n in db.query(Notification).filter_by(user_id=alice.id))
+
+
+def test_return_notifies_the_holder_and_staff(client, db, alice, staff, lab, bin_node, arduino,
+                                              device_headers):
+    _inside(db, alice, lab)
+    cid = _take(client, db, alice, arduino)
+    _done(client, device_headers, cid, 105.9, 70.6)
+    assert _scan(client, device_headers, arduino.nfc_uid)["action"] == "OPEN_FOR_RETURN"
+    r = _return(client, device_headers, arduino.nfc_uid, 70.6, 105.8)
+    assert r["recorded"] is True
+    assert any(n.title == "Returned: Arduino Uno" for n in db.query(Notification).filter_by(user_id=alice.id))
+    assert any(n.title == "Arduino Uno returned" for n in db.query(Notification).filter_by(user_id=staff.id))
+
+
+def test_unexplained_weight_change_alerts_staff_with_an_item_guess(client, db, staff, lab, bin_node,
+                                                                   arduino, device_headers):
+    arduino.bin_item, arduino.unit_mass_g = True, 35.3
+    db.commit()
+    r = client.post("/api/reusable/weight-change", headers=device_headers,
+                    json={"device_uid": "REUSE_BIN_1", "delta_g": -70.4, "mass_g": 35.5}).json()
+    assert r["alerted"] is True and "about 2 items" in r["guess"]
+    assert db.query(Alert).count() == 1
+    small = client.post("/api/reusable/weight-change", headers=device_headers,
+                        json={"device_uid": "REUSE_BIN_1", "delta_g": 0.8}).json()
+    assert small["alerted"] is False
+
+
+def test_returning_the_other_identical_item_closes_the_open_checkout(client, db, alice, staff, lab,
+                                                                      bin_node, arduino, breadboard,
+                                                                      device_headers):
+    # The bin holds interchangeable items: Alice picked the Arduino in the portal
+    # but physically took the breadboard; she returns the breadboard's tag.
+    arduino.bin_item = breadboard.bin_item = True
+    db.commit()
+    _inside(db, alice, lab)
+    cid = _take(client, db, alice, arduino)
+    _done(client, device_headers, cid, 105.9, 70.6)
+    assert _scan(client, device_headers, breadboard.nfc_uid)["action"] == "OPEN_FOR_RETURN"
+    r = _return(client, device_headers, breadboard.nfc_uid, 70.6, 105.8)
+    assert r["recorded"] is True
+    db.expire_all()
+    assert db.get(Asset, arduino.id).status == AssetStatus.AVAILABLE
+    assert db.get(Asset, breadboard.id).status == AssetStatus.AVAILABLE
+    assert any("returned for" in n.title for n in db.query(Notification).filter_by(user_id=staff.id))
+    # Nothing out any more: the same tag again is refused.
+    assert _scan(client, device_headers, breadboard.nfc_uid)["action"] == "NOT_ALLOWED"

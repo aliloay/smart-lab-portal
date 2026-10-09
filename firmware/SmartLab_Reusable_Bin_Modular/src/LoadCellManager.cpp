@@ -46,6 +46,19 @@ bool LoadCellManager::begin() {
 }
 
 void LoadCellManager::update() {
+  // Power-on zero: after BOOT_ZERO_AFTER_MS, a reading below BOOT_ZERO_MAX_G is
+  // drift (reflash, moved bin) and becomes zero. A heavier reading means items
+  // are inside - zeroing would hide them, so the saved zero is kept.
+  if (!_bootZeroDone && millis() >= BOOT_ZERO_AFTER_MS && calibrated() && _n >= WEIGHT_SAMPLE_COUNT) {
+    _bootZeroDone = true;
+    float g = grams();
+    if (fabsf(g) < BOOT_ZERO_MAX_G) {
+      LOG("LOADCELL", "Power-on zero: %.1f g of drift -> 0", g);
+      tare();
+    } else {
+      LOG("LOADCELL", "Power-on zero skipped: %.1f g on the scale (items inside?) - saved zero kept", g);
+    }
+  }
   uint32_t now = millis();
   if (!_hx.is_ready()) {
     if (_available && now - _lastSampleMs > HX711_READY_TIMEOUT_MS) {

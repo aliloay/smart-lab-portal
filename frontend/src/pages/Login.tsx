@@ -74,7 +74,9 @@ export default function Login() {
       }
       await login(emailNow.trim().toLowerCase(), pwNow)
       const next = params.get('next')
-      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
+      // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
+      const home = ['8080', '8443'].includes(window.location.port) ? '/command' : '/'
+      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : home, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {

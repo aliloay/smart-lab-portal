@@ -129,6 +129,23 @@ class RfidCredential(Base):
     user: Mapped[User] = relationship(back_populates="rfid_credentials")
 
 
+class PersonalQrCredential(Base):
+    """
+    A person's door QR (e.g. in their phone's Wallet): a card that lives in a
+    QR code. Only the SHA-256 of the secret is stored. Same rules as an RFID
+    card - step 1 only; the door still demands that person's finger or face.
+    Replacing or revoking sets revoked_at; rows are never deleted.
+    """
+    __tablename__ = "personal_qr_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    token_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    issued_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+    issued_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
 # ===========================================================================
 # Facility
 # ===========================================================================
@@ -262,6 +279,25 @@ class Booking(ProvenanceMixin, Base):
     lab: Mapped[Lab] = relationship(back_populates="bookings")
     qr_tokens: Mapped[list["QrToken"]] = relationship(
         back_populates="booking", cascade="all, delete-orphan")
+
+
+class BookingItem(Base):
+    """
+    Equipment a booking asks for, chosen while booking: a smart-bin item
+    (asset), a consumable from a weighing bin (with a quantity), or the
+    workstation (a robot asset, or a lab PC). Rows are only added; a cancelled
+    booking keeps its rows (the booking's status says it no longer holds them).
+    """
+    __tablename__ = "booking_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)   # BIN_ITEM | CONSUMABLE | WORKSTATION
+    asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"), nullable=True, index=True)
+    inventory_bin_id: Mapped[int | None] = mapped_column(ForeignKey("inventory_bins.id"), nullable=True)
+    quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    label: Mapped[str] = mapped_column(String(128))             # name as shown when booked
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
 class QrToken(Base):

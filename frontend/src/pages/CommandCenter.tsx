@@ -188,7 +188,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <div className="eyebrow flex items-center gap-1.5"><Radar size={13} /> Smart Lab{wall ? ' · GIU Robotics Lab' : ''}</div>
-          <h1 className={`${wall ? 'text-3xl' : 'text-2xl'} font-bold text-white font-display`}>Command Center</h1>
+          <h1 className={`${wall ? 'text-3xl' : 'text-2xl'} font-bold text-white font-display`}>IoT Dashboard</h1>
         </div>
         {!wall && <p className="text-[12.5px] text-slate-400 max-w-xl">Everything below is reported by the lab's own devices and services and checked live.
           Unknown means unknown - nothing is shown green without a report.</p>}

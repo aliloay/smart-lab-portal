@@ -73,6 +73,7 @@ ScanReply BackendClient::scan(const String &uid, float massDeltaG, const String 
   r.lcd1 = d["lcd1"] | "";
   r.lcd2 = d["lcd2"] | "";
   r.assetTag = d["asset_tag"] | "";
+  r.assetName = d["asset_name"] | "";
   r.weightCheck = d["weight_check"] | "";
   LOG("BACKEND", "scan %s -> %s (%s / %s)%s%s", uid.c_str(), r.action.c_str(), r.lcd1.c_str(), r.lcd2.c_str(),
       r.weightCheck.length() ? ", weight " : "", r.weightCheck.c_str());
@@ -112,6 +113,7 @@ BinCommand BackendClient::nextCommand() {
   JsonVariantConst args = d["args"];
   c.intent = args["intent"] | (d["intent"] | "");
   c.assetTag = args["asset_tag"] | (d["asset_tag"] | "");
+  c.assetName = args["asset_name"] | "";
   LOG("BACKEND", "command #%ld %s %s %s", c.id, c.command.c_str(), c.intent.c_str(), c.assetTag.c_str());
   return c;
 }
@@ -128,4 +130,31 @@ void BackendClient::commandStatus(long id, const char *status, const char *step,
   serializeJson(d, body);
   int code;
   request("POST", path, body, &code);
+}
+
+CompleteReply BackendClient::checkoutDone(long commandId, bool opened, bool closed, float beforeG, float afterG) {
+  CompleteReply r;
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"command_id\":" + String(commandId) +
+                ",\"lid_opened\":" + (opened ? "true" : "false") +
+                ",\"lid_closed\":" + (closed ? "true" : "false") +
+                ",\"mass_before_g\":" + num(beforeG) + ",\"mass_after_g\":" + num(afterG) + "}";
+  String reply = request("POST", PATH_CHECKOUT_DONE, body, &r.httpCode);
+  JsonDocument d;
+  if (r.httpCode != 200 || deserializeJson(d, reply)) return r;
+  r.ok = true;
+  r.recorded = d["recorded"] | false;
+  r.lcd1 = d["lcd1"] | "";
+  r.lcd2 = d["lcd2"] | "";
+  r.weightCheck = d["weight_check"] | "";
+  LOG("BACKEND", "checkout #%ld -> %s (%s / %s)", commandId, r.recorded ? "RECORDED" : "NOT recorded",
+      r.lcd1.c_str(), r.lcd2.c_str());
+  return r;
+}
+
+void BackendClient::weightChange(float deltaG, float massG) {
+  int code;
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"delta_g\":" + num(deltaG) +
+                ",\"mass_g\":" + num(massG) + "}";
+  request("POST", PATH_WEIGHT_CHANGE, body, &code);
+  LOG("BACKEND", "unexplained weight change %+.1f g reported (HTTP %d)", deltaG, code);
 }

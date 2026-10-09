@@ -56,28 +56,43 @@ export default function SmartBin({ labId }: { labId: number }) {
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
       {msg && <p className="text-[13px] text-accent-200">{msg}</p>}
       {!data.items.length ? <p className="text-[12.5px] text-slate-500">No tagged items yet.</p> : (
+        // Identical items ("Breadboard 1..3") are one line: you take "a breadboard";
+        // which one it was is known when its tag is scanned back at the bin.
         <ul className="divide-y divide-ink-600/50">
-          {data.items.map(i => (
-            <li key={i.id} className="py-2 flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] text-white truncate">{i.name}</div>
-                <div className="text-[11.5px] text-slate-400">
-                  <span className="mono">{i.asset_tag}</span>
-                  {i.holder && <> · with <b className="text-slate-200">{i.holder}</b></>}
-                  {i.checked_out_at && <> · {relative(i.checked_out_at)}</>}
+          {groupByKind(data.items).map(g => {
+            const free = g.items.filter(i => i.status === 'AVAILABLE')
+            const out = g.items.filter(i => i.status === 'CHECKED_OUT')
+            return (
+              <li key={g.kind} className="py-2 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] text-white truncate">{g.kind}</div>
+                  <div className="text-[11.5px] text-slate-400">
+                    <span className="tnum">{free.length} of {g.items.length}</span> in the bin
+                    {out.map(i => <span key={i.id}> · out with <b className="text-slate-200">{i.holder ?? 'someone'}</b>
+                      {i.checked_out_at && <> ({relative(i.checked_out_at)})</>}</span>)}
+                  </div>
                 </div>
-              </div>
-              <Chip tone={TONE[i.status]}>{i.status.replace('_', ' ').toLowerCase()}</Chip>
-              {i.status === 'AVAILABLE' && (
-                <button className="btn-ghost btn-sm" disabled={!data.bin_online || !data.inside || busy !== null}
-                        title={!data.inside ? 'Available while you are inside the lab' : undefined}
-                        onClick={() => take(i)}>
-                  <PackageOpen size={14} /> {busy === i.id ? 'Opening…' : 'Take'}</button>)}
-            </li>))}
+                <Chip tone={free.length ? 'ok' : 'warn'}>{free.length ? 'available' : 'all taken'}</Chip>
+                {free.length > 0 && (
+                  <button className="btn-ghost btn-sm" disabled={!data.bin_online || !data.inside || busy !== null}
+                          title={!data.inside ? 'Available while you are inside the lab' : undefined}
+                          onClick={() => take(free[0])}>
+                    <PackageOpen size={14} /> {busy === free[0].id ? 'Opening…' : 'Take'}</button>)}
+              </li>)
+          })}
         </ul>)}
       {!data.inside && data.items.some(i => i.status === 'AVAILABLE') &&
         <p className="text-[11.5px] text-slate-500">You can take items while you are inside the lab.</p>}
     </div>
     </section>
   )
+}
+
+/** "Breadboard 2" -> "Breadboard" (same rule as the portal's kind_name). */
+function kindOf(name: string) { return name.replace(/\s*#?\d+$/, '').trim() || name }
+
+function groupByKind(items: BinItem[]) {
+  const m = new Map<string, BinItem[]>()
+  for (const i of items) m.set(kindOf(i.name), [...(m.get(kindOf(i.name)) ?? []), i])
+  return [...m.entries()].map(([kind, items]) => ({ kind, items }))
 }

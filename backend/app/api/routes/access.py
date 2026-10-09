@@ -62,10 +62,11 @@ def validate_qr_endpoint(req: ValidateQrRequest,
         user_id=res.user.id,
         auth_subject=res.user.auth_subject,
         display_name=res.user.full_name,
-        booking_id=res.booking.id,
+        booking_id=res.booking.id if res.booking else None,
         lab_id=res.lab.code,
-        valid_from=res.token.valid_from,
-        valid_until=res.token.valid_until,
+        # A personal door QR has no booking token (and maybe no booking).
+        valid_from=res.token.valid_from if res.token else None,
+        valid_until=res.token.valid_until if res.token else None,
     )
 
 

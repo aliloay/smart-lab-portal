@@ -17,6 +17,7 @@ import {
   BookingStatusChip, Chip, ErrorBanner, KV, SectionTitle, Skeleton,
 } from '../components/ui'
 import { LabArt } from '../components/labArt'
+import SmartBin from '../components/SmartBin'
 import { AccessSteps, EntryFacts, EventTimeline } from '../components/Trace'
 
 export default function BookingDetail() {
@@ -69,12 +70,24 @@ export default function BookingDetail() {
             {' · '}<span className="tnum">{fmtTime(b.start_time)} → {fmtTime(b.end_time)}</span>
           </p>
           {b.reason && <p className="mt-2 text-[13.5px] text-slate-300">“{b.reason}”</p>}
+          {!!b.equipment?.length && (
+            <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Equipment">
+              {b.equipment.map((e, i) => (
+                <span key={i} className="rounded-md border border-ink-500 bg-ink-900/50 px-2 py-0.5 text-[12px] text-slate-200">
+                  {e.label}{e.quantity ? ` × ${e.quantity}` : ''}
+                  <span className="ml-1 text-slate-500">{e.kind === 'BIN_ITEM' ? 'smart bin' : e.kind === 'CONSUMABLE' ? 'consumable' : 'station'}</span>
+                </span>))}
+            </div>)}
           <div className="mt-5 flex gap-2 flex-wrap">
             {b.qr_active && <Link to={`/bookings/${b.id}/qr`} className="btn-primary"><QrCode size={16} />Access code</Link>}
             <Link to={`/issues/new?lab=${t.lab.id}`} className="btn-ghost"><Wrench size={16} />Report an issue</Link>
           </div>
         </div>
       </section>
+
+      {/* ------------------------------------------------- smart bin (during the booking) */}
+      {b.status === 'CONFIRMED' && new Date(b.start_time) <= new Date() && new Date(b.end_time) > new Date() &&
+        <SmartBin labId={b.lab_id} />}
 
       {/* ------------------------------------------------- session summary */}
       <section>

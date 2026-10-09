@@ -16,7 +16,7 @@ struct ScanReply {
   bool ok = false;            // HTTP 200 with a parsable reply
   int httpCode = -1;
   String action;              // OPEN_FOR_RETURN, CHECKOUT_OK, WRONG_ITEM, NOT_ALLOWED, UNKNOWN
-  String lcd1, lcd2, assetTag, weightCheck;
+  String lcd1, lcd2, assetTag, assetName, weightCheck;
 };
 
 struct CompleteReply {
@@ -28,7 +28,7 @@ struct CompleteReply {
 struct BinCommand {
   bool present = false;
   long id = -1;
-  String command, intent, assetTag;
+  String command, intent, assetTag, assetName;
 };
 
 struct HeartbeatInfo {
@@ -45,6 +45,10 @@ class BackendClient {
                            float beforeG, float afterG, const String &extraJson);
   BinCommand nextCommand();
   void commandStatus(long id, const char *status, const char *step, const char *message);
+  // Checkout by weight: the bin weighed before and after (the portal decides).
+  CompleteReply checkoutDone(long commandId, bool lidOpened, bool lidClosed, float beforeG, float afterG);
+  // A settled change nobody requested (staff are alerted).
+  void weightChange(float deltaG, float massG);
   bool reachable() const { return _lastOk; }
   int lastHttpCode() const { return _lastCode; }
 

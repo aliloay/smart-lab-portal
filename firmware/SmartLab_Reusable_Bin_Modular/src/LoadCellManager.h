@@ -62,6 +62,7 @@ class LoadCellManager {
   uint32_t _recoveries = 0;
   float _window[32];
   uint8_t _n = 0, _i = 0;
+  bool _bootZeroDone = false;
   float _raw = NAN;
   uint32_t _lastSampleMs = 0;
   bool _stable = false;

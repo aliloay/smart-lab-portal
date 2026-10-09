@@ -72,6 +72,9 @@ void DisplayManager::flash(const String &line1, const String &line2, uint32_t ms
 
 void DisplayManager::setIdle(const String &line1, const String &line2) {
   _idle1 = line1; _idle2 = line2;
+  // Idle screen is live (e.g. the weight) unless a timed message is showing;
+  // write() only touches a row whose text changed.
+  if (_lcd && !_flashUntil) { write(0, _idle1); write(1, _idle2); }
 }
 
 void DisplayManager::update() {

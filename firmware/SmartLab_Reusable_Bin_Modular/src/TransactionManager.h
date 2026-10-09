@@ -59,10 +59,12 @@ class TransactionManager {
   Parts _p;
   BinState _state = BinState::BOOT;
   uint32_t _enteredMs = 0, _lastHeartbeatMs = 0, _lastPollMs = 0;
+  uint32_t _itemSeenMs = 0, _changeSinceMs = 0, _settledMs = 0, _lastMoveMs = 0;
+  float _liveDeltaG = NAN;
   bool _rfidStarted = false;
   // the current transaction
   CycleObservation _obs;
   Verdict _verdict;
-  String _uid, _assetTag;
+  String _uid, _assetTag, _assetName;   // name shown on the LCD (tag if the portal sent none)
   long _commandId = -1;
 };

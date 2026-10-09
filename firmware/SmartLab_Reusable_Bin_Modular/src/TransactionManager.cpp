@@ -81,6 +81,7 @@ void TransactionManager::update() {
     case BinState::OPENING:                // only the reed says the lid opened
       if (_p.lid.state() == LidState::LID_OPEN) {
         _obs.lidOpened = true;
+        _itemSeenMs = _changeSinceMs = _settledMs = 0;
         go(BinState::OPEN);
       } else if (el >= LID_OPEN_TIMEOUT_MS) {
         _p.servo.release();
@@ -97,18 +98,42 @@ void TransactionManager::update() {
       break;
 
     case BinState::OPEN:
-      if (_obs.kind == TxKind::RETURN) _p.lcd.show("RETURN ITEM", "Place item");
-      else _p.lcd.show("OPEN", ("Take " + _assetTag).substring(0, 16));
+      _p.lcd.show(_assetName.substring(0, 16), _obs.kind == TxKind::RETURN ? "PUT IT IN" : "TAKE IT OUT");
       go(BinState::WAITING_FOR_USER);
       break;
 
-    case BinState::WAITING_FOR_USER:       // pedal held while the item goes in / out
-      if (el >= OPEN_HOLD_MS) {
+    case BinState::WAITING_FOR_USER: {     // lid open: wait for the item to go in / come out
+      // Same rules as test mode: a change of LID_ITEM_MIN_CHANGE_G lasting
+      // LID_CHANGE_HOLD_MS, then wait until it settles, then LID_HAND_CLEAR_MS
+      // for the hand; no change for LID_MAX_OPEN_MS = close anyway.
+      uint32_t now = millis();
+      float g = _p.scale.grams();
+      bool weighing = !isnan(g) && !isnan(_obs.weightBeforeG);
+      bool changed = weighing && !_itemSeenMs && fabsf(g - _obs.weightBeforeG) >= LID_ITEM_MIN_CHANGE_G;
+      if (!changed) _changeSinceMs = 0; else if (!_changeSinceMs) _changeSinceMs = now;
+      if (changed && now - _changeSinceMs >= LID_CHANGE_HOLD_MS) { _itemSeenMs = now; _settledMs = 0; _liveDeltaG = NAN; }
+      if (_itemSeenMs && !_settledMs) {
+        float d = g - _obs.weightBeforeG;
+        if (isnan(_liveDeltaG) || fabsf(d - _liveDeltaG) >= LID_SETTLE_BAND_G) {
+          _liveDeltaG = d; _lastMoveMs = now;
+          char l2[17]; snprintf(l2, sizeof l2, "%s %+.1f g", d > 0 ? "IN" : "OUT", d);
+          _p.lcd.show(_assetName.substring(0, 16), l2);
+        } else if (now - _lastMoveMs >= LID_SETTLE_MS) {
+          _settledMs = now;
+          LOG("TRANSACTION", "Weight settled at %+.1f g", _liveDeltaG);
+        }
+      }
+      bool handClear = _settledMs && now - _settledMs >= LID_HAND_CLEAR_MS;
+      bool tooLong = !_itemSeenMs ? el >= LID_MAX_OPEN_MS
+                                  : (!_settledMs && now - _itemSeenMs >= LID_MAX_OPEN_MS);
+      if (handClear || tooLong || el >= SERVO_MAX_HOLD_MS) {
+        if (!handClear) LOG("TRANSACTION", "No (settled) weight change: closing");
         _p.servo.release();
-        _p.lcd.show("CLOSING", "Mind your hands");
+        _p.lcd.show(_assetName.substring(0, 16), "BIN CLOSING");
         go(BinState::CLOSING);
       }
       break;
+    }
 
     case BinState::CLOSING:
       if (_p.lid.state() == LidState::LID_CLOSED && _p.servo.idle()) {
@@ -174,11 +199,26 @@ void TransactionManager::idleTasks() {
   if (want != _state) go(want);
   if (_state == BinState::FAULT) _p.lcd.setIdle("FAULT", f.has(FAULT_LID_CLOSE_TIMEOUT) ? "Close the lid" : f.firstName());
   else if (_state == BinState::OFFLINE) _p.lcd.setIdle("SMART BIN", "Offline");
-  else _p.lcd.setIdle("SMART BIN", "Ready");
+  else {
+    // Idle: the total weight in the bin (all items), or "Ready" without a scale.
+    float g = _p.scale.grams();
+    char l2[17];
+    if (isnan(g)) snprintf(l2, sizeof l2, "Ready");
+    else snprintf(l2, sizeof l2, "%.1f g", g);
+    _p.lcd.setIdle("SMART BIN", l2);
+  }
   _p.lcd.update();
 
   NfcScan s;
   if (_p.nfc.poll(&s)) { handleScan(s); return; }
+
+  // A settled weight change while idle, not right after a cycle: nobody asked.
+  WeightState kind; float d;
+  if (_p.scale.takeChange(&kind, &d) && _state == BinState::IDLE &&
+      millis() - _enteredMs >= UNEXPLAINED_QUIET_MS && _p.wifi.connected()) {
+    LOG("TRANSACTION", "Unexplained weight change %+.1f g", d);
+    _p.portal.weightChange(d, _p.scale.grams());
+  }
 
   if (!_p.wifi.connected()) return;
   uint32_t now = millis();
@@ -194,6 +234,7 @@ void TransactionManager::idleTasks() {
     }
     _commandId = c.id;
     _assetTag = c.assetTag;
+    _assetName = c.assetName.length() ? c.assetName : c.assetTag;
     _uid = "";
     _p.portal.commandStatus(c.id, "RUNNING", "OPENING", "Opening the lid");
     startCycle(TxKind::CHECKOUT);
@@ -220,6 +261,7 @@ void TransactionManager::handleScan(const NfcScan &scan) {
     }
     _uid = scan.uid;
     _assetTag = r.assetTag;
+    _assetName = r.assetName.length() ? r.assetName : r.assetTag;
     _commandId = -1;
     startCycle(TxKind::RETURN);
     return;
@@ -234,7 +276,8 @@ void TransactionManager::startCycle(TxKind kind) {
   _verdict = Verdict();
   LOG("TRANSACTION", "%s authorised by the portal: %s", kind == TxKind::RETURN ? "RETURN" : "CHECKOUT",
       _assetTag.length() ? _assetTag.c_str() : _uid.c_str());
-  _p.lcd.show("AUTHORIZED", "Opening...");
+  // Line 1: what is happening, line 2: the item (e.g. "RETURN" / "Breadboard 1").
+  _p.lcd.show(_assetName.substring(0, 16), "BIN OPENING!");
   go(BinState::AUTHORIZED);
 }
 
@@ -260,10 +303,13 @@ void TransactionManager::finishVerifying() {
     if (ok) finish(true, "VERIFIED", "Transaction OK");
     else finish(false, r.lcd1.length() ? r.lcd1 : String("CHECK NEEDED"), r.lcd2.length() ? r.lcd2 : String("Staff review"));
   } else {
-    _p.portal.commandStatus(_commandId, "RUNNING", _obs.lidClosed ? "LID_CLOSED" : "LID_LEFT_OPEN",
-                            "Waiting for the item's tag");
-    _p.lcd.show(("SCAN " + _assetTag).substring(0, 16), "to confirm");
-    go(BinState::AWAITING_TAG_CONFIRMATION);
+    // Checkout by weight: the portal compares before / after and records it.
+    CompleteReply r = _p.portal.checkoutDone(_commandId, _obs.lidOpened, _obs.lidClosed,
+                                             _obs.weightBeforeG, _obs.weightAfterG);
+    if (!r.ok) { fail("NOT RECORDED", "Call staff"); return; }
+    bool ok = r.recorded && r.weightCheck != "MISMATCH";
+    finish(ok, r.lcd1.length() ? r.lcd1 : _assetName.substring(0, 16),
+           r.lcd2.length() ? r.lcd2 : String(ok ? "ENJOY!" : "CHECK NEEDED"));
   }
 }
 
