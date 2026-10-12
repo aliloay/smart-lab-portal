@@ -24,3 +24,16 @@ def test_email_must_be_unique_and_valid(client, db, admin, alice, staff):
     assert client.patch(f"/api/users/{alice.id}", headers=h,
                         json={"email": staff.email.upper()}).status_code == 409
     assert client.patch(f"/api/users/{alice.id}", headers=h, json={"email": "nope"}).status_code == 422
+
+
+def test_remove_user_keeps_history_and_revokes_credentials(client, db, admin, alice):
+    from app.models import RfidCredential, User
+    db.add(RfidCredential(uid_hex="AABBCCDD", user_id=alice.id))
+    db.commit()
+    h = auth_headers(client, admin.email)
+    r = client.post(f"/api/users/{alice.id}/remove", headers=h)
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(User, alice.id).is_active is False          # still there: history kept
+    assert db.query(RfidCredential).one().revoked_at is not None
+    assert client.post(f"/api/users/{admin.id}/remove", headers=h).status_code == 409

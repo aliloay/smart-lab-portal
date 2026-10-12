@@ -29,9 +29,10 @@ export default function Users() {
     .catch(e => { setError(e.message); setRows([]) }), [])
   useEffect(() => { load() }, [load])
 
-  const list = useMemo(() => (rows ?? []).filter(u => (!role || u.role === role) &&
+  const [showRemoved, setShowRemoved] = useState(false)
+  const list = useMemo(() => (rows ?? []).filter(u => (showRemoved || u.is_active) && (!role || u.role === role) &&
     (!q || `${u.full_name} ${u.email} ${u.auth_subject ?? ''} ${u.department ?? ''}`.toLowerCase()
-      .includes(q.toLowerCase()))), [rows, q, role])
+      .includes(q.toLowerCase()))), [rows, q, role, showRemoved])
   const count = (r: Role) => (rows ?? []).filter(u => u.role === r).length
 
   return (
@@ -39,6 +40,9 @@ export default function Users() {
       <PageHeader eyebrow="Administration" title="Users & roles"
         sub="Accounts, roles, and the auth subject that links a person to the door hardware."
         actions={admin && <div className="flex flex-wrap gap-2">
+          <label className="flex items-center gap-2 text-[12.5px] text-slate-300 mr-2">
+            <input type="checkbox" className="accent-sky-500" checked={showRemoved}
+                   onChange={e => setShowRemoved(e.target.checked)} />Show removed</label>
           <button className="btn-primary" onClick={() => setCreating('STUDENT')}><UserPlus size={16} />Add student</button>
           <button className="btn-ghost" onClick={() => setCreating('LAB_STAFF')}><UserPlus size={16} />Add staff</button>
           <button className="btn-ghost" onClick={() => setCreating('ADMIN')}><UserPlus size={16} />Add admin</button>
@@ -210,6 +214,14 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
         <input type="checkbox" checked={f.is_active} disabled={self} className="accent-sky-500"
                onChange={e => setF({ ...f, is_active: e.target.checked })} />
         Account active {self && <span className="text-slate-500">(cannot disable yourself)</span>}</label>
+      {!self && u.is_active && (
+        <button type="button" className="btn-ghost w-full text-bad-soft border border-bad/40" disabled={busy}
+                onClick={async () => {
+                  if (!confirm(`Remove ${u.full_name}?\n\nThey can no longer sign in or open the door (cards and door QR revoked). ` +
+                               'Their bookings, door entries and camera history are KEPT as lab records. ' +
+                               'You can bring the account back with "Account active".')) return
+                  try { await api.removeUser(u.id); onSaved() } catch (e) { alert(e instanceof Error ? e.message : 'Failed') }
+                }}>Remove user</button>)}
       <button className="btn-primary w-full" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
       <SetPassword u={u} />
     </form>

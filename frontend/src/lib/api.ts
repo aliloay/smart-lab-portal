@@ -1210,6 +1210,7 @@ export const api = {
   /** Admins: anyone; lab staff: students only. Takes effect at the next sign-in. */
   setUserPassword: (id: number, new_password: string) =>
     request<{ ok: boolean }>(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ new_password }) }),
+  removeUser: (id: number) => post<User>(`/users/${id}/remove`),
   updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),

@@ -308,6 +308,37 @@ def _may_manage(actor: User, target: User) -> bool:
     return actor.role == Role.ADMIN or (actor.role == Role.LAB_STAFF and target.role == Role.STUDENT)
 
 
+@router.post("/users/{user_id}/remove", response_model=UserOut)
+def remove_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Remove a person from use - their history stays (bookings, door entries,
+    camera events are the lab's records): the account is disabled, every RFID
+    card and personal door QR revoked. Re-enable with 'Account active'."""
+    from datetime import datetime, timezone
+    from app.models import PersonalQrCredential
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if u.id == admin.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You cannot remove your own account")
+    now = datetime.now(timezone.utc)
+    u.is_active = False
+    cards = qrs = 0
+    for c in db.scalars(select(RfidCredential).where(RfidCredential.user_id == u.id,
+                                                     RfidCredential.revoked_at.is_(None))).all():
+        c.is_active, c.revoked_at = False, now
+        cards += 1
+    for q in db.scalars(select(PersonalQrCredential).where(PersonalQrCredential.user_id == u.id,
+                                                           PersonalQrCredential.revoked_at.is_(None))).all():
+        q.revoked_at = now
+        qrs += 1
+    db.add(AuditLog(actor_user_id=admin.id, action="USER_REMOVED", entity_type="user",
+                    entity_id=str(u.id), detail={"email": u.email, "cards_revoked": cards,
+                                                 "door_qr_revoked": qrs}))
+    db.commit()
+    db.refresh(u)
+    return u
+
+
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                 admin: User = Depends(require_staff)):
