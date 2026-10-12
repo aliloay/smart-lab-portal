@@ -610,8 +610,9 @@ class Labeler:
             cands = sorted((d, t.id, t) for t in tracks
                            if not t.label and not t.crowded and t.box[3] >= self.MIN_LOOK_H
                            and t.look is not None
-                           and (t.look.deep is not None or label not in self.identities
-                                or self.identities[label].look.deep is None)
+                           # Owner's rule (2026-10-12): a lost name comes back only to a
+                           # person whose OWN face matched it - never by clothes alone.
+                           and any(l == label for l, _ in self.votes.get(t.id, []))
                            and (d := self._distance(t, label)) is not None)
             if not cands or cands[0][0] > self.REACQUIRE_MAX:
                 continue

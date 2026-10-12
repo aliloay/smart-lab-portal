@@ -216,6 +216,9 @@ def test_name_comes_back_after_being_hidden_but_never_to_a_stranger():
     # Ali and Sara walk behind the robot (their tracks end); Ali comes back.
     back = Track(7, (300, 60, 60, 240), 20.0, 20.0, look=la)
     lab.assign([back, tc], people, None, now=20.0)
+    assert back.label is None                       # look alone: not enough (owner's rule)
+    lab.face_vote(7, "USER1", 20.5)                 # his own face seen once
+    lab.assign([back, tc], people, None, now=21.0)
     assert back.label == "USER1"
     # A stranger in a green top while two names are free: stays Unknown.
     stranger_img, (s,) = _frame((300, ((0, 0, 0), (0, 200, 255), (200, 200, 0))))
@@ -610,6 +613,7 @@ def test_a_lost_name_goes_to_the_best_look_not_the_first_unnamed_person():
     _learnt(lab, [ta], people)
     sara = Track(20, b, 20.0, 19.0, look=lb)          # seen first, does not look like Ali
     ali = Track(21, a, 20.0, 20.0, look=la)
+    lab.face_vote(21, "USER1", 20.0)                  # Ali's own face seen once
     lab.assign([sara, ali], people, None, now=20.0)
     assert ali.label == "USER1" and sara.label is None
 
