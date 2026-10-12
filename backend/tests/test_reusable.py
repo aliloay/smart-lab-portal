@@ -328,3 +328,37 @@ def test_returning_the_other_identical_item_closes_the_open_checkout(client, db,
     assert any("returned for" in n.title for n in db.query(Notification).filter_by(user_id=staff.id))
     # Nothing out any more: the same tag again is refused.
     assert _scan(client, device_headers, breadboard.nfc_uid)["action"] == "NOT_ALLOWED"
+
+
+def test_staff_take_for_someone_outside_their_booking(client, db, staff, alice, lab, bin_node,
+                                                       arduino, device_headers):
+    """Owner 2026-10-13: booking over, the person cannot use the bin - staff can, for them."""
+    sh = auth_headers(client, staff.email)
+    assert client.post("/api/reusable/staff-checkout", headers=auth_headers(client, alice.email),
+                       json={"asset_id": arduino.id, "user_id": alice.id}).status_code == 403
+    r = client.post("/api/reusable/staff-checkout", headers=sh,
+                    json={"asset_id": arduino.id, "user_id": alice.id})
+    assert r.status_code == 200, r.text
+    nxt = client.get("/api/access/commands/next?device_uid=REUSE_BIN_1", headers=device_headers).json()
+    assert nxt["command"] == "OPEN_LID"
+    # The tag confirms it, and it is recorded against the PERSON, not the staff member.
+    assert _scan(client, device_headers, arduino.nfc_uid)["action"] == "CHECKOUT_OK"
+    db.refresh(arduino)
+    assert arduino.status == AssetStatus.CHECKED_OUT and arduino.holder_id == alice.id
+
+
+def test_staff_record_a_return(client, db, staff, alice, lab, arduino):
+    sh = auth_headers(client, staff.email)
+    assert client.post("/api/reusable/staff-return", headers=sh,
+                       json={"asset_id": arduino.id}).status_code == 409      # not out
+    arduino.status, arduino.holder_id = AssetStatus.CHECKED_OUT, alice.id
+    db.commit()
+    assert client.post("/api/reusable/staff-return", headers=auth_headers(client, alice.email),
+                       json={"asset_id": arduino.id}).status_code == 403
+    r = client.post("/api/reusable/staff-return", headers=sh,
+                    json={"asset_id": arduino.id, "note": "lid sensor fault"})
+    assert r.status_code == 200, r.text
+    db.refresh(arduino)
+    assert arduino.status == AssetStatus.AVAILABLE and arduino.holder_id is None
+    tx = db.query(AssetTransaction).filter_by(asset_id=arduino.id, action="RETURN").one()
+    assert tx.source == "STAFF" and tx.user_id == alice.id and tx.note == "lid sensor fault"

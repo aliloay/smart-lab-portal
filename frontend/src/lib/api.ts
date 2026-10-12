@@ -1154,6 +1154,10 @@ export const api = {
   binItems: (labId: number) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
       `/reusable/items?lab_id=${labId}`),
+  staffTakeFromBin: (assetId: number, userId: number) =>
+    post<DeviceCommand & { message: string }>('/reusable/staff-checkout', { asset_id: assetId, user_id: userId }),
+  staffReturnToBin: (assetId: number, note: string) =>
+    post<{ asset_id: number; status: string }>('/reusable/staff-return', { asset_id: assetId, note }),
   takeFromBin: (assetId: number) =>
     post<DeviceCommand & { message: string }>('/reusable/checkout', { asset_id: assetId }),
   setItemMass: (assetId: number, unit_mass_g: number | null) =>

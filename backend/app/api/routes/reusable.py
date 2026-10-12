@@ -217,6 +217,79 @@ def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
     return {**cmds.out(c), "message": f"The bin opens - take one {kind_name(a.name).lower()}; the bin weighs to confirm."}
 
 
+# ------------------------------------------------- staff, on someone's behalf ---
+class StaffCheckout(BaseModel):
+    asset_id: int
+    user_id: int
+
+
+@router.post("/staff-checkout")
+def staff_checkout(req: StaffCheckout, db: Session = Depends(get_db),
+                   staff: User = Depends(require_staff)):
+    """Staff take an item out of the bin FOR a person (e.g. their booking has
+    ended). Same bin path: the lid opens and the weight confirms the take."""
+    a = db.get(Asset, req.asset_id)
+    person = db.get(User, req.user_id)
+    if a is None or person is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item or person not found")
+    if a.status != AssetStatus.AVAILABLE:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"The item is {a.status.value.lower()}.")
+    node = bin_node(db, a.lab_id)
+    if node is None or not is_fresh(node, datetime.now(timezone.utc)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "The smart bin is offline.")
+    if _active_checkout(db, node.id):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The bin is busy with another request - try again in a minute.")
+    now = datetime.now(timezone.utc)
+    c = DeviceCommand(device_id=node.id, command=OPEN_LID, status="PENDING",
+                      args={"intent": "CHECKOUT", "asset_id": a.id, "asset_tag": a.asset_tag,
+                            "asset_name": kind_name(a.name), "user_id": person.id,
+                            "booking_id": None, "by_staff": staff.id},
+                      target_user_id=person.id, requested_by_id=staff.id,
+                      created_at=now, expires_at=now + cmds.PICKUP_WINDOW)
+    db.add(c)
+    db.flush()
+    db.add(AuditLog(actor_user_id=staff.id, action="BIN_CHECKOUT_BY_STAFF",
+                    entity_type="asset", entity_id=str(a.id),
+                    detail={"command_id": c.id, "for_user": person.id, "device": node.device_uid}))
+    cmds.publish_later(db, c)
+    db.commit()
+    cmds.flush_published(db)
+    return {**cmds.out(c), "message": f"The bin opens - take one {kind_name(a.name).lower()} "
+                                      f"for {person.full_name}; the bin weighs to confirm."}
+
+
+class StaffReturn(BaseModel):
+    asset_id: int
+    note: str = Field(default="", max_length=255)
+
+
+@router.post("/staff-return")
+def staff_return(req: StaffReturn, db: Session = Depends(get_db),
+                 staff: User = Depends(require_staff)):
+    """Staff record that a checked-out item is back (it came back without the
+    bin - bin fault, booking over). Logged as a STAFF return, never by the bin."""
+    a = db.get(Asset, req.asset_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    if a.status != AssetStatus.CHECKED_OUT:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This item is not checked out.")
+    holder = a.holder_id
+    a.status, a.holder_id, a.checked_out_at = AssetStatus.AVAILABLE, None, None
+    if holder:
+        db.add(AssetTransaction(asset_id=a.id, user_id=holder, lab_id=a.lab_id, action="RETURN",
+                                source="STAFF", note=(req.note or f"Recorded by {staff.full_name}")[:255]))
+    db.add(AuditLog(actor_user_id=staff.id, action="BIN_RETURN_BY_STAFF", entity_type="asset",
+                    entity_id=str(a.id), detail={"holder": holder, "note": req.note}))
+    log_event(db, EventType.ASSET_RETURN, lab_id=a.lab_id, user_id=holder,
+              message=f"{a.name} returned (recorded by staff)")
+    if holder:
+        notify(db, [holder], "BIN_RETURN", f"Returned: {a.name}",
+               body=f"{a.name} was recorded as returned by {staff.full_name}.", link=f"/labs/{a.lab_id}")
+    db.commit()
+    return {"asset_id": a.id, "status": a.status.value}
+
+
 @router.get("/items")
 def bin_items(lab_id: int, db: Session = Depends(get_db),
               user: User = Depends(get_current_user)):

@@ -49,7 +49,8 @@ def calibrated(b: InventoryBin) -> bool:
 def qty_estimate(b: InventoryBin, mass: Optional[float]) -> Optional[int]:
     if mass is None or not calibrated(b):
         return None
-    return max(0, round((mass - b.tare_g) / b.unit_mass_g))
+    n = max(0, round((mass - b.tare_g) / b.unit_mass_g))
+    return min(n, b.stock_max) if b.stock_max is not None else n
 
 
 def qty_error(b: InventoryBin) -> Optional[int]:
@@ -208,6 +209,13 @@ def record(db: Session, b: InventoryBin, mass: float,
         if prev is None or abs((prev - b.last_mass_g) / b.unit_mass_g - n) > CLEAN_PC:
             return None                  # not confirmed yet: wait for the next reading
         dq = max(n, -before)
+        if b.stock_max is not None and before + dq > b.stock_max:
+            # More than the lab owns: a rise is fluctuation (air, creep), never
+            # pieces. Count at most up to stock_max; a rise beyond it is ignored
+            # (not taken into the zero: such a bump usually goes away again).
+            dq = b.stock_max - before
+            if dq <= 0:
+                return None
         # Keep the shown count an exact whole number after the change.
         b.tare_g = round(mass - (before + dq) * b.unit_mass_g, 4)
     else:
@@ -251,6 +259,6 @@ def bin_out(db: Session, b: InventoryBin, now: Optional[datetime] = None) -> dic
             "calibrated": calibrated(b), "tare_g": b.tare_g, "unit_mass_g": b.unit_mass_g,
             "noise_g": b.noise_g, "calibrated_at": b.calibrated_at,
             "min_change_g": threshold_g(b), "qty_est": qty, "qty_err": qty_error(b),
-            "reorder_qty": b.reorder_qty,
+            "reorder_qty": b.reorder_qty, "stock_max": b.stock_max,
             "low": qty is not None and b.reorder_qty is not None and qty <= b.reorder_qty,
             "notes": b.notes, "is_active": b.is_active}

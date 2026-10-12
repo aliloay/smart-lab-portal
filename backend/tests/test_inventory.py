@@ -169,3 +169,23 @@ def test_zero_seen_at_the_lift_removes_drift(client, db, lab, node, resistors, d
     for m in (0.16, 0.12, 0.04, 6.71, 6.71):
         last = _report(client, device_headers, m).json()["bins"][0]
     assert last["transaction"] == "REFILL" and last["qty_est"] == 27
+
+
+def test_never_more_than_the_lab_owns(client, db, lab, node, resistors, device_headers):
+    """Owner 2026-10-13: the lab owns 30 resistors - a rise to '31' or '32' is the load
+    cell (air, creep), never a refill."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 128.63, 0.04
+    resistors.stock_max = 30
+    db.commit()
+    for m in (134.83, 134.83):                       # 30
+        _report(client, device_headers, m)
+    for m in (135.25, 135.25, 135.45, 135.45):       # "32": fluctuation
+        last = _report(client, device_headers, m).json()["bins"][0]
+    assert last["qty_est"] == 30 and last["transaction"] is None
+    assert db.query(InventoryTransaction).count() == 0
+    for m in (134.83, 134.83):                       # the bump goes away: nothing booked
+        _report(client, device_headers, m)
+    assert db.query(InventoryTransaction).count() == 0
+    for m in (133.80, 133.80):                       # a real take of 5 still counts
+        last = _report(client, device_headers, m).json()["bins"][0]
+    assert last["transaction"] == "WITHDRAWAL" and last["qty_est"] == 25

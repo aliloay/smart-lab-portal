@@ -12,11 +12,11 @@
  */
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Boxes, Nfc, Package, Plus, Scale } from 'lucide-react'
-import { Asset, InventoryBin, InventoryTx, Lab, api } from '../lib/api'
+import { Asset, BinItem, InventoryBin, InventoryTx, Lab, User, api } from '../lib/api'
 import { fmtDateTime, relative } from '../lib/time'
 import { useLiveMessages } from '../lib/live'
 import {
-  Chip, Drawer, EmptyState, ErrorBanner, Field, PageHeader, SectionTitle, Spinner,
+  Chip, Drawer, EmptyState, ErrorBanner, Field, PageHeader, SectionTitle, Spinner, Tabs,
 } from '../components/ui'
 
 const QUALITY: Record<InventoryBin['quality'], { tone: 'ok' | 'warn' | 'idle' | 'bad'; label: string }> = {
@@ -232,6 +232,77 @@ function CreateBin({ onDone }: { onDone: () => void }) {
 /** Equipment with its NFC tag (System 4). Tag an item: scan the sticker at
  *  the bin (it shows "UNKNOWN TAG"), then "Use last scanned tag" here. */
 export function ReusableItems() {
+  const [tab, setTab] = useState<'items' | 'take' | 'return'>('items')
+  return (
+    <div className="space-y-4">
+      <Tabs id="bin-tabs" value={tab} onChange={setTab} tabs={[
+        { key: 'items', label: 'Items' },
+        { key: 'take', label: 'Take an item' },
+        { key: 'return', label: 'Return an item' }]} />
+      {tab === 'items' ? <BinItemList /> : <StaffBinAction mode={tab} />}
+    </div>
+  )
+}
+
+/** Staff, on someone's behalf: take (the bin opens, the weight confirms) or
+ *  record a return that came back without the bin (bin fault, booking over). */
+function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
+  const [items, setItems] = useState<BinItem[] | null>(null)
+  const [people, setPeople] = useState<User[]>([])
+  const [asset, setAsset] = useState('')
+  const [person, setPerson] = useState('')
+  const [note, setNote] = useState('')
+  const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(() => {
+    api.labs().then(ls => Promise.all(ls.map(l => api.binItems(l.id).then(r => r.items).catch(() => []))))
+      .then(all => setItems(all.flat())).catch(() => setItems([]))
+  }, [])
+  useEffect(() => { load(); setAsset(''); setMsg(''); setError('') }, [load, mode])
+  useEffect(() => { if (mode === 'take') api.users().then(setPeople).catch(() => {}) }, [mode])
+  const list = (items ?? []).filter(i => mode === 'take' ? i.status === 'AVAILABLE' : i.status === 'CHECKED_OUT')
+  async function go(e: FormEvent) {
+    e.preventDefault(); setBusy(true); setError(''); setMsg('')
+    try {
+      if (mode === 'take') setMsg((await api.staffTakeFromBin(Number(asset), Number(person))).message)
+      else { await api.staffReturnToBin(Number(asset), note.trim()); setMsg('Return recorded. The holder was notified.'); setNote('') }
+      setAsset(''); load()
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
+    finally { setBusy(false) }
+  }
+  if (!items) return <Spinner />
+  return (
+    <form onSubmit={go} className="card p-4 space-y-3 max-w-xl">
+      <p className="text-[12.5px] text-slate-400">{mode === 'take'
+        ? 'Take an item out FOR someone (e.g. their booking has ended). The bin opens; its weight confirms the take, recorded against that person.'
+        : 'Record that a checked-out item is back when it came back without the bin (bin fault, booking over). Logged as a staff return; the holder is notified.'}</p>
+      {error && <ErrorBanner message={error} />}
+      {msg && <p className="text-[12.5px] text-ok-soft">{msg}</p>}
+      {!list.length ? <p className="text-[12.5px] text-slate-400">
+        {mode === 'take' ? 'No item is available in the bin.' : 'No item is checked out.'}</p> : <>
+        <Field label="Item">
+          <select className="input" required value={asset} onChange={e => setAsset(e.target.value)}>
+            <option value="">Choose…</option>
+            {list.map(i => <option key={i.id} value={i.id}>
+              {i.asset_tag} · {i.name}{i.holder ? ` · with ${i.holder}` : ''}</option>)}
+          </select></Field>
+        {mode === 'take' && <Field label="For">
+          <select className="input" required value={person} onChange={e => setPerson(e.target.value)}>
+            <option value="">Choose a person…</option>
+            {people.filter(p => p.is_active !== false).map(p => <option key={p.id} value={p.id}>{p.full_name} · {p.email}</option>)}
+          </select></Field>}
+        {mode === 'return' && <Field label="Note (optional)">
+          <input className="input" maxLength={255} value={note} onChange={e => setNote(e.target.value)}
+            placeholder="e.g. lid sensor fault - item put back by hand" /></Field>}
+        <button className="btn-primary w-full" disabled={busy}>
+          {mode === 'take' ? 'Open the bin for this person' : 'Record the return'}</button>
+      </>}
+    </form>
+  )
+}
+
+function BinItemList() {
   const [assets, setAssets] = useState<Asset[] | null>(null)
   const [editing, setEditing] = useState<Asset | null>(null)
   const [adding, setAdding] = useState(false)

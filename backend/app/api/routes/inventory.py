@@ -87,6 +87,7 @@ class BinUpdate(BaseModel):
     noise_g: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     min_change_g: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     reorder_qty: Optional[int] = Field(default=None, ge=0)
+    stock_max: Optional[int] = Field(default=None, ge=1)
     notes: Optional[str] = Field(default=None, max_length=2000)
     is_active: Optional[bool] = None
 

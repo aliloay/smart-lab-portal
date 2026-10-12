@@ -859,6 +859,8 @@ class InventoryBin(Base):
     # NULL = 3 x noise_g, or 1 g while noise is unmeasured.
     min_change_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     reorder_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # How many pieces the lab owns: a rise above it is fluctuation, not a refill.
+    stock_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Last STABLE reading.
     last_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_measured_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
