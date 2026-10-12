@@ -96,13 +96,20 @@ class Yolo26Detector:
     frames, 123 ms vs 160 ms per frame with ONNX Runtime and the SAME people
     found in every frame. OpenVINO's GPU path crashes on this laptop's driver,
     so only its CPU device is used; any OpenVINO failure falls back to ONNX
-    Runtime. SMARTLAB_DETECTOR=onnxruntime forces the old engine."""
+    Runtime. SMARTLAB_DETECTOR=onnxruntime forces the old engine.
+    First choice: the graphics card through DirectML (onnxruntime-directml):
+    measured 2026-10-13, NVIDIA GTX 1650 30 ms/frame, same people in all 23
+    frames (the Intel iGPU 165 ms - so the fastest DirectML device is picked
+    by timing at start-up). SMARTLAB_DETECTOR=openvino skips the GPU."""
 
     def __init__(self, path: str, conf: float = 0.45, nms: float = 0.45, size: int = 640,
                  threads: int = 8):
         self.conf, self.nms, self.size = conf, nms, size
-        self.engine, self._ov = "onnxruntime", None
-        if os.environ.get("SMARTLAB_DETECTOR", "openvino").lower() == "openvino":
+        self.engine, self._ov, self.sess = "onnxruntime", None, None
+        want = os.environ.get("SMARTLAB_DETECTOR", "gpu").lower()
+        if want == "gpu":
+            self._try_directml(path)
+        if self.sess is None and want in ("gpu", "openvino"):
             try:
                 import openvino as ov
                 cm = ov.Core().compile_model(path, "CPU", {"PERFORMANCE_HINT": "LATENCY",
@@ -110,13 +117,40 @@ class Yolo26Detector:
                 self._ov, self.engine = cm.create_infer_request(), "openvino-cpu"
             except Exception as e:                          # not installed / failed: old engine
                 print(f"[detector] OpenVINO unavailable ({e.__class__.__name__}) - using ONNX Runtime")
-        if self._ov is None:
+        if self._ov is None and self.sess is None:
             import onnxruntime as ort
             so = ort.SessionOptions()
             so.intra_op_num_threads = threads
             self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
             self.input = self.sess.get_inputs()[0].name
         print(f"[detector] YOLO26 on {self.engine}")
+
+    def _try_directml(self, path: str) -> None:
+        """The fastest DirectML device (graphics card), if it beats the CPU clearly."""
+        try:
+            import onnxruntime as ort
+            if "DmlExecutionProvider" not in ort.get_available_providers():
+                return
+            x = np.zeros((1, 3, self.size, self.size), np.float32)
+            best = None
+            for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):   # this laptop: iGPU 0, GTX 1650 1
+                try:
+                    s = ort.InferenceSession(path, providers=[("DmlExecutionProvider", {"device_id": dev})])
+                except Exception:
+                    break                                   # no more devices
+                i = s.get_inputs()[0].name
+                s.run(None, {i: x})
+                t = time.perf_counter()
+                for _ in range(3):
+                    s.run(None, {i: x})
+                ms = (time.perf_counter() - t) / 3 * 1000
+                if best is None or ms < best[0]:
+                    best = (ms, dev, s, i)
+            if best and best[0] < 80:                       # a real GPU, not slower than the CPU
+                _, dev, self.sess, self.input = best
+                self.engine = f"directml-gpu{dev} ({best[0]:.0f} ms)"
+        except Exception as e:
+            print(f"[detector] DirectML unavailable ({e.__class__.__name__})")
 
     def _infer(self, blob: np.ndarray) -> np.ndarray:
         if self._ov is not None:
