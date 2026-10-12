@@ -78,7 +78,7 @@ export const UR5E: UrdfModel = {
 const YELLOW = '#f5c21f', GRAY = '#474747', BLACK = '#262626'
 
 export const FANUC_LRMATE200ID: UrdfModel = {
-  key: 'FANUC', label: 'FANUC LR Mate 200iD (model to be confirmed)', format: 'stl',
+  key: 'FANUC', label: 'FANUC ER-4iA · R-30iB Mate Plus (3D: LR Mate 200iD stand-in)', format: 'stl',
   note: 'ROS-Industrial fanuc_lrmate200id_support meshes and kinematics (BSD). The lab arm\'s exact model is not confirmed yet.',
   baseRpy: [0, 0, 0],
   base: { mesh: '/models/fanuc_lrmate200id/base_link.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: GRAY },
