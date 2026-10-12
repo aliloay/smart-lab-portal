@@ -484,7 +484,7 @@ class Labeler:
     SETTLE_S = 0.6                     # apart this long before names are re-checked
     SWAP_MARGIN = 0.05                 # a swap must fit this much better
     HANDBACK_SMALL_S = 3.0             # a tiny (unjudgeable) box gets a name back by place only this soon
-    REACQUIRE_MAX = 0.25               # this alike to get a name back (was 0.30)...
+    REACQUIRE_MAX = 0.18               # this alike to get a name back (was 0.30, then 0.25: Nour got Ali's name when Ali was not detected)...
     REACQUIRE_MARGIN = 0.10            # ...and this much more alike than every other person in view (was 0.08)
     LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
     FACE_VOTES = 2                     # agreeing face matches before a face names someone

@@ -1054,7 +1054,7 @@ def main():
     ap.add_argument("--reid", default=os.path.join(HERE, "models", "person_reid_youtu_2021nov.onnx"),
                     help="body re-identification model (optional; colours only without it)")
     ap.add_argument("--size", type=int, default=640, help="detector input (640: finds seated / half-hidden people - measured 2.97 of 3 vs 2.10 at 416 on lab frames, 2026-10-12)")
-    ap.add_argument("--conf", type=float, default=0.45)
+    ap.add_argument("--conf", type=float, default=0.35)   # 0.45 missed a seated person (0.39); 0.25 doubles boxes - lab frame 2026-10-12
     ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
     ap.add_argument("--det-fps", type=float, default=5.0)   # was 3; a pass now takes ~160 ms
     ap.add_argument("--max-width", type=int, default=960)
