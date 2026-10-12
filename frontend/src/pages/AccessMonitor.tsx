@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Activity, DoorOpen, Download, Filter, ListChecks, PlayCircle, ShieldCheck, Wrench, X,
@@ -99,12 +99,14 @@ function Events() {
   }, [query])
   useEffect(() => { setRows(null); load() }, [load])
 
+  const reload = useRef<number>()
   const unfiltered = outcome === 'all' && !Object.values(f).some(Boolean)
   useLiveMessages(m => {
     if (m.type !== 'access_event') return
     if (unfiltered) setRows(p => [m.event, ...(p ?? []).filter(x => x.id !== m.event.id)].slice(0, 400))
-    else load()
+    else { window.clearTimeout(reload.current); reload.current = window.setTimeout(load, 2000) }
   })
+  useEffect(() => () => window.clearTimeout(reload.current), [])
 
   async function exportCsv() {
     try {

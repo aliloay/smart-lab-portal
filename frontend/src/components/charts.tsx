@@ -52,3 +52,11 @@ export function ChartCard({ title, sub, children, empty, height = 260, action }:
     </div>
   )
 }
+
+// Axis titles (owner: every chart needs labelled X and Y axes).
+export const xTitle = (value: string) => ({
+  height: 38, label: { value, position: 'insideBottom' as const, offset: 0, fill: '#94a3b8', fontSize: 11 },
+})
+export const yTitle = (value: string, width = 44) => ({
+  width, label: { value, angle: -90, position: 'insideLeft' as const, fill: '#94a3b8', fontSize: 11, style: { textAnchor: 'middle' as const } },
+})

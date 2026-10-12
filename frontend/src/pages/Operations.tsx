@@ -24,7 +24,7 @@ import { fmtDateTime, fmtDuration, relative } from '../lib/time'
 import {
   Chip, Dot, EmptyState, ErrorBanner, MetricCard, PageHeader, SectionTitle, Skeleton,
 } from '../components/ui'
-import { C, ChartCard, PALETTE, axisProps, tooltipProps } from '../components/charts'
+import { C, ChartCard, PALETTE, axisProps, xTitle, yTitle, tooltipProps } from '../components/charts'
 import { EnvironmentPanel, Funnel, Heatmap, OutageStrip } from '../components/analytics'
 import { AskTheLab, PriorityList } from '../components/ai'
 
@@ -68,7 +68,7 @@ export default function Operations() {
   useLiveMessages(m => {
     if (m.type !== 'access_event' && m.type !== 'staff') return
     window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(load, 2500)
+    timer.current = window.setTimeout(load, 15000)   // at most one refresh per burst of events
   })
 
   const kpi = useMemo(() => {
@@ -168,23 +168,23 @@ export default function Operations() {
                   <BarChart data={d.utilisation.map(u => ({ ...u, pct: Math.round((u.utilisation ?? 0) * 1000) / 10 }))}
                     layout="vertical" margin={{ left: 8 }}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-                    <XAxis type="number" {...axisProps} unit="%" />
-                    <YAxis type="category" dataKey="lab_code" {...axisProps} width={80} />
+                    <XAxis type="number" {...axisProps} unit="%" {...xTitle('Utilisation (% of open hours booked)')} />
+                    <YAxis type="category" dataKey="lab_code" {...axisProps} {...yTitle('Lab', 96)} />
                     <Tooltip {...tooltipProps} formatter={(v: number, _n, p) =>
                       [`${v}% (${p.payload.booked_hours} h, ${p.payload.used}/${p.payload.bookings} entered)`, 'Utilisation']} />
-                    <Bar dataKey="pct" fill={C.accent} radius={[0, 6, 6, 0]} />
+                    <Bar isAnimationActive={false} dataKey="pct" fill={C.accent} radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
               <div className="card p-5 xl:col-span-2">
                 <div className="text-[14px] font-semibold text-slate-100">Booked hours · weekday × hour</div>
                 <div className="text-[12px] text-slate-400 mb-4">Fractional hours per slot over the period</div>
-                <Heatmap data={d.booked_heatmap} unit="h booked" />
+                <Heatmap data={d.booked_heatmap} unit="h booked" xTitle="Hour of day (rows = weekday)" />
               </div>
               <div className="card p-5 xl:col-span-3">
                 <div className="text-[14px] font-semibold text-slate-100">Door entries · weekday × hour</div>
                 <div className="text-[12px] text-slate-400 mb-4">Access sessions started (granted entries)</div>
-                <Heatmap data={d.entry_heatmap} unit="entries" tone="teal" />
+                <Heatmap data={d.entry_heatmap} unit="entries" tone="teal" xTitle="Hour of day (rows = weekday)" />
               </div>
             </div>
           </section>
@@ -205,12 +205,12 @@ export default function Operations() {
                 <ResponsiveContainer>
                   <BarChart data={d.access_outcomes}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="day" {...axisProps} tickFormatter={x => x.slice(5)} minTickGap={16} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="day" {...axisProps} tickFormatter={x => x.slice(5)} minTickGap={16} {...xTitle('Day (MM-DD)')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Attempts')} />
                     <Tooltip {...tooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="granted" name="Granted" stackId="a" fill={C.ok} />
-                    <Bar dataKey="denied" name="Denied" stackId="a" fill={C.bad} radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="granted" name="Granted" stackId="a" fill={C.ok} />
+                    <Bar isAnimationActive={false} dataKey="denied" name="Denied" stackId="a" fill={C.bad} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -220,10 +220,10 @@ export default function Operations() {
                   <BarChart data={d.denial_reasons.map(r => ({ label: denialShort(r.reason), count: r.count }))}
                     layout="vertical" margin={{ left: 12 }}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-                    <XAxis type="number" {...axisProps} allowDecimals={false} />
-                    <YAxis type="category" dataKey="label" {...axisProps} width={130} />
+                    <XAxis type="number" {...axisProps} allowDecimals={false} {...xTitle('Refusals (count)')} />
+                    <YAxis type="category" dataKey="label" {...axisProps} {...yTitle('Reason', 146)} />
                     <Tooltip {...tooltipProps} />
-                    <Bar dataKey="count" name="Refusals" radius={[0, 6, 6, 0]}>
+                    <Bar isAnimationActive={false} dataKey="count" name="Refusals" radius={[0, 6, 6, 0]}>
                       {d.denial_reasons.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                     </Bar>
                   </BarChart>
@@ -268,10 +268,10 @@ export default function Operations() {
                 <ResponsiveContainer>
                   <BarChart data={d.sessions.duration_buckets}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="label" {...axisProps} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="label" {...axisProps} {...xTitle('Session length')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Sessions')} />
                     <Tooltip {...tooltipProps} />
-                    <Bar dataKey="count" name="Sessions" fill={C.teal} radius={[6, 6, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="count" name="Sessions" fill={C.teal} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -335,10 +335,10 @@ export default function Operations() {
                 <ResponsiveContainer>
                   <BarChart data={d.maintenance.by_severity}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="severity" {...axisProps} tickFormatter={s => s.slice(0, 4)} />
-                    <YAxis {...axisProps} allowDecimals={false} width={24} />
+                    <XAxis dataKey="severity" {...axisProps} tickFormatter={s => s.slice(0, 4)} {...xTitle('Severity')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Issues')} />
                     <Tooltip {...tooltipProps} />
-                    <Bar dataKey="count" name="Open" radius={[6, 6, 0, 0]}>
+                    <Bar isAnimationActive={false} dataKey="count" name="Open" radius={[6, 6, 0, 0]}>
                       {d.maintenance.by_severity.map(s => <Cell key={s.severity} fill={SEV_COLOR[s.severity]} />)}
                     </Bar>
                   </BarChart>
@@ -348,11 +348,11 @@ export default function Operations() {
                 <ResponsiveContainer>
                   <BarChart data={d.maintenance.flow}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="day" {...axisProps} tickFormatter={x => x.slice(5)} minTickGap={16} />
-                    <YAxis {...axisProps} allowDecimals={false} width={24} />
+                    <XAxis dataKey="day" {...axisProps} tickFormatter={x => x.slice(5)} minTickGap={16} {...xTitle('Day (MM-DD)')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Issues')} />
                     <Tooltip {...tooltipProps} />
-                    <Bar dataKey="opened" name="Opened" fill={C.warn} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="resolved" name="Resolved" fill={C.ok} radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="opened" name="Opened" fill={C.warn} radius={[4, 4, 0, 0]} />
+                    <Bar isAnimationActive={false} dataKey="resolved" name="Resolved" fill={C.ok} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -512,13 +512,13 @@ function TrendsSection({ t }: { t: Trends | null }) {
           <ResponsiveContainer>
             <LineChart data={data}>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-              <XAxis dataKey="label" {...axisProps} />
-              <YAxis {...axisProps} allowDecimals={false} width={28} />
+              <XAxis dataKey="label" {...axisProps} {...xTitle('Period')} />
+              <YAxis {...axisProps} allowDecimals={false} {...yTitle('Count')} />
               <Tooltip {...tooltipProps} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="bookings" name="Bookings" stroke={C.accent} strokeWidth={2.2} dot={{ r: 2.5 }} />
-              <Line type="monotone" dataKey="entries" name="Entries" stroke={C.teal} strokeWidth={2.2} dot={{ r: 2.5 }} />
-              <Line type="monotone" dataKey="denied" name="Refusals" stroke={C.bad} strokeWidth={2} dot={{ r: 2.5 }} />
+              <Line isAnimationActive={false} type="monotone" dataKey="bookings" name="Bookings" stroke={C.accent} strokeWidth={2.2} dot={{ r: 2.5 }} />
+              <Line isAnimationActive={false} type="monotone" dataKey="entries" name="Entries" stroke={C.teal} strokeWidth={2.2} dot={{ r: 2.5 }} />
+              <Line isAnimationActive={false} type="monotone" dataKey="denied" name="Refusals" stroke={C.bad} strokeWidth={2} dot={{ r: 2.5 }} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -527,12 +527,12 @@ function TrendsSection({ t }: { t: Trends | null }) {
           <ResponsiveContainer>
             <LineChart data={data}>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-              <XAxis dataKey="label" {...axisProps} />
-              <YAxis {...axisProps} unit="%" width={36} />
+              <XAxis dataKey="label" {...axisProps} {...xTitle('Period')} />
+              <YAxis {...axisProps} unit="%" {...yTitle('% of bookings', 48)} />
               <Tooltip {...tooltipProps} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="no_show_pct" name="No-show %" stroke={C.warn} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
-              <Line type="monotone" dataKey="late_pct" name="Late %" stroke={C.violet} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
+              <Line isAnimationActive={false} type="monotone" dataKey="no_show_pct" name="No-show %" stroke={C.warn} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
+              <Line isAnimationActive={false} type="monotone" dataKey="late_pct" name="Late %" stroke={C.violet} strokeWidth={2.2} connectNulls={false} dot={{ r: 2.5 }} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
