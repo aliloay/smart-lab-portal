@@ -26,7 +26,8 @@ OK_LICENCES = ("cc0", "public domain", "pd", "cc by", "cc-by", "cc by-sa", "cc-b
 
 # key, label, Commons search
 ITEMS = [
-    ("ur5e", "Universal Robots UR5e", "Universal Robots UR5e"),
+    ("ur5e", "Universal Robots UR5e (cobot)", "Universal Robots UR5"),
+    ("fanuc", "FANUC industrial robot", "Fanuc M-410 robot"),
     ("conveyor", "Conveyor belt", "conveyor belt factory"),
     ("workstation", "Lab PCs / workstations", "computer lab workstations"),
     ("s7-1200", "Siemens SIMATIC S7-1200 PLC", "Siemens S7-1200"),
@@ -41,10 +42,12 @@ ITEMS = [
     ("soldering", "Soldering station", "soldering station"),
     ("atmega", "ATmega microcontroller boards", "Arduino Uno ATmega328"),
     ("esp32", "ESP32 boards", "ESP32 development board"),
-    ("water-tank", "Process water tanks", "process control trainer tank level"),
-    ("hmi", "SCADA / HMI panel", "HMI touch panel industrial"),
+    ("water-tank", "Process water tanks", "Siemens WinCC SCADA screen"),
+    ("hmi", "SCADA / HMI panel", "human machine interface touch panel"),
     ("sewing", "Sewing machine", "Singer sewing machine electric"),
     ("mannequin", "Mannequins / dress forms", "dress form mannequin"),
+    ("matlab", "MATLAB (licence USB keys)", "MATLAB software screenshot"),
+    ("proteus", "Proteus simulation on lab PCs", "Proteus Design Suite"),
     ("thread", "Threads and fabrics", "sewing thread spools"),
     ("laser-cutter", "Laser cutter", "laser cutter machine"),
     ("woodcut", "Wood-cutting equipment", "table saw woodworking"),
@@ -77,7 +80,7 @@ def main():
         if key in meta and os.path.isfile(os.path.join(OUT, meta[key]["file"])):
             continue
         res = get({"action": "query", "generator": "search", "gsrsearch": f"filetype:bitmap {query}",
-                   "gsrnamespace": 6, "gsrlimit": 10, "prop": "imageinfo",
+                   "gsrnamespace": 6, "gsrlimit": 30, "prop": "imageinfo",
                    "iiprop": "url|extmetadata|mime", "iiurlwidth": 640})
         pages = sorted((res.get("query") or {}).get("pages", {}).values(), key=lambda p: p.get("index", 99))
         chosen = None

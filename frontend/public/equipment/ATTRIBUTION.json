@@ -178,5 +178,32 @@
   "author": "Daderot",
   "licence": "CC0",
   "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "matlab": {
+  "file": "matlab.png",
+  "label": "MATLAB (licence USB keys)",
+  "title": "File:MATLAB Simulink Car Throttle and Braking.png",
+  "source": "https://commons.wikimedia.org/wiki/File:MATLAB_Simulink_Car_Throttle_and_Braking.png",
+  "author": "MrAlanKoh",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "ur5e": {
+  "file": "ur5e.jpg",
+  "label": "Universal Robots UR5e (cobot)",
+  "title": "File:Cobot.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Cobot.jpg",
+  "author": "GrowSkills Robotics",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "proteus": {
+  "file": "proteus.png",
+  "label": "Proteus simulation on lab PCs",
+  "title": "File:Proteus parallel circuit.png",
+  "source": "https://commons.wikimedia.org/wiki/File:Proteus_parallel_circuit.png",
+  "author": "EEIM",
+  "licence": "Public domain",
+  "kind": "product photo (Wikimedia Commons), not our lab"
  }
 }
