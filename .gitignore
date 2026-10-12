@@ -58,3 +58,7 @@ deploy/tls/*
 !deploy/tls/README.md
 tools/robot_monitor/robot.env
 firmware/face_server/dataset_archive/
+
+# n8n.cloud trial export (owner backup, 2026-10-13) - same workflows as automation/n8n/json
+automation/n8n/aliloay-workflows/
+automation/n8n/aliloay-workflows.zip
