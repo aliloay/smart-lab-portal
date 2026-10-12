@@ -115,6 +115,29 @@ def face_capture(user_id: int, db: Session = Depends(get_db),
                        "No face found - look straight at the camera and try again"}
 
 
+@router.post("/users/{user_id}/face/reset")
+def face_reset(user_id: int, db: Session = Depends(get_db),
+               staff: User = Depends(require_staff)):
+    """Stop using this person's saved face samples (bad / few photos): the
+    face server moves them to its archive (kept, not deleted). Capture new
+    ones, then Finish."""
+    u = _person(db, user_id)
+    try:
+        r = httpx.post(f"{settings.FACE_SERVER_URL}/reset", params={"name": u.auth_subject},
+                       headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                       timeout=httpx.Timeout(30.0, connect=3.0))
+        r.raise_for_status()
+        body = r.json()
+    except (httpx.HTTPError, ValueError):
+        raise _unreachable("face server", settings.FACE_SERVER_URL)
+    enrolment.mark(db, u, "face", False)
+    db.add(AuditLog(actor_user_id=staff.id, action="FACE_SAMPLES_RESET",
+                    entity_type="user", entity_id=str(u.id),
+                    detail={"auth_subject": u.auth_subject, "archived_to": body.get("archived_to")}))
+    db.commit()
+    return {"reset": True, "archived_to": body.get("archived_to")}
+
+
 @router.post("/users/{user_id}/face/finish")
 def face_finish(user_id: int, db: Session = Depends(get_db),
                 staff: User = Depends(require_staff)):

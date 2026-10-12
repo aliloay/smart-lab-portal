@@ -8,7 +8,7 @@
  * camera's own page is linked for anything done there by hand.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, CheckCircle2, ExternalLink, ImagePlus, Pause, Play, ScanFace } from 'lucide-react'
+import { Camera, CheckCircle2, ExternalLink, ImagePlus, Pause, Play, RotateCcw, ScanFace } from 'lucide-react'
 import { FaceStatus, api, fetchBlob } from '../lib/api'
 import { fmtDateTime } from '../lib/time'
 import { ErrorBanner, ProgressBar, Spinner } from './ui'
@@ -78,6 +78,19 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
       setError(e instanceof Error ? e.message : 'Capture failed')
       return false
     }
+  }
+
+  async function resetSamples() {
+    if (!st || !confirm(`Stop using the ${st.samples} saved face photos of this person and start again?\n` +
+                        'They are moved to the face server\'s archive (kept, not deleted).')) return
+    setBusy(true); setError('')
+    try {
+      await api.faceReset(userId)
+      setSt(await api.faceStatus(userId))
+      setMsg('Old photos set aside - capture new ones, then Finish.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reset failed')
+    } finally { setBusy(false) }
   }
 
   async function capture() {
@@ -216,6 +229,9 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
               : <button type="button" className="btn-ghost btn-sm" disabled={busy || !!cameraError || samples >= target}
                         onClick={startAuto}><Play size={14} /> Auto-capture</button>}
           </div>
+          {samples > 0 && (
+            <button type="button" className="btn-ghost btn-sm text-warn-soft" disabled={busy || auto}
+                    onClick={resetSamples}><RotateCcw size={14} /> Remove saved face photos ({samples}) and start again</button>)}
           <div className="flex gap-2">
             <button type="button" className="btn-ghost btn-sm flex-1"
                     onClick={() => { autoRef.current = false; setOpen(false) }}>Close</button>

@@ -1201,6 +1201,7 @@ export const api = {
   deviceCommand: (id: number) => request<DeviceCommand>(`/device-commands/${id}`),
   cancelDeviceCommand: (id: number) => post<DeviceCommand>(`/device-commands/${id}/cancel`),
   faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),
+  faceReset: (id: number) => post<{ reset: boolean; archived_to: string | null }>(`/users/${id}/face/reset`),
   faceCapture: (id: number) =>
     post<{ saved: boolean; samples: number | null; message: string }>(`/users/${id}/face/capture`),
   faceFinish: (id: number) =>

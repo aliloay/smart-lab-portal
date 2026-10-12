@@ -57,6 +57,7 @@ face result can later be checked against the RFID/QR identity from step 1.
 """
 
 import os
+import shutil
 import re
 import csv
 import time
@@ -901,6 +902,35 @@ def preview_state():
     fresh = PREVIEW_ON and _preview["jpeg"] is not None and time.time() - _preview["at"] <= PREVIEW_MAX_AGE_S
     return _cors(jsonify({"enabled": PREVIEW_ON, "fresh": fresh,
                           **(_preview["state"] if fresh else {"hint": None, "tone": "idle", "box": None})}))
+
+
+ARCHIVE_DIR = "dataset_archive"
+
+
+@app.route("/reset", methods=["POST"])
+@one_at_a_time
+def reset_person():
+    """A person's face samples (and grant-screen photo) stop being used: they
+    are MOVED to dataset_archive/<name>_<time>/ - never deleted - and the
+    templates are rebuilt without them. Then capture new samples as usual."""
+    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+        return jsonify({"error": "device key required"}), 403
+    name = request.args.get("name", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+        return jsonify({"error": "bad name"}), 400
+    dest = os.path.join(ARCHIVE_DIR, f"{name}_{time.strftime('%Y%m%d-%H%M%S')}")
+    moved = 0
+    for src, sub in ((os.path.join(DATASET_DIR, name), "lbph"),
+                     (os.path.join(SFACE_DATASET_DIR, name), "sface"),
+                     (os.path.join(PORTRAIT_DIR, f"{name}.jpg"), "portrait.jpg")):
+        if os.path.exists(src):
+            os.makedirs(dest, exist_ok=True)
+            shutil.move(src, os.path.join(dest, sub))
+            moved += 1
+    if ENGINE == "sface":
+        rebuild_templates({name})
+    print(f"[reset] {name}: samples moved to {dest}" if moved else f"[reset] {name}: nothing saved")
+    return jsonify({"status": "reset", "name": name, "archived_to": dest if moved else None})
 
 
 @app.route("/users", methods=["GET"])
