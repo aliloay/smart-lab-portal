@@ -112,6 +112,7 @@ def face_capture(user_id: int, db: Session = Depends(get_db),
     saved = body.get("status") == "saved"
     return {"saved": saved, "samples": body.get("samples"),
             "message": "Sample saved" if saved else
+                       f"Not saved: {body['reason']}" if body.get("reason") else
                        "No face found - look straight at the camera and try again"}
 
 

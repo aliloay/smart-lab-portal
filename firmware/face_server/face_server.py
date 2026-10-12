@@ -167,6 +167,39 @@ def yunet_face(img):
     return face
 
 
+def yunet_count(img):
+    """How many faces YuNet sees in the frame."""
+    scale = min(1.0, DETECT_WIDTH / img.shape[1])
+    small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else img
+    yunet.setInputSize((small.shape[1], small.shape[0]))
+    _, faces = yunet.detect(small)
+    return 0 if faces is None else len(faces)
+
+
+# Enrolment sample quality (audit 2026-10-12). VERIFY the numbers on real
+# captures; each rejection says what to change, nothing is saved.
+QUALITY_MIN_FACE_PX = 80          # face box height in the full frame
+QUALITY_MIN_SHARPNESS = 40.0      # variance of the Laplacian of the face crop
+QUALITY_MAX_SIMILAR = 0.97        # cosine to the person's last sample: above = a repeat
+
+
+def enroll_quality(face_gray, n_faces, feat=None, last_feat=None):
+    """None when the sample is good, else a short reason for the person."""
+    if n_faces > 1:
+        return "more than one face - only the person enrolling in front of the camera"
+    h, w = face_gray.shape[:2]
+    if h < QUALITY_MIN_FACE_PX:
+        return "face too small - come closer to the camera"
+    if cv2.Laplacian(face_gray, cv2.CV_64F).var() < QUALITY_MIN_SHARPNESS:
+        return "blurred - hold still for a moment"
+    if feat is not None and last_feat is not None and float(np.dot(feat, last_feat)) > QUALITY_MAX_SIMILAR:
+        return "same as the last photo - turn your head slightly or change expression"
+    return None
+
+
+_last_sample_feat = {}
+
+
 def _unit(v):
     v = v.flatten()
     return v / (np.linalg.norm(v) or 1.0)
@@ -507,6 +540,18 @@ def enroll():
         print(f"[enroll] {name}: no face found in frame")
         return jsonify({"status": "no face found - try again"}), 200
     x, y, w, h = box
+    # Quality gate before anything is stored.
+    new_feat, aligned = None, None
+    if ENGINE == "sface":
+        row = yunet_face(img)
+        if row is not None:
+            aligned = sface.alignCrop(img, row)
+            new_feat = _unit(sface.feature(aligned))
+    why = enroll_quality(gray[y:y + h, x:x + w], yunet_count(img) if ENGINE == "sface" else 1,
+                         new_feat, _last_sample_feat.get(name))
+    if why:
+        print(f"[enroll] {name}: rejected - {why}")
+        return jsonify({"status": "rejected", "reason": why}), 200
     face = cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE)
     keep_best_portrait(name, img, w * h)
 
@@ -518,11 +563,11 @@ def enroll():
     if ENGINE == "sface":
         # The aligned colour face for SFace, then this person's template is
         # rebuilt at once: no separate training step.
-        row = yunet_face(img)
-        if row is not None:
+        if aligned is not None:
             sdir = os.path.join(SFACE_DATASET_DIR, name)
             os.makedirs(sdir, exist_ok=True)
-            cv2.imwrite(os.path.join(sdir, f"{idx}.png"), sface.alignCrop(img, row))
+            cv2.imwrite(os.path.join(sdir, f"{idx}.png"), aligned)
+            _last_sample_feat[name] = new_feat
         rebuild_templates({name})
 
     print(f"[enroll] {name}: sample {idx + 1} saved ({(time.perf_counter() - t0) * 1000:.0f} ms)")
