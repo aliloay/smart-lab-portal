@@ -424,6 +424,25 @@ def largest_face(gray):
 cv_lock = threading.Lock()
 
 
+# Enrolment first (2026-10-12): with a face in view the security camera's
+# /identify calls (several a second) queued in front of each enrolment capture,
+# which then took 6-20 s and often timed out. While an enrolment is running
+# (and ENROLL_QUIET_S after its last capture) /identify is refused at once,
+# BEFORE taking the lock; the camera simply asks again later. The door's own
+# checks are not affected.
+ENROLL_QUIET_S = 20.0
+_enrolling_at = 0.0
+
+
+def yield_to_enrolment(view):
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        if time.time() - _enrolling_at < ENROLL_QUIET_S:
+            return jsonify({"busy": "enrolment in progress"}), 503
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def one_at_a_time(view):
     @functools.wraps(view)
     def wrapped(*args, **kwargs):
@@ -442,7 +461,20 @@ ensure_log()
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
 
+def _mark_enrolling(view):
+    @functools.wraps(view)
+    def wrapped(*args, **kwargs):
+        global _enrolling_at
+        _enrolling_at = time.time()          # set BEFORE queueing for the lock
+        try:
+            return view(*args, **kwargs)
+        finally:
+            _enrolling_at = time.time()
+    return wrapped
+
+
 @app.route("/enroll", methods=["GET", "POST"])
+@_mark_enrolling
 @one_at_a_time
 def enroll():
     name = request.args.get("name")
@@ -456,8 +488,21 @@ def enroll():
     if img is None:
         return jsonify({"error": "no image received"}), 400
 
+    t0 = time.perf_counter()
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    box = largest_face_box(gray)
+    # YuNet (the detector SFace matching uses) finds faces Haar misses - turned
+    # head, uneven light; Haar stays the fallback when YuNet is not loaded.
+    box = None
+    if ENGINE == "sface":
+        row = yunet_face(img)
+        if row is not None:
+            x, y, w, h = (int(round(v)) for v in row[:4])
+            H, W = gray.shape[:2]
+            x, y = max(0, x), max(0, y)
+            w, h = min(w, W - x), min(h, H - y)
+            box = (x, y, w, h) if w > 20 and h > 20 else None
+    if box is None:
+        box = largest_face_box(gray)
     if box is None:
         print(f"[enroll] {name}: no face found in frame")
         return jsonify({"status": "no face found - try again"}), 200
@@ -480,7 +525,7 @@ def enroll():
             cv2.imwrite(os.path.join(sdir, f"{idx}.png"), sface.alignCrop(img, row))
         rebuild_templates({name})
 
-    print(f"[enroll] {name}: sample {idx + 1} saved")
+    print(f"[enroll] {name}: sample {idx + 1} saved ({(time.perf_counter() - t0) * 1000:.0f} ms)")
     return jsonify({"status": "saved", "name": name, "samples": idx + 1,
                     "engine": ENGINE})
 
@@ -570,6 +615,14 @@ def train():
     if not names:
         return jsonify({"error": "nothing enrolled yet"}), 400
 
+    # SFace fast-path: templates rebuild in milliseconds without retraining LBPH across every image
+    if ENGINE == "sface":
+        rebuild_templates()
+        summary = {n: len(os.listdir(os.path.join(DATASET_DIR, n))) for n in names}
+        total_images = sum(summary.values())
+        print(f"[train] SFace refreshed templates across {names} ({total_images} samples)")
+        return jsonify({"status": "trained", "users": summary, "total_images": total_images, "engine": "sface"})
+
     faces, labels = [], []
     label_to_name.clear()
     for label, name in enumerate(names):
@@ -589,12 +642,9 @@ def train():
     save_labels()
     model_trained = True
 
-    if ENGINE == "sface":
-        rebuild_templates()
-
     summary = {n: len(os.listdir(os.path.join(DATASET_DIR, n))) for n in names}
     print(f"[train] {len(faces)} images across {names}")
-    return jsonify({"status": "trained", "users": summary, "total_images": len(faces)})
+    return jsonify({"status": "trained", "users": summary, "total_images": len(faces), "engine": "lbph"})
 
 
 @app.route("/recognize", methods=["POST"])
@@ -640,6 +690,7 @@ def recognize():
 
 
 @app.route("/identify", methods=["POST"])
+@yield_to_enrolment
 @one_at_a_time
 def identify():
     """
