@@ -90,13 +90,6 @@ export default function LabDetail() {
       <Link to="/labs" className="inline-flex items-center gap-1.5 text-[13px] text-slate-400
                                   hover:text-white"><ArrowLeft size={14} />Laboratories</Link>
 
-      {/* ------------------------------------------- equipment gallery */}
-      {status && <section>
-        <SectionTitle icon={<FlaskConical size={15} />}
-          sub="Typical equipment of this kind - model photos with credits, not photos of our room.">Equipment gallery</SectionTitle>
-        <EquipmentGallery labCode={status.lab.code} />
-      </section>}
-
       {/* ---------------------------------------------------------- hero */}
       <section className="relative card overflow-hidden">
         <div className="absolute inset-y-0 right-0 w-full md:w-[62%]">
@@ -139,6 +132,13 @@ export default function LabDetail() {
           </div>
         </div>
       </section>
+
+      {/* ------------------------------------------- equipment gallery */}
+      {status && <section>
+        <SectionTitle icon={<FlaskConical size={15} />}
+          sub="Typical equipment of this kind - model photos with credits, not photos of our room.">Equipment gallery</SectionTitle>
+        <EquipmentGallery labCode={status.lab.code} />
+      </section>}
 
       {/* ---------------------------------------------------- live status */}
       <section>
