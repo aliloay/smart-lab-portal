@@ -4,3 +4,4 @@ flask
 waitress
 requests
 psutil
+openvino>=2026.4   # faster YOLO26 on the CPU (falls back to onnxruntime)

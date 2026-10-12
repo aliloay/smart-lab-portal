@@ -91,16 +91,37 @@ class Yolo26Detector:
     (OpenCV's dnn runs it ~8x slower). Same interface as Detector.
     Output (1, 84, N): cx, cy, w, h on the 640 letterbox + 80 COCO class scores.
     Measured on 30 lab frames (2026-10-12, 8 threads, 640 px, conf 0.45):
-    2.97 of 3 people at 147 ms - YOLOX-S needed 510 ms for the same."""
+    2.97 of 3 people at 147 ms - YOLOX-S needed 510 ms for the same.
+    Runs on OpenVINO (CPU) when it is installed: measured 2026-10-13 on 23 lab
+    frames, 123 ms vs 160 ms per frame with ONNX Runtime and the SAME people
+    found in every frame. OpenVINO's GPU path crashes on this laptop's driver,
+    so only its CPU device is used; any OpenVINO failure falls back to ONNX
+    Runtime. SMARTLAB_DETECTOR=onnxruntime forces the old engine."""
 
     def __init__(self, path: str, conf: float = 0.45, nms: float = 0.45, size: int = 640,
                  threads: int = 8):
-        import onnxruntime as ort
-        so = ort.SessionOptions()
-        so.intra_op_num_threads = threads
-        self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
-        self.input = self.sess.get_inputs()[0].name
         self.conf, self.nms, self.size = conf, nms, size
+        self.engine, self._ov = "onnxruntime", None
+        if os.environ.get("SMARTLAB_DETECTOR", "openvino").lower() == "openvino":
+            try:
+                import openvino as ov
+                cm = ov.Core().compile_model(path, "CPU", {"PERFORMANCE_HINT": "LATENCY",
+                                                           "INFERENCE_NUM_THREADS": threads})
+                self._ov, self.engine = cm.create_infer_request(), "openvino-cpu"
+            except Exception as e:                          # not installed / failed: old engine
+                print(f"[detector] OpenVINO unavailable ({e.__class__.__name__}) - using ONNX Runtime")
+        if self._ov is None:
+            import onnxruntime as ort
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = threads
+            self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
+            self.input = self.sess.get_inputs()[0].name
+        print(f"[detector] YOLO26 on {self.engine}")
+
+    def _infer(self, blob: np.ndarray) -> np.ndarray:
+        if self._ov is not None:
+            return self._ov.infer({0: blob})[0]
+        return self.sess.run(None, {self.input: blob})[0]
 
     def detect(self, img: np.ndarray) -> list[Detection]:
         h, w = img.shape[:2]
@@ -109,7 +130,7 @@ class Yolo26Detector:
         pad = np.full((self.size, self.size, 3), 114, np.uint8)
         pad[:nh, :nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
         blob = pad[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0   # RGB, 0-1
-        out = self.sess.run(None, {self.input: blob})[0][0].T                         # N x 84
+        out = self._infer(blob)[0].T                                                 # N x 84
         scores = out[:, 4:]
         cls = scores.argmax(1)
         best = scores[np.arange(len(cls)), cls]
