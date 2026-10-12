@@ -4,8 +4,8 @@ RFID card enrollment from the portal, through device commands.
 Same path as a finger: staff ask, the door controller fetches the request
 while idle, the person taps their card, and the controller reports the
 card's UID. Tested: who may ask, the device side, that DONE records the card
-as the person's one active card (a new card replaces the old one), that a
-failure records nothing, and that removal revokes it.
+next to the person's other cards (several per person), that a failure
+records nothing, and that removal revokes one chosen card or all of them.
 """
 from datetime import datetime, timezone
 
@@ -37,8 +37,10 @@ def person(db) -> User:
     return u
 
 
-def _run(client, h, device_headers, person, path, status="DONE", step="STORED", uid=None):
-    r = client.post(f"/api/users/{person.id}/rfid/{path}", headers=h, json={})
+def _run(client, h, device_headers, person, path, status="DONE", step="STORED", uid=None,
+         card_id=None):
+    r = client.post(f"/api/users/{person.id}/rfid/{path}", headers=h,
+                    json={} if card_id is None else {"card_id": card_id})
     assert r.status_code == 200, r.text
     cid = r.json()["id"]
     nxt = client.get("/api/access/commands/next?device_uid=MASTER_CARD", headers=device_headers).json()
@@ -68,12 +70,34 @@ def test_card_enrollment_records_the_card(client, db, staff, person, master, dev
     assert _cards(client, h, person) == ["04A1B2C3"]
     assert db.query(AuditLog).filter_by(action="RFID_ENROLLED").count() == 1
 
-    # A new card replaces the old one: one active card per person.
+    # A second card is added next to the first: several cards per person.
     _run(client, h, device_headers, person, "enroll", uid="DE:AD:BE:EF")
+    assert _cards(client, h, person) == ["04A1B2C3", "DEADBEEF"]
+
+
+def test_remove_one_card_keeps_the_others(client, db, staff, person, master, device_headers):
+    h = auth_headers(client, staff.email)
+    _run(client, h, device_headers, person, "enroll", uid="04:A1:B2:C3")
+    _run(client, h, device_headers, person, "enroll", uid="DE:AD:BE:EF")
+    first = db.query(RfidCredential).filter_by(uid_hex="04A1B2C3").one()
+    nxt = _run(client, h, device_headers, person, "remove", step="REMOVED", uid="04:A1:B2:C3",
+               card_id=first.id)
+    assert nxt["uid"] == "04A1B2C3"                 # the door is told which card
     assert _cards(client, h, person) == ["DEADBEEF"]
-    old = db.query(RfidCredential).filter_by(uid_hex="04A1B2C3").one()
-    db.refresh(old)
-    assert old.is_active is False and old.revoked_at is not None
+    db.refresh(first)
+    assert first.is_active is False and first.revoked_at is not None   # row kept, not deleted
+
+
+def test_remove_someone_elses_card_is_refused(client, db, staff, person, master, device_headers):
+    h = auth_headers(client, staff.email)
+    other = User(email="o@test.edu", full_name="Other", hashed_password=hash_password("Password123"),
+                 role=Role.STUDENT, auth_subject="USER5")
+    db.add(other)
+    db.add(RfidCredential(uid_hex="AABBCCDD", user=other))
+    db.commit()
+    card = db.query(RfidCredential).filter_by(uid_hex="AABBCCDD").one()
+    r = client.post(f"/api/users/{person.id}/rfid/remove", headers=h, json={"card_id": card.id})
+    assert r.status_code == 404
 
 
 def test_failed_card_enrollment_records_nothing(client, db, staff, person, master, device_headers):

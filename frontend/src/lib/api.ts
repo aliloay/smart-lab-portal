@@ -1190,7 +1190,7 @@ export const api = {
     post<DeviceCommand>(`/users/${id}/fingerprint/enroll`, { force }),
   // RFID card: the person taps it at the door; the controller stores it.
   cardEnroll: (id: number) => post<DeviceCommand>(`/users/${id}/rfid/enroll`, {}),
-  cardRemove: (id: number) => post<DeviceCommand>(`/users/${id}/rfid/remove`, {}),
+  cardRemove: (id: number, cardId?: number) => post<DeviceCommand>(`/users/${id}/rfid/remove`, cardId === undefined ? {} : { card_id: cardId }),
   userCards: (id: number) => request<{ id: number; uid_hex: string; label: string; issued_at: string }[]>(`/users/${id}/rfid`),
   // Face photos uploaded by staff: straight to the face server, nothing kept.
   faceUpload: (id: number, files: File[], onProgress?: (f: number) => void) => {

@@ -4,8 +4,8 @@
  * Same path as a finger: the portal leaves a request; the door controller
  * fetches it while idle, asks the person to tap their card (LCD + tablet),
  * stores it in its own memory for USERn - so the card works even with the
- * laptop off - and reports the card's UID, shown here. One card per person:
- * enrolling a new card replaces the old one.
+ * laptop off - and reports the card's UID, shown here. A person may hold
+ * several cards (up to 5 on the door); each can be removed on its own.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, CreditCard, Trash2, XCircle } from 'lucide-react'
@@ -54,10 +54,10 @@ export default function CardEnrollment({ userId, savedSubject }: {
     </p>
   }
 
-  async function run(remove: boolean) {
-    if (remove && !window.confirm('Remove this card from the door? It stops opening step 1 at once.')) return
+  async function run(remove: boolean, c?: Card) {
+    if (remove && !window.confirm(`Remove card ${c ? colons(c.uid_hex) : ''} from the door? It stops opening step 1 at once.`)) return
     setBusy(true); setError('')
-    try { setCmd(await (remove ? api.cardRemove(userId) : api.cardEnroll(userId))) }
+    try { setCmd(await (remove ? api.cardRemove(userId, c?.id) : api.cardEnroll(userId))) }
     catch (e) { setError(e instanceof Error ? e.message : 'Request failed') }
     finally { setBusy(false) }
   }
@@ -70,7 +70,7 @@ export default function CardEnrollment({ userId, savedSubject }: {
   const running = !!cmd && ACTIVE.has(cmd.status)
   const removing = cmd?.command === 'REMOVE_RFID'
   const failed = !!cmd && ['FAILED', 'EXPIRED', 'CANCELLED'].includes(cmd.status)
-  const card = cards?.[0]
+  const has = !!cards?.length
 
   return (
     <div className="rounded-lg border border-ink-600/70 bg-ink-800/40 p-3 space-y-2.5">
@@ -78,10 +78,18 @@ export default function CardEnrollment({ userId, savedSubject }: {
         <CreditCard size={15} className="text-accent-300" />
         <span className="font-medium">RFID card</span>
         <span className="mono text-[11px] text-slate-400">{savedSubject}</span>
-        {card && <span className="ml-auto text-[12px] text-ok-soft">
-          <span className="mono">{colons(card.uid_hex)}</span> · {fmtDateTime(card.issued_at)}</span>}
+        {has && <span className="ml-auto text-[11.5px] text-slate-400">{cards!.length} card{cards!.length > 1 ? 's' : ''}</span>}
       </div>
-      {!card && cards && !running && (
+      {has && <ul className="space-y-1">
+        {cards!.map(c => (
+          <li key={c.id} className="flex items-center gap-2 text-[12px]">
+            <span className="mono text-ok-soft">{colons(c.uid_hex)}</span>
+            <span className="text-slate-500">· {fmtDateTime(c.issued_at)}</span>
+            {!running && <button type="button" className="ml-auto btn-ghost btn-sm !py-0.5" disabled={busy}
+              onClick={() => run(true, c)}><Trash2 size={13} /> Remove</button>}
+          </li>))}
+      </ul>}
+      {!has && cards && !running && (
         <p className="text-[12px] text-slate-400">No card yet. Their booking QR works for step 1 meanwhile.</p>)}
 
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
@@ -106,10 +114,8 @@ export default function CardEnrollment({ userId, savedSubject }: {
 
       {!running && (
         <div className="flex gap-2">
-          <button type="button" className="btn-ghost btn-sm flex-1" disabled={busy} onClick={() => run(false)}>
-            <CreditCard size={14} /> {card ? 'Replace card' : 'Enroll card at the door'}</button>
-          {card && <button type="button" className="btn-ghost btn-sm" disabled={busy} onClick={() => run(true)}>
-            <Trash2 size={14} /> Remove</button>}
+          <button type="button" className="btn-ghost btn-sm flex-1" disabled={busy || (cards?.length ?? 0) >= 5} onClick={() => run(false)}>
+            <CreditCard size={14} /> {has ? 'Add another card at the door' : 'Enroll card at the door'}</button>
         </div>)}
     </div>
   )

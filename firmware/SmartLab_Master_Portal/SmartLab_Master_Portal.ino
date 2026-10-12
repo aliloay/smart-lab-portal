@@ -258,6 +258,7 @@ constexpr uint8_t MAX_FINGER_SLOT = 127;   // AS608 capacity on common modules
 // The two built-in cards above stay as they are.
 // ---------------------------------------------------------------------------
 constexpr uint8_t MAX_PORTAL_CARDS = 40;
+constexpr uint8_t MAX_CARDS_PER_PERSON = 5;   // a person may carry several cards
 struct PortalCard {
   uint8_t slot;
   uint8_t size;
@@ -678,6 +679,7 @@ struct PortalCommand {          // what the task hands to loop()
   uint8_t slot;
   bool    force;
   char    who[16];              // first name for the LCD / tablet
+  char    uid[24];              // REMOVE_RFID: which card ("8952FF1F"); empty = all of theirs
 };
 
 struct CommandProgress {        // what loop() hands back to the task
@@ -820,6 +822,7 @@ void fetchCommand() {
   c.slot  = (slot >= 1 && slot <= MAX_FINGER_SLOT) ? (uint8_t)slot : 0;
   c.force = reply.indexOf("\"force\":true") >= 0;
   strlcpy(c.who, jsonStr(reply, "display_name").c_str(), sizeof(c.who));
+  strlcpy(c.uid, jsonStr(reply, "uid").c_str(), sizeof(c.uid));
   xQueueSend(commandQueue, &c, 0);
 }
 
@@ -2111,12 +2114,17 @@ void runCardEnrollment(uint8_t slot, const char *who, long cmdId) {
         result = "CARD_IN_USE"; why = "This card already belongs to someone else";
       } else if (builtIn >= 0) {
         result = "STORED"; why = "This is their built-in card - already works";
+      } else if (other >= 0) {
+        result = "STORED"; why = "This card is already theirs - already works";
       } else {
-        int i = cardIndexBySlot(slot);            // one card per person: a new one replaces it
-        if (i < 0 && portalCardCount >= MAX_PORTAL_CARDS) {
+        uint8_t mine = 0;                         // several cards per person, each added
+        for (uint8_t k = 0; k < portalCardCount; k++) if (portalCards[k].slot == slot) mine++;
+        if (mine >= MAX_CARDS_PER_PERSON) {
+          result = "FULL"; why = "This person has the most cards allowed - remove one first";
+        } else if (portalCardCount >= MAX_PORTAL_CARDS) {
           result = "FULL"; why = "Card memory full - remove a card first";
         } else {
-          if (i < 0) i = portalCardCount++;
+          int i = portalCardCount++;
           PortalCard &c = portalCards[i];
           c.slot = slot;
           c.size = rfidUid.size;
@@ -2140,19 +2148,36 @@ void runCardEnrollment(uint8_t slot, const char *who, long cmdId) {
   if (enrollDoorForced) goDoorAlarm(); else goIdle();
 }
 
-void runCardRemoval(uint8_t slot, long cmdId) {
-  int i = cardIndexBySlot(slot);
+// "89:52:FF:1F" and "8952ff1f" name the same card.
+bool uidMatchesHex(const PortalCard &c, const char *hex) {
+  char mine[24] = "", want[24] = "";
+  for (uint8_t i = 0; i < c.size; i++) { char b[3]; snprintf(b, sizeof(b), "%02X", c.uid[i]); strlcat(mine, b, sizeof(mine)); }
+  size_t n = 0;
+  for (const char *p = hex; *p && n + 1 < sizeof(want); p++) if (isxdigit((unsigned char)*p)) want[n++] = toupper(*p);
+  want[n] = 0;
+  return n && strcmp(mine, want) == 0;
+}
+
+// Removes one card of this person (uidHex given) or all of their cards (empty).
+void runCardRemoval(uint8_t slot, long cmdId, const char *uidHex) {
   char text[32] = "";
-  if (i < 0) {
-    if (cmdId) queueCardProgress(cmdId, "DONE", "NO_CARD", "No card was stored for this person", "");
-    Serial.printf("[CARD] USER%u: no card stored\n", slot);
+  int removed = 0;
+  for (int i = portalCardCount - 1; i >= 0; i--) {
+    if (portalCards[i].slot != slot) continue;
+    if (uidHex && *uidHex && !uidMatchesHex(portalCards[i], uidHex)) continue;
+    uidText(portalCards[i].uid, portalCards[i].size, text, sizeof(text));
+    cardRemoveAt(i);
+    removed++;
+  }
+  if (!removed) {
+    if (cmdId) queueCardProgress(cmdId, "DONE", "NO_CARD", "That card was not stored for this person", "");
+    Serial.printf("[CARD] USER%u: no matching card stored\n", slot);
     return;
   }
-  uidText(portalCards[i].uid, portalCards[i].size, text, sizeof(text));
-  cardRemoveAt(i);
   bool ok = cardsSave();
   if (!ok) cardsLoad();
-  Serial.printf("[CARD] USER%u: card %s %s\n", slot, text, ok ? "removed" : "NOT removed");
+  if (removed > 1) snprintf(text, sizeof(text), "%d cards", removed);
+  Serial.printf("[CARD] USER%u: %s %s\n", slot, text, ok ? "removed" : "NOT removed");
   if (cmdId) queueCardProgress(cmdId, ok ? "DONE" : "FAILED", ok ? "REMOVED" : "STORE_FAILED",
                                ok ? "Card removed from the door" : "Could not save - try again", text);
 }
@@ -2176,7 +2201,7 @@ void handlePortalCommand() {
     return;
   }
   if (c.kind == CMD_REMOVE_CARD) {
-    runCardRemoval(c.slot, c.id);
+    runCardRemoval(c.slot, c.id, c.uid);
     return;
   }
   Serial.printf("[ENROLL] Portal request %ld: slot %u (%s)%s\n", c.id, c.slot, c.who,
@@ -2220,7 +2245,7 @@ void runSerialCommand(String line) {
   if (line.startsWith("card delete ")) {
     long n = line.substring(12).toInt();
     if (n < 1 || n > MAX_FINGER_SLOT) { Serial.println("[CMD] card delete <n>"); return; }
-    runCardRemoval((uint8_t)n, 0);
+    runCardRemoval((uint8_t)n, 0, "");
     return;
   }
   bool isEnroll = line.startsWith("enroll ");

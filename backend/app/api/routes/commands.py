@@ -130,6 +130,7 @@ def _queue(db: Session, u: User, staff: User, command: str, lab_id: Optional[int
 
 class CardRequest(BaseModel):
     lab_id: Optional[int] = None
+    card_id: Optional[int] = None      # remove: one of the person's cards; None = all
 
 
 @router.post("/users/{user_id}/rfid/enroll")
@@ -150,7 +151,13 @@ def request_card_removal(user_id: int, req: CardRequest, db: Session = Depends(g
     if u is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     slot = _slot(u)
-    return cmds.out(_queue(db, u, staff, cmds.REMOVE_RFID, req.lab_id, {"slot": slot},
+    args: dict = {"slot": slot}
+    if req.card_id is not None:
+        card = db.get(RfidCredential, req.card_id)
+        if card is None or card.user_id != u.id or not card.is_active:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "This person has no such active card")
+        args["uid"] = card.uid_hex
+    return cmds.out(_queue(db, u, staff, cmds.REMOVE_RFID, req.lab_id, args,
                            "RFID_REMOVE_REQUESTED"))
 
 
@@ -169,12 +176,8 @@ def user_cards(user_id: int, db: Session = Depends(get_db), _: User = Depends(re
 
 
 def _record_card(db: Session, target: User, uid: str, now: datetime) -> None:
-    """The controller stored this card for the person: it is now their one card."""
+    """The controller stored this card for the person, next to any others they hold."""
     uid_hex = _hex(uid)
-    for r in db.scalars(select(RfidCredential).where(
-            RfidCredential.user_id == target.id, RfidCredential.is_active.is_(True))).all():
-        if r.uid_hex != uid_hex:
-            r.is_active, r.revoked_at = False, now
     row = db.scalar(select(RfidCredential).where(RfidCredential.uid_hex == uid_hex))
     if row is None:
         db.add(RfidCredential(uid_hex=uid_hex, label="Enrolled at the door",
@@ -183,10 +186,12 @@ def _record_card(db: Session, target: User, uid: str, now: datetime) -> None:
         row.user_id, row.is_active, row.revoked_at, row.issued_at = target.id, True, None, now
 
 
-def _revoke_cards(db: Session, target: User, now: datetime) -> None:
+def _revoke_cards(db: Session, target: User, now: datetime, uid_hex: str = "") -> None:
+    """Revokes one card (uid_hex) or all of the person's cards. Rows are kept."""
     for r in db.scalars(select(RfidCredential).where(
             RfidCredential.user_id == target.id, RfidCredential.is_active.is_(True))).all():
-        r.is_active, r.revoked_at = False, now
+        if not uid_hex or r.uid_hex == uid_hex:
+            r.is_active, r.revoked_at = False, now
 
 
 @router.get("/device-commands/{command_id}")
@@ -248,7 +253,9 @@ def next_command(device_uid: str = Query(max_length=64), db: Session = Depends(g
             "force": bool(a.get("force")), "auth_subject": a.get("auth_subject", ""),
             "display_name": a.get("display_name", ""),
             # OPEN_LID (reusable bin): the item the person selected.
-            "asset_tag": a.get("asset_tag", "")}
+            "asset_tag": a.get("asset_tag", ""),
+            # REMOVE_RFID: the one card to remove ("" = all of the person's cards).
+            "uid": a.get("uid", "")}
 
 
 class ProgressReport(BaseModel):
@@ -298,7 +305,7 @@ def report_progress(command_id: int, req: ProgressReport, db: Session = Depends(
                             detail={"uid": req.uid, "command_id": c.id, "step": req.step,
                                     "message": req.message, "device": device.device_uid}))
         if c.command == cmds.REMOVE_RFID and target is not None and req.status == "DONE":
-            _revoke_cards(db, target, now)
+            _revoke_cards(db, target, now, _hex((c.args or {}).get("uid", "")))
             db.add(AuditLog(actor_user_id=c.requested_by_id, action="RFID_REMOVED",
                             entity_type="user", entity_id=str(target.id),
                             detail={"uid": req.uid, "command_id": c.id,
