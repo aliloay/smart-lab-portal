@@ -624,3 +624,17 @@ def test_a_name_is_never_on_two_people():
     twin = Track(2, b, 5.0, 5.0, label="USER1", name="Ali", role="STUDENT", look=lb)
     lab.assign([ta, twin], people, None, now=10.0)
     assert [t.label for t in (ta, twin)] == ["USER1", None]
+
+
+def test_a_track_keeps_its_clean_look_while_people_touch():
+    """Root cause #2: during a crossing the box holds parts of the other person;
+    the track must not take that mixed look as its own."""
+    tr = Tracker()
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    tr.update([a, b], 0.0, [la, lb])
+    ali_id = next(t.id for t in tr.tracks if t.box[0] < 300)
+    near_a, near_b = (a[0] + 150, a[1], a[2], a[3]), (a[0] + 190, b[1], b[2], b[3])   # side by side
+    tr.update([near_a, near_b], 0.3, [lb, la])                        # looks mixed while touching
+    ali = next(t for t in tr.tracks if t.id == ali_id)
+    assert look_distance(ali.look, la) < 0.1                          # still Ali's own look

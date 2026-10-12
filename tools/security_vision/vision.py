@@ -397,7 +397,10 @@ class Tracker:
                 (ox, oy), (nx, ny) = t.center(), _center(boxes[bi])
                 t.vel = (0.5 * t.vel[0] + 0.5 * (nx - ox) / dt, 0.5 * t.vel[1] + 0.5 * (ny - oy) / dt)
             t.box, t.last_seen, t.hits = boxes[bi], now, t.hits + 1
-            if looks[bi] is not None:
+            # While people touch, the box may hold parts of the other person:
+            # the track keeps its last clean look (2026-10-12 root cause #2).
+            touching = any(_close(boxes[bi], b2) for j, b2 in enumerate(boxes) if j != bi)
+            if looks[bi] is not None and not touching:
                 t.look = looks[bi]
             used_t.add(ti)
             used_b.add(bi)
@@ -480,6 +483,7 @@ class Labeler:
     LOCK_SAMPLES = 3                   # alone-frames before a look can move a name
     SETTLE_S = 0.6                     # apart this long before names are re-checked
     SWAP_MARGIN = 0.05                 # a swap must fit this much better
+    HANDBACK_SMALL_S = 3.0             # a tiny (unjudgeable) box gets a name back by place only this soon
     REACQUIRE_MAX = 0.25               # this alike to get a name back (was 0.30)...
     REACQUIRE_MARGIN = 0.10            # ...and this much more alike than every other person in view (was 0.08)
     LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
@@ -683,7 +687,12 @@ class Labeler:
                     and 0.5 <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= 2.0]
             # Big enough to judge the look: the look must agree too (someone
             # else walking through that place is not them).
-            near = [t for t in near if t.box[3] < self.MIN_LOOK_H or
+            # The look must always agree - a person sitting in the same place is
+            # not them (2026-10-12 root cause #4: small / seated boxes skipped this).
+            # Too small to judge (a head behind a monitor): by place only within
+            # HANDBACK_SMALL_S; anything bigger needs the look too.
+            near = [t for t in near if
+                    (t.box[3] < self.MIN_LOOK_H and now - at <= self.HANDBACK_SMALL_S) or
                     ((d := self._distance(t, label)) is not None and d <= self.REACQUIRE_MAX)]
             if len(near) == 1:
                 claims.setdefault(near[0].id, []).append((tid, who, source))
@@ -815,6 +824,12 @@ class Labeler:
         for t in tracks:
             if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H:
                 continue                   # a tiny / half-hidden view would blur the locked look
+            # Clearly alone (2026-10-12 root cause #7): nobody within a body width,
+            # and not touching anyone in the last second.
+            if t.last_seen - getattr(t, "crowded_at", -1e9) < 1.0 or any(
+                    o is not t and abs(o.center()[0] - t.center()[0]) < 1.5 * max(o.box[2], t.box[2])
+                    and abs(o.center()[1] - t.center()[1]) < max(o.box[3], t.box[3]) for o in tracks):
+                continue
             ident = self.identities.get(t.label)
             if ident is None:
                 self.identities[t.label] = Identity(t.look)

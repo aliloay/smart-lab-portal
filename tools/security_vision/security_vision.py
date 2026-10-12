@@ -179,6 +179,7 @@ class Service:
     RENDER_FPS = 15                    # pictures drawn per second for the live views
     FACE_EVERY_S = 1.5                 # a face check per unnamed person at most this often
     FACE_MARGIN = 0.08                 # the best face must beat the next person by this (cosine; was 0.05)
+    FACE_MAX_AGE_S = 1.0               # a detection older than this is not used for a face crop
     FACE_MIN = 0.50                    # and reach this: from the ceiling, wrong people matched 0.41-0.53,
                                        # the right one 0.59-0.66 (2026-10-12); the door camera stays at 0.363
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
@@ -213,6 +214,7 @@ class Service:
         self.robot_vis = RobotVisualMotion() # optical flow in robot boxes (alert_on_motion off)
         self.robot_visual: dict[int, dict] = {}
         self.person_rects: list[tuple] = []        # latest people (0-1), from the detector pass
+        self.det_frame = None                      # (frame, time, {track: box}, {crowded tracks})
         self.zone_states: list = []                # latest box states, from watch_zones
         self.door_open: Optional[bool] = None
         self.cfg = {"zones": [], "door": None, "occupants": []}
@@ -385,6 +387,11 @@ class Service:
                 self.door_open = None
             with self.lock:
                 self.tracks = tracks
+                # The frame these boxes come from: faces are cut from THIS frame,
+                # so a face can never be cropped from a later frame where the
+                # box already holds someone else (2026-10-12 root cause #1).
+                self.det_frame = (frame, t0, {t.id: tuple(t.box) for t in tracks},
+                                  {t.id for t in tracks if t.crowded})
             self.check(tracks, occupants, states)
             zones_ms = (time.perf_counter() - z0) * 1000
             self.metrics.analysed(seq, age_ms, detect_ms, track_ms, zones_ms, (time.time() - t0) * 1000)
@@ -749,9 +756,12 @@ class Service:
             time.sleep(0.3)
             with self.lock:
                 tracks = list(self.tracks)
-            frame, _ = self.camera.latest()
-            if frame is None:
+                det = self.det_frame
+            if det is None:
                 continue
+            frame, det_at, det_boxes, crowded = det
+            if time.time() - det_at > self.FACE_MAX_AGE_S:
+                continue                             # detection too old: no face from it
             now = time.time()
             for tid in [k for k in self.face_asked if all(t.id != k for t in tracks)]:
                 del self.face_asked[tid]
@@ -760,7 +770,10 @@ class Service:
                 if now - self.face_asked.get(t.id, 0.0) < every:
                     continue
                 self.face_asked[t.id] = now
-                crop = head_crop(frame, t.box)
+                box = det_boxes.get(t.id)
+                if box is None or t.id in crowded:
+                    continue                         # not in that frame, or touching someone: the crop may hold them
+                crop = head_crop(frame, box)
                 if crop is None:
                     continue
                 jpg = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
@@ -771,6 +784,10 @@ class Service:
                 except (requests.RequestException, ValueError):
                     res = {}
                 name, score, second = res.get("name"), res.get("score"), res.get("second")
+                with self.lock:
+                    alive = any(x.id == t.id for x in self.tracks)
+                if not alive:
+                    continue                         # the track ended while asking: result dropped
                 if name and score is not None and score >= self.FACE_MIN and \
                         (second is None or score - second >= self.FACE_MARGIN):
                     with self.label_lock:
