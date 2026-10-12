@@ -873,9 +873,16 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
           {wall ? (
             <button type="button" className="btn-ghost btn-sm" onClick={toggleFullscreen}><Expand size={14} /> Full screen</button>
           ) : (
-            <Link className="btn-ghost btn-sm" to="/wall" title="Open the staff wall display">
-              <MonitorUp size={14} /> Wall mode
-            </Link>
+            <>
+              <Link className="btn-ghost btn-sm" to="/wall" title="Open the wall display in this tab">
+                <MonitorUp size={14} /> Wall mode
+              </Link>
+              {/* Only on click - never opened automatically. */}
+              <a className="btn-ghost btn-sm" href="/wall" target="_blank" rel="noopener noreferrer"
+                 title="Open the wall display in a new browser tab">
+                <MonitorUp size={14} /> Wall in new tab
+              </a>
+            </>
           )}
         </div>
       </header>
