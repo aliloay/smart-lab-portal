@@ -36,12 +36,12 @@ export default function EquipmentGallery({ labCode }: { labCode: string }) {
   useEffect(() => { load().then(setMeta) }, [])
   if (!items.length) return null
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
       {items.map(it => {
         const p = it.photo ? meta[it.photo] : undefined
         return (
           <figure key={it.label} className="rounded-xl overflow-hidden border border-white/10 bg-white/5 backdrop-blur-md shadow-lg">
-            <div className="aspect-[4/3] bg-gradient-to-br from-slate-800/60 to-slate-900/60 grid place-items-center">
+            <div style={{ aspectRatio: "4 / 3" }} className="overflow-hidden bg-gradient-to-br from-slate-800/60 to-slate-900/60 grid place-items-center">
               {p ? <img src={`/equipment/${p.file}`} alt={it.label} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                  : <span className="text-[11px] text-slate-400 px-4 text-center">Photo of our unit not added yet</span>}
             </div>
