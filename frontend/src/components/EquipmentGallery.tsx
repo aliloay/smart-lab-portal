@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 
 // Model / category photos (Wikimedia Commons, free licences) - NOT photos of
 // our labs. Fetched by tools/fetch_lab_images.py; attribution shown per card.
-interface Photo { file: string; label: string; title: string; source: string; author: string; licence: string }
+interface Photo { kind?: string; file: string; label: string; title: string; source: string; author: string; licence: string }
 
 // What is in each lab (owner's list). `photo` = key in ATTRIBUTION.json; no
 // photo = text card until our own photo is taken.
 interface Item { label: string; photo?: string; note?: string }
 const BY_LAB: Record<string, Item[]> = {
-  LAB_01: [{ label: 'Universal Robots UR5e', photo: 'ur5e' }, { label: 'FANUC ER-4iA (R-30iB Mate Plus)' },
-           { label: 'Conveyor belt', photo: 'conveyor' }, { label: 'Lab PCs', photo: 'workstation' }],
+  LAB_01: [{ label: 'Universal Robots UR5e (mounted inverted)', photo: 'our-ur5e' }, { label: 'FANUC ER-4iA (R-30iB Mate Plus)', photo: 'our-fanuc' },
+           { label: 'Lab PCs', photo: 'our-pcs' }, { label: 'Conveyor belt', photo: 'conveyor' }],
   LAB_02: [{ label: 'Siemens SIMATIC S7-1200 PLC', photo: 's7-1200', note: '8 stations' },
            { label: 'PC per PLC station', photo: 'workstation', note: '8 stations' }],
   LAB_03: [{ label: 'Drilling machine', photo: 'drill-press' }, { label: 'Cutting and sheet-metal tools', photo: 'sheet-metal' }],
@@ -47,7 +47,8 @@ export default function EquipmentGallery({ labCode }: { labCode: string }) {
             </div>
             <figcaption className="px-3 py-2">
               <div className="text-[13px] font-medium text-slate-100">{it.label}{it.note && <span className="text-slate-400 font-normal"> · {it.note}</span>}</div>
-              {p && <div className="text-[10.5px] text-slate-400 truncate" title={`${p.title} - ${p.author}`}>
+              {p && p.kind === 'our lab' && <div className="text-[10.5px] text-emerald-300">Our lab · photo {p.author}</div>}
+              {p && p.kind !== 'our lab' && <div className="text-[10.5px] text-slate-400 truncate" title={`${p.title} - ${p.author}`}>
                 Model photo, not our lab · {p.author} ·{' '}
                 <a href={p.source} target="_blank" rel="noopener noreferrer" className="underline">{p.licence}</a>
               </div>}

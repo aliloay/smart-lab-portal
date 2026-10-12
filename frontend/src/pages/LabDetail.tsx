@@ -136,7 +136,7 @@ export default function LabDetail() {
       {/* ------------------------------------------- equipment gallery */}
       {status && <section>
         <SectionTitle icon={<FlaskConical size={15} />}
-          sub="Typical equipment of this kind - model photos with credits, not photos of our room.">Equipment gallery</SectionTitle>
+          sub="What is in this lab. Green = our own photo; others are credited model photos until ours are taken.">Equipment gallery</SectionTitle>
         <EquipmentGallery labCode={status.lab.code} />
       </section>}
 

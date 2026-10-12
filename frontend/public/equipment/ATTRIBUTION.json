@@ -205,5 +205,32 @@
   "author": "EEIM",
   "licence": "Public domain",
   "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "our-fanuc": {
+  "file": "our-fanuc.jpg",
+  "label": "FANUC ER-4iA",
+  "title": "FANUC ER-4iA",
+  "source": "",
+  "author": "Ali Loay",
+  "licence": "own photo",
+  "kind": "our lab"
+ },
+ "our-ur5e": {
+  "file": "our-ur5e.jpg",
+  "label": "UR5e on its frame",
+  "title": "UR5e on its frame",
+  "source": "",
+  "author": "Ali Loay",
+  "licence": "own photo",
+  "kind": "our lab"
+ },
+ "our-pcs": {
+  "file": "our-pcs.jpg",
+  "label": "Robotics lab PCs",
+  "title": "Robotics lab PCs",
+  "source": "",
+  "author": "Ali Loay",
+  "licence": "own photo",
+  "kind": "our lab"
  }
 }
