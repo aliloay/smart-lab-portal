@@ -129,6 +129,8 @@ def update_bin(bin_id: int, req: BinUpdate, db: Session = Depends(get_db),
         setattr(b, k, v)
     if {"tare_g", "unit_mass_g", "noise_g"} & changes.keys():
         b.calibrated_at = datetime.now(timezone.utc)
+    if {"tare_g", "unit_mass_g"} & changes.keys():
+        b.last_mass_g = None          # recalibrated: the next reading is the new starting point
     db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_UPDATED",
                     entity_type="inventory_bin", entity_id=str(b.id), detail=changes))
     db.commit()

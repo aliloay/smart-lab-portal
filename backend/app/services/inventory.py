@@ -190,16 +190,26 @@ def record(db: Session, b: InventoryBin, mass: float,
         _check_reorder(db, b, qty_estimate(b, mass))
         return None
     if calibrated(b):
+        # Counted by CHANGE: a take or a return moves only the pieces' mass, so
+        # it is booked from the difference to the confirmed reading, in whole
+        # pieces, once it sits cleanly on a whole number. Between changes the
+        # container's zero follows slow load-cell drift (creep), so drift never
+        # adds up to a wrong count.
         before = qty_estimate(b, b.last_mass_g)
-        n = _clean_count(b, mass)
-        if n is None:
-            return None                  # between two counts: wait
-        if n == before:
-            b.last_mass_g, b.last_measured_at = mass, now   # same count: follow drift
+        x = (mass - b.last_mass_g) / b.unit_mass_g
+        n = round(x)
+        if n == 0:
+            if abs(x) <= CLEAN_PC:       # no change: follow the drift
+                b.tare_g = round(b.tare_g + (mass - b.last_mass_g), 4)
+                b.last_mass_g, b.last_measured_at = mass, now
             return None
-        if prev is None or _clean_count(b, prev) != n:
+        if abs(x - n) > CLEAN_PC:
+            return None                  # between two counts (still settling): wait
+        if prev is None or abs((prev - b.last_mass_g) / b.unit_mass_g - n) > CLEAN_PC:
             return None                  # not confirmed yet: wait for the next reading
-        dq = n - before
+        dq = max(n, -before)
+        # Keep the shown count an exact whole number after the change.
+        b.tare_g = round(mass - (before + dq) * b.unit_mass_g, 4)
     else:
         if abs(mass - b.last_mass_g) < thr:
             b.last_mass_g, b.last_measured_at = mass, now
