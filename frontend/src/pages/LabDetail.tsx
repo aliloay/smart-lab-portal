@@ -19,6 +19,7 @@ import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
 import SafetyStates from '../components/SafetyStates'
 import SmartBin from '../components/SmartBin'
+import EquipmentGallery from '../components/EquipmentGallery'
 
 const LabExperiments = lazy(() => import('./Experiments'))
 
@@ -249,6 +250,12 @@ export default function LabDetail() {
               </>}
             </div>
           </section>
+
+          {status && <section>
+            <SectionTitle icon={<FlaskConical size={15} />}
+              sub="Typical equipment of this kind - model photos with credits, not photos of our room.">Equipment gallery</SectionTitle>
+            <EquipmentGallery labCode={status.lab.code} />
+          </section>}
 
           {/* -------------------------------------------------- experiments */}
           {staff && (

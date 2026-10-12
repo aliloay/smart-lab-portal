@@ -1,0 +1,182 @@
+{
+ "conveyor": {
+  "file": "conveyor.jpg",
+  "label": "Conveyor belt",
+  "title": "File:Horizontal Belt Conveyor.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Horizontal_Belt_Conveyor.jpg",
+  "author": "RICHI Manufacture",
+  "licence": "CC BY 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "workstation": {
+  "file": "workstation.jpg",
+  "label": "Lab PCs / workstations",
+  "title": "File:Music Computer Lab.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Music_Computer_Lab.jpg",
+  "author": "Mbrickn",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "s7-1200": {
+  "file": "s7-1200.jpg",
+  "label": "Siemens SIMATIC S7-1200 PLC",
+  "title": "File:Siemens S7-1200 PLC to PC Communication Cable.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Siemens_S7-1200_PLC_to_PC_Communication_Cable.jpg",
+  "author": "Projuktiponno",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "drill-press": {
+  "file": "drill-press.jpg",
+  "label": "Drilling machine",
+  "title": "File:Drill press operator fsac 1a35306.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Drill_press_operator_fsac_1a35306.jpg",
+  "author": "Alfred T. Palmer, United States Office of War Information",
+  "licence": "Public domain",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "sheet-metal": {
+  "file": "sheet-metal.jpg",
+  "label": "Sheet-metal tools",
+  "title": "File:Bundesarchiv Bild 102-10647, Riesen-Plattenschere für Blechbearbeitung.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Bundesarchiv_Bild_102-10647,_Riesen-Plattenschere_f%C3%BCr_Blechbearbeitung.jpg",
+  "author": "UnknownUnknown",
+  "licence": "CC BY-SA 3.0 de",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "tensile": {
+  "file": "tensile.jpg",
+  "label": "Tensile testing machine",
+  "title": "File:Trekproefkast.JPG",
+  "source": "https://commons.wikimedia.org/wiki/File:Trekproefkast.JPG",
+  "author": "MaartenJV",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "bending": {
+  "file": "bending.png",
+  "label": "Bending test machine",
+  "title": "File:Three point bending test.png",
+  "source": "https://commons.wikimedia.org/wiki/File:Three_point_bending_test.png",
+  "author": "Cjp24",
+  "licence": "CC BY-SA 3.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "bmw-i3": {
+  "file": "bmw-i3.jpg",
+  "label": "BMW i3 (electric hatchback)",
+  "title": "File:Dülmen, Kirchspiel, Visbeck, BMW i3 -- 2016 -- 1581-7.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_Kirchspiel,_Visbeck,_BMW_i3_--_2016_--_1581-7.jpg",
+  "author": "Dietmar Rabich",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "gearbox": {
+  "file": "gearbox.jpg",
+  "label": "Gears and transmission",
+  "title": "File:Porsche 971 Panamera ZF Gearbox IAA 2019 JM 0639.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Porsche_971_Panamera_ZF_Gearbox_IAA_2019_JM_0639.jpg",
+  "author": "Johannes Maximilian",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "steering": {
+  "file": "steering.jpg",
+  "label": "Steering system",
+  "title": "File:Power steering rack.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Power_steering_rack.jpg",
+  "author": "l0lnix",
+  "licence": "CC BY 2.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "pcb-mill": {
+  "file": "pcb-mill.jpg",
+  "label": "PCB prototyping machine",
+  "title": "File:CNC PCB Milling Machine.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:CNC_PCB_Milling_Machine.jpg",
+  "author": "Psychlist1972",
+  "licence": "CC BY 2.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "soldering": {
+  "file": "soldering.jpg",
+  "label": "Soldering station",
+  "title": "File:Soldering Station 375A+.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Soldering_Station_375A%2B.jpg",
+  "author": "Leisto",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "atmega": {
+  "file": "atmega.jpg",
+  "label": "ATmega microcontroller boards",
+  "title": "File:Arduino UNO microcontroller.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Arduino_UNO_microcontroller.jpg",
+  "author": "Arduino",
+  "licence": "CC BY-SA 2.5",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "esp32": {
+  "file": "esp32.jpg",
+  "label": "ESP32 boards",
+  "title": "File:ESP32 Dev Board.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:ESP32_Dev_Board.jpg",
+  "author": "Edwiyanto",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "mannequin": {
+  "file": "mannequin.jpg",
+  "label": "Mannequins / dress forms",
+  "title": "File:Mannequins in Galeries de la Capitale 3.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Mannequins_in_Galeries_de_la_Capitale_3.jpg",
+  "author": "Wilfredor",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "thread": {
+  "file": "thread.jpg",
+  "label": "Threads and fabrics",
+  "title": "File:Wooden spools of sewing thread in different colors 6.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Wooden_spools_of_sewing_thread_in_different_colors_6.jpg",
+  "author": "W.carter",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "laser-cutter": {
+  "file": "laser-cutter.jpg",
+  "label": "Laser cutter",
+  "title": "File:CNC Laser Cutting Head in Use at Martin Guitar Factory.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:CNC_Laser_Cutting_Head_in_Use_at_Martin_Guitar_Factory.jpg",
+  "author": "Henrysz",
+  "licence": "CC BY 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "woodcut": {
+  "file": "woodcut.jpg",
+  "label": "Wood-cutting equipment",
+  "title": "File:Table saw blade guard.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:Table_saw_blade_guard.jpg",
+  "author": "Patrick Fitzgerald",
+  "licence": "CC BY 2.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "jewelry": {
+  "file": "jewelry.jpg",
+  "label": "Jewelry-making tools",
+  "title": "File:My jewellery bench.jpg",
+  "source": "https://commons.wikimedia.org/wiki/File:My_jewellery_bench.jpg",
+  "author": "Mauro Cateb",
+  "licence": "CC BY-SA 4.0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ },
+ "sewing": {
+  "file": "sewing.jpg",
+  "label": "Sewing machine",
+  "title": "File:Sewing machine, electric, Singer, early 1900s, TM35901 - Tekniska museet - Stockholm, Sweden - DSC01628.JPG",
+  "source": "https://commons.wikimedia.org/wiki/File:Sewing_machine,_electric,_Singer,_early_1900s,_TM35901_-_Tekniska_museet_-_Stockholm,_Sweden_-_DSC01628.JPG",
+  "author": "Daderot",
+  "licence": "CC0",
+  "kind": "product photo (Wikimedia Commons), not our lab"
+ }
+}

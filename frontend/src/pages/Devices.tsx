@@ -48,7 +48,9 @@ export default function Devices() {
 
   const byLab = useMemo(() => {
     const m = new Map<number, Device[]>()
-    ;(devices ?? []).forEach(d => m.set(d.lab_id, [...(m.get(d.lab_id) ?? []), d]))
+    // Simulations are not lab devices: they stay recorded but are not listed here.
+    ;(devices ?? []).filter(d => !(d.component_state as { demo?: boolean } | null)?.demo)
+      .forEach(d => m.set(d.lab_id, [...(m.get(d.lab_id) ?? []), d]))
     return [...m.entries()]
   }, [devices])
 
@@ -118,7 +120,7 @@ export default function Devices() {
                       <dd className="text-slate-200">{d.last_seen_at ? relative(d.last_seen_at)
                         : d.seconds_since_seen != null ? `${d.seconds_since_seen}s ago (via door)` : 'Never'}</dd></div>
                     <div><dt className="text-slate-500">Address</dt>
-                      <dd className="mono text-slate-200">{d.ip_address ?? '—'}</dd></div>
+                      <dd className="mono text-slate-200">{d.ip_address ?? <span className="text-warn-soft font-sans">Not configured</span>}</dd></div>
                     <div><dt className="text-slate-500">Device ID</dt>
                       <dd className="mono text-slate-200 truncate">{d.device_uid}</dd></div>
                     <div><dt className="text-slate-500">Firmware</dt>
