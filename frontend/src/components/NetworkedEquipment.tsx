@@ -39,7 +39,8 @@ export default function NetworkedEquipment() {
   const admin = isAdmin(useAuth().user)
   const closeViewer = useCallback(() => setViewing(null), [])
   const load = useCallback(() => {
-    api.equipment().then(setItems).catch(() => setItems([]))
+    // Robots have their own panels above (live twin); this list is the PCs' agents.
+    api.equipment().then(r => setItems(r.filter(e => e.kind === 'PC'))).catch(() => setItems([]))
     api.equipmentViolations().then(setViolations).catch(() => setViolations([]))
   }, [])
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function NetworkedEquipment() {
   }, [load])
   useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
 
-  if (!items) return null
+  if (!items || !items.length) return null          // no PC agent yet: the Lab PCs card says so
   async function setMode(id: number, mode: PcMode) {
     await api.setEquipmentMode(id, mode).catch(() => {})
     load()

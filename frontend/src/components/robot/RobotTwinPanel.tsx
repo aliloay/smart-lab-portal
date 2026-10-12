@@ -119,6 +119,7 @@ function Panel({ model, robot, onFull, big }: {
       <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
         <RobotTwin model={model} q={q} moving={moving} compact={!big} className={`${big ? 'h-[62vh]' : 'h-72'} bg-ink-950/40`}
                    gripper={live ? null : grip}
+                   onPose={live ? undefined : setPose}
                    onJointDrag={live ? undefined : (j, d) => setPose(p => {
                      const v = [...p], [lo, hi] = limits[j]
                      v[j] = Math.max(lo / DEG, Math.min(hi / DEG, v[j] + d)); return v })} />
@@ -158,7 +159,7 @@ function Panel({ model, robot, onFull, big }: {
           </> : <>
             <span className="flex items-center gap-1.5"><Hand size={13} />
               {robot ? `Robot ${robot.state === 'OFFLINE' ? 'offline' : 'telemetry stale'}` : 'No telemetry yet'}
-              {' '}- hold a link and drag, or use the bars</span>
+              {' '}- grab any part of the arm and drag it, or use the bars</span>
             <button type="button" className="btn-ghost btn-sm" onClick={() => setPose([0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0])}>
               <RotateCcw size={13} /> Reset</button>
           </>}

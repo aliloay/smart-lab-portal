@@ -128,3 +128,41 @@ export function tipPosition(model: UrdfModel, q: number[]): Vec3 {
   })
   return [M.elements[12], M.elements[13], M.elements[14]]
 }
+
+/** Preview hand-guiding: joint values that bring the tool flange toward `target`
+ *  (m, base frame) - damped least squares on the numerical Jacobian, joints kept
+ *  inside `limitsRad`. Drawing only; never sent to a robot. */
+export function solveToward(model: UrdfModel, q: number[], target: Vec3,
+                            limitsRad: [number, number][], iters = 12): number[] {
+  const x = [...q]
+  const lambda = 0.05, h = 1e-4
+  for (let it = 0; it < iters; it++) {
+    const p = tipPosition(model, x)
+    const e = [target[0] - p[0], target[1] - p[1], target[2] - p[2]]
+    if (Math.hypot(e[0], e[1], e[2]) < 5e-4) break
+    // J: 3 x n
+    const J: number[][] = [[], [], []]
+    for (let j = 0; j < x.length; j++) {
+      const xs = [...x]; xs[j] += h
+      const pj = tipPosition(model, xs)
+      for (let r = 0; r < 3; r++) J[r][j] = (pj[r] - p[r]) / h
+    }
+    // dq = J^T (J J^T + l^2 I)^-1 e
+    const A = [0, 1, 2].map(r => [0, 1, 2].map(c => J[r].reduce((s, v, k) => s + v * J[c][k], 0) + (r === c ? lambda * lambda : 0)))
+    const det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+              + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0])
+    if (Math.abs(det) < 1e-12) break
+    const inv = [
+      [A[1][1] * A[2][2] - A[1][2] * A[2][1], A[0][2] * A[2][1] - A[0][1] * A[2][2], A[0][1] * A[1][2] - A[0][2] * A[1][1]],
+      [A[1][2] * A[2][0] - A[1][0] * A[2][2], A[0][0] * A[2][2] - A[0][2] * A[2][0], A[0][2] * A[1][0] - A[0][0] * A[1][2]],
+      [A[1][0] * A[2][1] - A[1][1] * A[2][0], A[0][1] * A[2][0] - A[0][0] * A[2][1], A[0][0] * A[1][1] - A[0][1] * A[1][0]],
+    ].map(row => row.map(v => v / det))
+    const y = [0, 1, 2].map(r => inv[r][0] * e[0] + inv[r][1] * e[1] + inv[r][2] * e[2])
+    for (let j = 0; j < x.length; j++) {
+      const dq = J[0][j] * y[0] + J[1][j] * y[1] + J[2][j] * y[2]
+      const [lo, hi] = limitsRad[j] ?? [-Math.PI * 2, Math.PI * 2]
+      x[j] = Math.max(lo, Math.min(hi, x[j] + dq))
+    }
+  }
+  return x
+}

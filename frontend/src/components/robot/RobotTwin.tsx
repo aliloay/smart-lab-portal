@@ -8,12 +8,12 @@
  * while the robot is still. Loaded lazily (three.js stays out of other pages).
  */
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
 import MeshArm from './MeshArm'
-import { Vec3, urdfFor } from './robotModels'
+import { Vec3, solveToward, tipPosition, urdfFor } from './robotModels'
 
 const orbit: { current: OrbitControls | null } = { current: null }
 
@@ -115,7 +115,10 @@ function Loaded({ onLoad }: { onLoad: () => void }) {
 }
 
 function Scene(props: TwinProps & { resetKey: number }) {
-  const { invalidate } = useThree()
+  const { invalidate, camera, gl } = useThree()
+  const baseRef = useRef<THREE.Group>(null)
+  const qRef = useRef<number[]>(props.q ?? [])
+  qRef.current = props.q ?? []
   useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, props.trail, invalidate])
   const q = props.q ?? new Array(6).fill(0)
   const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
@@ -135,7 +138,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
       </mesh>
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
-       <group position={[0, 0, urdf.ceilingHeight ?? 0]} rotation={[urdf.ceilingHeight ? Math.PI : 0, 0, 0]}>
+       <group ref={baseRef} position={[0, 0, urdf.ceilingHeight ?? 0]} rotation={[urdf.ceilingHeight ? Math.PI : 0, 0, 0]}>
         {urdf.ceilingHeight && <mesh position={[0, 0, -0.012]}>
           <boxGeometry args={[0.5, 0.5, 0.02]} /><meshStandardMaterial color="#9ca3af" metalness={0.5} roughness={0.4} /></mesh>}
         {/* The manufacturer's meshes; the simple cylinder arm shows while they load. */}
@@ -145,7 +148,30 @@ function Scene(props: TwinProps & { resetKey: number }) {
           {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
           <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
                    onSelect={props.onSelect} gripper={props.gripper}
-                   onGrab={props.onJointDrag ? (j, x0) => {
+                   onGrab={props.onPose && baseRef.current ? () => {
+                     // Hand-guiding (preview): grab any part, the tool flange follows the
+                     // mouse on a plane facing the viewer; the joints come from IK.
+                     const base = baseRef.current!
+                     base.updateMatrixWorld()
+                     const tip = new THREE.Vector3(...tipPosition(urdf, qRef.current)).applyMatrix4(base.matrixWorld)
+                     const n = new THREE.Vector3(); camera.getWorldDirection(n)
+                     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, tip)
+                     const ray = new THREE.Raycaster(), hit = new THREE.Vector3(), toBase = base.matrixWorld.clone().invert()
+                     const lim = props.model.limitsDeg.map(([lo, hi]) => [lo * Math.PI / 180, hi * Math.PI / 180] as [number, number])
+                     if (orbit.current) orbit.current.enabled = false
+                     const move = (e: PointerEvent) => {
+                       const r = gl.domElement.getBoundingClientRect()
+                       ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera)
+                       if (!ray.ray.intersectPlane(plane, hit)) return
+                       const t = hit.clone().applyMatrix4(toBase)
+                       props.onPose!(solveToward(urdf, qRef.current, [t.x, t.y, t.z], lim))
+                     }
+                     const up = () => {
+                       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+                       if (orbit.current) orbit.current.enabled = true
+                     }
+                     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+                   } : props.onJointDrag ? (j, x0) => {
                      // Hold a link and drag left / right: that joint turns. The view
                      // does not orbit while a link is held. Drawing only.
                      let last = x0
@@ -166,6 +192,8 @@ function Scene(props: TwinProps & { resetKey: number }) {
 export interface TwinProps {
   /** Preview only: a link was dragged - turn joint j by d rad (never sent to a robot). */
   onJointDrag?: (j: number, d: number) => void
+  /** Preview only: hand-guiding - grab any part and the whole arm follows (IK). */
+  onPose?: (q: number[]) => void
   /** Preview only: gripper 0 open .. 1 closed. */
   gripper?: number | null
   /** Tool-tip path to draw (m, robot base frame). */
