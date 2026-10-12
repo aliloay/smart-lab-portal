@@ -128,6 +128,24 @@ def _face_server_up() -> Optional[bool]:
     return ok
 
 
+_cam_probe: dict = {"at": 0.0, "ok": None}
+
+
+def _entry_camera_up() -> bool:
+    """The ESP32-CAM answers /status (cached 15 s, 1 s timeout)."""
+    import time
+    import httpx
+    from app.core.config import settings
+    if time.monotonic() - _cam_probe["at"] < 15:
+        return bool(_cam_probe["ok"])
+    try:
+        ok = httpx.get(settings.CAMERA_URL.rstrip("/") + "/status", timeout=1.0).status_code == 200
+    except Exception:
+        ok = False
+    _cam_probe.update(at=time.monotonic(), ok=ok)
+    return ok
+
+
 def _derived_state(d: Device, out, now: datetime) -> None:
     """Devices that do not report for themselves get their state from who does."""
     from sqlalchemy.orm import object_session
@@ -137,6 +155,9 @@ def _derived_state(d: Device, out, now: datetime) -> None:
         # The heartbeat is the laptop's camera service; it gets no picture.
         out.state, out.is_online = "OFFLINE", False
         out.state_note = "Camera service running, but no picture from the camera"
+    elif d.device_type == DeviceType.CAMERA and out.state != "ONLINE" and _entry_camera_up():
+        out.state, out.is_online = "ONLINE", True
+        out.state_note = "Checked by the portal (the door controller is not reporting)"
     elif d.device_type == DeviceType.CAMERA and out.state != "ONLINE":
         db = object_session(d)
         master = db and db.scalar(select(Device).where(

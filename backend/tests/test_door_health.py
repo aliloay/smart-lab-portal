@@ -135,3 +135,16 @@ def test_door_or_lock_change_pushes_live_refresh(client, lab, device_headers,
     beat(door_closed=False)                  # door opened
     beat(door_closed=False, relay_locked=False)   # lock released
     assert sent == [{"type": "door_state", "lab_id": lab.id}] * 2
+
+
+def test_entry_camera_online_when_it_answers_without_the_door(db, lab, monkeypatch):
+    """Audit 2026-10-12: the ESP32-CAM showed 'no data' while answering, because
+    its state came only from the (offline) door controller."""
+    from app.models import Device, DeviceType
+    from app.services import devices as dv
+    cam = Device(device_uid="CAM_T", name="cam", lab_id=lab.id, device_type=DeviceType.CAMERA)
+    db.add(cam); db.commit()
+    monkeypatch.setattr(dv, "_entry_camera_up", lambda: True)
+    assert dv.device_out(cam).state == "ONLINE"
+    monkeypatch.setattr(dv, "_entry_camera_up", lambda: False)
+    assert dv.device_out(cam).state == "NO_DATA"
