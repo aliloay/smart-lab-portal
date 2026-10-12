@@ -201,6 +201,10 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
           </button>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden
                  onChange={e => uploadPhotos(e.target.files)} />
+          {samples > 0 && (
+            <button type="button" className="btn-ghost btn-sm col-span-2 text-warn-soft border border-warn/40"
+                    disabled={busy || !st?.face_server_online} onClick={resetSamples}>
+              <RotateCcw size={14} /> Remove saved face photos ({samples}) and start again</button>)}
         </div>
       ) : (
         <div className="space-y-2.5">
