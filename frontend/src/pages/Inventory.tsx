@@ -261,6 +261,9 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
       .then(all => setItems(all.flat())).catch(() => setItems([]))
   }, [])
   useEffect(() => { load(); setAsset(''); setPicked([]); setMsg(''); setError('') }, [load, mode])
+  // Items come and go at the bin (scans, takes): keep the lists current.
+  useEffect(() => { const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [load])
+  useLiveMessages(m => { if (m.type === 'staff' || m.type === 'access_event') load() })
   useEffect(() => { if (mode === 'take') api.users().then(setPeople).catch(() => {}) }, [mode])
   const list = (items ?? []).filter(i => mode === 'take' ? i.status === 'AVAILABLE' : i.status === 'CHECKED_OUT')
   async function go(e: FormEvent) {
@@ -272,7 +275,7 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
       }
       else { await api.staffReturnToBin(Number(asset), note.trim()); setMsg('Return recorded. The holder was notified.'); setNote('') }
       setAsset(''); load()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); setAsset(''); setPicked([]); load() }
     finally { setBusy(false) }
   }
   if (!items) return <Spinner />
