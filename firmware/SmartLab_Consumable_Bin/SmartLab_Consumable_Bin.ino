@@ -296,7 +296,7 @@ void handleSerial() {
       }
     } else if (line == "show") {
       Serial.printf("[CAL] raw %ld, offset %ld, scale %.3f, mass %.2f g, %s\n",
-                    scale.read_average(10), zeroOffset, scaleFactor, massG,
+                    (long)scale.read_average(10), zeroOffset, scaleFactor, massG,   // read_average() is a float here
                     stable ? "stable" : "settling");
     } else if (line == "stream") {
       streaming = !streaming;
