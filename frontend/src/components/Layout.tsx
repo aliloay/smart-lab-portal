@@ -70,7 +70,6 @@ const STAFF_NAV: Section[] = [
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
-    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
   ]},
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
@@ -95,7 +94,6 @@ const ADMIN_NAV: Section[] = [
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
-    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
     { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
     { to: '/admin/experiments', label: 'Experiments', icon: <FlaskConical size={17} /> },
   ]},

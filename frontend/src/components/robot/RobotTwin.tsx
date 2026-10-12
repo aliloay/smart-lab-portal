@@ -15,6 +15,8 @@ import { RobotModel, forward } from './kinematics'
 import MeshArm from './MeshArm'
 import { Vec3, urdfFor } from './robotModels'
 
+const orbit: { current: OrbitControls | null } = { current: null }
+
 function Controls({ resetKey, size }: { resetKey: number; size: number }) {
   const { camera, gl, invalidate } = useThree()
   useEffect(() => {
@@ -28,6 +30,7 @@ function Controls({ resetKey, size }: { resetKey: number; size: number }) {
     c.minDistance = 0.4
     c.maxDistance = 4
     c.addEventListener('change', () => invalidate())
+    orbit.current = c
     c.update()
     invalidate()
     return () => c.dispose()
@@ -141,7 +144,19 @@ function Scene(props: TwinProps & { resetKey: number }) {
           <Loaded onLoad={invalidate} />
           {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
           <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
-                   onSelect={props.onSelect} />
+                   onSelect={props.onSelect} gripper={props.gripper}
+                   onGrab={props.onJointDrag ? (j, x0) => {
+                     // Hold a link and drag left / right: that joint turns. The view
+                     // does not orbit while a link is held. Drawing only.
+                     let last = x0
+                     if (orbit.current) orbit.current.enabled = false
+                     const move = (e: PointerEvent) => { props.onJointDrag!(j, (e.clientX - last) * 0.01); last = e.clientX }
+                     const up = () => {
+                       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+                       if (orbit.current) orbit.current.enabled = true
+                     }
+                     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+                   } : undefined} />
         </Suspense>
        </group>
       </group>
@@ -149,6 +164,10 @@ function Scene(props: TwinProps & { resetKey: number }) {
 }
 
 export interface TwinProps {
+  /** Preview only: a link was dragged - turn joint j by d rad (never sent to a robot). */
+  onJointDrag?: (j: number, d: number) => void
+  /** Preview only: gripper 0 open .. 1 closed. */
+  gripper?: number | null
   /** Tool-tip path to draw (m, robot base frame). */
   trail?: Vec3[] | null
   trailColor?: string
