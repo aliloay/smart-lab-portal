@@ -121,8 +121,22 @@ def lifted(b: InventoryBin, mass: float) -> bool:
 
 # A reading counts as N pieces only when it sits this close to N (in pieces):
 # a value half-way between two counts (load-cell drift, a container still
-# settling) is never booked. Measured 2026-10-13: settling/drift up to ~0.6 pc.
+# settling) is never booked. Measured 2026-10-13 (10k resistors, 1 kg cell):
+# zero drift up to ~0.4 pc, removed by ZERO_FROM_LIFT; the rest stays < 0.3 pc.
 CLEAN_PC = 0.3
+# While the container is lifted the platform is empty: that reading is a fresh
+# zero. Used for the next readings when it is this close to 0 (else ignored).
+ZERO_MAX_G = 0.5
+
+
+def _zero_g(db: Session, b: InventoryBin) -> float:
+    """The platform's zero seen at the last lift (load-cell drift), else 0."""
+    z = db.scalar(select(InventoryMeasurement.mass_g)
+                  .where(InventoryMeasurement.bin_id == b.id,
+                         InventoryMeasurement.mass_g < b.tare_g - threshold_g(b))
+                  .order_by(InventoryMeasurement.recorded_at.desc(),
+                            InventoryMeasurement.id.desc()).limit(1))
+    return z if z is not None and abs(z) <= ZERO_MAX_G else 0.0
 
 
 def _pieces(b: InventoryBin, mass: float) -> float:
@@ -151,10 +165,20 @@ def record(db: Session, b: InventoryBin, mass: float,
                      .where(InventoryMeasurement.bin_id == b.id)
                      .order_by(InventoryMeasurement.recorded_at.desc(),
                                InventoryMeasurement.id.desc()).limit(1))
-    db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
-    thr = threshold_g(b)
     if lifted(b, mass):
+        db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
         return None                      # keep the confirmed stock until it is back
+    if calibrated(b) and b.tare_g > 0:
+        # Raw readings are stored; the stock uses the reading minus the zero
+        # seen at the last lift (so slow load-cell drift does not shift counts).
+        z = _zero_g(db, b)
+        if prev is not None and not lifted(b, prev):
+            prev = prev - z
+        db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
+        mass = round(mass - z, 3)
+    else:
+        db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
+    thr = threshold_g(b)
     if b.last_mass_g is None:
         b.last_mass_g, b.last_measured_at = mass, now
         _check_reorder(db, b, qty_estimate(b, mass))

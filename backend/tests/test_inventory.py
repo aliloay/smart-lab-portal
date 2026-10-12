@@ -157,3 +157,15 @@ def test_drift_between_counts_is_not_booked_and_title_says_what_is_left(
     assert took == [-4, -2]
     titles = [n.title for n in db.query(Notification).filter(Notification.title.like("%taken%"))]
     assert any("2 pcs taken · 24 left (was 26)" in t for t in titles)
+
+
+def test_zero_seen_at_the_lift_removes_drift(client, db, lab, node, resistors, device_headers):
+    """Owner's run 2026-10-13: 27 resistors read 6.71 g (27.4 pcs with a drifted
+    zero); the lift just before read 0.04 g. Counted from that zero: 27."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 1.048, 0.04
+    db.commit()
+    for m in (6.16, 6.16):                 # 25 confirmed
+        _report(client, device_headers, m)
+    for m in (0.16, 0.12, 0.04, 6.71, 6.71):
+        last = _report(client, device_headers, m).json()["bins"][0]
+    assert last["transaction"] == "REFILL" and last["qty_est"] == 27
