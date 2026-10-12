@@ -250,6 +250,7 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
   const [items, setItems] = useState<BinItem[] | null>(null)
   const [people, setPeople] = useState<User[]>([])
   const [asset, setAsset] = useState('')
+  const [picked, setPicked] = useState<number[]>([])
   const [person, setPerson] = useState('')
   const [note, setNote] = useState('')
   const [msg, setMsg] = useState('')
@@ -259,13 +260,16 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
     api.labs().then(ls => Promise.all(ls.map(l => api.binItems(l.id).then(r => r.items).catch(() => []))))
       .then(all => setItems(all.flat())).catch(() => setItems([]))
   }, [])
-  useEffect(() => { load(); setAsset(''); setMsg(''); setError('') }, [load, mode])
+  useEffect(() => { load(); setAsset(''); setPicked([]); setMsg(''); setError('') }, [load, mode])
   useEffect(() => { if (mode === 'take') api.users().then(setPeople).catch(() => {}) }, [mode])
   const list = (items ?? []).filter(i => mode === 'take' ? i.status === 'AVAILABLE' : i.status === 'CHECKED_OUT')
   async function go(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError(''); setMsg('')
     try {
-      if (mode === 'take') setMsg((await api.staffTakeFromBin(Number(asset), Number(person))).message)
+      if (mode === 'take') {
+        if (!picked.length) { setError('Tick at least one item.'); return }
+        setMsg((await api.staffTakeFromBin(picked, Number(person))).message); setPicked([])
+      }
       else { await api.staffReturnToBin(Number(asset), note.trim()); setMsg('Return recorded. The holder was notified.'); setNote('') }
       setAsset(''); load()
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
@@ -281,12 +285,21 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
       {msg && <p className="text-[12.5px] text-ok-soft">{msg}</p>}
       {!list.length ? <p className="text-[12.5px] text-slate-400">
         {mode === 'take' ? 'No item is available in the bin.' : 'No item is checked out.'}</p> : <>
-        <Field label="Item">
+        {mode === 'take' ? <Field label={`Items (${picked.length} ticked)`}>
+          <div className="rounded-lg border border-ink-600/70 divide-y divide-ink-600/50">
+            {list.map(i => (
+              <label key={i.id} className="flex items-center gap-3 px-3 py-2 text-[13px] cursor-pointer hover:bg-white/5">
+                <input type="checkbox" checked={picked.includes(i.id)}
+                  onChange={e => setPicked(p => e.target.checked ? [...p, i.id] : p.filter(x => x !== i.id))} />
+                <span className="mono text-slate-300">{i.asset_tag}</span>
+                <span className="text-white">{i.name}</span>
+              </label>))}
+          </div></Field> : <Field label="Item">
           <select className="input" required value={asset} onChange={e => setAsset(e.target.value)}>
             <option value="">Choose…</option>
             {list.map(i => <option key={i.id} value={i.id}>
               {i.asset_tag} · {i.name}{i.holder ? ` · with ${i.holder}` : ''}</option>)}
-          </select></Field>
+          </select></Field>}
         {mode === 'take' && <Field label="For">
           <select className="input" required value={person} onChange={e => setPerson(e.target.value)}>
             <option value="">Choose a person…</option>
@@ -296,7 +309,7 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
           <input className="input" maxLength={255} value={note} onChange={e => setNote(e.target.value)}
             placeholder="e.g. lid sensor fault - item put back by hand" /></Field>}
         <button className="btn-primary w-full" disabled={busy}>
-          {mode === 'take' ? 'Open the bin for this person' : 'Record the return'}</button>
+          {mode === 'take' ? `Open the bin - take ${picked.length || ''} for this person` : 'Record the return'}</button>
       </>}
     </form>
   )

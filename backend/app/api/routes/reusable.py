@@ -219,7 +219,8 @@ def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
 
 # ------------------------------------------------- staff, on someone's behalf ---
 class StaffCheckout(BaseModel):
-    asset_id: int
+    asset_id: Optional[int] = None
+    asset_ids: list[int] = Field(default_factory=list, max_length=20)
     user_id: int
 
 
@@ -228,12 +229,17 @@ def staff_checkout(req: StaffCheckout, db: Session = Depends(get_db),
                    staff: User = Depends(require_staff)):
     """Staff take an item out of the bin FOR a person (e.g. their booking has
     ended). Same bin path: the lid opens and the weight confirms the take."""
-    a = db.get(Asset, req.asset_id)
+    ids = list(dict.fromkeys(req.asset_ids or ([req.asset_id] if req.asset_id else [])))
     person = db.get(User, req.user_id)
-    if a is None or person is None:
+    items = [db.get(Asset, i) for i in ids]
+    if not ids or person is None or any(x is None for x in items):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item or person not found")
-    if a.status != AssetStatus.AVAILABLE:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"The item is {a.status.value.lower()}.")
+    for x in items:
+        if x.status != AssetStatus.AVAILABLE:
+            raise HTTPException(status.HTTP_409_CONFLICT, f"{x.name} is {x.status.value.lower()}.")
+    if len({x.lab_id for x in items}) > 1:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Pick items from one bin at a time.")
+    a = items[0]
     node = bin_node(db, a.lab_id)
     if node is None or not is_fresh(node, datetime.now(timezone.utc)):
         raise HTTPException(status.HTTP_409_CONFLICT, "The smart bin is offline.")
@@ -242,21 +248,24 @@ def staff_checkout(req: StaffCheckout, db: Session = Depends(get_db),
                             "The bin is busy with another request - try again in a minute.")
     now = datetime.now(timezone.utc)
     c = DeviceCommand(device_id=node.id, command=OPEN_LID, status="PENDING",
-                      args={"intent": "CHECKOUT", "asset_id": a.id, "asset_tag": a.asset_tag,
-                            "asset_name": kind_name(a.name), "user_id": person.id,
-                            "booking_id": None, "by_staff": staff.id},
+                      args={"intent": "CHECKOUT", "asset_id": a.id, "asset_ids": ids,
+                            "asset_tag": a.asset_tag,
+                            "asset_name": (f"{len(ids)} x " if len(ids) > 1 else "") + kind_name(a.name),
+                            "user_id": person.id, "booking_id": None, "by_staff": staff.id},
                       target_user_id=person.id, requested_by_id=staff.id,
                       created_at=now, expires_at=now + cmds.PICKUP_WINDOW)
     db.add(c)
     db.flush()
     db.add(AuditLog(actor_user_id=staff.id, action="BIN_CHECKOUT_BY_STAFF",
                     entity_type="asset", entity_id=str(a.id),
-                    detail={"command_id": c.id, "for_user": person.id, "device": node.device_uid}))
+                    detail={"command_id": c.id, "for_user": person.id, "items": ids,
+                            "device": node.device_uid}))
     cmds.publish_later(db, c)
     db.commit()
     cmds.flush_published(db)
-    return {**cmds.out(c), "message": f"The bin opens - take one {kind_name(a.name).lower()} "
-                                      f"for {person.full_name}; the bin weighs to confirm."}
+    what = f"{len(ids)} {kind_name(a.name).lower()}s" if len(ids) > 1 else f"one {kind_name(a.name).lower()}"
+    return {**cmds.out(c), "message": f"The bin opens - take {what} for {person.full_name}; "
+                                      f"the bin weighs to confirm."}
 
 
 class StaffReturn(BaseModel):
@@ -554,22 +563,34 @@ def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db)
     if taken is not None and taken < MIN_ITEM_G:
         return fail("The bin's weight did not drop - nothing was taken.", "NOTHING TAKEN")
 
-    a.status, a.holder_id, a.checked_out_at = AssetStatus.CHECKED_OUT, user_id, now
-    tx = _tx(db, a, user_id, "CHECKOUT", device, args.get("booking_id"))
-    verdict = _weight(db, a, device, tx, taken, "CHECKOUT")
+    # Several items picked (staff, one lid opening): how many came out is read
+    # from the weight; only that many are recorded (identical items).
+    chosen = [x for x in (db.get(Asset, i) for i in (args.get("asset_ids") or [a.id]))
+              if x is not None and x.status == AssetStatus.AVAILABLE]
+    k = len(chosen)
+    if k > 1 and taken is not None and a.unit_mass_g:
+        k = max(1, min(k, round(taken / a.unit_mass_g)))
+    picked = len(args.get("asset_ids") or [a.id])
+    verdict = "NO_SCALE"
+    for x in chosen[:k]:
+        x.status, x.holder_id, x.checked_out_at = AssetStatus.CHECKED_OUT, user_id, now
+        tx = _tx(db, x, user_id, "CHECKOUT", device, args.get("booking_id"))
+        v = _weight(db, x, device, tx, None if taken is None else taken / k, "CHECKOUT")
+        verdict = "MISMATCH" if v == "MISMATCH" else v
     who = db.get(User, user_id)
     log_event(db, EventType.ASSET_CHECKOUT, lab_id=a.lab_id, user_id=user_id,
               message=f"{a.name} taken from the smart bin"
                       + (" - weight does not match" if verdict == "MISMATCH" else ""))
     c.status, c.step, c.completed_at = "DONE", "WEIGHT_CONFIRMED", now
     kind = kind_name(a.name)
-    c.message = f"{kind} taken" + (f" (-{taken:.1f} g)" if taken is not None else "")
+    c.message = (f"{k} of {picked} {kind.lower()}s taken" if picked > 1 else f"{kind} taken")         + (f" (-{taken:.1f} g)" if taken is not None else "")
     cmds.publish_later(db, c)
-    notify(db, [user_id], "BIN_CHECKOUT", f"Taken: {kind}",
-           body=f"You took a {kind.lower()} from the smart bin. Scan its tag at the bin to return it.",
+    many = f"{k} {kind.lower()}s" if k > 1 else f"a {kind.lower()}"
+    notify(db, [user_id], "BIN_CHECKOUT", f"Taken: {k} x {kind}" if k > 1 else f"Taken: {kind}",
+           body=f"You took {many} from the smart bin. Scan each tag at the bin to return it.",
            link=f"/labs/{a.lab_id}")
     notify(db, staff_ids(db), "BIN_CHECKOUT", f"{kind} taken",
-           body=f"{who.full_name if who else 'Someone'} took a {kind.lower()} from the smart bin"
+           body=f"{who.full_name if who else 'Someone'} took {many} from the smart bin"
                 + (f", -{taken:.1f} g" if taken is not None else ""),
            link="/admin/equipment?tab=reusables", exclude=user_id)
     db.commit()

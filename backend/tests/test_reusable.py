@@ -362,3 +362,28 @@ def test_staff_record_a_return(client, db, staff, alice, lab, arduino):
     assert arduino.status == AssetStatus.AVAILABLE and arduino.holder_id is None
     tx = db.query(AssetTransaction).filter_by(asset_id=arduino.id, action="RETURN").one()
     assert tx.source == "STAFF" and tx.user_id == alice.id and tx.note == "lid sensor fault"
+
+
+def test_staff_takes_several_and_the_weight_says_how_many(client, db, staff, alice, lab, bin_node,
+                                                          device_headers):
+    """Owner 2026-10-13: pick several breadboards at once; the weight decides how many left."""
+    bbs = []
+    for n in (1, 2, 3):
+        a = Asset(asset_tag=f"RB-T-00{n}", name=f"Breadboard {n}", lab_id=lab.id,
+                  nfc_uid=f"1D00000000000{n}", bin_item=True, unit_mass_g=32.8)
+        db.add(a)
+        bbs.append(a)
+    db.commit()
+    r = client.post("/api/reusable/staff-checkout", headers=auth_headers(client, staff.email),
+                    json={"asset_ids": [b.id for b in bbs], "user_id": alice.id})
+    assert r.status_code == 200, r.text
+    cid = r.json()["id"]
+    client.get("/api/access/commands/next?device_uid=REUSE_BIN_1", headers=device_headers)
+    done = client.post("/api/reusable/checkout-complete", headers=device_headers, json={
+        "device_uid": "REUSE_BIN_1", "command_id": cid, "lid_opened": True, "lid_closed": True,
+        "mass_before_g": 104.5, "mass_after_g": 38.8}).json()        # -65.7 g = 2 boards
+    assert done["recorded"] is True
+    for b in bbs:
+        db.refresh(b)
+    out = [b for b in bbs if b.status == AssetStatus.CHECKED_OUT]
+    assert len(out) == 2 and all(b.holder_id == alice.id for b in out)
