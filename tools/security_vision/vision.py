@@ -624,6 +624,7 @@ class Labeler:
         if len(free) == 1 and len(unlabelled) == 1:
             self._give(unlabelled[0], free[0], how="elimination")
 
+        self._one_name_one_person(tracks)
         self._veto(tracks)             # before learning: never learn a wrong look into a name
         self._learn(tracks)
         for t in tracks:
@@ -768,6 +769,27 @@ class Labeler:
     VETO_CHECKS = 12                   # ... this many checks in a row (~3 s) = not them: name dropped
     VETO_MIN_H = 160                   # px: only a clear, full-body view can veto (a seated,
                                        # half-hidden person looks different and keeps the name)
+
+    def _one_name_one_person(self, tracks: list[Track]):
+        """A name is on ONE person: when two boxes carry it, the one that looks
+        most like the locked look keeps it (the older box when the looks cannot
+        tell), the others become Unknown."""
+        by: dict[str, list[Track]] = {}
+        for t in tracks:
+            if t.label:
+                by.setdefault(t.label, []).append(t)
+        for label, ts in by.items():
+            if len(ts) < 2:
+                continue
+            def rank(t):
+                d = self._distance(t, label)
+                return (d if d is not None else 9.0, t.first_seen)
+            keep = min(ts, key=rank)
+            for t in ts:
+                if t is not keep:
+                    print(f"[identity] {t.name} was on two people - kept on track {keep.id}, "
+                          f"track {t.id} is Unknown")
+                    t.label = t.name = t.role = None
 
     def _veto(self, tracks: list[Track]):
         """A wrong name is worse than none: a clear, alone view that does not
