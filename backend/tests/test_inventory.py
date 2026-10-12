@@ -58,10 +58,12 @@ def test_calibrated_estimate_and_transactions(client, db, staff, lab, node, resi
     assert first["transaction"] is None                         # first reading = baseline
 
     assert _report(client, device_headers, 299.5).json()["bins"][0]["transaction"] is None  # < 3 x noise
+    # One reading is not enough (a hand may still be on it); the next agreeing one books it.
+    assert _report(client, device_headers, 280.0).json()["bins"][0]["transaction"] is None
     took = _report(client, device_headers, 280.0).json()["bins"][0]
     assert took["transaction"] == "WITHDRAWAL" and took["qty_est"] == 900
     t = db.query(InventoryTransaction).filter_by(kind="WITHDRAWAL").one()
-    assert t.delta_mass_g == -19.5 and t.delta_qty_est == -98
+    assert t.delta_mass_g == -19.5 and t.delta_qty_est == -98    # change in the COUNT (998 -> 900)
     assert t.attribution == "NOBODY_INSIDE" and t.user_id is None
 
 
@@ -73,12 +75,14 @@ def test_single_occupant_is_linked_multiple_are_not(client, db, lab, node, resis
     db.commit()
     _report(client, device_headers, 300.0)
     _report(client, device_headers, 290.0)
+    _report(client, device_headers, 290.0)
     t = db.query(InventoryTransaction).one()
     assert t.user_id == alice.id and t.attribution == "SINGLE_OCCUPANT"
 
     db.add(AccessSession(lab_id=lab.id, user_id=bob.id, entry_method=AuthMethod.QR,
                          started_at=datetime.now(timezone.utc)))
     db.commit()
+    _report(client, device_headers, 280.0)
     _report(client, device_headers, 280.0)
     t2 = db.query(InventoryTransaction).order_by(InventoryTransaction.id.desc()).first()
     assert t2.user_id is None and t2.attribution == "MULTIPLE_OCCUPANTS"
@@ -90,6 +94,7 @@ def test_low_stock_alert_and_refill_clears_it(client, db, lab, node, resistors, 
     _report(client, device_headers, 40.0)
     alert = db.query(Alert).filter_by(dedupe_key=f"inv:{resistors.id}:low").one()
     assert not alert.is_resolved and "10k resistors" in alert.title
+    _report(client, device_headers, 500.0)
     assert _report(client, device_headers, 500.0).json()["bins"][0]["transaction"] == "REFILL"
     db.refresh(alert)
     assert alert.is_resolved
@@ -118,3 +123,22 @@ def test_device_binding_and_permissions(client, db, lab, node, resistors, alice,
     assert client.post("/api/inventory/measurements",
                        json={"device_uid": "BIN_NODE_1",
                              "readings": [{"bin_code": "BIN-R10K", "mass_g": 1}]}).status_code == 401
+
+
+def test_lifting_the_container_books_only_the_net_change(client, db, lab, node, resistors,
+                                                         device_headers):
+    """Measured on the real bin 2026-10-13: envelope 1.048 g, 0.2066 g per resistor.
+    Lifting the envelope (scale ~0) and putting it back with 5 fewer is ONE
+    withdrawal of 5 - not "30 taken" then "25 added"."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 1.048, 0.04
+    db.commit()
+    for m in (7.246, 7.25):                 # 30 pieces, confirmed
+        _report(client, device_headers, m)
+    for m in (0.02, -0.01, 0.03):           # envelope in someone's hand
+        assert _report(client, device_headers, m).json()["bins"][0]["transaction"] is None
+    _report(client, device_headers, 4.43)   # caught mid-placement: ignored
+    for m in (6.21, 6.20):                  # back with 25
+        last = _report(client, device_headers, m).json()["bins"][0]
+    assert last["transaction"] == "WITHDRAWAL" and last["qty_est"] == 25
+    t = db.query(InventoryTransaction).one()
+    assert t.delta_qty_est == -5 and t.qty_est_after == 25

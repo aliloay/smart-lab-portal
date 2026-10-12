@@ -78,7 +78,7 @@ constexpr uint32_t BOOT_SETTLE_MS  = 4000;
 constexpr float    BOOT_ZERO_MAX_G = 2.0;
 constexpr float    ZERO_TRACK_BAND_G = 0.25;    // only this close to zero
 constexpr float    ZERO_TRACK_RATE = 0.02;      // fraction of the error corrected per sample
-constexpr uint32_t KEEPALIVE_MS    = 60000;     // or at least once a minute
+constexpr uint32_t KEEPALIVE_MS    = 10000;     // or every 10 s: the portal books a change once two readings agree
 constexpr uint32_t HEARTBEAT_MS    = 30000;
 constexpr uint32_t HTTP_TIMEOUT_MS = 2500;
 

@@ -5,8 +5,9 @@ The bin node sends the STABLE mass of each bin. Here that becomes:
   * the current stock: mass, and - only once the bin is calibrated - the
     estimated quantity n = round((m - tare) / unit_mass) with an error band
     of +/- noise / unit_mass when the noise has been measured;
-  * transactions: a stable change larger than the bin's threshold is a
-    WITHDRAWAL or a REFILL. If exactly one person is inside the lab it is
+  * transactions: a confirmed (two readings agree) net change larger than
+    the bin's threshold is a WITHDRAWAL or a REFILL; while the container is
+    lifted off the scale nothing is booked. If exactly one person is inside the lab it is
     linked to them and their booking - a correlation, never an accusation;
   * a low-stock alert below the bin's reorder quantity, cleared on refill.
 
@@ -108,23 +109,49 @@ def _notify_change(db: Session, b: InventoryBin, tx: InventoryTransaction,
                body=f"The consumables bin recorded {'-' if took else '+'}{grams:.2f} g.", link="/inventory")
 
 
+def lifted(b: InventoryBin, mass: float) -> bool:
+    """The container is off the scale (lighter than the empty container): someone
+    is taking from it in their hand. Nothing is booked until it is back."""
+    return calibrated(b) and b.tare_g > 0 and mass < b.tare_g - threshold_g(b)
+
+
 def record(db: Session, b: InventoryBin, mass: float,
            now: Optional[datetime] = None) -> Optional[InventoryTransaction]:
-    """Store one stable reading; returns the transaction it caused, if any."""
+    """Store one stable reading; returns the transaction it caused, if any.
+
+    b.last_mass_g is the last CONFIRMED stock. A change is booked once two
+    readings in a row agree (a value caught while a hand is still on the
+    container is ignored), and it is booked as the NET change against the
+    confirmed stock - lifting the container out and putting it back with 5
+    fewer is one withdrawal of 5, not "all taken" then "all but 5 returned".
+    """
     now = now or datetime.now(timezone.utc)
+    prev = db.scalar(select(InventoryMeasurement.mass_g)
+                     .where(InventoryMeasurement.bin_id == b.id)
+                     .order_by(InventoryMeasurement.recorded_at.desc(),
+                               InventoryMeasurement.id.desc()).limit(1))
     db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
+    thr = threshold_g(b)
     tx = None
-    if b.last_mass_g is not None and abs(mass - b.last_mass_g) >= threshold_g(b):
-        delta = mass - b.last_mass_g
-        user_id, booking_id, label = attribution(db, b.lab_id)
-        tx = InventoryTransaction(
-            bin_id=b.id, kind="WITHDRAWAL" if delta < 0 else "REFILL",
-            delta_mass_g=round(delta, 2),
-            delta_qty_est=round(delta / b.unit_mass_g) if b.unit_mass_g else None,
-            qty_est_after=qty_estimate(b, mass), user_id=user_id,
-            booking_id=booking_id, attribution=label, recorded_at=now)
-        db.add(tx)
-        _notify_change(db, b, tx, user_id, label)
+    if lifted(b, mass):
+        return None                      # keep the confirmed stock until it is back
+    if b.last_mass_g is None or abs(mass - b.last_mass_g) < thr:
+        b.last_mass_g, b.last_measured_at = mass, now   # unchanged (follows slow drift)
+        _check_reorder(db, b, qty_estimate(b, mass))
+        return None
+    if prev is None or abs(mass - prev) >= thr:
+        return None                      # not confirmed yet: wait for the next reading
+    delta = mass - b.last_mass_g
+    user_id, booking_id, label = attribution(db, b.lab_id)
+    tx = InventoryTransaction(
+        bin_id=b.id, kind="WITHDRAWAL" if delta < 0 else "REFILL",
+        delta_mass_g=round(delta, 2),
+        delta_qty_est=(qty_estimate(b, mass) - qty_estimate(b, b.last_mass_g))
+        if calibrated(b) else None,
+        qty_est_after=qty_estimate(b, mass), user_id=user_id,
+        booking_id=booking_id, attribution=label, recorded_at=now)
+    db.add(tx)
+    _notify_change(db, b, tx, user_id, label)
     b.last_mass_g, b.last_measured_at = mass, now
     _check_reorder(db, b, qty_estimate(b, mass))
     return tx
