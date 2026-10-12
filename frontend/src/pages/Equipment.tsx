@@ -4,6 +4,7 @@ import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucid
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import NetworkedEquipment from '../components/NetworkedEquipment'
+import RobotTwinPanels from '../components/robot/RobotTwinPanel'
 import EnvironmentOverview from '../components/EnvironmentOverview'
 import { ConsumableBins, ReusableItems } from './Inventory'
 import { assetStatusLabel, assetTone } from '../lib/labels'
@@ -204,7 +205,7 @@ export default function Equipment() {
         sub="The lab's four systems: environment, robots & PCs, consumables and reusables." />
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
       {tab === 'environment' && <EnvironmentOverview />}
-      {tab === 'noncons' && <NetworkedEquipment />}
+      {tab === 'noncons' && <div className="space-y-5"><RobotTwinPanels /><NetworkedEquipment /></div>}
       {tab === 'consumables' && <ConsumableBins />}
       {tab === 'reusables' && <ReusableItems />}
       {tab === 'register' && <EquipmentRegister />}

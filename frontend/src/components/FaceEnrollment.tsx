@@ -43,6 +43,8 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   useEffect(load, [load])
 
   // Live view: one frame about every 0.8 s while the panel is open.
+  // When an error occurs, the stale frame is cleared so an offline camera
+  // never masquerades as a live preview.
   useEffect(() => {
     if (!open) return
     let stop = false, url: string | null = null, timer: number | undefined
@@ -56,7 +58,15 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
         url = next
         setCameraError('')
       } catch (e) {
-        if (!stop) setCameraError(e instanceof Error ? e.message : 'Camera not reachable')
+        if (!stop) {
+          setCameraError(e instanceof Error ? e.message : 'Camera not reachable')
+          // Clear stale frame on connection loss:
+          setFrame(null)
+          if (url) {
+            URL.revokeObjectURL(url)
+            url = null
+          }
+        }
       }
       if (!stop) timer = window.setTimeout(tick, 800)
     }
@@ -67,13 +77,14 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   useEffect(() => () => { autoRef.current = false }, [])
 
   async function captureOnce(): Promise<boolean> {
+    if (busy) return false
     try {
       const r = await api.faceCapture(userId)
       setMsg(r.message)
       setError('')
       if (r.samples !== null) setSt(s => s && { ...s, samples: r.samples ?? s.samples,
                                                   has_photo: s.has_photo || r.saved })
-      return true
+      return r.saved
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Capture failed')
       return false

@@ -6,9 +6,10 @@
  *   door     the door controller, or the camera's view of the red door leaf
  *   people   counts only: the camera sees people in its picture, not on the
  *            floor, so nobody is drawn at a made-up position
- * Layout as seen from the security camera on 2026-10-07: door and FANUC cell
- * on the left, the long PC table in the middle, two PCs by the window, the
- * UR5e frame on the right.
+ * Approximate top view based on the 2026-10-07 camera image and the lab
+ * engineer's description: the entrance, FANUC, and camera share the lower
+ * long side; the UR5e is opposite; lab PCs are in the middle; the engineer's
+ * two PCs are across from the entrance. This is not surveyed.
  */
 import { Link } from 'react-router-dom'
 import { MonitorTile, Robot, SecurityCamera } from '../lib/api'
@@ -52,8 +53,8 @@ function RobotCell({ x, y, w, h, label, robot, frame }: {
   return robot ? <Link to={`/robots/${robot.device_id}`}>{body}</Link> : body
 }
 
-export default function LabFloor({ tile, cam, robots }: {
-  tile: MonitorTile | null; cam: SecurityCamera | null; robots: Robot[]
+export default function LabFloor({ tile, cam, robots, compact = false }: {
+  tile: MonitorTile | null; cam: SecurityCamera | null; robots: Robot[]; compact?: boolean
 }) {
   const ur = robots.find(r => (r.model ?? '').toUpperCase().includes('UR') && !r.demo)
     ?? robots.find(r => (r.model ?? '').toUpperCase().includes('UR'))
@@ -61,9 +62,18 @@ export default function LabFloor({ tile, cam, robots }: {
     ?? robots.find(r => (r.model ?? '').toUpperCase().includes('FANUC'))
   const doorOpen = tile?.controller_online ? tile.door_closed === false : cam?.door_open ?? null
   const longTable = Array.from({ length: 8 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
-  const live = !!cam?.online
+  // A reachable vision service is not a live picture unless its source is
+  // reporting frames as well.
+  const live = cam?.online === true && cam.source_ok === true
+  const cameraLabel = !cam || cam.online == null || cam.source_ok == null
+    ? 'unknown' : cam.online === false ? 'offline' : cam.source_ok === false ? 'no frames' : 'live'
   return (
-    <div className="relative">
+    <div className={'relative ' + (compact ? 'lab-floor--wall' : '')}>
+      <div className="relative z-10 mb-2 flex shrink-0 flex-wrap items-center justify-start gap-x-4 gap-y-1 border-b border-white/[.06] bg-[#0d131a] px-2 py-1 text-[11.5px] text-slate-300">
+        <span><b className="text-white tnum">{tile?.people.length ?? 0}</b> inside (door)</span>
+        <span><b className="text-white tnum">{cam?.online ? cam.people ?? 0 : '–'}</b> seen by camera</span>
+        {tile?.environment?.temperature && <span><b className="text-white tnum">{tile.environment.temperature.value.toFixed(1)}</b>{tile.environment.temperature.unit}</span>}
+      </div>
       <svg viewBox="0 0 100 62" className="w-full h-auto select-none" role="img"
            aria-label="Robotics Lab floor plan with live robot, PC, door and people state">
         <defs>
@@ -76,56 +86,60 @@ export default function LabFloor({ tile, cam, robots }: {
           </linearGradient>
         </defs>
         <rect x={2} y={4} width={96} height={54} rx={2} fill="url(#grid)" stroke="#475569" strokeWidth={0.5} />
-        {/* windows on the back wall */}
-        {[42, 52, 62].map(x => <line key={x} x1={x} y1={4} x2={x + 7} y2={4} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
-        <text x={57} y={2.8} textAnchor="middle" fontSize={1.8} fill="#64748b">windows</text>
-        {/* door on the left wall */}
+        {/* windows along the far end wall */}
+        {[14, 23, 32, 41].map(y => <line key={y} x1={98} y1={y} x2={98} y2={y + 6} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
+        <text x={96.5} y={34} textAnchor="end" fontSize={1.8} fill="#64748b" transform="rotate(-90 96.5 34)">windows</text>
+        {/* Entrance on the same long side as FANUC and the security camera. */}
         <g>
-          <rect x={1.2} y={14} width={1.6} height={9} fill={doorOpen ? '#f87171' : doorOpen === false ? '#22c55e' : '#64748b'} />
-          {doorOpen && <path d="M 2.8 14 A 9 9 0 0 1 11.8 23" fill="none" stroke="#f87171" strokeWidth={0.35} strokeDasharray="1 0.6" />}
-          <text x={4.4} y={12.6} fontSize={2} fill="#cbd5e1">Door {doorOpen == null ? '· no data' : doorOpen ? '· OPEN' : '· closed'}</text>
+          <rect x={9} y={56.4} width={10} height={1.6} fill={doorOpen ? '#f87171' : doorOpen === false ? '#22c55e' : '#64748b'} />
+          {doorOpen && <path d="M 19 56.4 A 10 10 0 0 0 29 46.4" fill="none" stroke="#f87171" strokeWidth={0.35} strokeDasharray="1 0.6" />}
+          <text x={9} y={54.5} fontSize={2} fill="#cbd5e1">Door {doorOpen == null ? '· no data' : doorOpen ? '· OPEN' : '· closed'}</text>
         </g>
-        <RobotCell x={5} y={34} w={13} h={14} label="FANUC" robot={fanuc} frame="cage" />
-        <RobotCell x={76} y={22} w={18} h={20} label="UR5e" robot={ur} frame="gantry" />
-        {/* long PC table */}
-        <rect x={24} y={30} width={44} height={6} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
+        {/* Security camera view is drawn behind furniture and status marks. */}
+        <path d="M 95 57 L 9 11 L 16 47 Z" fill="url(#cone)" opacity={live ? 1 : 0.25} />
+        {/* FANUC and UR5e sit along opposite long sides, near each other. */}
+        <RobotCell x={63} y={43} w={9} h={10} label="FANUC" robot={fanuc} frame="cage" />
+        <RobotCell x={52} y={8} w={16} h={12} label="UR5e" robot={ur} frame="gantry" />
+        {/* Lab workstations occupy the central tables. */}
+        <rect x={25} y={27} width={39} height={9} rx={1} fill="#111827" stroke="#334155" strokeWidth={0.3} />
         {longTable.map((n, i) => {
+          const col = i % 4
+          const row = Math.floor(i / 4)
+          const x = 26 + col * 8.8
+          const y = row === 0 ? 27.7 : 32
           const st = pcState(cam, n)
           return (
             <g key={n}>
-              <rect x={25 + i * 5.3} y={31} width={4.4} height={4} rx={0.6}
+              <rect x={x} y={y} width={4.4} height={3} rx={0.6}
                     fill={st ? PC_FILL[st] : '#1e293b'} stroke="#475569" strokeWidth={0.2}>
                 {st === 'IN_USE' && <animate attributeName="opacity" values="1;0.65;1" dur="2.4s" repeatCount="indefinite" />}
               </rect>
-              <text x={27.2 + i * 5.3} y={39} textAnchor="middle" fontSize={1.5} fill="#94a3b8">{n.slice(3)}</text>
+              <text x={x + 2.2} y={y + 3.6} textAnchor="middle" fontSize={1.2} fill="#94a3b8">{n}</text>
             </g>)
         })}
-        <text x={46} y={28.6} textAnchor="middle" fontSize={1.8} fill="#64748b">PC table</text>
-        {/* PCs by the window */}
+        <text x={41.4} y={26} textAnchor="middle" fontSize={1.8} fill="#64748b">Central PC tables · 01–08</text>
+        {/* The engineer workstation and its two PCs are turned 90 degrees into a vertical pair. */}
+        <rect x={5} y={7.5} width={16} height={19} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
+        <text x={13} y={9.5} textAnchor="middle" fontSize={1.8} fill="#94a3b8">Lab engineer</text>
         {['PC-09', 'PC-10'].map((n, i) => {
           const st = pcState(cam, n)
+          const y = 11 + i * 7.5
           return (
             <g key={n}>
-              <rect x={44 + i * 9} y={9} width={7} height={4.5} rx={0.6} fill={st ? PC_FILL[st] : '#1e293b'} stroke="#475569" strokeWidth={0.2} />
-              <text x={47.5 + i * 9} y={16.5} textAnchor="middle" fontSize={1.5} fill="#94a3b8">{n}</text>
+              <rect x={11} y={y} width={4} height={5} rx={0.6} fill={st ? PC_FILL[st] : '#1e293b'} stroke="#475569" strokeWidth={0.2} />
+              <text x={13} y={y + 6.8} textAnchor="middle" fontSize={1.4} fill="#94a3b8">{n}</text>
             </g>)
         })}
-        {/* security camera and its view */}
-        <path d="M 60 57 L 8 6 L 96 6 Z" fill="url(#cone)" opacity={live ? 1 : 0.25} />
-        <circle cx={60} cy={57} r={1.4} fill={live ? '#38bdf8' : '#64748b'} />
-        <text x={60} y={61} textAnchor="middle" fontSize={1.8} fill="#94a3b8">camera {live ? '· live' : '· offline'}</text>
+        {/* Security camera at the lower-right corner, facing back across the room. */}
+        <path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
+        <text x={94.5} y={50.5} textAnchor="end" fontSize={1.8} fill="#94a3b8">Camera · {cameraLabel}</text>
       </svg>
-      <div className="absolute top-2 right-3 flex flex-col items-end gap-1 text-[11.5px] text-slate-300 pointer-events-none">
-        <span><b className="text-white tnum">{tile?.people.length ?? 0}</b> inside (door)</span>
-        <span><b className="text-white tnum">{cam?.online ? cam.people ?? 0 : '–'}</b> seen by camera</span>
-        {tile?.environment?.temperature && <span><b className="text-white tnum">{tile.environment.temperature.value.toFixed(1)}</b>{tile.environment.temperature.unit}</span>}
-      </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
         <span><i className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: PC_FILL.IN_USE }} />PC in use</span>
         <span><i className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: PC_FILL.CHANGED }} />changed</span>
         <span><i className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: PC_FILL.MOTION }} />moving, nobody at it</span>
         <span><i className="inline-block w-2 h-2 rounded-full align-middle mr-1" style={{ background: ROBOT_COLOR.MOVING }} />robot moving</span>
-        <span className="ml-auto">Schematic, not to scale · people are counted, not placed (no floor calibration)</span>
+        <span className="ml-auto">Approximate schematic, not to scale · people are counted, not placed</span>
       </div>
     </div>)
 }

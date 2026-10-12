@@ -140,13 +140,13 @@ export default function AdminDashboard() {
       )}
 
       {/* ------------------------------------------ access + asset status */}
-      <div className="grid xl:grid-cols-3 gap-6">
-        <section className="xl:col-span-2">
+      <div className="grid xl:grid-cols-2 gap-6">
+        <section className="flex min-w-0 flex-col">
           <SectionTitle icon={<BarChart3 size={15} />} sub="Door outcomes over the last 7 days"
             action={<Link to="/admin/reports" className="text-xs link">Full reports</Link>}>
             Access statistics
           </SectionTitle>
-          <div className="card p-5">
+          <div className="card flex-1 p-5">
             {week === null ? <Skeleton className="h-40" />
               : week.length === 0 ? (
                 <EmptyState compact icon={<BarChart3 size={18} />} title="Not enough data yet"
@@ -154,42 +154,56 @@ export default function AdminDashboard() {
               ) : <WeekBars days={week} />}
           </div>
         </section>
-        <section>
-          <SectionTitle icon={<Boxes size={15} />}
+        <section className="flex min-w-0 flex-col">
+          <SectionTitle icon={<Boxes size={15} />} sub="Current equipment availability"
             action={<Link to="/admin/equipment" className="text-xs link">Equipment</Link>}>
             Asset status
           </SectionTitle>
-          <div className="card p-5 space-y-4">
+          <div className="card flex flex-1 flex-col justify-center p-5">
             {!s ? <Skeleton className="h-32" /> : s.assets_total === 0 ? (
               <EmptyState compact title="No equipment registered" />
             ) : (
-              <>
+              <div className="grid flex-1 grid-cols-1 items-stretch gap-3 sm:grid-cols-3">
                 {[
                   ['Available', s.assets_total - s.assets_checked_out - s.assets_in_maintenance, 'ok'],
                   ['Checked out', s.assets_checked_out, 'info'],
                   ['In maintenance', s.assets_in_maintenance, 'warn'],
                 ].map(([k, v, t]) => (
-                  <div key={k as string}>
-                    <div className="flex justify-between text-[13px] mb-1.5">
-                      <span className="text-slate-300">{k}</span>
+                  <div key={k as string} className="flex min-w-0 flex-col justify-center rounded-xl border border-white/[.07] bg-black/20 p-3">
+                    <div className="mb-2 flex min-w-0 flex-col gap-1 text-[13px]">
+                      <span className="truncate text-base font-bold text-slate-200">{k}</span>
                       <span className="text-white tnum">{v} <span className="text-slate-500">/ {s.assets_total}</span></span>
                     </div>
                     <ProgressBar value={(v as number) / s.assets_total} tone={t as 'ok'} />
                   </div>
                 ))}
-              </>
+              </div>
             )}
           </div>
         </section>
       </div>
 
       <div className="grid xl:grid-cols-2 gap-6">
-        <LiveActivity securityOnly title="Security events" height="max-h-[380px]" limit={30} />
-        <MaintenanceQueue title="Laboratory maintenance" stats />
+        <div className="min-w-0 xl:h-[420px] [&>section]:flex [&>section]:h-full [&>section]:flex-col [&>section>div.card]:min-h-0 [&>section>div.card]:flex-1">
+          <LiveActivity securityOnly title="Security events" height="min-h-0 flex-1" limit={30} />
+        </div>
+        <div className="min-w-0 xl:h-[420px] [&>section]:flex [&>section]:h-full [&>section]:flex-col [&>section>div.card]:min-h-0 [&>section>div.card]:flex-1 [&>section>div.card]:overflow-y-auto">
+          <MaintenanceQueue title="Laboratory maintenance" stats />
+        </div>
       </div>
 
       <div className="grid xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2"><LiveActivity title="Live activity" limit={40} /></div>
+        <div className="xl:col-span-2 space-y-6">
+          <LiveActivity title="Live activity" limit={40} />
+          <Link to="/admin/reports" className="card card-hover p-5 flex items-center gap-4 min-h-[96px]">
+            <span className="grid place-items-center w-11 h-11 rounded-xl bg-violet-500/15
+                             border border-violet-500/30 text-violet-300"><DoorOpen size={18} /></span>
+            <div className="flex-1">
+              <div className="text-[14px] text-white font-medium">Utilisation & traceability reports</div>
+              <div className="text-[12.5px] text-slate-400">Bookings vs actual entries, busiest hours, denials</div>
+            </div>
+          </Link>
+        </div>
         <div className="space-y-6">
           <section>
             <SectionTitle icon={<Bell size={15} />}
@@ -213,14 +227,6 @@ export default function AdminDashboard() {
             </div>
           </section>
           <DeviceHealth />
-          <Link to="/admin/reports" className="card card-hover p-5 flex items-center gap-4">
-            <span className="grid place-items-center w-11 h-11 rounded-xl bg-violet-500/15
-                             border border-violet-500/30 text-violet-300"><DoorOpen size={18} /></span>
-            <div className="flex-1">
-              <div className="text-[14px] text-white font-medium">Utilisation & traceability reports</div>
-              <div className="text-[12.5px] text-slate-400">Bookings vs actual entries, busiest hours, denials</div>
-            </div>
-          </Link>
         </div>
       </div>
     </div>

@@ -76,7 +76,7 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, classN
             <VideoOff size={20} className="text-slate-500" />
             {state === 'loading' ? 'Connecting to the camera…'
               : state === 'nodata' ? 'Camera is not sending pictures'
-              : 'Camera service not running'}
+              : 'Camera frame request failed'}
           </div>
         </div>)}
       {children}

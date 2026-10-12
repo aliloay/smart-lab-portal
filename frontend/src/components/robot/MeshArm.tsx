@@ -71,6 +71,12 @@ export default function MeshArm({ model, q, ghost = false, selected, moving, acc
         <Visual model={model} v={model.links[i]} look={look(i)} onClick={onSelect ? () => onSelect(i) : undefined} />
         {i === model.joints.length - 1 && model.tool?.map(t =>
           <Visual key={t.mesh} model={{ ...model, format: 'dae' }} v={t} look={look(i)} />)}
+        {i === model.joints.length - 1 && model.toolBoxes?.map((b, k) =>
+          <mesh key={`tb${k}`} position={b.xyz}>
+            <boxGeometry args={b.size} />
+            <meshStandardMaterial color={b.color} metalness={0.4} roughness={0.5}
+                                  transparent={ghost} opacity={ghost ? 0.16 : 1} />
+          </mesh>)}
         {child}
       </group>
     </group>), null)

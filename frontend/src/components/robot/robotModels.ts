@@ -26,6 +26,8 @@ export interface UrdfModel {
   format: 'dae' | 'stl'
   /** End effector: fixed (COLLADA) visuals in the last link's frame. */
   tool?: LinkVisual[]
+  /** Simple boxes for a tool with no mesh (size, centre in the flange frame, m). */
+  toolBoxes?: { size: Vec3; xyz: Vec3; color: string }[]
   /** Mounted upside down under a gantry at this height (m): the lab's UR5e. */
   ceilingHeight?: number
   toolLabel?: string
@@ -93,6 +95,16 @@ export const FANUC_LRMATE200ID: UrdfModel = {
   links: [1, 2, 3, 4, 5].map(i => ({ mesh: `/models/fanuc_lrmate200id/link_${i}.stl`, xyz: [0, 0, 0] as Vec3,
                                       rpy: [0, 0, 0] as Vec3, color: YELLOW }))
     .concat([{ mesh: '/models/fanuc_lrmate200id/link_6.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: BLACK }]),
+  // Gripper from the lab photos (2026-10-12): a small pneumatic parallel gripper
+  // (air lines from AIR1) - make/model NOT identified, so drawn as simple boxes
+  // of APPROXIMATE size, not a manufacturer model. Tool axis = +x of the flange.
+  toolBoxes: [
+    { size: [0.012, 0.050, 0.050], xyz: [0.006, 0, 0], color: '#2b2b2b' },     // adapter plate
+    { size: [0.055, 0.040, 0.030], xyz: [0.040, 0, 0], color: '#b8bcc2' },     // gripper body
+    { size: [0.045, 0.008, 0.022], xyz: [0.090, 0.012, 0], color: '#d9dcdf' }, // finger
+    { size: [0.045, 0.008, 0.022], xyz: [0.090, -0.012, 0], color: '#d9dcdf' },
+  ],
+  toolLabel: 'Pneumatic parallel gripper (model not identified - approximate)',
 }
 
 export function urdfFor(model: string | null | undefined): UrdfModel {

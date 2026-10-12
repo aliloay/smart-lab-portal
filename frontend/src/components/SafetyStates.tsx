@@ -1,12 +1,12 @@
 /**
  * The environment node's states (Robotics Lab, System 2): smoke/gas,
- * flame, water leak, emergency signal and motion, each NORMAL / DETECTED
+ * flame, water leak and motion, each NORMAL / DETECTED
  * with an honest quality - "No sensor yet", "Stale", "Node offline" are
  * shown as such and never as NORMAL. These indicators supplement, and do
  * not replace, certified fire and safety systems.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, Droplets, Flame, ShieldAlert, Wind } from 'lucide-react'
+import { Activity, Droplets, Flame, Wind } from 'lucide-react'
 import { EnvQuality, LabEnvironment, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
@@ -15,7 +15,6 @@ const ITEMS = [
   { key: 'smoke', label: 'Smoke / gas', icon: Wind, hazard: true },
   { key: 'flame', label: 'Flame', icon: Flame, hazard: true },
   { key: 'water_leak', label: 'Water leak', icon: Droplets, hazard: true },
-  { key: 'emergency', label: 'Emergency', icon: ShieldAlert, hazard: true },
   { key: 'motion', label: 'Motion', icon: Activity, hazard: false },
 ] as const
 
@@ -43,7 +42,7 @@ export default function SafetyStates({ labId }: { labId: number }) {
   if (!env) return null
   if (!env.node) {
     return <p className="text-[12px] text-slate-500">
-      No environment node in this laboratory yet - smoke, flame, leak and emergency
+      No environment node in this laboratory yet - smoke, flame and leak
       states appear here once one reports.</p>
   }
 
