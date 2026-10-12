@@ -24,7 +24,7 @@ const STATUS_TONE = { PLANNED: 'idle', RUNNING: 'ok', FINISHED: 'info' } as cons
 const RESULT_TONE = { PASS: 'ok', FAIL: 'bad', PARTIAL: 'warn', INCONCLUSIVE: 'idle', NA: 'idle' } as const
 const SUBSYSTEMS = ['DOOR', 'ENVIRONMENT', 'CAMERA', 'INVENTORY', 'NETWORK', 'PC', 'ROBOT', 'AI', 'N8N', 'POWER']
 
-export default function Experiments() {
+export default function Experiments({ labId, embedded }: { labId?: number; embedded?: boolean } = {}) {
   const { user } = useAuth()
   const [list, setList] = useState<Experiment[] | null>(null)
   const [mode, setMode] = useState<{ mode: Provenance; experiment_id: number | null } | null>(null)
@@ -33,9 +33,9 @@ export default function Experiments() {
   const [error, setError] = useState('')
 
   const load = useCallback(() => {
-    api.experiments().then(setList).catch(e => { setError(e.message); setList([]) })
+    api.experiments(labId).then(setList).catch(e => { setError(e.message); setList([]) })
     api.dataMode().then(setMode).catch(() => {})
-  }, [])
+  }, [labId])
   useEffect(() => { load() }, [load])
 
   async function changeMode(m: Provenance) {
@@ -44,12 +44,14 @@ export default function Experiments() {
 
   return (
     <div>
-      <PageHeader eyebrow="Thesis" title="Experiments"
+      {!embedded && <PageHeader eyebrow="Thesis" title="Experiments"
         sub="Controlled physical experiments: every record made while one runs is stamped with its code."
-        actions={<button className="btn-primary" onClick={() => setCreating(true)}><Plus size={16} />Plan experiment</button>} />
+        actions={<button className="btn-primary" onClick={() => setCreating(true)}><Plus size={16} />Plan experiment</button>} />}
+      {embedded && <div className="mb-3 flex justify-end">
+        <button className="btn-primary btn-sm" onClick={() => setCreating(true)}><Plus size={14} />Plan experiment</button></div>}
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
 
-      <div className="card p-4 mb-4 flex flex-wrap items-center gap-3">
+      {!embedded && <div className="card p-4 mb-4 flex flex-wrap items-center gap-3">
         <div>
           <div className="label">New records are stamped</div>
           <div className="text-white font-semibold mono" data-testid="data-mode">{mode ? mode.mode : '…'}
@@ -61,7 +63,7 @@ export default function Experiments() {
               {MODES.map(m => <option key={m} value={m}>{m}</option>)}</select></label>)}
         <p className="basis-full text-[12px] text-slate-500">Changing the mode affects new records only. Existing
           records keep their provenance; history that cannot be proven stays UNKNOWN_PROVENANCE.</p>
-      </div>
+      </div>}
 
       <div className="card overflow-hidden">
         {list === null ? <div className="p-4"><Skeleton className="h-40" /></div>

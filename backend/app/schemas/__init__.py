@@ -803,6 +803,9 @@ class SystemStatus(BaseModel):
     devices_reporting: int     # have ever sent a heartbeat
     controllers_online: int
     controllers_total: int
+    # Real devices (not simulations) that have reported before and are not
+    # reporting now - the header names them instead of saying "healthy".
+    offline_devices: list[str] = []
     last_heartbeat_at: Optional[datetime] = None
     # Internet is OPTIONAL: the lab runs on its own router. Reported apart
     # from device health so "internet offline" never reads as a fault.

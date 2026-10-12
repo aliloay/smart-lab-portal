@@ -42,13 +42,14 @@ export default function SystemHealth() {
   const healthy = apiUp === true && s?.database === true
   // "Healthy" only when the controllers are up too: a working portal with the
   // door / sensors offline is not a healthy lab (audit 2026-10-12).
-  const devicesOff = s ? Math.max(0, s.controllers_total - s.controllers_online) : 0
+  const devicesOff = s?.offline_devices?.length ?? 0
   const label = apiUp === null ? 'Checking'
-    : healthy ? (devicesOff ? `Portal OK · ${devicesOff} controller${devicesOff > 1 ? 's' : ''} offline` : 'System healthy')
+    : healthy ? (devicesOff ? `Portal OK · ${devicesOff} device${devicesOff > 1 ? 's' : ''} offline` : 'System healthy')
     : apiUp === false ? 'API unreachable' : 'Degraded'
   const tone = apiUp === null ? 'idle' : healthy ? (devicesOff ? 'warn' : 'ok') : 'bad'
 
   const rows: { name: string; tone: 'ok' | 'bad' | 'idle' | 'warn'; value: string }[] = [
+    ...(devicesOff ? [{ name: 'Offline', tone: 'warn' as const, value: s!.offline_devices!.join(', ') }] : []),
     { name: 'API', tone: apiUp === null ? 'idle' : apiUp ? 'ok' : 'bad',
       value: apiUp === null ? 'Checking' : apiUp ? 'Online' : 'Unreachable' },
     { name: 'Database', tone: !s ? 'idle' : s.database ? 'ok' : 'bad',

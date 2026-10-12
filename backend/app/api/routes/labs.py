@@ -48,7 +48,7 @@ def _slot(db: Session, b: Booking, viewer: User) -> BookingSlot:
 @router.get("", response_model=list[LabOut])
 def list_labs(db: Session = Depends(get_db),
               _: User = Depends(get_current_user)):
-    return db.scalars(select(Lab).order_by(Lab.code)).all()
+    return db.scalars(select(Lab).where(Lab.is_active.is_(True)).order_by(Lab.code)).all()
 
 
 @router.get("/overview", response_model=list[LabOverview])
@@ -65,7 +65,7 @@ def labs_overview(db: Session = Depends(get_db),
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
 
-    labs = db.scalars(select(Lab).order_by(Lab.code)).all()
+    labs = db.scalars(select(Lab).where(Lab.is_active.is_(True)).order_by(Lab.code)).all()
     bookings = db.scalars(select(Booking).where(
         Booking.status.in_([BookingStatus.CONFIRMED, BookingStatus.PENDING]),
         Booking.end_time > day_start)).all()

@@ -115,6 +115,9 @@ _face_probe: dict = {"at": 0.0, "ok": None}
 
 def _face_server_up() -> Optional[bool]:
     """The face server never reports; ask it directly (cached 15 s, 1 s timeout)."""
+    import os
+    if os.environ.get("DEVICE_PROBES", "1") == "0":   # tests: never touch real hardware
+        return None
     import time
     import httpx
     from app.core.config import settings
@@ -133,6 +136,9 @@ _cam_probe: dict = {"at": 0.0, "ok": None}
 
 def _entry_camera_up() -> bool:
     """The ESP32-CAM answers /status (cached 15 s, 1 s timeout)."""
+    import os
+    if os.environ.get("DEVICE_PROBES", "1") == "0":   # tests: never touch real hardware
+        return False
     import time
     import httpx
     from app.core.config import settings

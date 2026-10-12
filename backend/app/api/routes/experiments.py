@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
@@ -90,8 +92,15 @@ def _audit(db: Session, user: User, action: str, e: Experiment, **detail):
 
 
 @router.get("")
-def list_experiments(db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    return [_out(db, e) for e in db.scalars(select(Experiment).order_by(desc(Experiment.id))).all()]
+def list_experiments(lab_id: Optional[int] = None, db: Session = Depends(get_db),
+                     _: User = Depends(require_staff)):
+    """All experiments, or one lab's: those run on a device of that lab
+    (experiments have no lab column; the device says where it ran)."""
+    q = select(Experiment).order_by(desc(Experiment.id))
+    if lab_id is not None:
+        from app.models import Device
+        q = q.join(Device, Device.id == Experiment.device_id).where(Device.lab_id == lab_id)
+    return [_out(db, e) for e in db.scalars(q).all()]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

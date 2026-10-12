@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, CalendarRange, Camera,
-  CircuitBoard, Cpu, DoorClosed, Fingerprint, Gauge, Lock, MapPin, Radio, Server,
+  CircuitBoard, Cpu, DoorClosed, Fingerprint, FlaskConical, Gauge, Lock, MapPin, Radio, Server,
   TriangleAlert, Users, Wrench,
 } from 'lucide-react'
 import { AccessEvent, Asset, Device, LabStatus, LabTwin, api } from '../lib/api'
@@ -19,6 +19,8 @@ import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
 import SafetyStates from '../components/SafetyStates'
 import SmartBin from '../components/SmartBin'
+
+const LabExperiments = lazy(() => import('./Experiments'))
 
 export default function LabDetail() {
   const { id } = useParams()
@@ -40,7 +42,8 @@ export default function LabDetail() {
     setStatus(null); setError('')
     loadStatus()
     api.labActivity(labId, 60).then(setEvents).catch(() => {})
-    api.assets(labId).then(setAssets).catch(() => {})
+    // Door / security parts of the Smart Lab system are not lab equipment.
+    api.assets(labId).then(a => setAssets(a.filter(x => x.category !== 'Access control'))).catch(() => {})
     api.labTwin(labId).then(setTwin).catch(() => setTwin(null))
   }, [labId, loadStatus])
 
@@ -239,10 +242,21 @@ export default function LabDetail() {
             <div className="card p-5 space-y-5">
               {!twin ? <Skeleton className="h-40" /> : <>
                 <DayStrip days={twin.days_strip} openHours={twin.open_hours_per_day} />
-                <Heatmap data={twin.heatmap} unit="avg h booked" tone="violet" />
+                <div>
+                  <div className="text-[11.5px] text-slate-300 mb-1">Typical week: average hours booked in each hour (last {twin.days} days)</div>
+                  <Heatmap data={twin.heatmap} unit="avg h booked" tone="violet" xTitle={`Hour of day (${twin.timezone}) - each square = one hour, starting at that time`} />
+                </div>
               </>}
             </div>
           </section>
+
+          {/* -------------------------------------------------- experiments */}
+          {staff && (
+            <section>
+              <SectionTitle icon={<FlaskConical size={15} />}
+                sub="Experiments run on this laboratory's devices.">Experiments</SectionTitle>
+              <Suspense fallback={<Skeleton className="h-32" />}><LabExperiments labId={labId} embedded /></Suspense>
+            </section>)}
 
           {/* ----------------------------------------------------- activity */}
           <section>
@@ -410,29 +424,42 @@ function Node({ icon, title, state, labels, device, note, stale, neutral }: {
 function DayStrip({ days, openHours }: { days: { day: string; booked_hours: number }[]; openHours: number }) {
   const today = new Date().toLocaleDateString('en-CA')
   const max = Math.max(openHours, ...days.map(d => d.booked_hours))
+  const ticks = [max, max / 2, 0]
   return (
     <div>
-      <div className="flex items-end gap-1 h-24" role="img"
-           aria-label="Booked hours per day, two weeks back and one week ahead">
-        {days.map(d => {
-          const future = d.day > today
-          return (
-            <div key={d.day} className="flex-1 h-full flex flex-col justify-end items-center"
-                 title={`${d.day}: ${d.booked_hours} h booked`}>
-              <div className={`w-full rounded-t-[4px] ${d.day === today ? 'ring-1 ring-accent-300' : ''}
-                               ${future ? 'bg-violet-400/35' : 'bg-accent-400/70'}`}
-                   style={{ height: `${d.booked_hours ? Math.max((d.booked_hours / max) * 100, 4) : 0}%` }} />
-              <div className={`h-[3px] w-full mt-0.5 rounded ${d.day === today ? 'bg-accent-300' : 'bg-ink-600/60'}`} />
-            </div>)
-        })}
+      <div className="text-[11.5px] text-slate-300 mb-1">Booked hours per day</div>
+      <div className="flex gap-2">
+        {/* y axis: hours booked that day */}
+        <div className="flex flex-col justify-between items-end h-24 text-[10px] text-slate-500 tnum w-9 shrink-0">
+          {ticks.map(t => <span key={t}>{Number.isInteger(t) ? t : t.toFixed(1)} h</span>)}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-end gap-1 h-24 border-l border-b border-ink-600/70 pl-1" role="img"
+               aria-label="Booked hours per day, two weeks back and one week ahead">
+            {days.map(d => {
+              const future = d.day > today
+              return (
+                <div key={d.day} className="flex-1 h-full flex flex-col justify-end items-center"
+                     title={`${d.day}: ${d.booked_hours} h booked${future ? ' (ahead)' : ''}`}>
+                  <div className={`w-full rounded-t-[4px] ${d.day === today ? 'ring-1 ring-accent-300' : ''}
+                                   ${future ? 'bg-violet-400/45' : 'bg-accent-400/70'}`}
+                       style={{ height: `${d.booked_hours ? Math.max((d.booked_hours / max) * 100, 4) : 0}%` }} />
+                </div>)
+            })}
+          </div>
+          {/* x axis: one bar per calendar day; a date every 7 days */}
+          <div className="mt-1 flex gap-1 pl-1 text-[10px] text-slate-500 tnum">
+            {days.map((d, i) => (
+              <span key={d.day} className={`flex-1 text-center ${d.day === today ? 'text-accent-200 font-semibold' : ''}`}>
+                {d.day === today ? 'today' : i % 7 === 0 ? d.day.slice(5) : ''}</span>))}
+          </div>
+          <div className="text-center text-[10.5px] text-slate-500 mt-0.5">Date (one bar = one day)</div>
+        </div>
       </div>
-      <div className="mt-1.5 flex justify-between text-[10.5px] text-slate-500">
-        <span>{days[0]?.day.slice(5)}</span><span>today</span><span>{days[days.length - 1]?.day.slice(5)}</span>
-      </div>
-      <div className="mt-1 text-[11px] text-slate-500 flex gap-3">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-accent-400/70" />booked (past)</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-400/35" />booked ahead</span>
-        <span>scale: {max} h</span>
+      <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap gap-3">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-accent-400/70" />booked (past days)</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-400/45" />booked ahead</span>
+        <span>y axis 0 – {max} h (the lab's open hours per day)</span>
       </div>
     </div>
   )

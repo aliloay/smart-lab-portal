@@ -15,9 +15,11 @@ import { EmptyState } from './ui'
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 /** Weekday x hour matrix. `unit` names what a cell counts. */
-export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent' }: {
+export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent', xTitle }: {
   data: number[][]; unit: string; fromHour?: number; toHour?: number
   tone?: 'accent' | 'teal' | 'violet'
+  /** Optional axis title under the hours. */
+  xTitle?: string
 }) {
   const max = Math.max(0, ...data.flat())
   if (!max) {
@@ -52,7 +54,9 @@ export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent'
           </Row>
         ))}
       </div>
+      {xTitle && <div className="mt-1 text-center text-[10.5px] text-slate-500">{xTitle} · rows = day of week</div>}
       <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+        <span>colour = {unit}:</span>
         <span>less</span>
         {[0.15, 0.35, 0.6, 0.85, 1].map(a => (
           <span key={a} className="w-4 h-3 rounded-sm" style={{ background: `rgba(${rgb},${a})` }} />

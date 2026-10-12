@@ -66,6 +66,9 @@ def system_status(db: Session = Depends(get_db),
     controllers = [d for d in devices
                    if d.device_type == DeviceType.MASTER_CONTROLLER]
     seen = [d.last_seen_at for d in devices if d.last_seen_at is not None]
+    offline = [d.name or d.device_uid for d in devices
+               if d.last_seen_at is not None and not is_fresh(d, now)
+               and not d.device_uid.upper().endswith("_SIM")]
 
     return SystemStatus(
         status="HEALTHY" if db_ok else "DEGRADED",
@@ -76,6 +79,7 @@ def system_status(db: Session = Depends(get_db),
         devices_reporting=sum(1 for f in fresh if f is not None),
         controllers_online=sum(1 for d in controllers if is_fresh(d, now)),
         controllers_total=len(controllers),
+        offline_devices=sorted(offline),
         last_heartbeat_at=max(seen) if seen else None,
         internet=internet_reachable(),
         backup=read_backup_status(),

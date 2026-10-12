@@ -699,6 +699,7 @@ export interface SystemStatus {
   devices_reporting: number
   controllers_online: number
   controllers_total: number
+  offline_devices?: string[]
   last_heartbeat_at: string | null
   time: string
 }
@@ -1095,7 +1096,7 @@ export const api = {
   dataMode: () => request<{ mode: Provenance; experiment_id: number | null }>('/system/data-mode'),
   setDataMode: (mode: Provenance) =>
     request<{ mode: Provenance }>('/system/data-mode', { method: 'PUT', body: JSON.stringify({ mode }) }),
-  experiments: () => request<Experiment[]>('/experiments'),
+  experiments: (labId?: number) => request<Experiment[]>(`/experiments${labId ? `?lab_id=${labId}` : ''}`),
   experiment: (id: number) => request<Experiment>(`/experiments/${id}`),
   createExperiment: (e: Partial<Experiment>) => post<Experiment>('/experiments', e),
   startExperiment: (id: number) => post<Experiment>(`/experiments/${id}/start`),

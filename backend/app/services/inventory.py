@@ -85,6 +85,29 @@ def _check_reorder(db: Session, b: InventoryBin, qty: Optional[int]) -> None:
         open_alert.resolved_at = datetime.now(timezone.utc)
 
 
+def _notify_change(db: Session, b: InventoryBin, tx: InventoryTransaction,
+                   user_id: Optional[int], label: str) -> None:
+    """Staff are told every stock change - what, how much, by whom; the person
+    inside (when it is one person) is told what they took or put back."""
+    from app.models import User
+    from app.services.notifications import notify, staff_ids
+    took = tx.kind == "WITHDRAWAL"
+    grams = abs(tx.delta_mass_g)
+    pcs = f"~{abs(tx.delta_qty_est)} pcs" if tx.delta_qty_est else f"{grams:.2f} g"
+    who = db.get(User, user_id) if user_id else None
+    by = (who.full_name if who else
+          "nobody signed in at the door" if label == "NOBODY_INSIDE" else "one of several people inside")
+    title = f"{b.item_name}: {pcs} {'taken' if took else 'added'}"
+    body = (f"{b.item_name} ({b.code}): {'-' if took else '+'}{grams:.2f} g"
+            + (f" = {pcs}" if tx.delta_qty_est else "") + f" - {by}.")
+    notify(db, staff_ids(db), "CONSUMABLE_" + tx.kind, title, body=body,
+           link="/inventory", severity="info" if who else "warning", exclude=user_id)
+    if who:
+        notify(db, [who.id], "CONSUMABLE_" + tx.kind,
+               f"You {'took' if took else 'put back'} {pcs} of {b.item_name}",
+               body=f"The consumables bin recorded {'-' if took else '+'}{grams:.2f} g.", link="/inventory")
+
+
 def record(db: Session, b: InventoryBin, mass: float,
            now: Optional[datetime] = None) -> Optional[InventoryTransaction]:
     """Store one stable reading; returns the transaction it caused, if any."""
@@ -101,6 +124,7 @@ def record(db: Session, b: InventoryBin, mass: float,
             qty_est_after=qty_estimate(b, mass), user_id=user_id,
             booking_id=booking_id, attribution=label, recorded_at=now)
         db.add(tx)
+        _notify_change(db, b, tx, user_id, label)
     b.last_mass_g, b.last_measured_at = mass, now
     _check_reorder(db, b, qty_estimate(b, mass))
     return tx
