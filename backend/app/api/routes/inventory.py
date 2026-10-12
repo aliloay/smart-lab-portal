@@ -62,6 +62,9 @@ def post_measurements(req: MeasurementReport, db: Session = Depends(get_db),
                     "calibrated": inv.calibrated(b),
                     "transaction": tx.kind if tx is not None else None})
     db.commit()
+    # Open Consumables pages refetch at once instead of waiting for their poll.
+    from app.services.environment import publish
+    publish([{"type": "inventory_update", "bins": [o["bin_code"] for o in out if o.get("known")]}])
     return {"bins": out}
 
 

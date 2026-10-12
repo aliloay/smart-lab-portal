@@ -14,6 +14,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Boxes, Nfc, Package, Plus, Scale } from 'lucide-react'
 import { Asset, InventoryBin, InventoryTx, Lab, api } from '../lib/api'
 import { fmtDateTime, relative } from '../lib/time'
+import { useLiveMessages } from '../lib/live'
 import {
   Chip, Drawer, EmptyState, ErrorBanner, Field, PageHeader, SectionTitle, Spinner,
 } from '../components/ui'
@@ -46,9 +47,10 @@ export function ConsumableBins() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 15000)
+    const t = window.setInterval(load, 15000)       // fallback if the live link drops
     return () => window.clearInterval(t)
   }, [load])
+  useLiveMessages(m => { if (m.type === 'inventory_update') load() })   // each weighing, at once
 
   return (
     <div className="space-y-6">

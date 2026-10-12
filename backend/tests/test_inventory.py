@@ -63,7 +63,7 @@ def test_calibrated_estimate_and_transactions(client, db, staff, lab, node, resi
     took = _report(client, device_headers, 280.0).json()["bins"][0]
     assert took["transaction"] == "WITHDRAWAL" and took["qty_est"] == 900
     t = db.query(InventoryTransaction).filter_by(kind="WITHDRAWAL").one()
-    assert t.delta_mass_g == -19.5 and t.delta_qty_est == -98    # change in the COUNT (998 -> 900)
+    assert t.delta_mass_g == -20.0 and t.delta_qty_est == -100   # 299.5 = 997.5 pcs: between counts, not booked
     assert t.attribution == "NOBODY_INSIDE" and t.user_id is None
 
 
@@ -142,3 +142,18 @@ def test_lifting_the_container_books_only_the_net_change(client, db, lab, node, 
     assert last["transaction"] == "WITHDRAWAL" and last["qty_est"] == 25
     t = db.query(InventoryTransaction).one()
     assert t.delta_qty_est == -5 and t.qty_est_after == 25
+
+
+def test_drift_between_counts_is_not_booked_and_title_says_what_is_left(
+        client, db, lab, node, resistors, device_headers, staff):
+    """Owner's run 2026-10-13: 30 in, took 4 then 2. The second take settled
+    6.15 -> 6.02 g; it must be booked as 2 (24 left), never as 1."""
+    from app.models import Notification
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 1.048, 0.04
+    db.commit()
+    for m in (7.246, 7.25, 0.0, 6.45, 6.45, 0.0, 6.15, 6.15, 6.06, 6.02, 6.02):
+        _report(client, device_headers, m)
+    took = [t.delta_qty_est for t in db.query(InventoryTransaction).order_by(InventoryTransaction.id)]
+    assert took == [-4, -2]
+    titles = [n.title for n in db.query(Notification).filter(Notification.title.like("%taken%"))]
+    assert any("2 pcs taken · 24 left (was 26)" in t for t in titles)

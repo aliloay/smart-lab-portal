@@ -94,18 +94,22 @@ def _notify_change(db: Session, b: InventoryBin, tx: InventoryTransaction,
     from app.services.notifications import notify, staff_ids
     took = tx.kind == "WITHDRAWAL"
     grams = abs(tx.delta_mass_g)
-    pcs = f"~{abs(tx.delta_qty_est)} pcs" if tx.delta_qty_est else f"{grams:.2f} g"
+    n = abs(tx.delta_qty_est) if tx.delta_qty_est else None
+    after = tx.qty_est_after
+    pcs = f"{n} pcs" if n else f"{grams:.2f} g"
+    left = (f" · {after} left (was {after + n if took else after - n})"
+            if n is not None and after is not None else "")
     who = db.get(User, user_id) if user_id else None
     by = (who.full_name if who else
           "nobody signed in at the door" if label == "NOBODY_INSIDE" else "one of several people inside")
-    title = f"{b.item_name}: {pcs} {'taken' if took else 'added'}"
+    title = f"{b.item_name}: {pcs} {'taken' if took else 'added'}{left}"
     body = (f"{b.item_name} ({b.code}): {'-' if took else '+'}{grams:.2f} g"
-            + (f" = {pcs}" if tx.delta_qty_est else "") + f" - {by}.")
+            + (f" = {pcs}" if n else "") + f" - {by}.")
     notify(db, staff_ids(db), "CONSUMABLE_" + tx.kind, title, body=body,
            link="/inventory", severity="info" if who else "warning", exclude=user_id)
     if who:
         notify(db, [who.id], "CONSUMABLE_" + tx.kind,
-               f"You {'took' if took else 'put back'} {pcs} of {b.item_name}",
+               f"You {'took' if took else 'put back'} {pcs} of {b.item_name}{left}",
                body=f"The consumables bin recorded {'-' if took else '+'}{grams:.2f} g.", link="/inventory")
 
 
@@ -115,15 +119,32 @@ def lifted(b: InventoryBin, mass: float) -> bool:
     return calibrated(b) and b.tare_g > 0 and mass < b.tare_g - threshold_g(b)
 
 
+# A reading counts as N pieces only when it sits this close to N (in pieces):
+# a value half-way between two counts (load-cell drift, a container still
+# settling) is never booked. Measured 2026-10-13: settling/drift up to ~0.6 pc.
+CLEAN_PC = 0.3
+
+
+def _pieces(b: InventoryBin, mass: float) -> float:
+    return (mass - b.tare_g) / b.unit_mass_g
+
+
+def _clean_count(b: InventoryBin, mass: float) -> Optional[int]:
+    x = _pieces(b, mass)
+    n = round(x)
+    return max(0, n) if abs(x - n) <= CLEAN_PC else None
+
+
 def record(db: Session, b: InventoryBin, mass: float,
            now: Optional[datetime] = None) -> Optional[InventoryTransaction]:
     """Store one stable reading; returns the transaction it caused, if any.
 
-    b.last_mass_g is the last CONFIRMED stock. A change is booked once two
-    readings in a row agree (a value caught while a hand is still on the
-    container is ignored), and it is booked as the NET change against the
-    confirmed stock - lifting the container out and putting it back with 5
-    fewer is one withdrawal of 5, not "all taken" then "all but 5 returned".
+    b.last_mass_g is the last CONFIRMED stock. Calibrated bins are booked in
+    whole pieces: a new count is booked when two readings in a row both sit
+    cleanly on it (see CLEAN_PC), as the NET change from the confirmed count -
+    lifting the container out and putting it back with 5 fewer is one
+    withdrawal of 5. Nothing is booked while the container is lifted.
+    Uncalibrated bins are booked in grams the same way.
     """
     now = now or datetime.now(timezone.utc)
     prev = db.scalar(select(InventoryMeasurement.mass_g)
@@ -132,22 +153,35 @@ def record(db: Session, b: InventoryBin, mass: float,
                                InventoryMeasurement.id.desc()).limit(1))
     db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
     thr = threshold_g(b)
-    tx = None
     if lifted(b, mass):
         return None                      # keep the confirmed stock until it is back
-    if b.last_mass_g is None or abs(mass - b.last_mass_g) < thr:
-        b.last_mass_g, b.last_measured_at = mass, now   # unchanged (follows slow drift)
+    if b.last_mass_g is None:
+        b.last_mass_g, b.last_measured_at = mass, now
         _check_reorder(db, b, qty_estimate(b, mass))
         return None
-    if prev is None or abs(mass - prev) >= thr:
-        return None                      # not confirmed yet: wait for the next reading
+    if calibrated(b):
+        before = qty_estimate(b, b.last_mass_g)
+        n = _clean_count(b, mass)
+        if n is None:
+            return None                  # between two counts: wait
+        if n == before:
+            b.last_mass_g, b.last_measured_at = mass, now   # same count: follow drift
+            return None
+        if prev is None or _clean_count(b, prev) != n:
+            return None                  # not confirmed yet: wait for the next reading
+        dq = n - before
+    else:
+        if abs(mass - b.last_mass_g) < thr:
+            b.last_mass_g, b.last_measured_at = mass, now
+            return None
+        if prev is None or abs(mass - prev) >= thr:
+            return None
+        dq = None
     delta = mass - b.last_mass_g
     user_id, booking_id, label = attribution(db, b.lab_id)
     tx = InventoryTransaction(
         bin_id=b.id, kind="WITHDRAWAL" if delta < 0 else "REFILL",
-        delta_mass_g=round(delta, 2),
-        delta_qty_est=(qty_estimate(b, mass) - qty_estimate(b, b.last_mass_g))
-        if calibrated(b) else None,
+        delta_mass_g=round(delta, 2), delta_qty_est=dq,
         qty_est_after=qty_estimate(b, mass), user_id=user_id,
         booking_id=booking_id, attribution=label, recorded_at=now)
     db.add(tx)

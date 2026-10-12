@@ -31,6 +31,7 @@ export type LiveMessage =
       alert_id: number | null; at: string }
   /** New environment readings for a lab: refetch. */
   | { type: 'env_update'; lab_id: number }
+  | { type: 'inventory_update'; bins: string[] }
   /** Live robot joints (staff, up to 5 a second per robot). */
   | { type: 'robot_state'; device_id: number; lab_id: number; state: string; q: number[] | null
       qd: number[] | null; joints_moving: boolean[]; home: string; source: string; telemetry_age_ms: number | null }

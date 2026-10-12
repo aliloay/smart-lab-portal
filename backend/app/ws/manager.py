@@ -84,6 +84,9 @@ class ConnectionManager:
             # "New readings for this lab - refetch": the same facts GET
             # /labs/{id}/environment shows any signed-in user.
             return client.lab_filter is None or message.get("lab_id") == client.lab_filter
+        if kind == "inventory_update":
+            # "A bin was weighed - refetch": staff pages (GET /inventory/bins is staff-only).
+            return client.is_staff
         if kind == "door_state":
             # Door open/closed and lock state: the same facts GET /labs/{id}
             # already shows any signed-in user. Only a "refetch" hint.
