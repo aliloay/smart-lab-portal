@@ -597,3 +597,18 @@ def test_person_working_beside_a_robot_makes_it_in_use():
     zw.update(robot, _scene(), beside, 1.0)
     st = zw.update(robot, _scene(), beside, 1.0 + ZoneWatcher.IN_USE_AFTER_S)[0]
     assert st.status == "IN_USE"
+
+
+def test_a_lost_name_goes_to_the_best_look_not_the_first_unnamed_person():
+    """2026-10-12: Ali's door name went to whoever was unnamed first. Now it goes
+    to the person who looks like Ali, and to nobody if two fit about equally."""
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    people = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    lab = Labeler()
+    ta = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    _learnt(lab, [ta], people)
+    sara = Track(20, b, 20.0, 19.0, look=lb)          # seen first, does not look like Ali
+    ali = Track(21, a, 20.0, 20.0, look=la)
+    lab.assign([sara, ali], people, None, now=20.0)
+    assert ali.label == "USER1" and sara.label is None

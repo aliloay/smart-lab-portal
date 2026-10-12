@@ -178,7 +178,9 @@ class Service:
     EVENT_COOLDOWN_S = 120.0
     RENDER_FPS = 15                    # pictures drawn per second for the live views
     FACE_EVERY_S = 1.5                 # a face check per unnamed person at most this often
-    FACE_MARGIN = 0.05                 # the best face must beat the next person by this (cosine)
+    FACE_MARGIN = 0.08                 # the best face must beat the next person by this (cosine; was 0.05)
+    FACE_MIN = 0.50                    # and reach this: from the ceiling, wrong people matched 0.41-0.53,
+                                       # the right one 0.59-0.66 (2026-10-12); the door camera stays at 0.363
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
 
     def __init__(self, args):
@@ -769,7 +771,8 @@ class Service:
                 except (requests.RequestException, ValueError):
                     res = {}
                 name, score, second = res.get("name"), res.get("score"), res.get("second")
-                if name and (second is None or score - second >= self.FACE_MARGIN):
+                if name and score is not None and score >= self.FACE_MIN and \
+                        (second is None or score - second >= self.FACE_MARGIN):
                     with self.label_lock:
                         self.labeler.face_vote(t.id, name, time.time(), score)
 

@@ -480,8 +480,8 @@ class Labeler:
     LOCK_SAMPLES = 3                   # alone-frames before a look can move a name
     SETTLE_S = 0.6                     # apart this long before names are re-checked
     SWAP_MARGIN = 0.05                 # a swap must fit this much better
-    REACQUIRE_MAX = 0.30               # this alike to get a name back...
-    REACQUIRE_MARGIN = 0.08            # ...and clearly more alike than anyone else
+    REACQUIRE_MAX = 0.25               # this alike to get a name back (was 0.30)...
+    REACQUIRE_MARGIN = 0.10            # ...and this much more alike than every other person in view (was 0.08)
     LEARN_MAX = 0.45                   # a frame this different is not learnt (likely a mix-up)
     FACE_VOTES = 2                     # agreeing face matches before a face names someone
     FACE_WINDOW_S = 10.0               # ...within this long
@@ -596,22 +596,27 @@ class Labeler:
             if rivals and min(rivals) - cands[0][0] < self.REACQUIRE_MARGIN:
                 continue
             self._give(cands[0][2], who, "face", how="look")
-        for t in sorted(tracks, key=lambda t: t.first_seen):
-            if t.label or t.crowded or not free or t.box[3] < self.MIN_LOOK_H:
+        # Each free door name goes to the unnamed person who looks MOST like it,
+        # and only if they beat every other unnamed person in view clearly - not
+        # to the first one close enough (2026-10-12: Ali's name went to Nour and
+        # to another man that way). The body model must be known too (it tells
+        # apart people whose colours are alike).
+        for o in list(free):
+            label = o["auth_subject"]
+            cands = sorted((d, t.id, t) for t in tracks
+                           if not t.label and not t.crowded and t.box[3] >= self.MIN_LOOK_H
+                           and t.look is not None
+                           and (t.look.deep is not None or label not in self.identities
+                                or self.identities[label].look.deep is None)
+                           and (d := self._distance(t, label)) is not None)
+            if not cands or cands[0][0] > self.REACQUIRE_MAX:
                 continue
-            scored = []
-            for o in free:
-                d = self._distance(t, o["auth_subject"])
-                if d is not None:
-                    scored.append((d, o["auth_subject"]))
-            scored.sort()
-            if not scored or scored[0][0] > self.REACQUIRE_MAX:
+            rivals = [c[0] for c in cands[1:]] + [
+                d for t in tracks if not t.label and t.box[3] < self.MIN_LOOK_H
+                and (d := self._distance(t, label)) is not None]
+            if rivals and min(rivals) - cands[0][0] < self.REACQUIRE_MARGIN:
                 continue
-            if len(scored) > 1 and scored[1][0] - scored[0][0] < self.REACQUIRE_MARGIN:
-                continue
-            label = scored[0][1]
-            o = inside[label]
-            self._give(t, o, how="look")
+            self._give(cands[0][2], o, how="look")
             free.remove(o)
 
         # 3) Elimination: one free name, one unlabelled person.
