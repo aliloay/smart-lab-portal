@@ -64,6 +64,7 @@ export default function Devices() {
         actions={isAdmin(user) ? <button className="btn-primary" onClick={() => setAdding(true)}>
           <Plus size={16} />Register device</button> : undefined} />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+      <Screens devices={devices ?? []} />
 
       <div className="mb-5"><Notice>
         Liveness comes from heartbeats: a device silent for more than 90 seconds is offline, and
@@ -230,4 +231,44 @@ function DeviceKey({ id, own }: { id: number; own: boolean }) {
   }
   return <button className="text-xs link" onClick={issue} title={err || undefined}>
     {own ? 'Own key ✓ · replace' : 'Issue own key'}</button>
+}
+
+
+/** The screens of the system: door tablet (served by the Master ESP32 itself)
+ *  and the IoT dashboard wall, with the address on the lab network and on
+ *  this computer. Links only - nothing here changes a device. */
+function Screens({ devices }: { devices: Device[] }) {
+  const master = devices.find(d => d.device_type === 'MASTER_CONTROLLER' && d.ip_address)
+  const here = window.location.hostname
+  const lab = '192.168.1.200'          // the portal laptop on the Smart_Lab router
+  const proto = window.location.protocol
+  const iot = (h: string) => `${proto}//${h}:${proto === 'https:' ? 8443 : 8080}/command`
+  const row = 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]'
+  const a = 'underline text-sky-300 hover:text-sky-200'
+  return (
+    <div className="card p-4 mb-4 grid gap-3 md:grid-cols-2">
+      <div>
+        <div className="text-[13.5px] font-semibold text-slate-100">Door tablet screen</div>
+        <div className="text-[11.5px] text-slate-400 mb-1.5">Served by the door controller (Master ESP32) - opens only on the Smart_Lab network.</div>
+        <div className={row}>
+          {master ? <a className={a} href={`http://${master.ip_address}/`} target="_blank" rel="noopener noreferrer">http://{master.ip_address}/</a>
+                  : <span className="text-slate-400">Not configured</span>}
+        </div>
+      </div>
+      <div>
+        <div className="text-[13.5px] font-semibold text-slate-100">IoT Dashboard (wall screen)</div>
+        <div className="text-[11.5px] text-slate-400 mb-1.5">Open the full wall here or in a separate tab.</div>
+        <div className={row}>
+          <Link className="btn-ghost !py-1 !px-2.5" to="/wall">Wall in this tab</Link>
+          <a className="btn-ghost !py-1 !px-2.5" href="/wall" target="_blank" rel="noopener noreferrer">Wall in new tab</a>
+        </div>
+        <div className={row + ' mt-1.5'}>
+          <span className="text-slate-400">Lab network:</span>
+          <a className={a} href={iot(lab)} target="_blank" rel="noopener noreferrer">{iot(lab)}</a>
+          {here !== lab && <><span className="text-slate-400">This computer:</span>
+            <a className={a} href={iot(here)} target="_blank" rel="noopener noreferrer">{iot(here)}</a></>}
+        </div>
+      </div>
+    </div>
+  )
 }
