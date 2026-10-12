@@ -84,8 +84,20 @@ def test_zone_learns_then_flags_a_moved_item():
 def test_person_at_the_item_means_in_use():
     zw = ZoneWatcher()
     zw.update(ZONE, _scene(), [], 0.0)
-    st = zw.update(ZONE, _scene(shift=70), [(0.2, 0.2, 0.2, 0.5)], 5.0)[0]
-    assert st.status == "IN_USE"
+    person = [(0.2, 0.2, 0.2, 0.5)]
+    st = zw.update(ZONE, _scene(shift=70), person, 5.0)[0]
+    assert st.status == "OK"                                  # just arrived / passing: not in use
+    st = zw.update(ZONE, _scene(shift=70), person, 5.0 + ZoneWatcher.IN_USE_AFTER_S)[0]
+    assert st.status == "IN_USE"                              # stayed: using it
+
+
+def test_walking_past_is_neither_use_nor_movement():
+    zw = ZoneWatcher()
+    zw.update(ZONE, _scene(), [], 0.0)
+    for k in range(6):                                        # a person crossing in front, 0.4 s steps
+        t = 1.0 + 0.4 * k
+        st = zw.update(ZONE, _scene(shift=10 * k), [(0.1 + 0.05 * k, 0.2, 0.2, 0.5)], t)[0]
+        assert st.status == "OK"
 
 
 def test_draw_does_not_crash():
@@ -426,9 +438,12 @@ def test_a_face_name_comes_back_by_look_after_the_track_was_lost():
     for k in range(4):                                   # seen clear: the look is learnt
         lab.assign([t], [], None, now=11.0 + k, known=KNOWN)
     assert (t.label, t.source, t.entered) == ("USER1", "face", False)
-    back = Track(9, (400, 60, 60, 240), 40.0, 40.0, look=la)    # a new track, no face match
+    back = Track(9, (400, 60, 60, 240), 40.0, 40.0, look=la)    # a new track, no face match yet
     lab.assign([back], [], None, now=40.0, known=KNOWN)
-    assert (back.label, back.source, back.entered) == ("USER1", "face", False)
+    assert back.label is None                            # by look alone: no (2026-10-12 fix)
+    lab.face_vote(9, "USER1", 41.0)                      # one face match of this person ...
+    lab.assign([back], [], None, now=41.0, known=KNOWN)
+    assert (back.label, back.source, back.entered) == ("USER1", "face", False)   # ... plus the look: yes
     stranger_img, (s,) = _frame((300, ((0, 0, 0), (0, 200, 255), (200, 200, 0))))
     lab2 = Labeler()
     lab2.face_named = dict(lab.face_named)
@@ -502,3 +517,83 @@ def test_no_hand_back_when_two_new_people_are_at_the_place():
 
 
 KNOWN5 = [{"auth_subject": "USER5", "name": "Eng. Hemaly", "role": "LAB_STAFF"}]
+
+
+def test_robot_home_saved_then_at_home_away_and_resave():
+    import numpy as np
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    rng = np.random.default_rng(1)
+    home = rng.integers(0, 255, (200, 200), dtype=np.uint8)
+    robot = {"id": 1, "name": "UR5e", "x": 0.2, "y": 0.2, "w": 0.4, "h": 0.4, "alert_on_motion": False}
+    pc = {"id": 2, "name": "PC-01", "x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1}
+    assert zw.save_home([robot, pc], home) == ["UR5e"]          # PCs have no HOME
+    st = {s.id: s for s in zw.update([robot], home, [], 0.0)}
+    assert st[1].home == "AT_HOME"
+    away = rng.integers(0, 255, (200, 200), dtype=np.uint8)
+    st = {s.id: s for s in zw.update([robot], away, [], 1.0)}
+    assert st[1].home == "AWAY"
+    moved = {**robot, "x": 0.25}
+    st = {s.id: s for s in zw.update([moved], home, [], 2.0)}
+    assert st[1].home == "RESAVE"                                # box moved: HOME must be saved again
+
+
+def test_a_wrong_name_on_a_different_look_is_dropped():
+    """The owner's case: a person in black ends up with Ali's (white top) name -
+    after a few clear checks that do not look like Ali, the name is dropped."""
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    ta = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    people = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    lab = Labeler()
+    _learnt(lab, [ta], people)
+    wrong = Track(5, b, 20.0, 20.0, label="USER1", name="Ali", role="STUDENT", look=lb)
+    for k in range(Labeler.VETO_CHECKS):
+        lab.assign([wrong], people, None, now=20.0 + k)
+    assert wrong.label is None                      # Unknown rather than the wrong name
+
+
+def test_face_named_person_keeps_the_name_through_a_crossing():
+    """Named by face (not entered at the door): a tracker mix-up while passing
+    someone is undone by the look, like a door name."""
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    lab = Labeler()
+    ali = {"auth_subject": "USER1", "name": "Ali", "role": "STUDENT"}
+    lab.face_named["USER1"] = (ali, 0.0)
+    ta = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    ta.source = "face"
+    tb = Track(2, b, 0, 0, look=lb)
+    _learnt(lab, [ta, tb], [])
+    ta.look, tb.look = lb, la                       # mixed up while passing
+    ta.separated_at = tb.separated_at = 10.0
+    lab.assign([ta, tb], [], None, now=11.0)
+    assert tb.label == "USER1" and ta.label is None
+
+
+def test_locked_looks_and_face_names_survive_a_restart(tmp_path):
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    lab = Labeler()
+    ali = {"auth_subject": "USER1", "name": "Ali", "role": "STUDENT"}
+    lab.face_named["USER1"] = (ali, 100.0)
+    ta = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    ta.source = "face"
+    _learnt(lab, [ta], [])
+    p = str(tmp_path / "ids.npz")
+    lab.save(p)
+    fresh = Labeler()
+    assert fresh.load(p, now=200.0) == 1
+    assert "USER1" not in fresh.face_named                    # a face name needs the face again
+    assert look_distance(fresh.identities["USER1"].look, la) < 0.05
+
+
+def test_person_working_beside_a_robot_makes_it_in_use():
+    """The UR5e box sits on the arm under the gantry; the person works beside / below it."""
+    robot = [{"id": 9, "name": "UR5e", "x": 0.4, "y": 0.1, "w": 0.1, "h": 0.2, "alert_on_motion": False}]
+    zw = ZoneWatcher()
+    zw.update(robot, _scene(), [], 0.0)
+    beside = [(0.52, 0.25, 0.08, 0.3)]                      # next to the arm, not overlapping its box
+    zw.update(robot, _scene(), beside, 1.0)
+    st = zw.update(robot, _scene(), beside, 1.0 + ZoneWatcher.IN_USE_AFTER_S)[0]
+    assert st.status == "IN_USE"

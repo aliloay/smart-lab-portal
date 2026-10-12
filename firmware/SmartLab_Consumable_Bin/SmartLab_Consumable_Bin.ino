@@ -23,7 +23,8 @@
 // "CSV,..." line (tools/bringup/README.md) for the measurement log.
 // This firmware reports the mass on the PLATFORM in grams (bin included).
 //
-// STATUS: compiled, NOT yet run on hardware. Values marked VERIFY come
+// STATUS (2026-10-10): pins 32/33 like the reusable bin; precision pipeline new - VERIFY on hardware.
+// Earlier note: Values marked VERIFY come
 // from the noise and settling tests in docs/ROBOTICS_LAB_ARCHITECTURE.md.
 // ===========================================================================
 #include <WiFi.h>
@@ -32,6 +33,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <Preferences.h>
 #include "HX711.h"
+#include <algorithm>
 
 #include "secrets.h"        // WIFI_SSID, WIFI_PASS, DEVICE_KEY (gitignored)
 
@@ -40,7 +42,7 @@ const char *BACKEND_IP = "192.168.1.200";
 constexpr uint16_t BACKEND_PORT = 8000;
 // BENCH = the bring-up bench (home); its data stays apart from the lab's.
 // Set "LAB_01" when the bin is installed in the Robotics Lab.
-const char *LAB_ID    = "BENCH";
+const char *LAB_ID    = "LAB_01";      // Robotics Lab (was BENCH, which the portal does not have)
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
 const char *FIRMWARE  = "bin-0.2";
@@ -48,15 +50,34 @@ const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
 // --- pins -----------------------------------------------------------------------
-constexpr uint8_t HX_DT_PIN  = 25;
-constexpr uint8_t HX_SCK_PIN = 26;
+constexpr uint8_t HX_DT_PIN  = 32;   // same wiring as the reusable bin
+constexpr uint8_t HX_SCK_PIN = 33;
 constexpr uint8_t I2C_SDA = 21, I2C_SCL = 22;   // LCD
 
-// --- measurement (VERIFY from the noise / settling tests) ----------------------
-constexpr uint8_t  SAMPLES_PER_READING = 10;    // HX711 averaging
-constexpr float    STABLE_BAND_G   = 0.5;       // max spread of the window to call it stable
+// --- measurement (small parts: resistors, LEDs, capacitors) ---------------------
+// Pipeline per HX711 sample (~10/s): median of the last 5 (drops spikes) ->
+// moving average of AVG_N -> grams. A real step (> STEP_RESET_G) restarts the
+// average so the display follows at once instead of sliding for 2 s.
+// The LCD and the portal get the value only through a deadband, so the last
+// digit does not flicker. All values VERIFY with "avg 100" on the real bin.
+constexpr float    MAX_LOAD_G      = 1000.0;    // load cell rated capacity; not its calibration factor
+constexpr uint8_t  MEDIAN_N        = 5;         // spike filter
+constexpr uint8_t  AVG_N           = 20;        // ~2 s of samples at 10 Hz
+constexpr float    STEP_RESET_G    = 0.5;       // a jump this big = something added / removed
+constexpr float    DISPLAY_DEADBAND_G = 0.04;   // shown value moves only beyond this
+constexpr float    STABLE_SNAP_G   = 0.02;      // ... or, once stable, beyond this
+constexpr float    STABLE_BAND_G   = 0.08;      // spread of the window to call it stable
 constexpr uint32_t STABLE_TIME_MS  = 1500;      // ... held for this long
-constexpr float    SEND_DELTA_G    = 0.3;       // report a stable value that moved this much
+constexpr float    SEND_DELTA_G    = 0.05;      // report a stable value that moved this much
+// Zero: at power-on (after BOOT_SETTLE_MS) a reading below BOOT_ZERO_MAX_G is
+// drift and becomes the new zero; above it, items are on the platform and the
+// saved zero is kept (zeroing would hide them). While the platform is EMPTY and
+// stable, the zero follows slow drift (zero tracking); a removed part is a step,
+// never tracked.
+constexpr uint32_t BOOT_SETTLE_MS  = 4000;
+constexpr float    BOOT_ZERO_MAX_G = 2.0;
+constexpr float    ZERO_TRACK_BAND_G = 0.25;    // only this close to zero
+constexpr float    ZERO_TRACK_RATE = 0.02;      // fraction of the error corrected per sample
 constexpr uint32_t KEEPALIVE_MS    = 60000;     // or at least once a minute
 constexpr uint32_t HEARTBEAT_MS    = 30000;
 constexpr uint32_t HTTP_TIMEOUT_MS = 2500;
@@ -68,7 +89,10 @@ uint8_t lcdAddr = 0;
 
 float    scaleFactor = 0;          // counts per gram; 0 = not calibrated
 long     zeroOffset  = 0;
-float    massG = NAN;              // latest reading
+float    massG = NAN;              // filtered reading (grams)
+float    shownG = NAN;             // what the LCD / portal see (deadband)
+long     medBuf[MEDIAN_N]; uint8_t medN = 0, medI = 0;
+double   avgBuf[AVG_N];   uint8_t avgN = 0, avgI = 0;
 bool     stable = false;
 float    windowMin = NAN, windowMax = NAN;
 uint32_t windowStart = 0;
@@ -106,9 +130,11 @@ void drawLcd() {
   String l1 = itemName.length() ? itemName : String(BIN_CODE);
   String l2;
   if (scaleFactor == 0)      l2 = "NOT CALIBRATED";
-  else if (isnan(massG))     l2 = "NO READING";
+  else if (isnan(massG) || isnan(shownG)) l2 = "SETTLING...";
+  else if (massG > MAX_LOAD_G) l2 = "OVER 1000 g!";
   else {
-    l2 = String(massG, 1) + " g";
+    float v = fabs(shownG) < 0.005f ? 0.0f : shownG;   // no "-0.00"
+    l2 = String(v, 2) + " g";
     if (qtyEst >= 0) l2 += " ~" + String(qtyEst);
     if (!stable) l2 += " ..";
   }
@@ -138,12 +164,42 @@ void saveCalibration() {
   prefs.end();
 }
 
+static long medianRaw() {
+  long t[MEDIAN_N];
+  memcpy(t, medBuf, sizeof(long) * medN);
+  std::sort(t, t + medN);
+  return t[medN / 2];
+}
+
+void resetFilter() { medN = medI = avgN = avgI = 0; windowMin = windowMax = NAN; stable = false; }
+
+// One HX711 sample -> filtered grams. Non-blocking: returns at once when no
+// new sample is ready (the HX711 makes ~10 per second).
 void readScale() {
-  if (!scale.wait_ready_timeout(300)) { massG = NAN; return; }
+  if (!scale.is_ready()) return;
+  long raw = scale.read();
+  medBuf[medI] = raw; medI = (medI + 1) % MEDIAN_N; if (medN < MEDIAN_N) medN++;
   if (scaleFactor == 0) return;
-  massG = scale.get_units(SAMPLES_PER_READING);
+  double g = (medianRaw() - (double)zeroOffset) / scaleFactor;
+
+  // A real step restarts the average (fast response); noise does not.
+  if (avgN > 0) {
+    double mean = 0; for (uint8_t i = 0; i < avgN; i++) mean += avgBuf[i]; mean /= avgN;
+    if (fabs(g - mean) > STEP_RESET_G) { avgN = avgI = 0; windowMin = windowMax = NAN; }
+  }
+  avgBuf[avgI] = g; avgI = (avgI + 1) % AVG_N; if (avgN < AVG_N) avgN++;
+  double sum = 0; for (uint8_t i = 0; i < avgN; i++) sum += avgBuf[i];
+  massG = sum / avgN;
+
+  if (massG > MAX_LOAD_G) {
+    stable = false;
+    windowMin = windowMax = NAN;
+    Serial.printf("[SCALE][OVERLOAD] %.2f g exceeds the %.0f g cell rating; not reporting\n",
+                  massG, MAX_LOAD_G);
+    return;
+  }
   uint32_t now = millis();
-  // Stability: the readings stay within STABLE_BAND_G for STABLE_TIME_MS.
+  // Stability: the filtered value stays within STABLE_BAND_G for STABLE_TIME_MS.
   if (isnan(windowMin) || max(windowMax, massG) - min(windowMin, massG) > STABLE_BAND_G) {
     windowMin = windowMax = massG;          // moved: start a new window
     windowStart = now;
@@ -151,8 +207,42 @@ void readScale() {
     windowMin = min(windowMin, massG);
     windowMax = max(windowMax, massG);
   }
-  stable = now - windowStart >= STABLE_TIME_MS;
-  Serial.printf("CSV,mass,%lu,%.3f,%d\n", (unsigned long)now, massG, stable ? 1 : 0);
+  stable = avgN >= AVG_N && now - windowStart >= STABLE_TIME_MS;
+
+  // Zero tracking: empty platform, stable, a hair off zero -> nudge the zero.
+  if (stable && fabs(massG) < ZERO_TRACK_BAND_G) {
+    long shift = lround(massG * scaleFactor * ZERO_TRACK_RATE);
+    if (shift) { zeroOffset += shift; scale.set_offset(zeroOffset); }
+  }
+  // Deadband: while moving, the shown value only follows a real change; once
+  // stable it settles onto the reading (within STABLE_SNAP_G), so the screen is
+  // calm AND exact (measured noise of the filtered value: about +-0.015 g).
+  if (isnan(shownG) || fabs(massG - shownG) >= DISPLAY_DEADBAND_G ||
+      (stable && fabs(massG - shownG) >= STABLE_SNAP_G)) shownG = massG;
+  static uint32_t lastLog = 0;
+  if (now - lastLog >= 500) {
+    lastLog = now;
+    Serial.printf("CSV,mass,%lu,%.3f,%.2f,%d\n", (unsigned long)now, massG, shownG, stable ? 1 : 0);
+  }
+}
+
+// Power-on zero: drift is zeroed, items on the platform are kept.
+void bootZero() {
+  if (scaleFactor == 0) { Serial.println("[ZERO] Not calibrated - 'tare' empty, then 'cal <grams>'"); return; }
+  Serial.printf("[ZERO] Letting the load cell settle %lu ms...\n", (unsigned long)BOOT_SETTLE_MS);
+  uint32_t t0 = millis();
+  while (millis() - t0 < BOOT_SETTLE_MS) { if (scale.is_ready()) scale.read(); delay(5); }
+  if (!scale.wait_ready_timeout(1000)) { Serial.println("[ZERO][FAIL] HX711 not ready"); return; }
+  double raw = scale.read_average(30);
+  double g = (raw - zeroOffset) / scaleFactor;
+  if (fabs(g) < BOOT_ZERO_MAX_G) {
+    zeroOffset = lround(raw);
+    scale.set_offset(zeroOffset);
+    saveCalibration();
+    Serial.printf("[ZERO] Platform empty: %.2f g of drift -> zero (saved)\n", g);
+  } else {
+    Serial.printf("[ZERO] %.2f g on the platform at power-on: items present - saved zero kept\n", g);
+  }
 }
 
 // n raw samples: mean and standard deviation (Welford), raw and in grams.
@@ -188,16 +278,20 @@ void handleSerial() {
       zeroOffset = scale.get_offset();
       if (scaleFactor != 0) scale.set_scale(scaleFactor);
       saveCalibration();
+      resetFilter();
       Serial.printf("[CAL] Zero set (offset %ld)\n", zeroOffset);
     } else if (line.startsWith("cal ")) {
       float g = line.substring(4).toFloat();
-      if (g <= 0) { Serial.println("[CAL] Usage: cal <grams of the reference mass>"); }
+      if (g <= 0 || g > MAX_LOAD_G) {
+        Serial.printf("[CAL] Usage: cal <known reference mass in grams, 0 < g <= %.0f>\n", MAX_LOAD_G);
+      }
       else {
         scale.set_scale(1);
-        float raw = scale.get_units(20);       // counts above zero
+        float raw = scale.get_units(40);       // counts above zero (4 s average)
         scaleFactor = raw / g;
         scale.set_scale(scaleFactor);
         saveCalibration();
+        resetFilter();
         Serial.printf("[CAL] %.2f g -> scale %.3f counts/g (saved)\n", g, scaleFactor);
       }
     } else if (line == "show") {
@@ -256,12 +350,12 @@ String jsonStr(const String &s, const char *key) {
 
 void sendMass() {
   String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"readings\":[{\"bin_code\":\"" +
-                BIN_CODE + "\",\"mass_g\":" + String(massG, 2) + "}]}";
+                BIN_CODE + "\",\"mass_g\":" + String(shownG, 2) + "}]}";
   int code;
   String reply = post("/inventory/measurements", body, &code);
   netOk = code == 200;
   if (!netOk) { Serial.printf("[NET] measurement not recorded (HTTP %d)\n", code); return; }
-  lastSentG = massG;
+  lastSentG = shownG;
   lastSentMs = millis();
   if (reply.indexOf("\"known\":false") >= 0) {
     Serial.printf("[NET] The portal has no bin %s - create it under Inventory\n", BIN_CODE);
@@ -315,16 +409,27 @@ void setup() {
   delay(200);
   Serial.println("\n=== SMART LAB - CONSUMABLE BIN NODE (System 3) ===");
   Serial.printf("firmware %s, device %s, lab %s, bin %s\n", FIRMWARE, DEVICE_ID, LAB_ID, BIN_CODE);
+  // Initialize and tare the scale before the optional LCD. A display or I2C
+  // issue must not prevent the load cell from starting and reporting readings.
+  Serial.printf("[SCALE] Starting HX711 on DT=%u, SCK=%u\n", HX_DT_PIN, HX_SCK_PIN);
+  // Match the reusable bin: do not reset here. HX711's default reset reads a
+  // sample with no timeout and can freeze startup before the LCD is refreshed.
+  scale.begin(HX_DT_PIN, HX_SCK_PIN, true, false);
+  Serial.println("[SCALE] HX711 begin returned");
+  loadCalibration();
+  bootZero();
+  resetFilter();
+
   Wire.begin(I2C_SDA, I2C_SCL);
   scanI2c();
   if (lcdAddr) {
     lcd = new LiquidCrystal_I2C(lcdAddr, 16, 2);
+    Serial.println("[LCD] Initializing display at detected address");
     lcd->init();
     lcd->backlight();
-    lcdShow(BIN_CODE, "starting...");
+    Serial.println("[LCD] Display initialized");
   }
-  scale.begin(HX_DT_PIN, HX_SCK_PIN);
-  loadCalibration();
+  drawLcd();
 
   WiFi.mode(WIFI_STA);
   WiFi.config(LOCAL_IP, GATEWAY, SUBNET, GATEWAY);
@@ -352,7 +457,7 @@ void loop() {
   readScale();
   if (lastHeartbeatMs == 0 || millis() - lastHeartbeatMs > HEARTBEAT_MS) sendHeartbeat();
   if (stable && !isnan(massG) &&
-      (isnan(lastSentG) || fabs(massG - lastSentG) >= SEND_DELTA_G || millis() - lastSentMs > KEEPALIVE_MS)) {
+      (isnan(lastSentG) || fabs(shownG - lastSentG) >= SEND_DELTA_G || millis() - lastSentMs > KEEPALIVE_MS)) {
     sendMass();
   }
   if (millis() - lastDraw > 500) { lastDraw = millis(); drawLcd(); }

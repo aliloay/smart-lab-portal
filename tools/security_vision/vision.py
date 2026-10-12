@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+import os
+
 import cv2
 import numpy as np
 
@@ -82,6 +84,55 @@ class Detector:
             bw, bh = min(bw, w - x), min(bh, h - y)
             dets.append(Detection(int(cls[i]), float(best[i]), (float(x), float(y), float(bw), float(bh))))
         return dets
+
+
+class Yolo26Detector:
+    """Ultralytics YOLO26 (AGPL-3.0), exported to ONNX, run with ONNX Runtime
+    (OpenCV's dnn runs it ~8x slower). Same interface as Detector.
+    Output (1, 84, N): cx, cy, w, h on the 640 letterbox + 80 COCO class scores.
+    Measured on 30 lab frames (2026-10-12, 8 threads, 640 px, conf 0.45):
+    2.97 of 3 people at 147 ms - YOLOX-S needed 510 ms for the same."""
+
+    def __init__(self, path: str, conf: float = 0.45, nms: float = 0.45, size: int = 640,
+                 threads: int = 8):
+        import onnxruntime as ort
+        so = ort.SessionOptions()
+        so.intra_op_num_threads = threads
+        self.sess = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
+        self.input = self.sess.get_inputs()[0].name
+        self.conf, self.nms, self.size = conf, nms, size
+
+    def detect(self, img: np.ndarray) -> list[Detection]:
+        h, w = img.shape[:2]
+        r = min(self.size / h, self.size / w)
+        nw, nh = int(round(w * r)), int(round(h * r))
+        pad = np.full((self.size, self.size, 3), 114, np.uint8)
+        pad[:nh, :nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+        blob = pad[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0   # RGB, 0-1
+        out = self.sess.run(None, {self.input: blob})[0][0].T                         # N x 84
+        scores = out[:, 4:]
+        cls = scores.argmax(1)
+        best = scores[np.arange(len(cls)), cls]
+        keep = best > self.conf
+        if not keep.any():
+            return []
+        b, best, cls = out[keep, :4], best[keep], cls[keep]
+        boxes = np.concatenate([b[:, :2] - b[:, 2:4] / 2, b[:, 2:4]], 1) / r
+        idx = cv2.dnn.NMSBoxesBatched(boxes.tolist(), best.tolist(), cls.tolist(), self.conf, self.nms)
+        dets = []
+        for i in np.array(idx).flatten():
+            x, y, bw, bh = boxes[i]
+            x, y = max(0.0, x), max(0.0, y)
+            bw, bh = min(bw, w - x), min(bh, h - y)
+            dets.append(Detection(int(cls[i]), float(best[i]), (float(x), float(y), float(bw), float(bh))))
+        return dets
+
+
+def make_detector(path: str, conf: float = 0.45, size: int = 640, threads: int = 8):
+    """YOLO26 for a yolo26*.onnx file, else the YOLOX detector."""
+    if "yolo26" in os.path.basename(path).lower():
+        return Yolo26Detector(path, conf=conf, size=size, threads=threads)
+    return Detector(path, conf=conf, size=size)
 
 
 # ------------------------------------------------------------- appearance ---
@@ -213,7 +264,7 @@ class Appearance:
             except cv2.error as e:     # half-downloaded or damaged file: colours only
                 print(f"[vision] re-id model not usable ({e.__class__.__name__}): colours only")
 
-    DEEP_EVERY_S = 1.0                 # body model at least this often (~100 ms a person)...
+    DEEP_EVERY_S = 2.0                 # body model at least this often (~100 ms a person; was 1 s)...
     NEAR_HOLD_S = 2.0                  # ...and every frame while people are close / just apart
 
     _last_deep = -1e9
@@ -448,6 +499,35 @@ class Labeler:
         # so they get their name back by their look after the track was lost.
         self.face_named: dict[str, tuple[dict, float]] = {}
 
+    def save(self, path: str) -> None:
+        """Locked looks and face names to disk, so a restart does not forget who is who."""
+        arrays, meta = {}, {"identities": {}, "face_named": {}}
+        for label, ident in self.identities.items():
+            meta["identities"][label] = ident.samples
+            if ident.look.color is not None:
+                arrays[f"c_{label}"] = ident.look.color
+            if ident.look.deep is not None:
+                arrays[f"d_{label}"] = ident.look.deep
+        for label, (who, seen) in self.face_named.items():
+            meta["face_named"][label] = {"who": who, "seen": seen}
+        import json
+        arrays["meta"] = np.frombuffer(json.dumps(meta).encode(), np.uint8)
+        np.savez(path, **arrays)
+
+    def load(self, path: str, now: float) -> int:
+        """Back from disk: face names seen within FACE_KEEP_S, and their looks."""
+        import json
+        d = np.load(path, allow_pickle=False)
+        meta = json.loads(bytes(d["meta"]).decode())
+        for label, samples in meta["identities"].items():
+            look = Look(d[f"c_{label}"] if f"c_{label}" in d.files else None,
+                        d[f"d_{label}"] if f"d_{label}" in d.files else None)
+            self.identities[label] = Identity(look, samples)
+        # Face names are NOT restored: after a restart a name by look alone went to
+        # the wrong person (2026-10-12, 3 people, 2 saved names). A face name comes
+        # back only from the face again; the looks then keep it through crossings.
+        return len(self.identities)
+
     def face_vote(self, track_id: int, label: str, now: float, score: Optional[float] = None):
         """The face server matched this track's face to `label`."""
         self.votes.setdefault(track_id, []).append((label, now))
@@ -501,8 +581,12 @@ class Labeler:
         #    could land on a small, half-hidden stranger.
         faced = {k: v[0] for k, v in self.face_named.items() if k not in taken}
         for label, who in faced.items():
+            # Also needs at least one face match of THIS person to that label: by
+            # look alone the name went to someone else after the person left
+            # (2026-10-12, Hemaly's name on the person at the FANUC).
             cands = sorted((d, t.id, t) for t in tracks
                            if not t.label and not t.crowded and t.box[3] >= self.MIN_LOOK_H
+                           and any(l == label for l, _ in self.votes.get(t.id, []))
                            and (d := self._distance(t, label)) is not None)
             others = [d for t in tracks if not t.label and t.box[3] < self.MIN_LOOK_H
                       and (d := self._distance(t, label)) is not None]
@@ -535,6 +619,7 @@ class Labeler:
         if len(free) == 1 and len(unlabelled) == 1:
             self._give(unlabelled[0], free[0], how="elimination")
 
+        self._veto(tracks)             # before learning: never learn a wrong look into a name
         self._learn(tracks)
         for t in tracks:
             t.entered = bool(t.label and t.label in inside)
@@ -640,7 +725,10 @@ class Labeler:
                  and now - t.separated_at >= self.SETTLE_S]
         for t in group:
             t.separated_at = -1e9      # checked once per separation
-        labels = [t.label for t in group if t.label and t.label in inside
+        # Door names AND face names: a face-named person (not entered yet) must
+        # keep their name through a crossing just the same.
+        who = {**{k: v[0] for k, v in self.face_named.items()}, **inside}
+        labels = [t.label for t in group if t.label and t.label in who
                   and t.label in self.identities
                   and self.identities[t.label].samples >= self.LOCK_SAMPLES]
         if not labels or len(group) < 2 or len(group) > 6:
@@ -669,7 +757,32 @@ class Labeler:
             if t.label in labels:
                 t.label = t.name = t.role = None
         for t, label in zip(best, labels):
-            self._give(t, inside[label], how="crossing")
+            self._give(t, who[label], source="door" if label in inside else "face", how="crossing")
+
+    VETO_AT = 0.65                     # this unlike the locked look ...
+    VETO_CHECKS = 12                   # ... this many checks in a row (~3 s) = not them: name dropped
+    VETO_MIN_H = 160                   # px: only a clear, full-body view can veto (a seated,
+                                       # half-hidden person looks different and keeps the name)
+
+    def _veto(self, tracks: list[Track]):
+        """A wrong name is worse than none: a clear, alone view that does not
+        look like the person the name is locked to drops the name (Unknown)."""
+        if not hasattr(self, "_unlike"):
+            self._unlike: dict[int, int] = {}
+        for t in tracks:
+            if not t.label or t.crowded or t.look is None or t.box[3] < self.VETO_MIN_H:
+                continue
+            d = self._distance(t, t.label)
+            if d is None or d <= self.VETO_AT:
+                self._unlike.pop(t.id, None)
+                continue
+            n = self._unlike.get(t.id, 0) + 1
+            self._unlike[t.id] = n
+            if n >= self.VETO_CHECKS:
+                print(f"[identity] track {t.id}: does not look like {t.name} any more "
+                      f"(distance {d:.2f}) - name dropped")
+                t.label = t.name = t.role = None
+                self._unlike.pop(t.id, None)
 
     def _learn(self, tracks: list[Track]):
         for t in tracks:
@@ -703,6 +816,8 @@ class ZoneState:
     since: float = field(default_factory=time.time)
     reported: bool = False
     new_pose: bool = False             # a robot stopped in a new pose (logged, not an alert)
+    home: str = "NOT_SET"              # robots: AT_HOME / AWAY / NOT_SET / RESAVE (box moved since)
+    home_score: float = 0.0            # 0 = exactly the HOME look, 1 = completely different
 
 
 class ZoneWatcher:
@@ -733,15 +848,36 @@ class ZoneWatcher:
     SETTLE_S = 5.0
     POSE_AT = 0.15                     # a robot this different from its last pose moved (logged)
 
+    HOME_AT = 0.15                     # closer than this to the HOME look = at HOME (VERIFY)
+    MOTION_GAP_S = 0.4                 # frame-to-frame motion is measured over this gap
+    MIN_MOVING_PX = 40                 # tiny boxes: at least this many changed pixels (compression noise)
+    GLOBAL_SHARE = 0.4                 # this share of the empty boxes "moving" at once = the whole
+                                       # picture changed (light, compression), not an item
+    PC_RUN = 3                         # PCs: moving checks in a row before MOTION (screens flicker)
+    IN_USE_AFTER_S = 5.0               # a person must stay at a box this long to be USING it
+                                       # (walking past in front of it is not use)
+    NEAR_MARGIN = 0.3                  # a person this close (share of their size) hides / shakes the box
+    NEAR_GRACE_S = 1.5                 # ... and for this long after they left (the detector lags)
+    ROBOT_WORK_AREA = 1.0              # robots: a person within the box grown by this (each side, share
+                                       # of the box) is working at the robot - the arm box sits high, people below
+    ROBOT_RUN = 2                      # robots: faster
+
     def __init__(self):
+        # HOME looks of robot boxes (saved by staff with the robot at HOME):
+        # zone id -> (patch, rect it was taken in). Kept across restarts.
+        self.home: dict[int, tuple[np.ndarray, tuple]] = {}
         self.refs: dict[int, np.ndarray] = {}
         self.prev: dict[int, np.ndarray] = {}
+        self._prev_at: dict[int, float] = {}
+        self._occupied_since: dict[int, float] = {}
+        self._near_at: dict[int, float] = {}
         self.states: dict[int, ZoneState] = {}
         self._pending: dict[int, tuple[str, float]] = {}
         self._moving: dict[int, tuple[int, float]] = {}    # consecutive moving frames, last moving time
 
     def reset(self, zone_id: Optional[int] = None):
-        for d in (self.refs, self.prev, self.states, self._pending, self._moving):
+        for d in (self.refs, self.prev, self._prev_at, self.states, self._pending, self._moving,
+                  self._occupied_since, self._near_at):
             if zone_id is None:
                 d.clear()
             else:
@@ -765,10 +901,39 @@ class ZoneWatcher:
             return min(1.0, abs(float(a.mean() - b.mean())) / 64)
         return float(np.clip(1 - (a * b).sum() / den, 0, 1))
 
+    @classmethod
+    def _near(cls, rect, person_rects_norm) -> bool:
+        m = cls.NEAR_MARGIN
+        return any(iou(rect, (p[0] - m * p[2], p[1] - m * p[3], p[2] * (1 + 2 * m), p[3] * (1 + 2 * m))) > 0
+                   for p in person_rects_norm)
+
+    def _moving_now(self, zones, gray, person_rects_norm) -> dict:
+        """Which empty boxes see motion in this check (before the whole-picture test)."""
+        out = {}
+        for z in zones:
+            zid, rect = z["id"], (z["x"], z["y"], z["w"], z["h"])
+            patch = self._patch(gray, rect)
+            prev = self.prev.get(zid)
+            if patch is None or prev is None or prev.shape != patch.shape:
+                continue
+            if self._near(rect, person_rects_norm):
+                continue                       # a person at / passing the box: not the item moving
+            # Brightness evened out first: a light switched on/off is not movement.
+            gain = float(patch.mean()) / max(float(prev.mean()), 1.0)
+            d = np.abs(prev.astype(np.float32) * gain - patch.astype(np.float32))
+            big = d > self.PIXEL_AT
+            out[zid] = bool((float(d.mean()) > self.MOTION_AT or float(big.mean()) >= self.MOVING_SHARE)
+                            and int(big.sum()) >= self.MIN_MOVING_PX)
+        return out
+
     def update(self, zones: list[dict], gray: np.ndarray, person_rects_norm: list[tuple],
                now: float) -> list[ZoneState]:
         """zones: [{"id", "name", "x", "y", "w", "h"}] normalised 0-1."""
         out = []
+        moving_now = self._moving_now(zones, gray, person_rects_norm)
+        # Many empty boxes moving at the same instant = the whole picture changed.
+        whole_picture = len(moving_now) >= 3 and \
+            sum(moving_now.values()) >= max(3, self.GLOBAL_SHARE * len(moving_now))
         for z in zones:
             zid, rect = z["id"], (z["x"], z["y"], z["w"], z["h"])
             st = self.states.setdefault(zid, ZoneState(zid, z["name"]))
@@ -776,12 +941,40 @@ class ZoneWatcher:
             patch = self._patch(gray, rect)
             if patch is None:
                 continue
-            occupied = any(iou(rect, p) > 0.02 for p in person_rects_norm)
+            if z.get("alert_on_motion", True) is False:
+                st.home, st.home_score = self.home_state(z, patch)
+            if z.get("alert_on_motion", True) is False:   # a robot: its working area around it
+                g = self.ROBOT_WORK_AREA
+                area = (rect[0] - g * rect[2], rect[1] - g * rect[3], rect[2] * (1 + 2 * g), rect[3] * (1 + 2 * g))
+                occupied = any(iou(area, p) > 0.02 for p in person_rects_norm)
+            else:
+                occupied = any(iou(rect, p) > 0.02 for p in person_rects_norm)
+            # Motion compares with the picture from MOTION_GAP_S ago (the thresholds
+            # were set for that gap), however often update() is called.
             prev = self.prev.get(zid)
-            self.prev[zid] = patch
+            if prev is None or now - self._prev_at.get(zid, -1e9) >= self.MOTION_GAP_S:
+                self.prev[zid], self._prev_at[zid] = patch, now
+            # In use = a person STAYS at the box (sitting at the PC, working at
+            # the robot); someone walking past only pauses the checks.
             if occupied:
+                self._occupied_since.setdefault(zid, now)
+            else:
+                self._occupied_since.pop(zid, None)
+            near = self._near(rect, person_rects_norm)
+            if near:
+                self._near_at[zid] = now
+            if occupied and now - self._occupied_since[zid] >= self.IN_USE_AFTER_S:
                 self._set(st, "IN_USE", now)
                 self._pending.pop(zid, None)
+                out.append(st)
+                continue
+            if near or now - self._near_at.get(zid, -1e9) < self.NEAR_GRACE_S:
+                # Passing by: no motion / change judged; a box already IN_USE stays so
+                # until the person has really gone, anything else shows OK.
+                if st.status not in ("IN_USE", "OK"):
+                    self._set(st, "OK", now)
+                self._pending.pop(zid, None)
+                self._moving[zid] = (0, self._moving.get(zid, (0, -1e9))[1])
                 out.append(st)
                 continue
             ref = self.refs.get(zid)
@@ -791,17 +984,12 @@ class ZoneWatcher:
                 out.append(st)
                 continue
             st.score = round(self._difference(ref, patch), 3)
-            moving = False
-            if prev is not None and prev.shape == patch.shape:
-                # Brightness evened out first: a light switched on/off is not movement.
-                gain = float(patch.mean()) / max(float(prev.mean()), 1.0)
-                d = np.abs(prev.astype(np.float32) * gain - patch.astype(np.float32))
-                moving = float(d.mean()) > self.MOTION_AT or \
-                    float((d > self.PIXEL_AT).mean()) >= self.MOVING_SHARE
+            moving = moving_now.get(zid, False) and not whole_picture
             run, last = self._moving.get(zid, (0, -1e9))
             run, last = (run + 1, now) if moving else (0, last)
             self._moving[zid] = (run, last)
-            if run >= 2 or (st.status == "MOTION" and now - last < self.MOTION_LINGER_S):
+            need = self.ROBOT_RUN if z.get("alert_on_motion", True) is False else self.PC_RUN
+            if run >= need or (st.status == "MOTION" and now - last < self.MOTION_LINGER_S):
                 self._pending.pop(zid, None)
                 self._set(st, "MOTION", now)
                 out.append(st)
@@ -826,6 +1014,30 @@ class ZoneWatcher:
                     self._set(st, want, now)
             out.append(st)
         return out
+
+    def save_home(self, zones: list[dict], gray: np.ndarray) -> list[str]:
+        """The robot boxes' look NOW becomes their HOME look (robots at HOME)."""
+        saved = []
+        for z in zones:
+            if z.get("alert_on_motion", True) is not False:
+                continue                       # PCs have no HOME
+            rect = (z["x"], z["y"], z["w"], z["h"])
+            patch = self._patch(gray, rect)
+            if patch is not None:
+                self.home[z["id"]] = (patch, tuple(round(v, 4) for v in rect))
+                saved.append(z["name"])
+        return saved
+
+    def home_state(self, z: dict, patch) -> tuple[str, float]:
+        got = self.home.get(z["id"])
+        if got is None:
+            return "NOT_SET", 0.0
+        ref, rect = got
+        now_rect = tuple(round(v, 4) for v in (z["x"], z["y"], z["w"], z["h"]))
+        if now_rect != rect or patch is None or ref.shape != patch.shape:
+            return "RESAVE", 0.0               # the box moved or was redrawn: HOME must be saved again
+        score = round(self._difference(ref, patch), 3)
+        return ("AT_HOME" if score <= self.HOME_AT else "AWAY"), score
 
     def accept(self, zone_id: int):
         """Staff confirm the new look is fine (e.g. a PC deliberately moved)."""
@@ -919,7 +1131,10 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
         x, y = int(z["x"] * w), int(z["y"] * h)
         cv2.rectangle(frame, (x, y), (int((z["x"] + z["w"]) * w), int((z["y"] + z["h"]) * h)), c, 2)
         # Box labels sit at the bottom so they never hide a person's name tag.
-        _tag(frame, f'{z["name"]} {ZONE_WORDS.get(status, status.lower())}', x,
+        word = ZONE_WORDS.get(status, status.lower())
+        if st is not None and st.home in ("AT_HOME", "AWAY") and status in ("OK", "MOTION"):
+            word += " - home" if st.home == "AT_HOME" else " - away from home"
+        _tag(frame, f'{z["name"]} {word}', x,
              int((z["y"] + z["h"]) * h) + 18, c)
     if door_rect_norm:
         x, y = int(door_rect_norm[0] * w), int(door_rect_norm[1] * h)

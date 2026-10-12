@@ -58,7 +58,7 @@ from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
 from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, head_crop, iou
-from vision import predicted, red_share
+from vision import make_detector, predicted, red_share
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -188,7 +188,7 @@ class Service:
         self.http = requests.Session()
         self.http.headers["X-Device-Key"] = self.key
         cv2.setNumThreads(args.threads)            # leave CPU for the face server
-        self.detector = Detector(args.model, conf=args.conf, size=args.size)
+        self.detector = make_detector(args.model, conf=args.conf, size=args.size, threads=args.threads)
         # Who looks like whom: colours always, the body model when downloaded.
         reid = args.reid if args.reid and os.path.isfile(args.reid) else None
         self.appearance = Appearance(reid)
@@ -210,6 +210,8 @@ class Service:
         self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
         self.robot_vis = RobotVisualMotion() # optical flow in robot boxes (alert_on_motion off)
         self.robot_visual: dict[int, dict] = {}
+        self.person_rects: list[tuple] = []        # latest people (0-1), from the detector pass
+        self.zone_states: list = []                # latest box states, from watch_zones
         self.door_open: Optional[bool] = None
         self.cfg = {"zones": [], "door": None, "occupants": []}
         self.versions: dict[int, int] = {}
@@ -276,6 +278,14 @@ class Service:
                         if self.versions.get(z["id"]) != z["ref_version"]:
                             self.zones.reset(z["id"])        # new box / accepted: relearn
                             self.versions[z["id"]] = z["ref_version"]
+                    door = cfg.get("door")
+                    if door and self.versions.get(("door", door["id"])) != door.get("ref_version"):
+                        # The door box moved (camera re-aimed / re-aligned) or was redrawn:
+                        # the learnt "how red is the open door" belongs to the old view.
+                        if ("door", door["id"]) in self.versions:
+                            self.door_watch = DoorWatcher()
+                            print("[door] door box changed - learning the open door's look again")
+                        self.versions[("door", door["id"])] = door.get("ref_version")
                     self.cfg = cfg
                 else:
                     print(f"[portal] config HTTP {r.status_code}: {r.text[:120]}")
@@ -358,12 +368,10 @@ class Service:
             self._identity_events(id_events, tracks, occupants)
             track_ms = (time.perf_counter() - k0) * 1000
             z0 = time.perf_counter()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
-            states = self.zones.update(self.cfg.get("zones", []), gray, pnorm, t0)
-            robot_boxes = [z for z in self.cfg.get("zones", []) if z.get("alert_on_motion", True) is False]
-            if robot_boxes:
-                self.robot_visual = self.robot_vis.update(robot_boxes, gray, pnorm, t0)
+            with self.lock:
+                self.person_rects = pnorm          # for the fast box loop (watch_zones)
+                states = list(self.zone_states)
             if door:
                 was = self.door_open
                 drect = (door["x"], door["y"], door["w"], door["h"])
@@ -486,6 +494,88 @@ class Service:
             except Exception as e:                       # never let this stop the camera
                 print(f"[view] check failed: {e!r}")
 
+    ZONE_HZ = 5.0                    # boxes (PCs, robots) checked this often - not tied to the
+                                     # slow people detector, so a robot move shows within ~0.4 s
+
+    def watch_zones(self):
+        """PC / robot boxes on the newest frame, ZONE_HZ times a second (~12 ms a pass).
+        People in a box (IN_USE) come from the detector's latest pass."""
+        period = 1.0 / self.ZONE_HZ
+        self.load_home()
+        while True:
+            t0 = time.time()
+            frame, at = self.camera.latest()
+            zones = self.cfg.get("zones", [])
+            if frame is None or t0 - at > 5 or not zones:
+                time.sleep(0.2)
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            with self.lock:
+                pnorm = list(self.person_rects)
+            states = self.zones.update(zones, gray, pnorm, t0)
+            robot_boxes = [z for z in zones if z.get("alert_on_motion", True) is False]
+            visual = self.robot_vis.update(robot_boxes, gray, pnorm, t0) if robot_boxes else {}
+            with self.lock:
+                self.zone_states = states
+                self.robot_visual = visual
+            time.sleep(max(0.0, period - (time.time() - t0)))
+
+    IDENTITY_SAVE_S = 10.0           # locked looks / face names saved this often
+
+    def _identity_path(self) -> str:
+        return os.path.join(HERE, "anchors", f"{self.args.device}_identities.npz")
+
+    def keep_identities(self):
+        """Locked looks and face names survive a restart (kept up to FACE_KEEP_S)."""
+        p = self._identity_path()
+        if os.path.isfile(p):
+            try:
+                with self.label_lock:
+                    n = self.labeler.load(p, time.time())
+                print(f"[identity] {n} locked look(s) and {len(self.labeler.face_named)} face name(s) back from disk")
+            except Exception as e:                       # damaged file: start fresh, never crash
+                print(f"[identity] could not load {p}: {e!r}")
+        while True:
+            time.sleep(self.IDENTITY_SAVE_S)
+            try:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with self.label_lock:
+                    self.labeler.save(p)
+            except Exception as e:
+                print(f"[identity] could not save: {e!r}")
+
+    def _home_path(self) -> str:
+        return os.path.join(HERE, "anchors", f"{self.args.device}_home.npz")
+
+    def load_home(self):
+        p = self._home_path()
+        if not os.path.isfile(p):
+            return
+        try:
+            d = np.load(p, allow_pickle=False)
+            for key in d.files:
+                if key.startswith("patch_"):
+                    zid = int(key[6:])
+                    self.zones.home[zid] = (d[key], tuple(float(v) for v in d[f"rect_{zid}"]))
+            print(f"[home] HOME looks loaded for {len(self.zones.home)} robot box(es)")
+        except Exception as e:                          # damaged file: no HOME, never a crash
+            print(f"[home] could not load {p}: {e!r}")
+
+    def save_home(self) -> list[str]:
+        frame, at = self.camera.latest()
+        if frame is None or time.time() - at > 5:
+            return []
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        saved = self.zones.save_home(self.cfg.get("zones", []), gray)
+        arrays = {}
+        for zid, (patch, rect) in self.zones.home.items():
+            arrays[f"patch_{zid}"] = patch
+            arrays[f"rect_{zid}"] = np.array(rect, np.float64)
+        os.makedirs(os.path.dirname(self._home_path()), exist_ok=True)
+        np.savez(self._home_path(), **arrays)
+        print(f"[home] HOME saved for {', '.join(saved) or 'no robot box'}")
+        return saved
+
     def _anchor_path(self) -> str:
         return os.path.join(HERE, "anchors", f"{self.args.device}.npz")
 
@@ -582,7 +672,7 @@ class Service:
         if frame is None or time.time() - at > 5:
             return None
         if self.equipment_detector is None:
-            self.equipment_detector = Detector(self.args.model, conf=0.15, size=640)
+            self.equipment_detector = make_detector(self.args.model, conf=0.15, size=640, threads=self.args.threads)
         h, w = frame.shape[:2]
         found = find_equipment(self.equipment_detector, frame, lock=self.det_lock)
         items = [{"kind": EQUIPMENT_CLASSES[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4),
@@ -764,13 +854,22 @@ def make_app(svc: Service) -> Flask:
     def state():
         if not authorised():
             return Response("device key required", status=401)
-        return jsonify({"fps": svc.fps, "camera": svc.camera.ok,
+        return jsonify({"fps": svc.fps, "camera": svc.camera.ok, "door_open": svc.door_open,
                         "tracks": [{"id": t.id, "label": t.label, "name": t.name, "role": t.role,
                                     "box": t.box, "identity_state": t.identity_state,
                                     "confidence": t.identity_confidence, "named_by": t.named_by}
                                    for t in svc.tracks],
-                        "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score}
+                        "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score,
+                                   "home": s.home, "home_score": s.home_score}
                                   for s in svc.zones.states.values()]})
+
+    @app.post("/home/save")
+    def home_save():
+        """Robots at HOME now: their boxes' look becomes the HOME look (kept on disk)."""
+        if not authorised():
+            return Response("device key required", status=401)
+        saved = svc.save_home()
+        return jsonify({"saved": saved})
 
     @app.get("/metrics")
     def metrics():
@@ -927,13 +1026,17 @@ def main():
     ap.add_argument("--host", default="127.0.0.1",
                     help="127.0.0.1 = this laptop only (the portal in Docker still reaches it); "
                          "0.0.0.0 only when the portal runs on another computer")
-    ap.add_argument("--model", default=os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx"))
+    # YOLO26s (Ultralytics, AGPL-3.0) when present: same accuracy as YOLOX-S at 640, 3.5x faster
+    # (measured on lab frames 2026-10-12); otherwise the YOLOX-S model.
+    ap.add_argument("--model", default=os.path.join(HERE, "models", "yolo26s.onnx")
+                    if os.path.isfile(os.path.join(HERE, "models", "yolo26s.onnx"))
+                    else os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx"))
     ap.add_argument("--reid", default=os.path.join(HERE, "models", "person_reid_youtu_2021nov.onnx"),
                     help="body re-identification model (optional; colours only without it)")
-    ap.add_argument("--size", type=int, default=416, help="detector input (416: ~160 ms; 640: sharper, slower)")
+    ap.add_argument("--size", type=int, default=640, help="detector input (640: finds seated / half-hidden people - measured 2.97 of 3 vs 2.10 at 416 on lab frames, 2026-10-12)")
     ap.add_argument("--conf", type=float, default=0.45)
-    ap.add_argument("--threads", type=int, default=4, help="CPU threads (the face server needs the rest)")
-    ap.add_argument("--det-fps", type=float, default=3.0)
+    ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
+    ap.add_argument("--det-fps", type=float, default=5.0)   # was 3; a pass now takes ~160 ms
     ap.add_argument("--max-width", type=int, default=960)
     ap.add_argument("--demo", default="", help='name-lock test without the portal, e.g. "USER1=Ali,USER2=Sara"; '
                                                'open http://127.0.0.1:<port>/demo')
@@ -942,7 +1045,7 @@ def main():
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
     for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces,
-                   svc.watch_view, svc.watch_equipment):
+                   svc.watch_view, svc.watch_equipment, svc.watch_zones, svc.keep_identities):
         threading.Thread(target=target, daemon=True).start()
     host = "127.0.0.1" if svc.demo else args.host
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")
