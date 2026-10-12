@@ -58,6 +58,17 @@ if exist "%~dp0tools\security_vision\camera.env" (
   )
 )
 
+rem ---- UR5e monitor (optional, read-only): once tools\robot_monitor\robot.env
+rem has the robot's IP. It retries by itself, so the robot shows ONLINE as soon
+rem as it is on the lab LAN. ---------------------------------------------------
+if exist "%~dp0tools\robot_monitor\robot.env" (
+  findstr /r /c:"^UR5E_IP=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
+    tasklist /v /fi "WINDOWTITLE eq Smart Lab - UR5e monitor*" | findstr /i "UR5e" >nul || (
+      start "Smart Lab - UR5e monitor" cmd /k call "%~dp0tools\robot_monitor\start_ur5e_monitor.bat"
+    )
+  )
+)
+
 rem ---- Local AI (Ollama) is optional: used when installed ---------------------
 rem Ollama normally starts with Windows (tray icon). If it is not running,
 rem start it; the helper then fetches missing models in a minimized window.

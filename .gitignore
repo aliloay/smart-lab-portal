@@ -56,3 +56,4 @@ docs/paper_images_private/
 firmware/face_server/wrong_person/
 deploy/tls/*
 !deploy/tls/README.md
+tools/robot_monitor/robot.env
