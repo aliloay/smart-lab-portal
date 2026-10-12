@@ -130,13 +130,19 @@ ZERO_MAX_G = 0.5
 
 
 def _zero_g(db: Session, b: InventoryBin) -> float:
-    """The platform's zero seen at the last lift (load-cell drift), else 0."""
-    z = db.scalar(select(InventoryMeasurement.mass_g)
-                  .where(InventoryMeasurement.bin_id == b.id,
-                         InventoryMeasurement.mass_g < b.tare_g - threshold_g(b))
-                  .order_by(InventoryMeasurement.recorded_at.desc(),
-                            InventoryMeasurement.id.desc()).limit(1))
-    return z if z is not None and abs(z) <= ZERO_MAX_G else 0.0
+    """The platform's zero seen at the last lift (load-cell drift), else 0.
+    Only a SETTLED zero counts: two empty-platform readings in a row that
+    agree (a single reading right after the container leaves can be off by
+    a whole piece)."""
+    rows = db.scalars(select(InventoryMeasurement.mass_g)
+                      .where(InventoryMeasurement.bin_id == b.id)
+                      .order_by(InventoryMeasurement.recorded_at.desc(),
+                                InventoryMeasurement.id.desc()).limit(200)).all()
+    for newer, older in zip(rows, rows[1:]):
+        if (abs(newer) <= ZERO_MAX_G and abs(older) <= ZERO_MAX_G
+                and abs(newer - older) <= threshold_g(b) / 2):
+            return newer
+    return 0.0
 
 
 def _pieces(b: InventoryBin, mass: float) -> float:
