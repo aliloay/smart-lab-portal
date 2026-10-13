@@ -60,7 +60,97 @@ SECRET_PATTERNS = [
     (re.compile(r"(?i)\b(api[_-]?key|secret|password|passwd|token|device_api_key)\b\s*[:=]\s*['\"]?[^\s'\",;]{6,}"), "secret-assignment"),
     (re.compile(r"\bsk-[A-Za-z0-9]{20,}"), "api-key"),
 ]
-GENERATED_DIRS = ["00 - Home", "05 - n8n Workflows", "12 - Generated Reports", "14 - Sources"]
+GENERATED_DIRS = ["00 - Home", "02 - Systems", "05 - n8n Workflows", "12 - Generated Reports", "14 - Sources"]
+
+# System hubs (navigation aid, generated): a note belongs to a system when its path or workflow
+# name matches one of these patterns. The hub lists the rule that matched - nothing is inferred.
+SYSTEMS = {
+    "Door and access": [r"DOOR_SYSTEM", r"ACCESS_FLOW", r"SmartLab_Master_Portal", r"routes/access\.py",
+                        r"routes/commands\.py", r"routes/enrollment\.py", r"services/access\.py", r"face_server",
+                        r"ESP32CAM", r"(?i)access denial", r"(?i)emergency"],
+    "SecurityCam (vision)": [r"security_vision/", r"benchmarks/(SECURITYCAM|REID)", r"tools/benchmarks/",
+                             r"routes/security\.py", r"LATENCY"],
+    "Robots (read-only)": [r"ROBOT", r"robot_monitor/", r"routes/robots\.py", r"(?i)robot"],
+    "Consumables bin": [r"SmartLab_Consumable_Bin", r"services/inventory\.py", r"routes/inventory\.py",
+                        r"(?i)consumable|stock|reorder"],
+    "Reusables bin": [r"SmartLab_Reusable_Bin", r"routes/reusable\.py", r"(?i)reusable"],
+    "Environment monitoring": [r"SmartLab_Environment_Node", r"(?i)sensor|environment|hazard"],
+    "Bookings and labs": [r"routes/(bookings|labs)\.py", r"services/booking\.py", r"(?i)booking"],
+    "n8n automation": [r"automation/n8n/", r"routes/automation\.py", r"AUTOMATION\.md"],
+    "Backend and data": [r"backend/app/(models|core)/", r"DATABASE\.md", r"ARCHITECTURE\.md", r"docker-compose"],
+}
+
+
+def systems_for(text: str) -> list:
+    out, seen = [], set()
+    for name, pats in SYSTEMS.items():
+        for rx in pats:
+            if name not in seen and re.search(rx, text):
+                out.append((name, rx))
+                seen.add(name)
+    return out
+
+
+def link_markdown(text: str, rel: str, present: set) -> str:
+    """[label](relative/file.md) -> [[mirror note|label]] when the target is an indexed source."""
+    def sub(m):
+        label, target = m.group(1), m.group(2)
+        if re.match(r"(https?:|mailto:|#)", target):
+            return m.group(0)
+        path = os.path.normpath(os.path.join(os.path.dirname(rel), target.split("#")[0])).replace("\\", "/")
+        return f"[[{note_name(path)}|{label}]]" if path in present else m.group(0)
+    return re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", sub, text)
+
+
+# n8n drops parameters equal to their defaults (and adds empty "options") when a workflow is
+# imported. Measured on this instance 2026-10-13: responseMode "onReceived", hoursInterval 1,
+# minutesInterval 5, method GET, contentType json. These are normalised away so only real edits
+# count as drift. A changed IF-node typeValidation (loose -> strict) is NOT normalised: it changes behaviour.
+N8N_DEFAULTS = {"responseMode": "onReceived", "hoursInterval": 1, "minutesInterval": 5,
+                "method": "GET", "contentType": "json"}
+N8N_IGNORE = {"id", "version"}          # internal ids / format versions inside parameters
+
+
+def _norm(x):
+    if isinstance(x, dict):
+        out = {}
+        for k, v in x.items():
+            v = _norm(v)
+            if v in ({}, None, []) or N8N_DEFAULTS.get(k, object()) == v or k in N8N_IGNORE:
+                continue
+            out[k] = v
+        return out
+    if isinstance(x, list):
+        return [_norm(v) for v in x]
+    return x
+
+
+def structure_hash(w: dict) -> str:
+    """What a workflow does (nodes, parameters, connections) - ignoring ids, positions, timestamps,
+    sticky notes and n8n default values."""
+    nodes = sorted((n.get("name"), n.get("type"), json.dumps(_norm(n.get("parameters", {})), sort_keys=True))
+                   for n in w.get("nodes", []) if n.get("type") != "n8n-nodes-base.stickyNote")
+    return sha256(json.dumps([nodes, w.get("connections", {})], sort_keys=True).encode())[:16]
+
+
+def load_live(cfg: dict) -> dict:
+    """Workflows exported from the running n8n (private folder): id -> active, structure hash, time."""
+    d = os.path.join(cfg["data"], "n8n_live")
+    out = {}
+    if not os.path.isdir(d):
+        return out
+    for n in os.listdir(d):
+        if not n.endswith(".json"):
+            continue
+        try:
+            w = json.load(open(os.path.join(d, n), encoding="utf-8"))
+        except ValueError:
+            continue
+        t = datetime.fromtimestamp(os.path.getmtime(os.path.join(d, n))).astimezone().isoformat(timespec="seconds")
+        rec = {"active": bool(w.get("active")), "structure": structure_hash(w), "exported": t, "id": w.get("id")}
+        out[w.get("id")] = rec
+        out["name:" + str(w.get("name"))] = rec          # the file's id may differ from the live one
+    return out
 CURATED_DIRS = ["10 - Decisions", "09 - Incidents and Lessons", "07 - Runbooks", "13 - Automation Inbox", "99 - Templates"]
 
 
@@ -244,6 +334,16 @@ def parse_workflow(text: str) -> dict:
             "external_hosts": external,
             "writes": any(e["method"].upper() in ("POST", "PUT", "PATCH", "DELETE") for e in endpoints),
             "description": (notes[0] if notes else "").strip()}
+
+
+def route_files(wf: dict, present: set) -> set:
+    """Backend route files a workflow calls (from /api/<prefix> in its URLs)."""
+    out = set()
+    for e in wf["endpoints"]:
+        m = re.search(r"/api/([a-z_]+)", e["url"])
+        if m and f"backend/app/api/routes/{m.group(1)}.py" in present:
+            out.add(f"backend/app/api/routes/{m.group(1)}.py")
+    return out
 
 
 def mermaid(wf: dict) -> str:
@@ -450,6 +550,8 @@ def note_name(rel: str) -> str:
 
 def build_vault(cfg: dict, reg: dict) -> dict:
     v, built = cfg["vault"], now_iso()
+    present = {r for r, x in reg["sources"].items() if x.get("status") == "present"}
+    lives = load_live(cfg)
     for d in GENERATED_DIRS + CURATED_DIRS + ["Attachments"]:
         os.makedirs(os.path.join(v, d), exist_ok=True)
     written, workflows = [], []
@@ -464,13 +566,25 @@ def build_vault(cfg: dict, reg: dict) -> dict:
                 s["error"] = f"workflow parse failed ({e.__class__.__name__})"
                 continue
             wf["source"] = rel
+            live = lives.get(wf["id"]) or lives.get("name:" + str(wf["name"]))
+            wf["live"] = live
+            wf["file_structure"] = structure_hash(json.loads(text))
             workflows.append(wf)
+            live_status = ("active" if live["active"] else "inactive") if live else "unverified"
+            same = live is not None and live["structure"] == wf["file_structure"]
+            related = sorted({f"- [[{note_name(r)}]] (code it calls)" for r in route_files(wf, present)}
+                             | {f"- [[{n}]] (system)" for n, _ in systems_for(wf["name"] + " " + rel)})
             body = [fm(type="n8n-workflow", workflow_id=wf["id"], status_in_file="active" if wf["active_in_file"] else "inactive",
-                       live_status="unverified", source_path=rel, source_hash=s["sha256"], generated=True,
+                       live_status=live_status, live_checked=live["exported"] if live else None,
+                       live_matches_file=same if live else None,
+                       source_path=rel, source_hash=s["sha256"], generated=True,
                        updated=built, tags=["n8n"] + wf["tags"]),
                     f"# {wf['name']}\n",
-                    f"> Generated from `{rel}` (sha256 {s['sha256'][:12]}). Configured behaviour only - "
-                    "whether it is active or ran successfully in the live n8n is **not verified** here.\n",
+                    f"> Generated from `{rel}` (sha256 {s['sha256'][:12]}). Configured behaviour, not observed runs.\n",
+                    "## Live state\n" + ((f"**{live_status}** in the running n8n (export of {live['exported']}). "
+                                          + ("Nodes and connections match this file." if same else
+                                             "**Differs from this file** - edited in the n8n editor; see Workflow drift."))
+                                         if live else "Not checked - no n8n export available.") + "\n",
                     f"## Purpose\n{wf['description'] or '_No description in the workflow file._'}\n",
                     "## Triggers\n" + "\n".join(f"- {t['type']}: `{t['rule']}`" for t in wf["triggers"]) + "\n",
                     "## Flow\n```mermaid\n" + mermaid(wf) + "\n```\n",
@@ -480,6 +594,7 @@ def build_vault(cfg: dict, reg: dict) -> dict:
                     "## Credentials (references only, never values)\n" + ("\n".join(f"- {c}" for c in wf["credential_refs"]) or "- none") + "\n",
                     "## External services\n" + ("\n".join(f"- {h}" for h in wf["external_hosts"]) or
                                                 "- none found: all calls go to the local backend") + "\n",
+                    "## Related\n" + ("\n".join(related) or "- none found") + "\n",
                     "Back to [[Home]] · [[Workflow catalogue]]\n"]
             safe_write(os.path.join(v, "05 - n8n Workflows", note_name(wf["name"]) + ".md"), "\n".join(body), v)
         else:
@@ -487,15 +602,19 @@ def build_vault(cfg: dict, reg: dict) -> dict:
                        fm(type="source-mirror", source_kind=s["kind"], source_path=rel, source_hash=s["sha256"],
                           generated=True, updated=built, redactions=s.get("redactions") or None)
                        + f"> Read-only mirror of `{rel}` - edit the original in the repository, not this note.\n\n"
-                       + (text if rel.endswith(".md") else f"```{os.path.splitext(rel)[1][1:]}\n{text}\n```") + "\n", v)
+                       + "Systems: " + (", ".join(sorted({f"[[{n}]]" for n, _ in systems_for(rel)})) or "none") + "\n\n"
+                       + (link_markdown(text, rel, present) if rel.endswith(".md")
+                          else f"```{os.path.splitext(rel)[1][1:]}\n{text}\n```") + "\n", v)
         written.append(rel)
     # workflow catalogue + drift baseline
     cat = [fm(type="catalogue", generated=True, updated=built), "# Workflow catalogue\n",
            f"{len(workflows)} workflow definitions from `automation/n8n/json/` (the files mounted into n8n). "
-           "Live activation state: **unverified** (read it with `kb.py drift --live` once n8n runs).\n",
-           "| Workflow | Trigger | Writes | External | File |", "|---|---|---|---|---|"]
+           "Live state comes from the private export of the running n8n (`kb.py live-export`).\n",
+           "| Workflow | Live | Trigger | Writes | External | File |", "|---|---|---|---|---|---|"]
     for wf in sorted(workflows, key=lambda w: w["name"]):
-        cat.append(f"| [[{note_name(wf['name'])}]] | {', '.join(t['type'] for t in wf['triggers']) or '-'} | "
+        lv = wf["live"]
+        lstate = (("active" if lv["active"] else "inactive") + ("" if lv["structure"] == wf["file_structure"] else " (edited live)")) if lv else "unverified"
+        cat.append(f"| [[{note_name(wf['name'])}]] | {lstate} | {', '.join(t['type'] for t in wf['triggers']) or '-'} | "
                    f"{'yes' if wf['writes'] else 'no'} | {', '.join(wf['external_hosts']) or 'none'} | `{wf['source']}` |")
     safe_write(os.path.join(v, "05 - n8n Workflows", "Workflow catalogue.md"), "\n".join(cat) + "\n", v)
     snap = {w["id"]: {"name": w["name"], "hash": reg["sources"][w["source"]]["sha256"],
@@ -518,6 +637,21 @@ def build_vault(cfg: dict, reg: dict) -> dict:
             "", "## Rules that always apply",
             "- Robots are read-only. Only the Master ESP32 opens the door. No secrets in notes.",
             "- Facts here come from the files linked; a generated note is a navigation aid, the source file wins."]
+    hubs = {n: [] for n in SYSTEMS}
+    for rel in sorted(present):
+        for n, rx in systems_for(rel):
+            hubs[n].append((f"[[{note_name(rel)}]]", rx))
+    for wf in workflows:
+        for n, rx in systems_for(wf["name"] + " " + wf["source"]):
+            hubs[n].append((f"[[{note_name(wf['name'])}]]", rx))
+    for n, members in hubs.items():
+        lines = [f"- {link} (rule `{rx}`)" for link, rx in members]
+        safe_write(os.path.join(v, "02 - Systems", n + ".md"),
+                   fm(type="system", generated=True, updated=built) + f"# {n}\n\n> Generated hub: notes whose path or "
+                   "workflow name matches this system's rules (shown). A navigation aid, not a verified dependency map.\n\n"
+                   + "\n".join(lines) + "\n\nBack to [[Home]]\n", v)
+    i = home.index("## Start here") + 1
+    home[i:i] = ["- Systems: " + " · ".join(f"[[{n}]]" for n in SYSTEMS)]
     safe_write(os.path.join(v, "00 - Home", "Home.md"), "\n".join(home) + "\n", v)
     for name, txt in TEMPLATES.items():
         p = os.path.join(v, "99 - Templates", name)
@@ -628,7 +762,8 @@ def verify_restore(cfg: dict) -> dict:
 # --------------------------------------------------------------------- cli ---
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["scan", "build", "ask", "search", "health", "drift", "backup", "verify-restore", "eval"])
+    ap.add_argument("cmd", choices=["scan", "build", "ask", "search", "health", "drift", "backup", "verify-restore", "eval",
+                                    "live-export"])
     ap.add_argument("text", nargs="?")
     ap.add_argument("--config")
     ap.add_argument("--no-llm", action="store_true")
@@ -661,6 +796,8 @@ def main(argv=None):
             shutil.copy(os.path.join(cfg["data"], "workflow_inventory.current.json"),
                         os.path.join(cfg["data"], "workflow_inventory.json"))
         print(json.dumps(drift(cfg)))
+    elif a.cmd == "live-export":
+        print(json.dumps(live_export(cfg)))
     elif a.cmd == "eval":
         out = evaluate(cfg, a.text or os.path.join(HERE, "eval_questions.json"), use_llm=not a.no_llm)
         print(json.dumps(out, indent=1, ensure_ascii=False))
@@ -693,6 +830,26 @@ def evaluate(cfg: dict, path: str, use_llm: bool) -> dict:
     safe_write(os.path.join(cfg["data"], f"eval_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"),
                json.dumps(out, indent=1, ensure_ascii=False), cfg["data"])
     return out
+
+
+def live_export(cfg: dict) -> dict:
+    """Read-only export of the running n8n's workflows into the PRIVATE data folder (n8n CLI).
+    Nothing is activated, edited or run."""
+    import subprocess
+    dest = os.path.join(cfg["data"], "n8n_live")
+    os.makedirs(dest, exist_ok=True)
+
+    def run(*c):
+        return subprocess.run(list(c), cwd=cfg["repo"], capture_output=True, text=True, timeout=180)
+    r = run("docker", "compose", "exec", "-T", "n8n", "sh", "-c",
+            "rm -rf /tmp/kbexp && mkdir -p /tmp/kbexp && n8n export:workflow --all --separate "
+            "--output=/tmp/kbexp >/dev/null && ls /tmp/kbexp | wc -l")
+    if r.returncode != 0:
+        return {"ok": False, "error": "n8n not reachable (is Docker running?)"}
+    cid = run("docker", "compose", "ps", "-q", "n8n").stdout.strip()
+    run("docker", "cp", f"{cid}:/tmp/kbexp/.", dest)
+    run("docker", "compose", "exec", "-T", "n8n", "rm", "-rf", "/tmp/kbexp")
+    return {"ok": True, "workflows": int(r.stdout.strip() or 0), "folder": dest}
 
 
 if __name__ == "__main__":
