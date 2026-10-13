@@ -90,4 +90,20 @@ robots, live database and Docker untouched. Nothing pushed.
 Restart the Security camera window (or `launch.bat`); expect `[detector] YOLO26 on
 directml-gpu1` and `[vision] re-id on directml-gpu1`. Then test identity live with two people
 (walk past each other, sit, stand): names must stay on the right person.
-Rollback: `git checkout snapshot/before-reid-gpu-20261013-0258 -- tools/security_vision/vision.py`.
+Rollback (verified 2026-10-13, not executed): fastest, no code change - add `set SMARTLAB_REID=cpu`
+to `tools/security_vision/camera.env` and restart the camera window (re-ID on ONNX Runtime CPU,
+correct embeddings). Code rollback: `git checkout snapshot/before-reid-gpu-20261013-0258 --
+tools/security_vision/vision.py` (re-ID code only; it brings the batch bug back), undone with
+`git checkout HEAD -- tools/security_vision/vision.py`.
+
+## I. Pre-rollout verification (2026-10-13, later)
+
+* Old code from the snapshot vs HEAD, real model, same person seen alone, then in a crowd of 6,
+  then alone again: OLD cosine -0.1324 / -0.0984 (wrong even after the crowd left), NEW +1.0000 / +1.0000.
+* 7 more tests in `test_reid.py` (15 re-ID tests): crop-to-embedding correspondence in any order,
+  crowd 1->2->6->3->0->1, one failed person (others keep embeddings, no stale vector),
+  model loaded once and always batch 1, tiny crop does not shift the others, DirectML start-up
+  failure -> CPU, real model 6 people vs one at a time on all three engines.
+  `tools/security_vision`: 100 passed.
+* Full pass repeated: 61.0 / 60.9 ms (DirectML detector + re-ID), re-ID chose the GTX 1650 every time.
+* Live acceptance procedure with pass/fail criteria: `docs/LAB_TEST_2026-10-14.md` section 1.
