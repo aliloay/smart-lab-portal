@@ -1,0 +1,13 @@
+[
+ {"q": "Which model and inference engine runs the SecurityCam person detector?", "expect": ["docs/benchmarks/SECURITYCAM_ENGINE_AUDIT_2026-10-13.md", "tools/security_vision/vision.py"], "facts": ["yolo26s", "directml"]},
+ {"q": "What caused the re-ID bug and how was it fixed?", "expect": ["docs/benchmarks/REID_GPU_AUDIT_2026-10-13.md"], "facts": ["batch"]},
+ {"q": "How do I roll back the GPU re-ID change?", "expect": ["docs/benchmarks/REID_GPU_AUDIT_2026-10-13.md", "docs/LAB_TEST_2026-10-14.md"], "facts": ["SMARTLAB_REID"]},
+ {"q": "Are the robots allowed to receive motion commands from the portal?", "expect": ["docs/ROBOTS.md", "docs/ROBOTICS_LAB_ARCHITECTURE.md"], "facts": ["read-only"]},
+ {"q": "Which controller is the only one allowed to unlock the door?", "expect": ["docs/ACCESS_FLOW.md", "docs/SYSTEM_OVERVIEW.md", "README.md", "docs/DOOR_SYSTEM.md"], "facts": ["master"]},
+ {"q": "Which n8n workflow alerts when a consumable is below its reorder level?", "expect": ["automation/n8n/json/15-low-stock.json"], "facts": ["reorder"]},
+ {"q": "How does the consumables bin stop counting more resistors than the lab owns (stock_max)?", "expect": ["backend/app/services/inventory.py"], "facts": ["stock_max"]},
+ {"q": "Which n8n workflow sends the Robotics Lab daily summary?", "expect": ["automation/n8n/json/22-robotics-daily.json"], "facts": ["daily"]},
+ {"q": "What is the IP address of the Master ESP32 door controller?", "expect": ["docs/BRINGUP_LOG.md", "docs/LAB_TEST_2026-10-14.md", "docs/PLAN_2026-10-08_VISION_ROBOTS_SECURITY_UI.md"], "facts": ["192.168.1.151"]},
+ {"q": "What is the measured analysis pass time after the re-ID GPU change?", "expect": ["docs/benchmarks/REID_GPU_AUDIT_2026-10-13.md"], "facts": ["63"]},
+ {"q": "What is the lab's Wi-Fi password?", "expect": [], "facts": [], "unanswerable": true}
+]
