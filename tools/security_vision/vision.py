@@ -311,13 +311,63 @@ class Appearance:
     MEAN = np.array([0.485, 0.456, 0.406], np.float32)
     STD = np.array([0.229, 0.224, 0.225], np.float32)
 
+    # Re-id engine (2026-10-13 audit, docs/benchmarks/REID_GPU_AUDIT_2026-10-13.md):
+    # cv2.dnn (OpenCV 4.10) returns CORRECT embeddings only for the first batch
+    # size it ever runs - after the number of people changes they are unrelated
+    # vectors (cosine ~ -0.1 vs ONNX Runtime). So every engine here runs ONE crop
+    # at a time (fixed batch 1), which is also the fastest on the GTX 1650
+    # (9 ms a crop vs 32 ms for a batch of 2). Order: DirectML (graphics card,
+    # fastest adapter by timing) -> ONNX Runtime CPU -> cv2.dnn. SMARTLAB_REID=
+    # cpu / opencv forces the later ones.
     def __init__(self, reid_path: Optional[str] = None):
-        self.net = None
-        if reid_path:
+        self.net = None                      # callable: (1,3,256,128) float32 -> (1, 768)
+        self.engine = "colours only"
+        if not reid_path:
+            return
+        want = os.environ.get("SMARTLAB_REID", "gpu").lower()
+        try:
+            import onnxruntime as ort
+            if want == "gpu" and "DmlExecutionProvider" in ort.get_available_providers():
+                x = np.zeros((1, 3, self.REID_SIZE[1], self.REID_SIZE[0]), np.float32)
+                best = None
+                for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):
+                    try:
+                        o = ort.SessionOptions()
+                        o.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+                        sess = ort.InferenceSession(reid_path, o, providers=[("DmlExecutionProvider", {"device_id": dev})])
+                    except Exception:
+                        break
+                    for _ in range(3):                 # warm-up (first runs compile)
+                        sess.run(None, {"input": x})
+                    runs = []
+                    for _ in range(7):                 # median: one busy moment does not decide
+                        t = time.perf_counter()
+                        sess.run(None, {"input": x})
+                        runs.append((time.perf_counter() - t) * 1000)
+                    ms = float(np.median(runs))
+                    if best is None or ms < best[0]:
+                        best = (ms, dev, sess)
+                if best and best[0] < 25:            # a real GPU (CPU: ~30 ms a crop)
+                    self.net = lambda b, s=best[2]: s.run(None, {"input": b})[0]
+                    self.engine = f"directml-gpu{best[1]} ({best[0]:.0f} ms/crop)"
+            if self.net is None and want in ("gpu", "cpu"):
+                o = ort.SessionOptions()
+                o.intra_op_num_threads = 4
+                sess = ort.InferenceSession(reid_path, o, providers=["CPUExecutionProvider"])
+                self.net = lambda b, s=sess: s.run(None, {"input": b})[0]
+                self.engine = "onnxruntime-cpu"
+        except Exception as e:
+            print(f"[vision] re-id: ONNX Runtime unavailable ({e.__class__.__name__}) - trying OpenCV")
+        if self.net is None:
             try:
-                self.net = cv2.dnn.readNet(reid_path)
+                net = cv2.dnn.readNet(reid_path)
+                def run(b, net=net):
+                    net.setInput(b)
+                    return net.forward()
+                self.net, self.engine = run, "opencv-dnn-cpu"
             except cv2.error as e:     # half-downloaded or damaged file: colours only
                 print(f"[vision] re-id model not usable ({e.__class__.__name__}): colours only")
+        print(f"[vision] re-id on {self.engine}")
 
     DEEP_EVERY_S = 2.0                 # body model at least this often (~100 ms a person; was 1 s)...
     NEAR_HOLD_S = 2.0                  # ...and every frame while people are close / just apart
@@ -348,12 +398,13 @@ class Appearance:
                 img = cv2.resize(frame[y0:y1, x0:x1], self.REID_SIZE)[:, :, ::-1].astype(np.float32) / 255.0
                 crops.append((img - self.MEAN) / self.STD)
                 idx.append(i)
-            if crops:
-                self.net.setInput(cv2.dnn.blobFromImages(crops))
-                feats = self.net.forward().reshape(len(crops), -1)
-                feats /= np.maximum(np.linalg.norm(feats, axis=1, keepdims=True), 1e-6)
-                for i, f in zip(idx, feats):
-                    out[i].deep = f
+            for i, crop in zip(idx, crops):          # one crop at a time: see __init__
+                try:
+                    f = np.asarray(self.net(cv2.dnn.blobFromImage(crop))).reshape(-1)
+                except Exception as e:               # a failed crop keeps its colours; tracking goes on
+                    print(f"[vision] re-id failed on a crop ({e.__class__.__name__})")
+                    continue
+                out[i].deep = f / max(float(np.linalg.norm(f)), 1e-6)
         return out
 
 
