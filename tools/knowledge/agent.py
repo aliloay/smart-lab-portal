@@ -36,7 +36,7 @@ LIMITS = {"steps": 6, "tool_output_chars": 4000, "files": 4, "seconds": 180, "gr
 NO_EVIDENCE = "I could not verify this from the available project sources."
 
 FAST = {  # measured 2026-10-13 (EVALUATION.md): prompt reading dominated latency on the CPU
-    "k": 4, "width": 480, "num_ctx": 2048, "num_predict": 180, "keep_alive": "15m",
+    "k": 4, "width": 480, "num_ctx": 2048, "num_predict": 180, "keep_alive": "2h",
 }
 
 # Evidence labels shown with every citation (meaning documented in docs/knowledge-platform/AGENT.md).

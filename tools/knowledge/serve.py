@@ -166,8 +166,24 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[kb-service] {self.address_string()} {fmt % args}\n")
 
 
+def warm_up() -> None:
+    """Load the answer model and the embedding model into memory now (CPU, same
+    options as real questions so Ollama does not reload), so the first question in
+    the portal does not wait ~6 s for a model load. Failures only print a line."""
+    t0 = time.time()
+    try:
+        cfg = kb.load_config()
+        cfg["model"] = cfg.get("agent_model", "qwen2.5:1.5b")
+        agent.ollama_stream(cfg, "Reply with: ok", lambda _t: None)
+        kb.embed(cfg, ["warm up"], "search_query: ")
+        print(f"[kb-service] models warm in {time.time() - t0:.1f} s")
+    except BaseException as e:                 # Ollama down: questions still work later (slower first one)
+        print(f"[kb-service] warm-up skipped: {e.__class__.__name__}")
+
+
 def main():
     Handler.KEY = service_key()
+    threading.Thread(target=warm_up, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Smart Lab knowledge service on http://127.0.0.1:{PORT} (this laptop only). Ctrl+C stops.")
     try:
