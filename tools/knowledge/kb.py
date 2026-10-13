@@ -421,6 +421,7 @@ def build_index(cfg: dict, reg: dict) -> dict:
                 tf[t] = tf.get(t, 0) + 1
             c["tf"], c["dl"] = tf, len(tok)                  # precomputed: a query only looks terms up
             docs.append(c)
+    docs += history_chunks(cfg)
     df = {}
     for d in docs:
         for t in d["tf"]:
@@ -435,9 +436,38 @@ def build_index(cfg: dict, reg: dict) -> dict:
     return idx
 
 
-# Source trust (higher first) - authoritative sources outrank generated summaries.
+def history_chunks(cfg: dict) -> list:
+    """Approved conversation messages and all commits (already redacted by history.py).
+    Owner words and assistant proposals stay separate kinds with different trust."""
+    p = os.path.join(cfg["data"], "history", "records.jsonl")
+    ap = os.path.join(cfg["data"], "history", "approved_sources.json")
+    if not os.path.isfile(p):
+        return []
+    ok = set(json.load(open(ap, encoding="utf-8"))) if os.path.isfile(ap) else set()
+    out = []
+    for line in open(p, encoding="utf-8"):
+        r = json.loads(line)
+        if r["kind"] == "commit":
+            kind, src, head, text = "git-commit", f"git {r['ref'][:7]}", (r.get("time") or "")[:10], r["text"]
+        elif r["kind"] == "message" and r["source"] in ok:
+            kind = "owner-statement" if r["role"] == "owner" else "assistant-proposal"
+            src = f"{r['conversation']} #{r['index']}"
+            head = ("Owner said " if r["role"] == "owner" else "Assistant proposed ") + (r.get("time") or "")[:16]
+            text = r["text"][:2400]
+        else:
+            continue
+        tok = tokens(head + " " + text)
+        tf = {}
+        for t in tok:
+            tf[t] = tf.get(t, 0) + 1
+        out.append({"source": src, "heading": head, "text": text, "kind": kind, "sha256": r["id"], "tf": tf, "dl": len(tok)})
+    return out
+
+
+# Source trust (higher first) - authoritative sources outrank generated summaries and
+# assistant proposals; the owner's own words sit with the documentation.
 TRUST = {"source-code": 1.15, "n8n-workflow": 1.1, "benchmark-report": 1.1, "test-code": 1.0,
-         "documentation": 1.0}
+         "documentation": 1.0, "git-commit": 1.0, "owner-statement": 0.95, "assistant-proposal": 0.6}
 
 
 _IDX_CACHE: dict = {}

@@ -308,9 +308,8 @@ def pages(cfg: dict) -> dict:
     first_msg = min((m["time"] for m in msgs if m["time"]), default=None)
     gaps = [kb.fm(type="gaps", generated=True, updated=now), "# Missing history and knowledge gaps\n",
             f"Earliest conversation record found: **{first_msg or 'none'}**. First commit: **{commits[0]['time'] if commits else 'none'}**.\n",
-            "## Known missing", "- ChatGPT conversations *Bsc. Smart Lab (1)* and *(2)* (the shared one is *(3)*): not available. "
-            "Export them (ChatGPT → Settings → Data controls → Export) and put `conversations.json` in "
-            "`C:\\Users\\dell\\SmartLabKnowledge\\inbox_raw`, then run `history.py import`.",
+            "## Known missing", "- Any ChatGPT chat not shared yet: put its decoded share JSON or a `conversations.json` "
+            "export in `C:\\Users\\dell\\SmartLabKnowledge\\inbox_raw`, then run `history.py import`.",
             "- Screenshots shared in the first Claude Code session (24 Sep): only their file names are in the transcript.",
             "- Live database contents: not read (only the model definitions).", "- Application logs: no log files found in the repository.",
             "", "## Import ledger", "| Source | Records | Redactions | Error |", "|---|---|---|---|"] + [
