@@ -156,6 +156,8 @@ function Panel({ model, robot, onFull, big }: {
           {live ? <>
             <span className="flex items-center gap-1.5"><Radio size={13} />{robot!.rate_hz ? `${robot!.rate_hz} samples/s` : '—'}</span>
             <span>last sample {robot!.last_seen_at ? relative(robot!.last_seen_at) : '—'}</span>
+            {robot!.telemetry_age_ms != null && <span title="Time since the collector last received a sample from the controller">
+              sample age {Math.round(robot!.telemetry_age_ms)} ms</span>}
           </> : <>
             <span className="flex items-center gap-1.5"><Hand size={13} />
               {robot ? `Robot ${robot.state === 'OFFLINE' ? 'offline' : 'telemetry stale'}` : 'No telemetry yet'}

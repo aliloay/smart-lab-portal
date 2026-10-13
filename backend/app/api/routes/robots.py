@@ -185,6 +185,9 @@ class Telemetry(BaseModel):
 @router.post("/telemetry", tags=["devices"])
 def telemetry(req: Telemetry, db: Session = Depends(get_db), identity: str = Depends(require_device)):
     device_scope(identity, req.device_uid)
+    # NaN / inf cannot be stored (JSONB) and are not joint angles: refuse, never store.
+    if any(v is not None and not all(math.isfinite(x) for x in v) for v in (req.q, req.qd, req.tcp)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Telemetry values must be finite numbers")
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")

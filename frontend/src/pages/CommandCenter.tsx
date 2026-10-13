@@ -322,6 +322,9 @@ function CameraPanel({ cam, loading, failed, compact = false }: {
           <div className={'absolute bottom-1 left-1 flex flex-wrap gap-1 ' + (compact ? 'wall-camera-meta' : 'bottom-2 left-2 gap-2')}>
             <Chip tone="ok" dot>Source connected</Chip>
             {frameAge != null && <Chip tone="idle">{compact ? `${Math.round(frameAge)} ms` : `Measured frame age ${Math.round(frameAge)} ms`}</Chip>}
+            {!compact && cam.metrics?.analysis_fps != null && <Chip tone="idle">{`Analysed ${cam.metrics.analysis_fps} fps`}</Chip>}
+            {!compact && cam.metrics?.detector_gpu != null && (
+              <Chip tone={cam.metrics.detector_gpu ? 'ok' : 'warn'}>{`Detector ${cam.metrics.detector_gpu ? 'GPU' : 'CPU'} · Re-ID ${cam.metrics.reid_gpu ? 'GPU' : 'CPU'}`}</Chip>)}
           </div>
         </div>
       ) : (

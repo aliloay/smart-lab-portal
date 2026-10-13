@@ -71,6 +71,9 @@ class URSource:
 
     def read(self) -> Sample:
         rx = self.rx
+        # ur_rtde keeps the last values after the link drops: never pass them on as current.
+        if not rx.isConnected():
+            raise ConnectionError("RTDE link lost")
         return Sample(t=float(rx.getTimestamp()), q=list(rx.getActualQ()), qd=list(rx.getActualQd()),
                       tcp=list(rx.getActualTCPPose()),
                       extra={"robot_mode": rx.getRobotMode(), "safety_mode": rx.getSafetyMode(),
@@ -117,6 +120,15 @@ class SimSource:
         pass
 
 
+def valid(s: Sample, joints: int = 6) -> bool:
+    """6 finite joint angles (rad, |q| <= 2 turns as UR allows), finite velocities if given."""
+    if not isinstance(s.q, list) or len(s.q) != joints:
+        return False
+    if not all(isinstance(v, (int, float)) and math.isfinite(v) and abs(v) <= 4 * math.pi + 0.01 for v in s.q):
+        return False
+    return s.qd is None or (len(s.qd) == joints and all(math.isfinite(v) for v in s.qd))
+
+
 # --------------------------------------------------------------- collector ---
 class Collector:
     def __init__(self, args):
@@ -129,6 +141,8 @@ class Collector:
         self.rate_t: deque = deque(maxlen=200)
         self.last_post = self.last_equipment = 0.0
         self.source = None
+        self.last_ctrl_t = None                     # last controller timestamp seen (dedupe)
+        self.rejected = 0                           # samples that failed valid()
 
     def open_source(self):
         a = self.args
@@ -207,10 +221,19 @@ class Collector:
                     continue
             try:
                 s = self.source.read()
-                if a.source == "ur":
-                    s.t = now                                  # controller clock -> laptop clock (offset not assumed)
-                self.rate_t.append(now)
-                self._events(self.motion.update(s, arrival=now))
+                if not valid(s):
+                    self.rejected += 1
+                    if self.rejected in (1, 10, 100) or self.rejected % 1000 == 0:
+                        print(f"[robot] invalid sample ignored ({self.rejected} so far): q={s.q!r:.120}")
+                elif a.source == "ur" and s.t == self.last_ctrl_t:
+                    pass                                       # no new controller sample: not fresh data
+                else:
+                    if a.source == "ur":
+                        self.last_ctrl_t = s.t
+                        s.extra["controller_t"] = round(s.t, 3)
+                        s.t = now                              # controller clock -> laptop clock (offset not assumed)
+                    self.rate_t.append(now)
+                    self._events(self.motion.update(s, arrival=now))
             except Exception as e:
                 print(f"[robot] read failed: {e.__class__.__name__}: {e} - reconnecting")
                 self.source.close()

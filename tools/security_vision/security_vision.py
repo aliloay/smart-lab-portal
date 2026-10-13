@@ -410,7 +410,13 @@ class Service:
                 "pass_ms_p50": g(m["analysis"]["pass_ms"], "p50"),
                 "detect_ms_p50": g(m["analysis"]["detect_ms"], "p50"),
                 "serve_age_ms_p50": g(m["serve"]["frame_age_ms"], "p50"),
-                "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"]}
+                "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"],
+                # numbers only (the portal keeps numeric metrics): 1 = on the graphics card (DirectML)
+                "detector_gpu": int(self.detector_engine().startswith("directml")),
+                "reid_gpu": int(self.appearance.engine.startswith("directml"))}
+
+    def detector_engine(self) -> str:
+        return str(getattr(self.detector, "engine", "unknown"))
 
     def _identity_events(self, events, tracks, occupants):
         """Identity decisions: all kept in a short local log (/identity, the
@@ -897,6 +903,7 @@ def make_app(svc: Service) -> Flask:
         if not authorised():
             return Response("device key required", status=401)
         return jsonify({**svc.metrics.summary(), "process": process_load(),
+                        "engines": {"detector": svc.detector_engine(), "reid": svc.appearance.engine},
                         "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
                                      "max_width": svc.args.max_width, "render_fps": svc.RENDER_FPS}})
 

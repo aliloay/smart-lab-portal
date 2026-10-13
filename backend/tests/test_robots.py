@@ -160,3 +160,12 @@ def test_a_movement_path_is_stored_and_served_on_its_own(client, db, lab, staff,
     mv = client.get(f"/api/robots/{rid}/movements", headers=h).json()
     one = client.get(f"/api/robots/{rid}/movements/{mv[0]['id']}", headers=h).json()
     assert one["trajectory"]["t"] == [0.0, 0.1, 0.2] and len(one["trajectory"]["q"]) == 3
+
+
+def test_non_finite_joint_values_are_rejected_not_stored(client, db, lab, staff, device_headers):
+    # The collector filters these too; the API must not accept them (JSONB cannot hold NaN).
+    body = '{"device_uid": "UR5E_TEST", "lab_id": "LAB_TEST", "model": "UR5e", "source": "RTDE", "state": "STATIONARY",' \
+           ' "q": [0, NaN, 0, 0, 0, 0], "qd": [0, 0, 0, 0, 0, 0]}'
+    r = client.post("/api/robots/telemetry", headers={**device_headers, "Content-Type": "application/json"}, content=body)
+    assert r.status_code == 422
+    assert db.query(Device).filter_by(device_uid="UR5E_TEST").first() is None

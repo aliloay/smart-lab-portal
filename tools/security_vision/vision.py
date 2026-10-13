@@ -135,7 +135,9 @@ class Yolo26Detector:
             best = None
             for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):   # this laptop: iGPU 0, GTX 1650 1
                 try:
-                    s = ort.InferenceSession(path, providers=[("DmlExecutionProvider", {"device_id": dev})])
+                    so = ort.SessionOptions()           # whole graph on the GPU or not at all (no silent CPU nodes;
+                    so.add_session_config_entry("session.disable_cpu_ep_fallback", "1")   # verified 2026-10-14)
+                    s = ort.InferenceSession(path, so, providers=[("DmlExecutionProvider", {"device_id": dev})])
                 except Exception:
                     break                                   # no more devices
                 i = s.get_inputs()[0].name
