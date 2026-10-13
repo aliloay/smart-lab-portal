@@ -1,6 +1,6 @@
 {
  "id": "kbWeeklySumm003",
- "name": "Knowledge 3 - Weekly knowledge summary (DRAFT)",
+ "name": "Knowledge 3 - Weekly knowledge summary",
  "active": false,
  "nodes": [
   {
@@ -47,7 +47,7 @@
    ],
    "parameters": {
     "method": "POST",
-    "url": "http://host.docker.internal:5199/digest",
+    "url": "http://host.docker.internal:5199/jobs/digest",
     "authentication": "genericCredentialType",
     "genericAuthType": "httpHeaderAuth",
     "options": {
@@ -56,14 +56,36 @@
    },
    "credentials": {
     "httpHeaderAuth": {
-     "id": "REPLACE_ON_IMPORT",
+     "id": "kbServiceKey0001",
      "name": "KB service token (local)"
     }
    }
+  },
+  {
+   "id": "0ce60e3b-e845-5631-8081-6a45df2f10cc",
+   "name": "Run now",
+   "type": "n8n-nodes-base.manualTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    200
+   ],
+   "parameters": {}
   }
  ],
  "connections": {
   "Mondays 08:00": {
+   "main": [
+    [
+     {
+      "node": "Write weekly summary",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Run now": {
    "main": [
     [
      {
@@ -78,7 +100,8 @@
  "settings": {
   "executionOrder": "v1",
   "saveManualExecutions": true,
-  "callerPolicy": "workflowsFromSameOwner"
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": ""
  },
  "tags": [
   {

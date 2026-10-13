@@ -203,14 +203,18 @@ TOOLS = {"read": tool_read, "grep": tool_grep, "git_log": tool_git_log, "run_tes
 
 
 # ----------------------------------------------------------- the 3 routes ---
-def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None):
+def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None):
+    """emit(event) receives structured events for the portal: meta, sources, token, done."""
+    emit = emit or (lambda e: None)
     t0 = time.perf_counter()
     r, why = (forced, "forced") if forced else route(q)
     res = {"question": q, "route": r, "why": why, "steps": [], "status": "started"}
     hits, ms = evidence(cfg, q, FAST["k"] if r != "lookup" else 6)
     res["retrieval_ms"] = round(ms, 1)
-    res["citations"] = [{"n": i + 1, "source": h["source"], "heading": h["heading"], "label": h["label"]} for i, h in enumerate(hits)]
+    res["citations"] = [{"n": i + 1, "source": h["source"], "heading": h["heading"], "label": h["label"],
+                         "snippet": re.sub(r"\s+", " ", h["snippet"])[:300]} for i, h in enumerate(hits)]
     out(f"route: {r} ({why}) · retrieval {ms:.0f} ms")
+    emit({"type": "meta", "route": r, "why": why, "retrieval_ms": res["retrieval_ms"], "citations": res["citations"]})
     if not hits:
         out(NO_EVIDENCE)
         res.update(status="completed", answer=NO_EVIDENCE, total_ms=round((time.perf_counter() - t0) * 1000))
@@ -230,6 +234,7 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None):
     prompt = (INVESTIGATE_PROMPT if r == "investigate" else PROMPT).format(none=NO_EVIDENCE, ev=ev, q=q)
     res["prompt_build_ms"] = round((time.perf_counter() - tb) * 1000, 1)
     res["sources"] = [s for s, _, _ in ev_items]
+    emit({"type": "sources", "sources": [{"n": i + 1, "source": s, "label": lab} for i, (s, lab, _) in enumerate(ev_items)]})
     try:
         text, st = ollama_stream(cfg, prompt, on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))
         res.update(answer=text.strip(), llm=st, status="completed")

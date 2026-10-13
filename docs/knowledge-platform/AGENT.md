@@ -64,3 +64,32 @@ right away reuses Ollama's prompt cache (first word ~0.2 s) — the numbers abov
 * The investigation planner is a fixed sequence; an LLM-chosen tool loop was not built (a 3B/1.5B model
   follows tool instructions only partly — see the lumped citations in the stock_max example).
 * Live-state questions (is the camera running, is a workflow active) are not answered from live systems.
+
+## In the portal (2026-10-14)
+
+Chat bubble (bottom right) → tab **Project knowledge** — admins and lab staff only (students never see it;
+the backend route `/api/knowledge/*` uses `require_staff`). Path: browser → nginx → backend
+(`backend/app/api/routes/knowledge.py`) → `tools/knowledge/serve.py` on **127.0.0.1:5199** (reached from Docker
+as `host.docker.internal`; measured: not reachable from the lab network). Header key `KB_SERVICE_KEY` lives
+only in `.env` and `tools/knowledge/config.json` (both git-ignored). `launch.bat` starts the service.
+Measured through nginx: first word 14.3 s, done 20.8 s while the embedding build was using the CPU.
+
+## n8n (2026-10-14)
+
+Imported and **active**: Knowledge 1 source sync (every 6 h), Knowledge 2 vault health + drift (daily 07:00),
+Knowledge 3 weekly summary (Mondays 08:00), each also with a "Run now" button. They call the local service's
+`/jobs/*` (one job at a time; 409 otherwise) with the header credential "KB service token (local)". Test runs
+of 2 and 3 through n8n succeeded (health ok, drift ok, `Weekly digest 2026-10-14.md` written). Live: 26 active
+(the 23 existing + 3). The existing 23 were not edited.
+
+## Semantic search
+
+Hybrid search (keyword + nomic-embed-text cosine, CPU) in `kb.search`; keyword-only when embeddings are
+missing or Ollama is down. First full embedding build ≈ 1–1.5 h on this CPU (0.6–0.9 s per chunk, measured);
+later builds only embed changed chunks.
+
+## Decisions recorded
+
+* Demo passwords: owner chose to keep them simple for now (2026-10-14) — risk stays open in Known-Bugs-and-Risks.
+* The portal's existing "Ask the lab" assistant loads qwen2.5:3b on the GPU (2.07 GB VRAM, `OLLAMA_CPU_ONLY`
+  defaults to false) next to the camera (~0.5 GB). Not changed; `OLLAMA_CPU_ONLY=true` in `.env` moves it to the CPU.

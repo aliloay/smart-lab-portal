@@ -104,6 +104,9 @@ services:
       CAMERA_URL: ${CAMERA_URL:-http://192.168.1.150}
       FACE_SERVER_URL: ${FACE_SERVER_URL:-http://host.docker.internal:5000}
       SECURITY_VISION_HOST: ${SECURITY_VISION_HOST:-host.docker.internal}
+      # Project knowledge (staff/admin): tools/knowledge/serve.py on this laptop, 127.0.0.1 only.
+      KB_SERVICE_URL: ${KB_SERVICE_URL:-http://host.docker.internal:5199}
+      KB_SERVICE_KEY: ${KB_SERVICE_KEY:-}
       EMERGENCY_PASSWORD: ${EMERGENCY_PASSWORD:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       # Smaller student model, loaded next to the staff one (empty = share it).

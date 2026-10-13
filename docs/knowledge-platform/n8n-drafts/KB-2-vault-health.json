@@ -1,6 +1,6 @@
 {
  "id": "kbVaultHealth002",
- "name": "Knowledge 2 - Vault health check (DRAFT)",
+ "name": "Knowledge 2 - Vault health check",
  "active": false,
  "nodes": [
   {
@@ -47,7 +47,7 @@
    ],
    "parameters": {
     "method": "POST",
-    "url": "http://host.docker.internal:5199/health",
+    "url": "http://host.docker.internal:5199/jobs/health",
     "authentication": "genericCredentialType",
     "genericAuthType": "httpHeaderAuth",
     "options": {
@@ -56,7 +56,7 @@
    },
    "credentials": {
     "httpHeaderAuth": {
-     "id": "REPLACE_ON_IMPORT",
+     "id": "kbServiceKey0001",
      "name": "KB service token (local)"
     }
    }
@@ -72,7 +72,7 @@
    ],
    "parameters": {
     "method": "POST",
-    "url": "http://host.docker.internal:5199/drift",
+    "url": "http://host.docker.internal:5199/jobs/drift",
     "authentication": "genericCredentialType",
     "genericAuthType": "httpHeaderAuth",
     "options": {
@@ -81,10 +81,21 @@
    },
    "credentials": {
     "httpHeaderAuth": {
-     "id": "REPLACE_ON_IMPORT",
+     "id": "kbServiceKey0001",
      "name": "KB service token (local)"
     }
    }
+  },
+  {
+   "id": "55d535e1-e413-5d28-a168-274409b53509",
+   "name": "Run now",
+   "type": "n8n-nodes-base.manualTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    200
+   ],
+   "parameters": {}
   }
  ],
  "connections": {
@@ -109,12 +120,24 @@
      }
     ]
    ]
+  },
+  "Run now": {
+   "main": [
+    [
+     {
+      "node": "Run health check",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
   }
  },
  "settings": {
   "executionOrder": "v1",
   "saveManualExecutions": true,
-  "callerPolicy": "workflowsFromSameOwner"
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": ""
  },
  "tags": [
   {

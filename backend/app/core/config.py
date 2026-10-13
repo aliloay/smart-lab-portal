@@ -193,6 +193,10 @@ class Settings(BaseSettings):
     # browser.
     AI_PROVIDER: str = "auto"
     OLLAMA_URL: str = ""
+    # Project knowledge (admins/staff): the local knowledge agent on this laptop,
+    # tools/knowledge/serve.py on 127.0.0.1:5199 (not reachable from the lab network).
+    KB_SERVICE_URL: str = "http://127.0.0.1:5199"
+    KB_SERVICE_KEY: str = ""
     # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
     OLLAMA_MODEL: str = "qwen2.5:3b"
     # Student helper: answers from a small, pre-fetched context - no tools.

@@ -483,13 +483,94 @@ def load_index(cfg: dict) -> dict:
     return _IDX_CACHE["idx"]
 
 
-def search(cfg: dict, query: str, k: int = 6, idx: dict | None = None) -> list[dict]:
+# ------------------------------------------------------- semantic (optional) ---
+# Local embeddings with Ollama's nomic-embed-text on the CPU (owner-approved 2026-10-14).
+# Stored next to the index: embeddings.npy (float32, L2-normalised) + embeddings_keys.json,
+# keyed by chunk content so an unchanged chunk is never embedded twice. If numpy, Ollama or
+# the model is missing, search is keyword-only - it never fails because of this.
+EMBED_MODEL = "nomic-embed-text"
+_EMB_CACHE: dict = {}
+
+
+def chunk_key(d: dict) -> str:
+    return sha256((d["source"] + "\x1f" + d["heading"] + "\x1f" + d["text"]).encode())[:20]
+
+
+def embed(cfg: dict, texts: list, prefix: str):
+    import numpy as np
+    url = cfg["ollama"].rstrip("/")
+    if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", url):
+        raise RuntimeError("non-local embedding endpoint refused")
+    body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
+            "keep_alive": "15m", "options": {"num_gpu": 0}}
+    req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=cfg.get("embed_timeout_s", 120)) as r:
+        v = np.asarray(json.loads(r.read())["embeddings"], dtype=np.float32)
+    return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
+
+
+def build_embeddings(cfg: dict, batch: int = 32, log=print) -> dict:
+    import numpy as np
+    idx = load_index(cfg)
+    keys = [chunk_key(d) for d in idx["docs"]]
+    kp, vp = os.path.join(cfg["data"], "embeddings_keys.json"), os.path.join(cfg["data"], "embeddings.npy")
+    old = {}
+    if os.path.isfile(kp) and os.path.isfile(vp):
+        ok, ov = json.load(open(kp, encoding="utf-8")), np.load(vp)
+        old = {k: ov[i] for i, k in enumerate(ok) if i < len(ov)}
+    todo = [i for i, k in enumerate(keys) if k not in old]
+    t0, done = time.perf_counter(), 0
+    for s in range(0, len(todo), batch):
+        part = todo[s:s + batch]
+        vec = embed(cfg, [idx["docs"][i]["heading"] + "\n" + idx["docs"][i]["text"] for i in part], "search_document: ")
+        for i, v in zip(part, vec):
+            old[keys[i]] = v
+        done += len(part)
+        if log and (s // batch) % 20 == 0:
+            log(f"embedded {done}/{len(todo)} new chunks ({time.perf_counter() - t0:.0f} s)")
+    mat = np.stack([old[k] for k in keys]) if keys else np.zeros((0, 768), np.float32)
+    tmp = vp + ".tmp.npy"
+    np.save(tmp, mat)
+    os.replace(tmp, vp)
+    safe_write(kp, json.dumps(keys), cfg["data"])
+    return {"chunks": len(keys), "new": len(todo), "seconds": round(time.perf_counter() - t0, 1)}
+
+
+def load_embeddings(cfg: dict, idx: dict):
+    """Matrix aligned with idx["docs"], or None when not built or out of date."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    kp, vp = os.path.join(cfg["data"], "embeddings_keys.json"), os.path.join(cfg["data"], "embeddings.npy")
+    if not (os.path.isfile(kp) and os.path.isfile(vp)):
+        return None
+    key = (vp, os.stat(vp).st_mtime_ns, idx.get("built"))
+    if _EMB_CACHE.get("key") != key:
+        keys = json.load(open(kp, encoding="utf-8"))
+        mat = np.load(vp)
+        pos = {k: i for i, k in enumerate(keys)}
+        want = [chunk_key(d) for d in idx["docs"]]
+        _EMB_CACHE.update(key=key, mat=mat[[pos[k] for k in want]] if all(k in pos for k in want) else None)
+    return _EMB_CACHE.get("mat")
+
+
+def search(cfg: dict, query: str, k: int = 6, idx: dict | None = None, semantic: bool = True) -> list[dict]:
+    """Hybrid: BM25 (exact words, identifiers) blended with embedding cosine (meaning) when available."""
     idx = idx or load_index(cfg)
     q = tokens(query)
     N, avg = idx["n"], idx["avgdl"]
-    wants_workflows = bool(re.search(r"(n8n|workflows?|automation)", query, re.I))
-    scored = []
-    for d in idx["docs"]:
+    wants_workflows = bool(re.search(r"\b(n8n|workflows?|automation)\b", query, re.I))
+    sem = None
+    if semantic and cfg.get("semantic", True):
+        mat = load_embeddings(cfg, idx)
+        if mat is not None:
+            try:
+                sem = mat @ embed(cfg, [query], "search_query: ")[0]
+            except Exception:                            # Ollama down / model missing: keyword-only
+                sem = None
+    bm = {}
+    for i, d in enumerate(idx["docs"]):
         tf = d["tf"]
         if not any(t in tf for t in q):
             continue
@@ -498,14 +579,25 @@ def search(cfg: dict, query: str, k: int = 6, idx: dict | None = None) -> list[d
             if t in tf:
                 idf = math.log(1 + (N - idx["df"][t] + 0.5) / (idx["df"][t] + 0.5))
                 s += idf * tf[t] * 2.2 / (tf[t] + 1.2 * (0.25 + 0.75 * d["dl"] / avg))
-        if s > 0:
-            # exact phrase bonus for identifiers / error codes
-            for t in q:
-                if len(t) > 5 and any(c.isdigit() for c in t) and t in d["text"].lower():
-                    s *= 1.3
-            if wants_workflows and d["kind"] == "n8n-workflow":
-                s *= 1.8                                     # query classified as a workflow question
-            scored.append((s * TRUST.get(d["kind"], 1.0), d))
+        for t in q:
+            if len(t) > 5 and any(c.isdigit() for c in t) and t in d["text"].lower():
+                s *= 1.3                                 # exact identifier / IP / error code
+        bm[i] = s
+    cand = set(bm)
+    if sem is not None:
+        cand |= {int(i) for i in sem.argsort()[-60:]}
+    top_bm = max(bm.values(), default=0.0) or 1.0
+    scored = []
+    for i in cand:
+        d = idx["docs"][i]
+        s = bm.get(i, 0.0) / top_bm                       # keyword score 0..1
+        if sem is not None:
+            s = 0.5 * s + 0.5 * max(0.0, (float(sem[i]) - 0.35) / 0.65)   # + meaning (cosine), 0..1
+        if s <= 0:
+            continue
+        if wants_workflows and d["kind"] == "n8n-workflow":
+            s *= 1.8                                     # query classified as a workflow question
+        scored.append((s * TRUST.get(d["kind"], 1.0), d))
     scored.sort(key=lambda x: -x[0])
     out, seen = [], set()
     for s, d in scored:

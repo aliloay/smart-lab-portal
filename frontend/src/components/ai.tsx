@@ -23,6 +23,7 @@ type Turn = {
 }
 // Charts load with the first chart answer: Recharts stays out of the main bundle.
 const AiChart = lazy(() => import('./AiChart'))
+const ProjectKnowledge = lazy(() => import('./ProjectKnowledge'))
 
 const STUDENT_SUGGESTED = [
   'When is my next booking?',
@@ -295,6 +296,8 @@ export function ChatBubble() {
     try { return localStorage.getItem(CHAT_SIZE) === 'full' ? 'full' : 'large' } catch { return 'large' }
   })
   const available = useChatAvailable()
+  // Staff and admins: a second mode for questions about the project itself (local knowledge agent).
+  const [mode, setMode] = useState<'lab' | 'project'>('lab')
   const toggleSize = () => setSize(v => {
     const next = v === 'full' ? 'large' : 'full'
     try { localStorage.setItem(CHAT_SIZE, next) } catch { /* private mode */ }
@@ -336,9 +339,12 @@ export function ChatBubble() {
           <span className="grid place-items-center w-9 h-9 rounded-xl bg-violet-500/15 text-violet-300">
             <Sparkles size={17} /></span>
           <div className="flex-1 min-w-0">
-            <div className="text-[16px] font-semibold text-white">{staff ? 'Ask the lab' : 'Ask Smart Lab'}</div>
+            <div className="text-[16px] font-semibold text-white">
+              {staff ? (mode === 'project' ? 'Project knowledge' : 'Ask the lab') : 'Ask Smart Lab'}</div>
             <div className="text-[12px] text-slate-400">
-              {staff ? 'Answers from the portal’s own records' : 'Your bookings, reports and free labs'}</div>
+              {staff ? (mode === 'project' ? 'The Smart Lab project: documents, code, history - with sources'
+                                           : 'Answers from the portal’s own records')
+                     : 'Your bookings, reports and free labs'}</div>
           </div>
           <button onClick={toggleSize} aria-label={size === 'full' ? 'Smaller' : 'Full screen'}
                   title={size === 'full' ? 'Smaller' : 'Full screen'}
@@ -348,8 +354,17 @@ export function ChatBubble() {
                   className="grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
             <X size={17} /></button>
         </div>
+        {staff && (
+          <div className="flex gap-1 mb-3 p-1 rounded-lg bg-ink-800/60 self-start" role="tablist">
+            {(['lab', 'project'] as const).map(m => (
+              <button key={m} role="tab" aria-selected={mode === m} onClick={() => setMode(m)}
+                className={`px-3 py-1 rounded-md text-[12.5px] ${mode === m ? 'bg-ink-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+                {m === 'lab' ? 'Lab data' : 'Project knowledge'}</button>))}
+          </div>)}
         <div className="flex-1 min-h-0">
-          <AskTheLab mode={staff ? 'staff' : 'student'} fill />
+          {staff && mode === 'project'
+            ? <Suspense fallback={<Spinner />}><ProjectKnowledge /></Suspense>
+            : <AskTheLab mode={staff ? 'staff' : 'student'} fill />}
         </div>
       </div>
       <button onClick={() => setOpen(o => !o)} aria-label={open ? 'Close assistant' : 'Open AI assistant'}

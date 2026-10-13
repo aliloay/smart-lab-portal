@@ -9,7 +9,7 @@ rem      (docker-compose.yml is the single definition of the system), plus
 rem      n8n when automation is configured in .env (AUTOMATION_WEBHOOK_BASE)
 rem   5. opens the portal in the browser as soon as it answers
 rem Ctrl+C in this window stops the portal and closes the face server.
-setlocal EnableExtensions
+setlocal EnableExtensions  
 cd /d "%~dp0"
 title Smart Lab - Portal
 
@@ -87,6 +87,15 @@ if exist "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe" (
 :ai_models
 start "Smart Lab - AI models" /min cmd /c call "%~dp0scripts\ollama_models.bat"
 :ai_done
+
+rem ---- Project knowledge (admins/staff in the portal, and the n8n knowledge jobs):
+rem local service on 127.0.0.1:5199 only - not reachable from the lab network.
+rem Starts once tools\knowledge\config.json exists (it holds the private paths and key).
+if exist "%~dp0tools\knowledge\config.json" (
+  tasklist /v /fi "WINDOWTITLE eq Smart Lab - Knowledge*" | findstr /i "Knowledge" >nul || (
+    start "Smart Lab - Knowledge" /min cmd /k py "%~dp0tools\knowledge\serve.py"
+  )
+)
 
 rem ---- Automation (n8n) is optional: on only when .env configures it ----------
 set "PROFILE="

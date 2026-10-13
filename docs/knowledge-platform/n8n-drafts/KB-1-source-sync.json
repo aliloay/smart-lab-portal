@@ -1,6 +1,6 @@
 {
  "id": "kbSourceSync0001",
- "name": "Knowledge 1 - Local source sync (DRAFT)",
+ "name": "Knowledge 1 - Local source sync",
  "active": false,
  "nodes": [
   {
@@ -47,7 +47,7 @@
    ],
    "parameters": {
     "method": "POST",
-    "url": "http://host.docker.internal:5199/build",
+    "url": "http://host.docker.internal:5199/jobs/build",
     "authentication": "genericCredentialType",
     "genericAuthType": "httpHeaderAuth",
     "options": {
@@ -56,14 +56,36 @@
    },
    "credentials": {
     "httpHeaderAuth": {
-     "id": "REPLACE_ON_IMPORT",
+     "id": "kbServiceKey0001",
      "name": "KB service token (local)"
     }
    }
+  },
+  {
+   "id": "521b37a8-af7d-5a15-b916-11c1b1d2410b",
+   "name": "Run now",
+   "type": "n8n-nodes-base.manualTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    200
+   ],
+   "parameters": {}
   }
  ],
  "connections": {
   "Every 6 hours": {
+   "main": [
+    [
+     {
+      "node": "Run kb build",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Run now": {
    "main": [
     [
      {
@@ -78,7 +100,8 @@
  "settings": {
   "executionOrder": "v1",
   "saveManualExecutions": true,
-  "callerPolicy": "workflowsFromSameOwner"
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": ""
  },
  "tags": [
   {

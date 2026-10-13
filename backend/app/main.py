@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
                             bookings, commands, emergency, enrollment, equipment,
-                            experiments, face_submissions, inventory, issues, labs, monitor, robots,
+                            experiments, face_submissions, inventory, issues, knowledge, labs, monitor, robots,
                             notifications, reusable, security, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
@@ -95,7 +95,7 @@ for r in (auth.router, labs.router, bookings.router, access.router,
           automation.router, analytics.router, ai.router, enrollment.router,
           monitor.router, commands.router, face_submissions.router,
           inventory.router, reusable.router, equipment.router, security.router,
-          emergency.router, experiments.router, robots.router):
+          emergency.router, experiments.router, robots.router, knowledge.router):
     app.include_router(r, prefix=settings.API_V1)
 
 
