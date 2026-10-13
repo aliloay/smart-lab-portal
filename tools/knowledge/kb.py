@@ -650,6 +650,11 @@ def build_vault(cfg: dict, reg: dict) -> dict:
                    fm(type="system", generated=True, updated=built) + f"# {n}\n\n> Generated hub: notes whose path or "
                    "workflow name matches this system's rules (shown). A navigation aid, not a verified dependency map.\n\n"
                    + "\n".join(lines) + "\n\nBack to [[Home]]\n", v)
+    proj = os.path.join(v, "01 - Project")
+    if os.path.isdir(proj):                              # curated pages, never overwritten here
+        names = sorted(n[:-3] for n in os.listdir(proj) if n.endswith(".md"))
+        home[home.index("## Start here") + 1:home.index("## Start here") + 1] = ["- Project: " + " · ".join(f"[[{n}]]" for n in names)]
+    home[home.index("## Start here") + 1:home.index("## Start here") + 1] = ["- [[Project-Timeline]] · [[Missing-History-and-Knowledge-Gaps]] · [[Database-Data-Dictionary]]"]
     i = home.index("## Start here") + 1
     home[i:i] = ["- Systems: " + " · ".join(f"[[{n}]]" for n in SYSTEMS)]
     safe_write(os.path.join(v, "00 - Home", "Home.md"), "\n".join(home) + "\n", v)
