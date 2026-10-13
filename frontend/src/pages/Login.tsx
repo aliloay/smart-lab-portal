@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react'
+import { requestIntro } from '../components/WelcomeIntro'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -73,6 +74,7 @@ export default function Login() {
         }
       }
       await login(emailNow.trim().toLowerCase(), pwNow)
+      requestIntro()                     // cosmetic welcome, after a successful sign-in only
       const next = params.get('next')
       // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
       const home = ['8080', '8443'].includes(window.location.port) ? '/command' : '/'

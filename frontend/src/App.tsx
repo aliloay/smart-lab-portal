@@ -1,8 +1,9 @@
 import { lazy, ReactNode, Suspense } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import WelcomeIntro from './components/WelcomeIntro'
 import { Spinner } from './components/ui'
-import { isAdmin, isStaff, useAuth } from './lib/auth'
+import { firstName, isAdmin, isStaff, useAuth } from './lib/auth'
 import { LiveProvider } from './lib/live'
 
 import Login from './pages/Login'
@@ -12,6 +13,7 @@ import AdminDashboard from './pages/dashboards/AdminDashboard'
 // Every page is its own small file, loaded when first opened - and all of
 // them are fetched quietly in the background right after sign-in
 // (prefetchPages), so later clicks are instant without a big first load.
+const Welcome = lazy(() => import('./pages/Welcome'))
 const loadLabs = () => import('./pages/Labs')
 const Labs = lazy(loadLabs)
 const loadLabDetail = () => import('./pages/LabDetail')
@@ -134,10 +136,12 @@ export default function App() {
 
   return (
     <LiveProvider>
+      <WelcomeIntro name={firstName(user.full_name)} />
       <Layout>
         <Suspense fallback={<Spinner label="Loading" />}>
         <Routes>
           <Route path="/" element={home} />
+          <Route path="/welcome" element={<Welcome />} />
           <Route path="/labs" element={<Labs />} />
           <Route path="/labs/:id" element={<LabDetail />} />
           <Route path="/book" element={<Book />} />

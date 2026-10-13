@@ -212,3 +212,47 @@ body {
   body { background: #fff !important; }
   .card { break-inside: avoid; box-shadow: none !important; }
 }
+
+/* ---- Smart Lab motion system (Welcome page + intro) ----------------------
+   Durations: reveal 650 ms, intro 2.4 s, exit 500 ms. Easing: --ease-out-lab.
+   Only opacity/transform animate; each element once; nothing loops except the
+   tiny scroll cue (2 s, stops with reduced motion). */
+:root { --ease-out-lab: cubic-bezier(.22, 1, .36, 1); }
+.reveal { opacity: 0; transform: translate3d(0, 18px, 0);
+  transition: opacity 650ms var(--ease-out-lab), transform 650ms var(--ease-out-lab); }
+.reveal.is-in { opacity: 1; transform: none; }
+.hero-img { animation: heroIn 1.4s var(--ease-out-lab) both; }
+@keyframes heroIn { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: scale(1); } }
+.welcome-grid { background-image: linear-gradient(rgba(56,189,248,.06) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(56,189,248,.06) 1px, transparent 1px); background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, transparent, #000 60%); }
+.eyebrow-line { font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: rgb(103 232 249 / .85);
+  font-weight: 600; margin-bottom: .35rem; }
+.scroll-cue { width: 1px; height: 28px; background: linear-gradient(180deg, transparent, #67e8f9);
+  animation: cue 2s ease-in-out infinite; transform-origin: top; }
+@keyframes cue { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
+
+.intro { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: #070d17;
+  animation: introBg 2.4s var(--ease-out-lab) both; }
+.intro-out { opacity: 0; transform: translate3d(0, -2%, 0); transition: opacity 500ms ease, transform 500ms var(--ease-out-lab); }
+.intro-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(56,189,248,.07) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(56,189,248,.07) 1px, transparent 1px); background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 65%); animation: introFade 1.2s ease both; }
+.intro-content { position: relative; text-align: center; padding: 0 16px; }
+.intro-mark { display: inline-block; animation: introRise 900ms var(--ease-out-lab) 100ms both; }
+.intro-title { margin-top: 18px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: clamp(2rem, 7vw, 4rem);
+  letter-spacing: .32em; color: #fff; font-weight: 600; padding-left: .32em; animation: introRise 900ms var(--ease-out-lab) 350ms both; }
+.intro-sub { margin-top: 6px; color: #94a3b8; letter-spacing: .18em; font-size: 13px; text-transform: uppercase;
+  animation: introRise 900ms var(--ease-out-lab) 650ms both; }
+.intro-hello { margin-top: 22px; color: #67e8f9; font-size: 15px; animation: introRise 800ms var(--ease-out-lab) 1000ms both; }
+.intro-line { margin: 22px auto 0; height: 1px; width: min(320px, 70vw); background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  transform-origin: center; animation: introLine 1.6s var(--ease-out-lab) 500ms both; }
+.intro-skip { position: absolute; right: 16px; bottom: 16px; }
+@keyframes introRise { from { opacity: 0; transform: translate3d(0, 14px, 0); } to { opacity: 1; transform: none; } }
+@keyframes introFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes introLine { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes introBg { from { opacity: 0; } 12% { opacity: 1; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; }
+  .scroll-cue { animation: none; }
+}

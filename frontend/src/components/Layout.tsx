@@ -49,6 +49,7 @@ const STUDENT_NAV: Section[] = [
   { title: 'Laboratory', items: [
     { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
+    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
     { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
     { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
   ]},
@@ -64,6 +65,7 @@ const STAFF_NAV: Section[] = [
   { title: 'Operations', items: [
     { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
+    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
@@ -85,6 +87,7 @@ const ADMIN_NAV: Section[] = [
   { title: 'Operations', items: [
     { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
+    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
   ]},
   { title: 'Access & audit', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },

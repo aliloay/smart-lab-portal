@@ -7,7 +7,7 @@ interface Photo { kind?: string; file: string; label: string; title: string; sou
 // What is in each lab (owner's list). `photo` = key in ATTRIBUTION.json; no
 // photo = text card until our own photo is taken.
 interface Item { label: string; photo?: string; note?: string }
-const BY_LAB: Record<string, Item[]> = {
+export const BY_LAB: Record<string, Item[]> = {
   LAB_01: [{ label: 'Universal Robots UR5e (mounted inverted)', photo: 'our-ur5e' }, { label: 'FANUC ER-4iA (R-30iB Mate Plus)', photo: 'our-fanuc' },
            { label: 'Lab PCs', photo: 'our-pcs' }, { label: 'Conveyor belt', photo: 'conveyor' }],
   LAB_02: [{ label: 'Siemens SIMATIC S7-1200 PLC', photo: 's7-1200', note: '8 stations' },
