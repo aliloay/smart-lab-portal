@@ -60,7 +60,7 @@ right away reuses Ollama's prompt cache (first word ~0.2 s) — the numbers abov
 ## Not done / needs approval
 
 * GPU inference for the LLM: not tested (camera priority). Needs an opt-in benchmark with the camera running.
-* `nomic-embed-text` (downloaded before approval): unused. Use or remove — owner decision.
+* `nomic-embed-text`: approved 2026-10-14 and used for hybrid search (see below).
 * The investigation planner is a fixed sequence; an LLM-chosen tool loop was not built (a 3B/1.5B model
   follows tool instructions only partly — see the lumped citations in the stock_max example).
 * Live-state questions (is the camera running, is a workflow active) are not answered from live systems.
