@@ -1066,7 +1066,28 @@ document.getElementById('s').textContent=JSON.stringify(r,null,1)},700);
 </script>"""
 
 
+def no_quick_edit() -> bool:
+    """Windows console: a click starts text selection (QuickEdit) and every print() then blocks -
+    the analysis thread prints, so one click froze detection with no error (lab 2026-10-14).
+    Switch QuickEdit off for this window only. Returns True when it was switched off."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.GetStdHandle(-10)                      # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if not k32.GetConsoleMode(h, ctypes.byref(mode)):
+            return False                               # not a console (redirected): nothing to do
+        new = (mode.value | 0x0080) & ~0x0040          # ENABLE_EXTENDED_FLAGS on, ENABLE_QUICK_EDIT_MODE off
+        return bool(k32.SetConsoleMode(h, new))
+    except Exception:
+        return False
+
+
 def main():
+    if no_quick_edit():
+        print("[console] QuickEdit off: clicking in this window no longer pauses the camera")
     ap = argparse.ArgumentParser(description="Smart Lab security camera service")
     ap.add_argument("--source", default=os.environ.get("SECURITY_CAMERA_SOURCE", "0"),
                     help="rtsp://user:pass@ip:554/stream2, a webcam number, a video or image file")
