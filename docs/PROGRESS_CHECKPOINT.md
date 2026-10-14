@@ -36,6 +36,15 @@ directml-gpu1 (12 ms/crop)** - the busy-start-up fix verified live (the camera i
   touching. Decisions persisted in tools/security_vision/recordings/identity_log.jsonl (git-ignored).
 * Scripts: stop_all.bat / restart_all.bat.
 
+## Evening 2026-10-14 (deployed 19:14, owner approved)
+* Commits 72c247d (tracking/elimination/desk guess/monitor query) and 82a76b5 (FANUC live twin, two cameras).
+* Backend + frontend rebuilt and restarted (DB dump backups/smartlab_before_deploy_20261014-1912.dump);
+  /monitor live 97 -> 59 ms. Camera service restarted with the new tracker (camera powered off at lab close:
+  it reconnects by itself).
+* FANUC ER-4iA LIVE_VERIFIED read-only at 192.168.1.100 (twin moved with the pendant; ~3 samples/s).
+  To confirm: J2/J3 coupling by pose; DIAG-009 controller battery to replace.
+* Camera 2 (MC200) arrives tomorrow: docs/camera-identity/TWO_CAMERAS.md.
+
 ## Waiting for the owner / hardware
 * At the lab: start the camera window (loads re-ID fix + masking) -> check `re-id on directml-gpu1`.
 * UR5e: **LIVE_VERIFIED** - telemetry 48 Hz, J1-J6 mapping/direction, stale in 2.0 s on cable pull, auto-recovery (docs/LAB_TEST_2026-10-15.md). Next: camera.
