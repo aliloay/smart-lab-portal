@@ -1,6 +1,6 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-Latest checkpoint: 2026-10-14 07:20 (local). Branch `offline-router-door-photos`. Nothing pushed.
+Latest checkpoint: 2026-10-14 07:42 (local). Branch `offline-router-door-photos`. Nothing pushed.
 Resume = read this file, `git status`, `git log --oneline -6`, then continue at "Next".
 
 ## Done (with evidence)
@@ -9,7 +9,7 @@ Resume = read this file, `git status`, `git log --oneline -6`, then continue at 
 | UR5e collector: frozen RTDE data never shown live; NaN rejected (422, was 500); rtde_check.py | d4e5685; 22 robot tests; new tests fail on old code |
 | Camera: strict DirectML detector, engines in /metrics + portal chip | d4e5685; camera tests |
 | Camera re-ID fell to CPU at a busy start-up (seen live 03:00) -> re-measure before fallback, logged | d1aaa17; regression test fails on old code, passes now; 103 camera tests |
-| Camera password: not on the command line any more (env), masked in logs | uncommitted; test_masking.py |
+| Camera password: not on the command line any more (env), masked in logs | d1aaa17; test_masking.py; **live-checked 07:40: no process shows the camera address** |
 | Visual foundation (intro, /welcome, manifest, photo folder) | 5b47851; browser checks on dev and **live** |
 | n8n 01/03/05/07: owner versions recovered byte-exact, then option (b) repo = live (owner delegated) | docs/N8N_RECOVERY_2026-10-14.md; backups/n8n-recovery-20261014/ |
 | Portal deployed (owner approved) | /api/health ok; DB dump backups/smartlab_before_deploy_20261014-0158.dump |
@@ -17,6 +17,11 @@ Resume = read this file, `git status`, `git log --oneline -6`, then continue at 
 | Native knowledge graph (graph.py), used by investigate | 418 nodes / 2,186 edges, 2 s build; 4 graph tests; 40 knowledge tests; re-ID question now reads vision.py |
 | Test DB isolation: advisory lock, concurrent runs wait instead of deadlocking | two parallel runs: second waited, both 11 passed |
 | Claude Code toolkit audit | docs/knowledge-platform/CLAUDE_CODE_TOOLKIT_AUDIT.md (measured baseline: ~506 k tokens re-read per request) |
+
+## 07:33 laptop reboot - recovered
+`launch.bat` restarted everything: portal health ok, n8n 26 workflows / 0 drift, knowledge service up, Ollama
+models on CPU (0 VRAM). Camera service started with the new code: **detector directml-gpu1 (24 ms), re-ID
+directml-gpu1 (12 ms/crop)** - the busy-start-up fix verified live (the camera itself is at the lab: camera false).
 
 ## Running / pending
 * Full backend suite: 436 passed (434 + the 2 AI-local tests after pinning OLLAMA_CPU_ONLY in conftest).
