@@ -400,3 +400,78 @@ def calibrate_home(device_id: int, req: HomeIn, db: Session = Depends(get_db), a
                                                  "tolerance_deg": cal.tolerance_deg}))
     db.commit()
     return {"version": cal.version, "home_q": cal.home_q}
+
+
+# ---------------------------------------------------------------- control ---
+# Home / approved routines / software stop. Enforced here, not in the browser. Every adapter is
+# UNAVAILABLE until commissioned (app/services/robot_control.py, docs/ROBOT_CONTROL.md): nothing
+# below can send anything to a robot controller.
+from app.services import robot_control as rctl  # noqa: E402
+
+
+def _age_s(d: Device, now: datetime) -> Optional[float]:
+    seen = _utc(d.last_seen_at)
+    return None if seen is None else (now - seen).total_seconds()
+
+
+def _control_out(d: Device, now: datetime) -> dict:
+    model = (d.component_state or {}).get("model")
+    ad = rctl.adapter_for(model)
+    o = rctl.owner(d.id)
+    return {"device_id": d.id, "model": model, "adapter": ad.name, "controller_mode": ad.controller_mode(),
+            "capabilities": ad.capabilities(), "telemetry_age_s": _age_s(d, now),
+            "owner": None if o is None else {"user_id": o.user_id, "name": o.name,
+                                             "expires_in_s": round(o.until - time.time())}}
+
+
+@router.get("/{device_id}/control")
+def control_status(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    return _control_out(_robot(db, device_id), datetime.now(timezone.utc))
+
+
+@router.post("/{device_id}/control/request")
+def control_request(device_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    d = _robot(db, device_id)
+    ok, why, _o = rctl.request_control(d.id, user.id, user.full_name)
+    db.add(AuditLog(actor_user_id=user.id, action="ROBOT_CONTROL_REQUEST", entity_type="robot",
+                    entity_id=str(d.id), detail={"granted": ok, "reason": why}))
+    db.commit()
+    if not ok:
+        raise HTTPException(status.HTTP_409_CONFLICT, why)
+    return {**_control_out(d, datetime.now(timezone.utc)), "message": why}
+
+
+@router.post("/{device_id}/control/release")
+def control_release(device_id: int, force: bool = False, db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)):
+    d = _robot(db, device_id)
+    if force and user.role.value != "ADMIN":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only an administrator can take back control")
+    released = rctl.release_control(d.id, user.id, force=force)
+    db.add(AuditLog(actor_user_id=user.id, action="ROBOT_CONTROL_RELEASE", entity_type="robot",
+                    entity_id=str(d.id), detail={"released": released, "force": force}))
+    db.commit()
+    return {**_control_out(d, datetime.now(timezone.utc)), "released": released}
+
+
+class CommandIn(BaseModel):
+    action: str = Field(max_length=16)
+    routine: Optional[str] = Field(default=None, max_length=48)
+    command_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    confirmed: bool = False
+
+
+@router.post("/{device_id}/control/command")
+def control_command(device_id: int, req: CommandIn, db: Session = Depends(get_db),
+                    user: User = Depends(require_staff)):
+    d = _robot(db, device_id)
+    if req.action in ("home", "routine") and not req.confirmed:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A movement needs explicit confirmation")
+    now = datetime.now(timezone.utc)
+    r = rctl.submit(d.id, (d.component_state or {}).get("model"), user.id, req.action, req.routine,
+                    req.command_id, _age_s(d, now))
+    db.add(AuditLog(actor_user_id=user.id, action="ROBOT_COMMAND", entity_type="robot", entity_id=str(d.id),
+                    detail={"command_id": req.command_id, "action": req.action, "routine": req.routine,
+                            "result": r.status, "reason": r.reason}))
+    db.commit()
+    return r.out()

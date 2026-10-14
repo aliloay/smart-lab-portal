@@ -87,9 +87,24 @@ def test_home_is_calibrated_from_live_still_telemetry_and_versioned(client, db, 
 
 
 def test_no_endpoint_can_send_anything_to_a_robot():
+    """The only command route is /control/command, and the control code has no way to reach a
+    controller: no sockets, HTTP clients, RTDE control or dashboard calls (2026-10-14)."""
+    import inspect
     from app.main import app
-    paths = [r.path for r in app.routes if getattr(r, "path", "").startswith("/api/robots")]
-    assert not [p for p in paths if any(w in p for w in ("command", "move", "program", "write", "io"))]
+    from app.services import robot_control
+    # app.routes holds the mounted sub-app, not its paths (the old check here was always empty).
+    paths = [p for p in app.openapi()["paths"] if "/robots" in p]
+    assert len(paths) > 5
+    assert not [p for p in paths if set(p.split("/")) & {"move", "jog", "program", "write", "io", "servo"}]
+    assert [p for p in paths if "command" in p] == [p for p in paths if p.endswith("/robots/{device_id}/control/command")] and len([p for p in paths if "command" in p]) == 1
+    src = inspect.getsource(robot_control)
+    for bad in ("import socket", "httpx", "import requests", "RTDEControl", "rtde_control", "urllib", "30002"):
+        assert bad not in src, bad
+    # The only network code is the UR5e Dashboard client, reached only in live mode (off by default).
+    assert robot_control.MODE != "live"
+    from app.services import ur_dashboard
+    assert set(ur_dashboard.ALLOWED) == {"is in remote control", "robotmode", "safetystatus", "programState",
+                                         "get loaded program", "play", "stop"}
 
 
 # ---------------------------------------------------------------- fusion ---

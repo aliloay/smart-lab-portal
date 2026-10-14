@@ -243,6 +243,15 @@ export interface FaceSubmission {
 
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
 /** Automatic capture on the face server: samples taken from the door camera's own stream. */
+/** Portal control of one robot. Motion stays UNAVAILABLE until the controller is commissioned. */
+export interface RobotControl {
+  device_id: number; model: string | null; adapter: string; controller_mode: string
+  capabilities: { home: boolean; routines: string[]; stop: boolean; interface: string; unavailable_reason: string | null; home_program?: string }
+  telemetry_age_s: number | null
+  owner: { user_id: number; name: string; expires_in_s: number } | null
+}
+export interface RobotCommandResult { status: string; reason: string; command_id: string | null; action: string | null }
+
 export interface FaceAuto {
   active: boolean; name?: string; saved?: number; target?: number; samples?: number
   frames?: number; hint?: string; seconds?: number; first_sample_s?: number | null; ended?: string | null
@@ -1114,6 +1123,11 @@ export const api = {
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
   robots: () => request<Robot[]>('/robots'),
   robot: (id: number) => request<RobotDetail>(`/robots/${id}`),
+  robotControl: (id: number) => request<RobotControl>(`/robots/${id}/control`),
+  robotControlRequest: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/request`),
+  robotControlRelease: (id: number) => post<RobotControl & { released: boolean }>(`/robots/${id}/control/release`),
+  robotCommand: (id: number, body: { action: 'home' | 'routine' | 'stop'; routine?: string; command_id: string; confirmed: boolean }) =>
+    post<RobotCommandResult>(`/robots/${id}/control/command`, body),
   robotEvents: (id: number, limit = 100) => request<RobotEventRow[]>(`/robots/${id}/events?limit=${limit}`),
   robotMovements: (id: number, limit = 30) => request<RobotEventRow[]>(`/robots/${id}/movements?limit=${limit}`),
   robotMovement: (id: number, eventId: number) =>

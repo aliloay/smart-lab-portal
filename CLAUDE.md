@@ -4,7 +4,7 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 
 ## Never
 - Delete/reset/truncate the live `smartlab` DB; tests only on `smartlab_test` (conftest forces it).
-- Send anything that moves a robot (UR5e/FANUC are read-only, RTDE receive only).
+- Send anything that moves a robot. Control routes exist (docs/ROBOT_CONTROL.md) but every adapter stays UNAVAILABLE until the owner signs off a commissioning step; collectors stay read-only.
 - Open the door from anything but the Master ESP32; change door firmware, auth or credentials.
 - Edit/activate/deactivate live n8n workflows; push to GitHub; commit secrets, `.env`, `camera.env`, `robot.env`, photos of people.
 - Overwrite the owner's uncommitted work (`.env.example`, `frontend/e2e/command_center.mjs`, untracked files) - copy first.

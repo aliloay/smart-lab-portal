@@ -16,6 +16,7 @@ import { Chip, ErrorBanner, KV, PageHeader, Skeleton, Timeline, Tone } from '../
 import { deg, modelFor } from '../components/robot/kinematics'
 import { DemoBadge, FUSION, FusionChip, HomeChip, RobotStateChip, effective, useNow } from '../components/robot/robotLive'
 import Replay, { ReplayFrame } from '../components/robot/Replay'
+import RobotControlPanel from '../components/robot/RobotControlPanel'
 import { tipPosition, urdfFor } from '../components/robot/robotModels'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
@@ -122,6 +123,7 @@ export default function RobotDetail() {
           {replay && <span className="chip bg-violet-500/15 text-violet-200 border border-violet-400/40 font-bold">REPLAY</span>}
           {r.demo && <DemoBadge />}<RobotStateChip state={live.state} /><HomeChip home={r.home} state={live.state} /></div>} />
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      {<RobotControlPanel robotId={r.device_id} robotName={r.name} />}
       <div className="grid xl:grid-cols-[1fr_460px] gap-4 items-start">
         <div className="card overflow-hidden flex flex-col h-[min(640px,calc(100vh-180px))] min-h-[480px] xl:sticky xl:top-20">
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-2 border-b border-ink-700/60 text-[12.5px]">
