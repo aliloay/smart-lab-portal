@@ -16,6 +16,8 @@ firmware/face_server/models/*.onnx
 tools/security_vision/models/*.onnx
 # the camera's RTSP address holds its password
 tools/security_vision/camera.env
+tools/security_vision/camera*.env
+!tools/security_vision/camera*.env.example
 lbph_model.yml
 labels.txt
 recognition_log.csv

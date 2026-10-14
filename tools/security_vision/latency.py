@@ -85,6 +85,7 @@ class PipelineMetrics:
         self.frames_analysed = 0
         self.frames_skipped = 0
         self.reconnects = 0
+        self.open_failures = 0          # the stream could not be opened at all (camera off / wrong address)
         self._last_seq = None
         self._last_arrival = None
         self.lock = threading.Lock()
@@ -115,7 +116,7 @@ class PipelineMetrics:
             "uptime_s": round(time.time() - self.started),
             "capture": {"fps": self.input.per_s(), "gap_ms": self.gap_ms.summary(),
                         "read_ms": self.read_ms.summary(), "frames": self.frames_in,
-                        "reconnects": self.reconnects},
+                        "reconnects": self.reconnects, "open_failures": self.open_failures},
             "analysis": {"fps": self.analysis.per_s(), "frame_age_ms": self.age_at_analysis_ms.summary(0),
                          "detect_ms": self.detect_ms.summary(0), "track_ms": self.track_ms.summary(1),
                          "zones_ms": self.zones_ms.summary(1), "pass_ms": self.pass_ms.summary(0),

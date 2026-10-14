@@ -206,12 +206,17 @@ def test_busy_start_up_does_not_push_a_fast_gpu_to_the_cpu(monkeypatch):
     real = ort.InferenceSession
 
     class SlowAtFirst:
-        def __init__(self, s): self.s, self.n = s, 0
+        def __init__(self, s): self.s, self.n, self.out = s, 0, None
         def run(self, *a, **k):
+            # Tests the RETRY logic, not the GPU's speed: slow at first, then instant (the first
+            # real result reused) - a busy GPU (live camera running) no longer fails the test.
             self.n += 1
-            if self.n <= 10:                     # warm-up + the first timing: "busy laptop"
-                vision.time.sleep(0.03)
-            return self.s.run(*a, **k)
+            if self.n <= 10:
+                real_sleep(0.12 if False else 0.03)
+                if self.out is None:
+                    self.out = self.s.run(*a, **k)
+                return self.out
+            return self.out if self.out is not None else self.s.run(*a, **k)
         def __getattr__(self, name): return getattr(self.s, name)
 
     def wrapped(path, *a, providers=None, **k):

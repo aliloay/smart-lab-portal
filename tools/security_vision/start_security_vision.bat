@@ -1,26 +1,32 @@
 @echo off
-rem Smart Lab - security camera service (security_vision.py), port 5100.
-rem launch.bat opens this in its own window when camera.env exists; it can
-rem also be double-clicked on its own.
+rem Smart Lab - security camera service (security_vision.py).
+rem   start_security_vision.bat               camera 1: camera.env  (port 5100 unless PORT is set)
+rem   start_security_vision.bat camera2.env   camera 2: camera2.env (its own DEVICE, LAB, PORT, SOURCE)
+rem launch.bat opens one window per camera file that exists; each can also be double-clicked.
+rem One process per camera: a camera that fails or disconnects never stops the other one.
 setlocal EnableExtensions
 cd /d "%~dp0"
-title Smart Lab - Security camera
+set "CAMFILE=%~1"
+if "%CAMFILE%"=="" set "CAMFILE=camera.env"
 set "VIRTUAL_ENV="
-rem Only one camera service at a time: a second copy cannot take port 5100, keeps
-rem a second camera stream open and serves nothing (seen at the lab 2026-10-14).
-netstat -ano | findstr /r /c:"127.0.0.1:5100 .*LISTENING" >nul
-if not errorlevel 1 (
-  echo The security camera service is already running ^(port 5100^).
-  echo Close its window "Smart Lab - Security camera" first, then start this again.
-  pause & exit /b 1
-)
-if not exist camera.env (
-  echo No camera.env here yet: copy camera.env.example to camera.env and fill it in.
+set "PORT="
+if not exist "%CAMFILE%" (
+  echo No %CAMFILE% here yet: copy camera.env.example to %CAMFILE% and fill it in.
   pause & exit /b 1
 )
 rem Read the "set NAME=value" lines (Windows will not run a .env file with
 rem "call"). Values are taken literally: write the password's URL codes as-is.
-for /f "usebackq tokens=1,* delims= " %%a in ("camera.env") do if /i "%%a"=="set" set "%%b"
+for /f "usebackq tokens=1,* delims= " %%a in ("%CAMFILE%") do if /i "%%a"=="set" set "%%b"
+if "%PORT%"=="" set "PORT=5100"
+title Smart Lab - Security camera %DEVICE%
+rem Only one service per camera: a second copy cannot take the same port, keeps a
+rem second stream open and serves nothing (seen at the lab 2026-10-14).
+netstat -ano | findstr /r /c:"127.0.0.1:%PORT% .*LISTENING" >nul
+if not errorlevel 1 (
+  echo The security camera service for %DEVICE% is already running ^(port %PORT%^).
+  echo Close its window "Smart Lab - Security camera %DEVICE%" first, then start this again.
+  pause & exit /b 1
+)
 if not exist models\object_detection_yolox_2022nov.onnx (
   echo Downloading the person detector once ^(36 MB, needs internet^)...
   curl -L -o models\object_detection_yolox_2022nov.onnx https://github.com/opencv/opencv_zoo/raw/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx
@@ -40,14 +46,14 @@ rem is swapped for the DirectML build once. vision.py then picks the fastest.
   %PY% -m pip install onnxruntime-directml
 )
 %PY% -c "import openvino" >nul 2>&1 || %PY% -m pip install openvino
+rem The camera address (with its password) goes through the environment, not the command
+rem line, so it does not show in Task Manager / process lists (2026-10-14).
+set "SECURITY_CAMERA_SOURCE=%SOURCE%"
 rem The camera forgets its clock when it loses power: set it from this laptop.
 %PY% cam_clock.py --set 2>nul | findstr /b "LocalDateTime" || echo Camera clock not set ^(camera unreachable?^)
 echo Do NOT click inside this window: Windows pauses the program while text is
 echo selected. If the title says "Select", press Esc.
 echo.
-rem The camera address (with its password) goes through the environment, not the command
-rem line, so it does not show in Task Manager / process lists (2026-10-14).
-set "SECURITY_CAMERA_SOURCE=%SOURCE%"
-%PY% security_vision.py --lab %LAB% --device %DEVICE% --portal http://127.0.0.1:8000/api
+%PY% security_vision.py --lab %LAB% --device %DEVICE% --port %PORT% --portal http://127.0.0.1:8000/api
 echo.
 echo The security camera service has stopped.

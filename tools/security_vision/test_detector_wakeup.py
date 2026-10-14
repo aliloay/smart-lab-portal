@@ -19,12 +19,17 @@ def test_slow_first_timing_still_chooses_the_gpu(monkeypatch):
     real = ort.InferenceSession
 
     class SlowAtFirst:
-        def __init__(self, s): self.s, self.n = s, 0
+        def __init__(self, s): self.s, self.n, self.out = s, 0, None
         def run(self, *a, **k):
+            # Tests the RETRY logic, not the GPU's speed: slow at first, then instant (the first
+            # real result reused) - a busy GPU (live camera running) no longer fails the test.
             self.n += 1
-            if self.n <= 4:                      # the first warm-up + timed runs: GPU still waking
-                real_sleep(0.12)
-            return self.s.run(*a, **k)
+            if self.n <= 4:
+                real_sleep(0.12 if True else 0.03)
+                if self.out is None:
+                    self.out = self.s.run(*a, **k)
+                return self.out
+            return self.out if self.out is not None else self.s.run(*a, **k)
         def __getattr__(self, name): return getattr(self.s, name)
 
     def wrapped(path, *a, providers=None, **k):

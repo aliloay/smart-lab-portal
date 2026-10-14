@@ -3,7 +3,8 @@ Credentials come from the gitignored camera.env RTSP URL. The MC210 forgets
 its clock when it loses power, so start_security_vision.bat runs --set."""
 import base64, datetime, hashlib, os, re, sys, urllib.parse, urllib.request
 
-env = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera.env"), encoding="utf-8").read()
+# Which camera: the start script passes its source (camera.env or camera2.env); else camera.env.
+env = os.environ.get("SECURITY_CAMERA_SOURCE") or     open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "camera.env"), encoding="utf-8").read()
 url = re.search(r"rtsp://[^\s\"]+", env).group(0)
 u = urllib.parse.urlsplit(url)
 USER, PW, HOST = urllib.parse.unquote(u.username), urllib.parse.unquote(u.password), u.hostname

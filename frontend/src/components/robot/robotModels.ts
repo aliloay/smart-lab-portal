@@ -95,16 +95,16 @@ export const FANUC_LRMATE200ID: UrdfModel = {
   links: [1, 2, 3, 4, 5].map(i => ({ mesh: `/models/fanuc_lrmate200id/link_${i}.stl`, xyz: [0, 0, 0] as Vec3,
                                       rpy: [0, 0, 0] as Vec3, color: YELLOW }))
     .concat([{ mesh: '/models/fanuc_lrmate200id/link_6.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: BLACK }]),
-  // Gripper from the lab photos (2026-10-12): a small pneumatic parallel gripper
-  // (air lines from AIR1) - make/model NOT identified, so drawn as simple boxes
-  // of APPROXIMATE size, not a manufacturer model. Tool axis = +x of the flange.
+  // Gripper identified from its plate (owner's photos 2026-10-14): SCHUNK EGP 40-N-N-B, an
+  // ELECTRIC parallel gripper (24 V, 1 A, 140 N), on an aluminium adapter plate. Drawn as simple
+  // boxes in proportion to the photos - APPROXIMATE, not the manufacturer's CAD. Tool axis = +x.
   toolBoxes: [
-    { size: [0.012, 0.050, 0.050], xyz: [0.006, 0, 0], color: '#2b2b2b' },     // adapter plate
-    { size: [0.055, 0.040, 0.030], xyz: [0.040, 0, 0], color: '#b8bcc2' },     // gripper body
-    { size: [0.045, 0.008, 0.022], xyz: [0.090, 0.012, 0], color: '#d9dcdf' }, // finger
-    { size: [0.045, 0.008, 0.022], xyz: [0.090, -0.012, 0], color: '#d9dcdf' },
+    { size: [0.014, 0.060, 0.050], xyz: [0.007, 0, 0], color: '#c9ccd1' },     // adapter plate
+    { size: [0.075, 0.040, 0.032], xyz: [0.052, 0, 0], color: '#b8bcc2' },     // EGP 40 body
+    { size: [0.032, 0.010, 0.022], xyz: [0.105, 0.012, 0], color: '#6e7277' }, // finger
+    { size: [0.032, 0.010, 0.022], xyz: [0.105, -0.012, 0], color: '#6e7277' },
   ],
-  toolLabel: 'Pneumatic parallel gripper (model not identified - approximate)',
+  toolLabel: 'SCHUNK EGP 40-N-N-B electric gripper (drawn approximately)',
 }
 
 export function urdfFor(model: string | null | undefined): UrdfModel {

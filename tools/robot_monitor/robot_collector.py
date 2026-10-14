@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 import time
 from collections import deque
@@ -85,6 +86,70 @@ class URSource:
             self.rx.disconnect()
         except Exception:
             pass
+
+
+class FanucWebSource:
+    """FANUC R-30iB family, READ-ONLY: polls the controller's own web page /MD/CURPOS.DG
+    (current position) with HTTP GET only - no login, no POST, no other port, no KAREL, no
+    register / I/O / program access, nothing that can move the robot. The page format must be
+    CONFIRMED on the lab's controller with fanuc_probe.py first: parse_curpos() refuses to
+    report anything unless it finds all six joint values. Angles: degrees on the controller,
+    converted once here to the twin's radians (fanuc_joints.fanuc_to_urdf, J2/J3 coupling)."""
+    name = "FANUC_WEB"
+    PAGE = "/MD/CURPOS.DG"
+
+    def __init__(self, ip: str, hz: float, timeout: float = 1.0):
+        self.url, self.timeout = f"http://{ip}{self.PAGE}", timeout
+        self.http = requests.Session()
+        self.last_page = None
+
+    def read(self) -> Sample:
+        r = self.http.get(self.url, timeout=self.timeout)      # the ONLY request this source makes
+        r.raise_for_status()
+        joints, tcp = parse_curpos(r.text)
+        if joints is None:
+            raise ValueError("CURPOS page has no complete joint set (format not confirmed?)")
+        # q stays in the ROBOT's own convention (pendant values, in rad): motion events then say
+        # "J2 moved", not "J2 and J3" (live 2026-10-14). Only what the twin draws gets the J2/J3
+        # coupling - Collector.twin_q().
+        return Sample(t=time.time(), q=[math.radians(v) for v in joints], qd=None,
+                      tcp=None if tcp is None else [tcp[0] / 1000, tcp[1] / 1000, tcp[2] / 1000,
+                                                    *[math.radians(v) for v in tcp[3:]]],
+                      extra={"robot_mode": "FANUC_WEB", "joints_deg": [round(v, 3) for v in joints]})
+
+    def close(self):
+        self.http.close()
+
+
+_J = re.compile(r"\b(?:Joint\s+|J)([1-6])\s*[:=]\s*(-?\d+(?:\.\d+)?)")
+_C = re.compile(r"\b([XYZWPR])\s*[:=]\s*(-?\d+(?:\.\d+)?)")
+
+
+def parse_curpos(text: str):
+    """Joint angles (deg, J1..J6) and the world TCP (X Y Z mm, W P R deg) from a CURPOS page.
+    Takes the FIRST block after a line mentioning 'joint' that holds all six J values; returns
+    (None, None) otherwise - never a partial or guessed pose."""
+    joints = tcp = None
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if joints is None and "joint" in line.lower():
+            found = {}
+            for l2 in lines[i:i + 8]:
+                for k, v in _J.findall(l2):
+                    found.setdefault(int(k), float(v))
+            if len(found) == 6:
+                joints = [found[k] for k in range(1, 7)]
+        if tcp is None and "world" in line.lower():         # WORLD frame only (the page also lists the user frame)
+            found = {}
+            for l2 in lines[i:i + 8]:
+                for k, v in _C.findall(l2):
+                    found.setdefault(k, float(v))
+            if len(found) == 6:
+                tcp = [found[k] for k in "XYZWPR"]
+    for v in (joints or []):
+        if not math.isfinite(v) or abs(v) > 720:
+            return None, None
+    return joints, tcp
 
 
 class SimSource:
@@ -152,7 +217,11 @@ class Collector:
             if not a.robot:
                 sys.exit("--robot <IP> is required for --source ur")
             return URSource(a.robot, a.hz)
-        sys.exit("FANUC: run fanuc_probe.py first - the read-only interface is not chosen yet (see README).")
+        if a.source == "fanuc":
+            if not a.robot:
+                sys.exit("--robot <IP> is required for --source fanuc")
+            return FanucWebSource(a.robot, a.hz)
+        sys.exit(f"unknown source {a.source}")
 
     def post(self, path, body, timeout=2.0) -> bool:
         try:
@@ -172,15 +241,25 @@ class Collector:
             for _ in batch:
                 self.outbox.popleft()
 
+    def twin_q(self, q):
+        """Joint angles as the 3D twin draws them: FANUC J3 is measured from the horizontal, the
+        URDF's from the upper arm (J3 + J2, ROS-Industrial fanuc_driver) - TO BE CONFIRMED by pose."""
+        if q is None or self.args.source != "fanuc":
+            return q
+        q = list(q)
+        q[2] = q[2] + q[1]
+        return q
+
     def report(self, now: float):
         a = self.args
         rate = 0.0
         if len(self.rate_t) >= 2:
             rate = (len(self.rate_t) - 1) / max(1e-6, self.rate_t[-1] - self.rate_t[0])
         snap = self.motion.snapshot(now)
+        snap["q"] = self.twin_q(snap["q"])
         self.post("/robots/telemetry", {
             "device_uid": a.device, "lab_id": a.lab, "model": a.model, "source": self.source.name if self.source else
-            ("SIMULATION" if a.source == "sim" else "RTDE"), "name": a.name or a.device,
+            {"sim": "SIMULATION", "fanuc": FanucWebSource.name}.get(a.source, "RTDE"), "name": a.name or a.device,
             "rate_hz": round(rate, 1), "sent_at": now, **snap})
         if now - self.last_equipment >= 5.0:              # the older RUNNING/IDLE/FAULT report (n8n)
             ex = snap.get("extra") or {}
@@ -209,7 +288,8 @@ class Collector:
             if self.source is None:
                 try:
                     self.source = self.open_source()
-                    print("[robot] connected")
+                    # RTDE connects when the source is created; the FANUC web source only when a read works
+                    print("[robot] connected" if a.source != "fanuc" else f"[robot] polling {FanucWebSource.PAGE}")
                 except SystemExit:
                     raise
                 except Exception as e:
@@ -235,9 +315,11 @@ class Collector:
                     self.rate_t.append(now)
                     self._events(self.motion.update(s, arrival=now))
             except Exception as e:
-                print(f"[robot] read failed: {e.__class__.__name__}: {e} - reconnecting")
+                print(f"[robot] read failed: {e.__class__.__name__}: {str(e)[:160]} - reconnecting")
                 self.source.close()
                 self.source = None
+                if a.source == "fanuc":
+                    time.sleep(2.0)            # back off: a controller that is off / unreachable is not hammered
             self._events(self.motion.tick(now))
             if now - self.last_post >= a.report_s:
                 self.report(now)
@@ -248,7 +330,10 @@ class Collector:
     def _events(self, events):
         for e in events:
             d = e.as_dict()
-            d["source"] = "SIMULATION" if self.args.source == "sim" else "RTDE"
+            traj = (d.get("detail") or {}).get("trajectory")
+            if traj and self.args.source == "fanuc":          # replay draws the twin: its convention
+                traj["q"] = [[round(v, 4) for v in self.twin_q(q)] for q in traj["q"]]
+            d["source"] = {"sim": "SIMULATION", "fanuc": FanucWebSource.name}.get(self.args.source, "RTDE")
             shown = {k: v for k, v in e.detail.items() if k != "trajectory"}   # the path still goes to the portal
             if "trajectory" in e.detail:
                 shown["path_points"] = len(e.detail["trajectory"].get("t", []))
@@ -273,6 +358,8 @@ def main():
     ap.add_argument("--stale-s", type=float, default=2.0)
     ap.add_argument("--max-minutes", type=float, default=30.0, help="simulation only: stop after this long (0 = never)")
     args = ap.parse_args()
+    if args.source == "fanuc" and "--hz" not in sys.argv:
+        args.hz = 4.0                  # a web page, not a 500 Hz stream: 4 polls/s (measure on the controller)
     try:
         Collector(args).run()
     except KeyboardInterrupt:

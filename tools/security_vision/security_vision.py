@@ -134,6 +134,8 @@ class Camera:
                 continue
             if not cap.isOpened():
                 self.ok = False
+                if self.metrics:
+                    self.metrics.open_failures += 1
                 print(f"[camera] cannot open {self._safe()} - retrying in 3 s")
                 time.sleep(3)
                 continue
@@ -488,7 +490,7 @@ class Service:
                 "pass_ms_p50": g(m["analysis"]["pass_ms"], "p50"),
                 "detect_ms_p50": g(m["analysis"]["detect_ms"], "p50"),
                 "serve_age_ms_p50": g(m["serve"]["frame_age_ms"], "p50"),
-                "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"],
+                "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"], "open_failures": m["capture"].get("open_failures", 0),
                 # numbers only (the portal keeps numeric metrics): 1 = on the graphics card (DirectML)
                 "detector_gpu": int(self.detector_engine().startswith("directml")),
                 "reid_gpu": int(self.appearance.engine.startswith("directml"))}
@@ -496,13 +498,13 @@ class Service:
     def detector_engine(self) -> str:
         return str(getattr(self.detector, "engine", "unknown"))
 
-    IDENTITY_FILE = os.path.join(HERE, "recordings", "identity_log.jsonl")   # git-ignored folder: names
-
     def _persist_identity(self, rec: dict) -> None:
-        """Identity decisions survive a restart (the in-memory log was lost on every restart)."""
+        """Identity decisions survive a restart (the in-memory log was lost on every restart).
+        One file per camera (git-ignored folder: it holds names)."""
+        path = os.path.join(HERE, "recordings", f"identity_log_{self.args.device}.jsonl")
         try:
-            os.makedirs(os.path.dirname(self.IDENTITY_FILE), exist_ok=True)
-            with open(self.IDENTITY_FILE, "a", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, default=str) + "\n")
         except OSError:
             pass

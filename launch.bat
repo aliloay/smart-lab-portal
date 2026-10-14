@@ -58,6 +58,14 @@ if exist "%~dp0tools\security_vision\camera.env" (
   )
 )
 
+rem ---- Security camera 2 (optional): its own window and process once
+rem tools\security_vision\camera2.env exists (the start script refuses a second copy) ----
+if exist "%~dp0tools\security_vision\camera2.env" (
+  tasklist /v /fi "WINDOWTITLE eq Smart Lab - Security camera SECCAM_LAB02*" | findstr /i "SECCAM_LAB02" >nul || (
+    start "Smart Lab - Security camera 2" cmd /k call "%~dp0tools\security_vision\start_security_vision.bat" camera2.env
+  )
+)
+
 rem ---- UR5e monitor (optional, read-only): once tools\robot_monitor\robot.env
 rem has the robot's IP. It retries by itself, so the robot shows ONLINE as soon
 rem as it is on the lab LAN. ---------------------------------------------------
@@ -65,6 +73,15 @@ if exist "%~dp0tools\robot_monitor\robot.env" (
   findstr /r /c:"^UR5E_IP=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
     tasklist /v /fi "WINDOWTITLE eq Smart Lab - UR5e monitor*" | findstr /i "UR5e" >nul || (
       start "Smart Lab - UR5e monitor" cmd /k call "%~dp0tools\robot_monitor\start_ur5e_monitor.bat"
+    )
+  )
+)
+
+rem ---- FANUC monitor (optional, read-only): once robot.env has FANUC_IP ----------
+if exist "%~dp0tools\robot_monitor\robot.env" (
+  findstr /r /c:"^FANUC_IP=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
+    tasklist /v /fi "WINDOWTITLE eq Smart Lab - FANUC monitor*" | findstr /i "FANUC" >nul || (
+      start "Smart Lab - FANUC monitor" cmd /k call "%~dp0tools\robot_monitor\start_fanuc_monitor.bat"
     )
   )
 )
