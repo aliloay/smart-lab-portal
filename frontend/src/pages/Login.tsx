@@ -1,25 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { requestIntro } from '../components/WelcomeIntro'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  ArrowRight, Fingerprint, UserPlus, QrCode, ScanFace, ShieldCheck, Lock, Eye, EyeOff,
-} from 'lucide-react'
+import { ArrowRight, Bot, Cpu, Eye, EyeOff, Lock, ShieldCheck, UserPlus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { api } from '../lib/api'
 import { ErrorBanner, Notice } from '../components/ui'
 import { InstitutionLogo, SmartLabMark, Wordmark } from '../components/Brand'
-import { AccessFlow, Bloom, GridField, NodeField, RoboticArm, SystemBadge } from '../components/visual'
-
-const FLOW = [
-  { icon: <QrCode size={18} />, title: 'QR code or RFID card',
-    detail: 'Step 1 identifies you and your booking.' },
-  { icon: <span className="flex -space-x-1"><Fingerprint size={16} /><ScanFace size={16} /></span>,
-    title: 'Fingerprint or face',
-    detail: 'Step 2 must match the identity from step 1.' },
-  { icon: <ShieldCheck size={18} />, title: 'Authorized access',
-    detail: 'Only then does the door controller unlock.' },
-]
+import { GridField } from '../components/visual'
 
 export default function Login() {
   const { login } = useAuth()
@@ -30,7 +17,6 @@ export default function Login() {
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [portalUp, setPortalUp] = useState<boolean | null>(null)
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [signupCfg, setSignupCfg] = useState<{ enabled: boolean; email_domains: string[]; requires_approval: boolean } | null>(null)
   const [fullName, setFullName] = useState('')
@@ -40,13 +26,6 @@ export default function Login() {
 
   useEffect(() => { api.signupConfig().then(setSignupCfg).catch(() => setSignupCfg(null)) }, [])
   const signingUp = mode === 'signup'
-
-  // A real check, not a decorative "SYSTEM ONLINE" label.
-  useEffect(() => {
-    fetch('/api/health').then(r => r.json())
-      .then(b => setPortalUp(b.status === 'ok'))
-      .catch(() => setPortalUp(false))
-  }, [])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -74,10 +53,12 @@ export default function Login() {
         }
       }
       await login(emailNow.trim().toLowerCase(), pwNow)
-      requestIntro()                     // cosmetic welcome, after a successful sign-in only
       const next = params.get('next')
       // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
-      const home = ['8080', '8443'].includes(window.location.port) ? '/command' : '/'
+      // First sign-in on this browser: the /welcome story (stays until Skip / Enter Dashboard).
+      let first = false
+      try { first = !localStorage.getItem(`smartlab.welcomed.${emailNow.trim().toLowerCase()}`) } catch { /* ignore */ }
+      const home = ['8080', '8443'].includes(window.location.port) ? '/command' : first ? '/welcome' : '/'
       nav(next && next.startsWith('/') && !next.startsWith('//') ? next : home, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
@@ -86,60 +67,46 @@ export default function Login() {
     }
   }
 
-  const badge = portalUp === null ? { t: 'CHECKING PORTAL', tone: 'idle' as const }
-    : portalUp ? { t: 'PORTAL ONLINE', tone: 'ok' as const }
-    : { t: 'PORTAL UNREACHABLE', tone: 'warn' as const }
-
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[1.15fr_1fr]">
       {/* ------------------------------------------------------ identity */}
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden
-                        p-12 border-r border-ink-600/60 bg-ink-900/60">
-        <GridField className="!opacity-80" />
-        <Bloom />
-        <Bloom tone="teal" className="!left-auto !right-0 !top-auto !bottom-0" />
-        <NodeField className="absolute inset-0 w-full h-full opacity-60" />
-        <RoboticArm className="absolute -right-10 bottom-0 w-[500px] h-auto opacity-80" />
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 border-r border-ink-600/60 bg-ink-950">
+        {/* The lab's own robots (photos), cross-faded, under a navy gradient. Decorative only. */}
+        <img src="/equipment/our-ur5e.jpg" alt="" aria-hidden decoding="async"
+             className="absolute inset-y-0 left-0 w-[62%] h-full object-cover opacity-55 [mask-image:linear-gradient(90deg,#000_55%,transparent)]" />
+        <img src="/equipment/our-fanuc.jpg" alt="" aria-hidden decoding="async"
+             className="absolute inset-y-0 right-0 w-[58%] h-full object-cover opacity-45 [mask-image:linear-gradient(270deg,#000_50%,transparent)]" />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/75 to-ink-950/40" />
+        <div aria-hidden className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_80%,rgba(34,211,238,.18),transparent_55%),radial-gradient(ellipse_at_85%_20%,rgba(251,191,36,.10),transparent_50%)]" />
+        <svg aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path d="M-5 78 C 25 60, 45 72, 70 48 S 100 30, 108 22" fill="none" stroke="#22d3ee" strokeOpacity=".55" strokeWidth=".25" strokeDasharray="1 2.2" className="login-trail" />
+          <path d="M-5 92 C 30 80, 55 88, 80 66 S 100 55, 108 50" fill="none" stroke="#fbbf24" strokeOpacity=".4" strokeWidth=".2" strokeDasharray="1 2.6" className="login-trail login-trail-slow" />
+          {[[18, 70], [44, 64], [70, 48], [86, 35]].map(([x, y]) => <circle key={x} cx={x} cy={y} r=".55" fill="#67e8f9" className="login-node" />)}
+        </svg>
+        <style>{`.login-trail{animation:lt 6s linear infinite}.login-trail-slow{animation-duration:9s}
+          .login-node{animation:ln 3.2s ease-in-out infinite}@keyframes lt{to{stroke-dashoffset:-32}}
+          @keyframes ln{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.login-trail,.login-node{animation:none}}`}</style>
 
         <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
-            <SmartLabMark size={46} animated />
-            <Wordmark />
-          </div>
-          <InstitutionLogo className="!h-12 xl:!h-14" />
+          <div className="flex items-center gap-4"><SmartLabMark size={60} animated /><Wordmark /></div>
+          <span className="rounded-xl bg-white/90 px-3 py-1.5 shadow-lg shadow-black/30"><InstitutionLogo className="!h-10 xl:!h-11" /></span>
         </div>
 
-        <div className="relative max-w-lg">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: .45 }}>
-            <div className="eyebrow">German International University · Cairo</div>
-            <h1 className="mt-4 font-display text-[46px] leading-[1.02] font-semibold
-                           tracking-tight text-white">
-              SMART LAB
-              <span className="block mt-2 text-[26px] leading-tight font-medium
-                               bg-gradient-to-r from-accent-200 via-signal-300 to-teal-300
-                               bg-clip-text text-transparent">
-                Intelligent Research Laboratory
-              </span>
-            </h1>
-            <p className="mt-5 text-[16px] text-slate-300 leading-relaxed">
-              Connected laboratories. Secure access. Smarter research.
-            </p>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: .15, duration: .45 }}
-                      className="mt-9 card !bg-ink-850/80 p-5 max-w-sm">
-            <div className="label mb-4">How entry works</div>
-            <AccessFlow steps={FLOW} />
-          </motion.div>
-        </div>
-
-        <div className="relative flex flex-wrap gap-2">
-          <SystemBadge label={badge.t} tone={badge.tone} />
-          <SystemBadge label="TWO-FACTOR ACCESS" tone="idle" />
-          <SystemBadge label="GIU · CAIRO" tone="idle" />
-        </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }}
+                    className="relative max-w-xl">
+          <div className="eyebrow">GERMAN INTERNATIONAL UNIVERSITY · CAIRO</div>
+          <h1 className="mt-4 font-display text-[50px] xl:text-[58px] leading-[1.02] font-semibold tracking-tight text-white">
+            One lab.<span className="block bg-gradient-to-r from-accent-200 via-cyan-300 to-amber-200 bg-clip-text text-transparent">
+              Every system connected.</span></h1>
+          <p className="mt-5 text-[16.5px] text-slate-300 leading-relaxed max-w-md">
+            Where robotics, intelligent automation, and connected research work together.</p>
+          <ul className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-[11.5px] font-semibold tracking-[.14em] text-slate-200">
+            {[[<Bot size={15} />, 'ROBOTICS & DIGITAL TWINS'], [<Cpu size={15} />, 'INTELLIGENT AUTOMATION'],
+              [<ShieldCheck size={15} />, 'SECURE LAB ACCESS']].map(([icon, t]) => (
+              <li key={t as string} className="flex items-center gap-2"><span className="text-cyan-300">{icon}</span>{t}</li>))}
+          </ul>
+        </motion.div>
+        <div />
       </aside>
 
       {/* ------------------------------------------------------- sign in */}
@@ -147,12 +114,9 @@ export default function Login() {
         <GridField className="lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: .35 }} className="relative w-full max-w-[400px]">
-          <div className="lg:hidden mb-8 space-y-6">
-            <InstitutionLogo className="!h-11" />
-            <div className="flex items-center gap-3">
-              <SmartLabMark size={40} animated />
-              <Wordmark />
-            </div>
+          <div className="lg:hidden mb-6 flex flex-col items-start gap-4">
+            <InstitutionLogo className="!h-9" />
+            <div className="flex items-center gap-2.5"><SmartLabMark size={34} animated /><Wordmark /></div>
           </div>
 
           <div className="card p-7 sm:p-8">
@@ -252,10 +216,6 @@ export default function Login() {
             door — entry also needs your fingerprint or face, enrolled by lab staff.
           </p>
 
-          <div className="lg:hidden mt-8 card p-5">
-            <div className="label mb-4">How entry works</div>
-            <AccessFlow steps={FLOW} />
-          </div>
         </motion.div>
       </main>
     </div>

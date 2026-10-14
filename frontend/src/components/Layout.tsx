@@ -49,7 +49,6 @@ const STUDENT_NAV: Section[] = [
   { title: 'Laboratory', items: [
     { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
     { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
     { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
   ]},
@@ -65,7 +64,6 @@ const STAFF_NAV: Section[] = [
   { title: 'Operations', items: [
     { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
     { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
     { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
@@ -76,7 +74,7 @@ const STAFF_NAV: Section[] = [
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
     { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
-    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
     { to: '/admin/users', label: 'Users', icon: <Users size={17} /> },
@@ -87,7 +85,6 @@ const ADMIN_NAV: Section[] = [
   { title: 'Operations', items: [
     { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/welcome', label: 'Smart Lab home', icon: <Sparkles size={17} /> },
   ]},
   { title: 'Access & audit', items: [
     { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
@@ -101,7 +98,7 @@ const ADMIN_NAV: Section[] = [
   { title: 'Facility', items: [
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
     { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
-    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
   ]},
@@ -274,7 +271,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const sidebar = (
     <>
       <div className="relative mx-3 px-2 pt-5 pb-4 mb-2 border-b border-ink-600/60">
-        <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab home">
+        <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab - dashboard" title="Dashboard">
           <SmartLabMark size={38} animated />
           <Wordmark tight />
         </Link>
@@ -348,7 +345,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 className="p-2 -ml-2 text-slate-300 hover:text-white">
           <Menu size={20} />
         </button>
-        <Link to="/" className="flex items-center gap-2 flex-1 min-w-0">
+        <Link to="/" className="flex items-center gap-2 flex-1 min-w-0" aria-label="Smart Lab - dashboard" title="Dashboard">
           <SmartLabMark size={28} />
           <Wordmark compact />
         </Link>

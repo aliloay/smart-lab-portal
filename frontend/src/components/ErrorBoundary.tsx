@@ -23,6 +23,16 @@ export default class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
 
   static getDerivedStateFromError(error: Error): State {
+    // After a deploy, an open tab still asks for the old page files ("Failed to fetch dynamically
+    // imported module"): load the new version once instead of showing an error.
+    if (/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(String(error?.message))) {
+      try {
+        if (sessionStorage.getItem('slp.reloadedForUpdate') !== location.pathname) {
+          sessionStorage.setItem('slp.reloadedForUpdate', location.pathname)
+          location.reload()
+        }
+      } catch { /* storage blocked: show the error as before */ }
+    }
     return { error }
   }
 

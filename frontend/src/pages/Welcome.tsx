@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { SmartLabMark } from '../components/Brand'
 import { ArrowDown, ArrowRight, Bot, Building2, Cctv, ChevronRight, ImageOff, LayoutDashboard, Radar, Thermometer } from 'lucide-react'
 import { api, Lab } from '../lib/api'
 import { firstName, isStaff, useAuth } from '../lib/auth'
@@ -65,8 +66,29 @@ function EquipmentDetail({ item, onClose }: { item: EquipmentVisual | null; onCl
     </Modal>)
 }
 
+const STORY = [
+  { eyebrow: 'Robotics', title: 'Two robots, two live digital twins.', img: '/equipment/our-ur5e.jpg',
+    alt: "The lab's UR5e robot on its frame", icon: <Bot size={56} />,
+    text: 'The inverted UR5e and the FANUC ER-4iA report their joints to the portal, where 3D twins follow every movement - read-only, so watching never moves a robot.',
+    tags: ['UR5e · RTDE', 'FANUC ER-4iA', 'Joint telemetry', 'Movement history'] },
+  { eyebrow: 'Intelligent laboratory', title: 'Sensors, equipment and workstations on one network.', img: '/equipment/our-pcs.jpg',
+    alt: 'The robotics lab workstations', icon: <Thermometer size={56} />,
+    text: 'An environment node watches temperature, humidity, smoke, flame and motion; bins, equipment and lab PCs report to the same portal.',
+    tags: ['Environment', 'Smart bins', 'Equipment', 'Lab PCs'] },
+  { eyebrow: 'Computer vision & security', title: 'A room that knows who is inside.', img: null,
+    alt: '', icon: <Cctv size={56} />,
+    text: 'The security camera finds people and desks, and the door asks for two factors - a QR code or card, then a fingerprint or face - before the lab opens.',
+    tags: ['People detection', 'Two-factor door', 'Face ID', 'Access log'] },
+  { eyebrow: 'Research workflow', title: 'From booking to results.', img: '/equipment/our-fanuc.jpg',
+    alt: "The lab's FANUC robot", icon: <Building2 size={56} />,
+    text: 'Book a lab, borrow equipment, follow the monitoring and keep your experiments - one portal from the first booking to the last report.',
+    tags: ['Bookings', 'Equipment', 'Monitoring', 'Reports'] },
+]
+
 export default function Welcome() {
   const { user } = useAuth()
+  // Seen once: from now on, signing in goes straight to the dashboard (Login.tsx).
+  useEffect(() => { try { if (user?.email) localStorage.setItem(`smartlab.welcomed.${user.email.toLowerCase()}`, '1') } catch { /* ignore */ } }, [user?.email])
   const staff = isStaff(user)
   const [labs, setLabs] = useState<Lab[] | null>(null)
   const [open, setOpen] = useState<EquipmentVisual | null>(null)
@@ -88,13 +110,15 @@ export default function Welcome() {
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,15,26,.25)_0%,rgba(9,15,26,.55)_45%,rgba(9,15,26,.94)_100%)]" />
         <div className="absolute inset-0 welcome-grid" aria-hidden />
         <div className="relative p-6 sm:p-10 max-w-3xl">
-          <Reveal as="p" className="text-[11px] tracking-[.32em] text-cyan-300/90 font-semibold">SMART LAB · GIU</Reveal>
-          <Reveal as="h1" delay={80} className="mt-3 font-display text-4xl sm:text-6xl font-semibold text-white leading-[1.05]">
-            {user?.full_name ? `Welcome, ${firstName(user.full_name)}.` : 'Welcome.'}</Reveal>
-          <Reveal as="p" delay={160} className="mt-4 text-[15px] sm:text-base text-slate-300 max-w-xl">
-            A connected research environment: robots with live digital twins, a camera that understands the room,
-            and every door, bin and sensor reporting to one place.</Reveal>
-          <Reveal delay={240} className="mt-6 flex flex-wrap gap-3">
+          <Link to="/" className="fixed top-24 right-6 z-30 btn-ghost btn-sm bg-ink-900/80 backdrop-blur">Skip <ChevronRight size={14} /> Dashboard</Link>
+          <Reveal replay className="mb-4"><SmartLabMark size={56} animated /></Reveal>
+          <Reveal replay as="p" className="text-[11px] tracking-[.32em] text-cyan-300/90 font-semibold">
+            SMART LAB · GIU{user?.full_name ? ` · WELCOME, ${firstName(user.full_name).toUpperCase()}` : ''}</Reveal>
+          <Reveal replay as="h1" delay={80} className="mt-3 font-display text-4xl sm:text-6xl font-semibold text-white leading-[1.05]">
+            One lab.<span className="block text-cyan-200">Every system connected.</span></Reveal>
+          <Reveal replay as="p" delay={160} className="mt-4 text-[15px] sm:text-base text-slate-300 max-w-xl">
+            Where robotics, intelligent automation, and connected research work together.</Reveal>
+          <Reveal replay delay={240} className="mt-6 flex flex-wrap gap-3">
             <Link to="/" className="btn-primary"><LayoutDashboard size={16} /> Enter the dashboard</Link>
             <a href="#discover" className="btn-ghost">Discover the lab <ArrowDown size={15} /></a>
           </Reveal>
@@ -104,15 +128,32 @@ export default function Welcome() {
         </div>
       </section>
 
+      {/* The story - real photos of our lab; nothing here shows a live value. */}
+      {STORY.map((c, k) => (
+        <section key={c.title} className={`pt-20 grid gap-8 items-center lg:grid-cols-2 ${k % 2 ? 'lg:[&>*:first-child]:order-2' : ''}`}>
+          <Reveal replay className="rounded-3xl overflow-hidden border border-white/10 aspect-[16/10] bg-ink-900">
+            {c.img ? <img src={c.img} alt={c.alt} loading="lazy" decoding="async" className="w-full h-full object-cover story-img" />
+                   : <div className="w-full h-full grid place-items-center text-cyan-300/70">{c.icon}</div>}
+          </Reveal>
+          <div>
+            <Reveal replay as="p" className="eyebrow-line">{c.eyebrow}</Reveal>
+            <Reveal replay as="h2" delay={60} className="font-display text-2xl sm:text-4xl text-white font-semibold leading-tight">{c.title}</Reveal>
+            <Reveal replay as="p" delay={120} className="mt-4 text-[15px] text-slate-300 leading-relaxed max-w-lg">{c.text}</Reveal>
+            <Reveal replay delay={180} className="mt-5 flex flex-wrap gap-2">
+              {c.tags.map(t => <span key={t} className="mono text-[11px] px-2 py-1 rounded-md border border-cyan-400/25 text-cyan-100">{t}</span>)}
+            </Reveal>
+          </div>
+        </section>))}
+
       {/* 2. Discover the laboratory */}
       <section id="discover" className="pt-16 scroll-mt-4">
-        <Reveal><p className="eyebrow-line">Discover</p>
+        <Reveal replay><p className="eyebrow-line">Discover</p>
           <h2 className="font-display text-2xl sm:text-3xl text-white font-semibold">The equipment</h2></Reveal>
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {EQUIPMENT.map((e, k) => {
             const h = heroOf(e)
             return (
-              <Reveal key={e.id} delay={(k % 3) * 70}>
+              <Reveal replay key={e.id} delay={(k % 3) * 70}>
                 <button type="button" onClick={() => setOpen(e)}
                         className="group w-full text-left rounded-2xl overflow-hidden border border-white/10 bg-ink-900/40 hover:border-cyan-400/40 transition-colors">
                   <div className="aspect-[4/3] overflow-hidden">
@@ -135,7 +176,7 @@ export default function Welcome() {
 
       {/* 3. Explore the labs */}
       <section className="pt-16">
-        <Reveal><p className="eyebrow-line">Explore</p>
+        <Reveal replay><p className="eyebrow-line">Explore</p>
           <h2 className="font-display text-2xl sm:text-3xl text-white font-semibold">The laboratories</h2></Reveal>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {labs === null && [0, 1].map(i => <div key={i} className="h-44 rounded-2xl bg-ink-800/50 animate-pulse" />)}
@@ -143,7 +184,7 @@ export default function Welcome() {
             const v = LABS[l.code]
             const items = (BY_LAB[l.code] ?? []).slice(0, 3)
             return (
-              <Reveal key={l.id} delay={(k % 2) * 80}>
+              <Reveal replay key={l.id} delay={(k % 2) * 80}>
                 <Link to={`/labs/${l.id}`} className="group grid grid-cols-[38%_1fr] rounded-2xl overflow-hidden border border-white/10 bg-ink-900/40 hover:border-cyan-400/40 transition-colors min-h-[11rem]">
                   {v?.hero ? <Img img={v.hero} className="w-full h-full" /> : <Pending className="w-full h-full" />}
                   <div className="p-4 min-w-0">
@@ -164,12 +205,12 @@ export default function Welcome() {
 
       {/* 4. Live intelligence: links to the real live pages - no values shown here */}
       <section className="pt-16 pb-6">
-        <Reveal><p className="eyebrow-line">Live</p>
+        <Reveal replay><p className="eyebrow-line">Live</p>
           <h2 className="font-display text-2xl sm:text-3xl text-white font-semibold">The lab, as it is right now</h2>
           <p className="mt-2 text-[13px] text-slate-400 max-w-2xl">Live readings stay on their own pages, where they are measured and labelled.</p></Reveal>
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {live.map((x, k) => (
-            <Reveal key={x.to} delay={k * 60}>
+            <Reveal replay key={x.to} delay={k * 60}>
               <Link to={x.to} className="flex items-start gap-3 rounded-2xl border border-white/10 bg-ink-900/40 p-4 hover:border-cyan-400/40 transition-colors h-full">
                 <span className="text-cyan-300 mt-0.5">{x.icon}</span>
                 <span><span className="block text-[14px] font-semibold text-white">{x.label}</span>
@@ -177,8 +218,12 @@ export default function Welcome() {
               </Link>
             </Reveal>))}
         </div>
-        <Reveal className="mt-8 flex flex-wrap gap-3">
-          <Link to="/" className="btn-primary"><LayoutDashboard size={16} /> Dashboard</Link>
+        <Reveal replay className="mt-14 rounded-3xl border border-cyan-400/25 bg-gradient-to-br from-cyan-500/10 to-amber-400/5 p-8 sm:p-12 text-center">
+          <h2 className="font-display text-2xl sm:text-4xl text-white font-semibold">Ready when you are.</h2>
+          <p className="mt-3 text-slate-300">Bookings, equipment, monitoring and the robots - all in the portal.</p>
+          <Link to="/" className="btn-primary mt-6 inline-flex !px-6 !py-3"><LayoutDashboard size={16} /> Enter Dashboard</Link>
+        </Reveal>
+        <Reveal replay className="mt-8 flex flex-wrap gap-3">
           <Link to="/labs" className="btn-ghost"><Building2 size={16} /> All laboratories</Link>
         </Reveal>
       </section>

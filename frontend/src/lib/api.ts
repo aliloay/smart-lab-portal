@@ -895,13 +895,17 @@ export type PcMode = 'NORMAL' | 'EXAM' | 'MAINTENANCE' | 'LOCKED'
 
 const TOKEN_KEY = 'slp.token'
 
+// Owner's choice 2026-10-14: a page opened in a NEW TAB (e.g. the IoT dashboard) must be signed in
+// at once, so the token lives in localStorage (shared by the browser's tabs). Sign out clears it
+// for every tab; the token still expires on the server as before.
 export function getToken(): string | null {
-  try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null }
+  try { return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY) } catch { return null }
 }
 export function setToken(t: string | null) {
   try {
-    if (t) sessionStorage.setItem(TOKEN_KEY, t)
-    else sessionStorage.removeItem(TOKEN_KEY)
+    if (t) localStorage.setItem(TOKEN_KEY, t)
+    else localStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(TOKEN_KEY)
   } catch { /* private mode - the in-memory session still works */ }
 }
 
