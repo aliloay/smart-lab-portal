@@ -1,6 +1,6 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-Latest checkpoint: 2026-10-14 ~03:20 (local). Branch `offline-router-door-photos`. Nothing pushed.
+Latest checkpoint: 2026-10-14 07:20 (local). Branch `offline-router-door-photos`. Nothing pushed.
 Resume = read this file, `git status`, `git log --oneline -6`, then continue at "Next".
 
 ## Done (with evidence)
@@ -19,9 +19,8 @@ Resume = read this file, `git status`, `git log --oneline -6`, then continue at 
 | Claude Code toolkit audit | docs/knowledge-platform/CLAUDE_CODE_TOOLKIT_AUDIT.md (measured baseline: ~506 k tokens re-read per request) |
 
 ## Running / pending
-* Full backend suite (serial, current code, one-off container) - result goes in the final report.
-* Knowledge service runs as Claude's background task (127.0.0.1:5199). After Claude's session ends,
-  start it again with `launch.bat` (window "Smart Lab - Knowledge").
+* Full backend suite: 436 passed (434 + the 2 AI-local tests after pinning OLLAMA_CPU_ONLY in conftest).
+* Knowledge service runs in its own window "Smart Lab - Knowledge" (current code, restarted 07:13).
 
 ## Waiting for the owner / hardware
 * At the lab: start the camera window (loads re-ID fix + masking) -> check `re-id on directml-gpu1`.
