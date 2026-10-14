@@ -50,3 +50,16 @@ directml-gpu1 (12 ms/crop)** - the busy-start-up fix verified live (the camera i
 * UR5e: **LIVE_VERIFIED** - telemetry 48 Hz, J1-J6 mapping/direction, stale in 2.0 s on cable pull, auto-recovery (docs/LAB_TEST_2026-10-15.md). Next: camera.
 * Photos -> frontend/public/lab + labVisuals.ts.
 * Optional (owner): CodeBurn `npx` run, Ponytail lite trial; TikTok effect needs a screen recording. All work committed (c4390ae), nothing pushed.
+
+## 2026-10-14 night - performance mission (uncommitted, awaiting approval)
+- Load test: tools/perf/load_simlab.py + ws_clients.mjs, guide docs/perf/LOAD_TEST.md (isolated DB smartlab_loadtest_test, port 8100; container removed after the run).
+- Fixed: Command Center reloaded all 8 endpoints on every live status message -> safety msgs 400 ms as before, status msgs at most every 3 s (13.5 -> 9.4 req/s, /monitor 0.8 -> 0.4/s). tsc + build OK; NOT deployed.
+- No backend/DB bottleneck: /monitor 22 ms idle; under load the time is host CPU contention from cameras.
+- Report: docs/reports/SmartLab_Status_Report_2026-10-14.pdf. Suites: robot 32, camera 148 passed.
+- Next mission: ESP32-CAM face enrollment / door recognition speed (flash of the ESP32-CAM authorised by the owner).
+
+## 2026-10-14 late - ESP32-CAM face speed mission (uncommitted, awaiting approval)
+- Automatic enrolment: face server POST/GET/DELETE /enroll/auto (device key) saves steady, sharp, new-looking frames from the door camera's /analyze stream; refuses a face that is clearly another enrolled person. Portal: /users/{id}/face/auto; preview from the face server's frame (camera /snapshot only as fallback). /enroll: 1 YuNet pass instead of 3.
+- Door decision logic, threshold 0.363, master/RFID/fingerprint untouched. Face server must be RESTARTED (approval) for this to go live.
+- Firmware: /enroll upload setNoDelay + timing (source only). Core 3.3.12 builds break the camera (frame buffer malloc failed, PSRAM free) -> board restored from backups/face-speed-20261014/esp32cam_flash_before.bin; camera boots OK. Needs the earlier 3.3.x core (install = approval).
+- Laptop Ethernet to Smart_Lab was unplugged: no live camera<->laptop test yet.
