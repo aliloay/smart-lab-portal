@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import hmac
+import copy
 import json
 import os
 import re
@@ -709,7 +710,14 @@ class Service:
         if frame is None or time.time() - at > 5:
             return None
         if self.equipment_detector is None:
-            self.equipment_detector = make_detector(self.args.model, conf=0.15, size=640, threads=self.args.threads)
+            if getattr(self.detector, "size", None) == 640:
+                # Same model and input size as the live detector: share its GPU session with a lower
+                # threshold. A second DirectML model next to the running one crashed the NVIDIA driver
+                # (nvwgf2umx.dll access violation, 4x at the lab 2026-10-14).
+                self.equipment_detector = copy.copy(self.detector)
+                self.equipment_detector.conf = 0.15
+            else:
+                self.equipment_detector = make_detector(self.args.model, conf=0.15, size=640, threads=self.args.threads)
         h, w = frame.shape[:2]
         found = find_equipment(self.equipment_detector, frame, lock=self.det_lock)
         items = [{"kind": EQUIPMENT_CLASSES[d.cls], "score": round(d.score, 2), "x": round(d.box[0] / w, 4),

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional
@@ -35,6 +36,18 @@ SHOWN = {0: "person", 62: "monitor", 63: "laptop", 66: "keyboard", 64: "mouse"}
 
 
 # --------------------------------------------------------------- detector ---
+# ONE GPU user at a time. The NVIDIA driver (nvwgf2umx.dll) crashed python with an access violation
+# when a second DirectML model was created/run while analysis used the GPU (4 crashes at the lab
+# 2026-10-14; reproduced: 2 of 2 runs crash without this lock). Every DirectML session creation and
+# run below takes it. Re-entrant; never held while taking another lock.
+GPU_LOCK = threading.RLock()
+
+
+def _gpu_run(sess, feeds):
+    with GPU_LOCK:
+        return sess.run(None, feeds)[0]
+
+
 @dataclass
 class Detection:
     cls: int
@@ -127,6 +140,10 @@ class Yolo26Detector:
 
     def _try_directml(self, path: str) -> None:
         """The fastest DirectML device (graphics card), if it beats the CPU clearly."""
+        with GPU_LOCK:
+            self._try_directml_locked(path)
+
+    def _try_directml_locked(self, path: str) -> None:
         try:
             import onnxruntime as ort
             if "DmlExecutionProvider" not in ort.get_available_providers():
@@ -157,7 +174,8 @@ class Yolo26Detector:
     def _infer(self, blob: np.ndarray) -> np.ndarray:
         if self._ov is not None:
             return self._ov.infer({0: blob})[0]
-        return self.sess.run(None, {self.input: blob})[0]
+        with GPU_LOCK:
+            return self.sess.run(None, {self.input: blob})[0]
 
     def detect(self, img: np.ndarray) -> list[Detection]:
         h, w = img.shape[:2]
@@ -330,42 +348,43 @@ class Appearance:
         try:
             import onnxruntime as ort
             if want == "gpu" and "DmlExecutionProvider" in ort.get_available_providers():
-                x = np.zeros((1, 3, self.REID_SIZE[1], self.REID_SIZE[0]), np.float32)
-                best = None
-                for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):
-                    try:
-                        o = ort.SessionOptions()
-                        o.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
-                        sess = ort.InferenceSession(reid_path, o, providers=[("DmlExecutionProvider", {"device_id": dev})])
-                    except Exception:
-                        break
-                    for _ in range(3):                 # warm-up (first runs compile)
-                        sess.run(None, {"input": x})
-                    runs = []
-                    for _ in range(7):                 # median: one busy moment does not decide
-                        t = time.perf_counter()
-                        sess.run(None, {"input": x})
-                        runs.append((time.perf_counter() - t) * 1000)
-                    ms = float(np.median(runs))
-                    if best is None or ms < best[0]:
-                        best = (ms, dev, sess)
-                # One timing at start-up is fragile: launch.bat starts Docker, Ollama and this at once,
-                # and a busy moment pushed a 10 ms GPU over the limit -> CPU for the whole session
-                # (seen 2026-10-14). Re-measure the best device a few times before giving up.
-                tries = 0
-                while best and best[0] >= 25 and tries < 4:
-                    tries += 1
-                    time.sleep(1.5)
-                    runs = []
-                    for _ in range(7):
-                        t = time.perf_counter()
-                        best[2].run(None, {"input": x})
-                        runs.append((time.perf_counter() - t) * 1000)
-                    best = (min(best[0], float(np.median(runs))), best[1], best[2])
-                if best and best[0] >= 25:
-                    print(f"[vision] re-id: GPU {best[1]} measured {best[0]:.0f} ms/crop (limit 25) - using the CPU")
+                with GPU_LOCK:   # released even if a device fails
+                    x = np.zeros((1, 3, self.REID_SIZE[1], self.REID_SIZE[0]), np.float32)
+                    best = None
+                    for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):
+                        try:
+                            o = ort.SessionOptions()
+                            o.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+                            sess = ort.InferenceSession(reid_path, o, providers=[("DmlExecutionProvider", {"device_id": dev})])
+                        except Exception:
+                            break
+                        for _ in range(3):                 # warm-up (first runs compile)
+                            sess.run(None, {"input": x})
+                        runs = []
+                        for _ in range(7):                 # median: one busy moment does not decide
+                            t = time.perf_counter()
+                            sess.run(None, {"input": x})
+                            runs.append((time.perf_counter() - t) * 1000)
+                        ms = float(np.median(runs))
+                        if best is None or ms < best[0]:
+                            best = (ms, dev, sess)
+                    # One timing at start-up is fragile: launch.bat starts Docker, Ollama and this at once,
+                    # and a busy moment pushed a 10 ms GPU over the limit -> CPU for the whole session
+                    # (seen 2026-10-14). Re-measure the best device a few times before giving up.
+                    tries = 0
+                    while best and best[0] >= 25 and tries < 4:
+                        tries += 1
+                        time.sleep(1.5)
+                        runs = []
+                        for _ in range(7):
+                            t = time.perf_counter()
+                            best[2].run(None, {"input": x})
+                            runs.append((time.perf_counter() - t) * 1000)
+                        best = (min(best[0], float(np.median(runs))), best[1], best[2])
+                    if best and best[0] >= 25:
+                        print(f"[vision] re-id: GPU {best[1]} measured {best[0]:.0f} ms/crop (limit 25) - using the CPU")
                 if best and best[0] < 25:            # a real GPU (CPU: ~30 ms a crop)
-                    self.net = lambda b, s=best[2]: s.run(None, {"input": b})[0]
+                    self.net = lambda b, s=best[2]: _gpu_run(s, {"input": b})
                     self.engine = f"directml-gpu{best[1]} ({best[0]:.0f} ms/crop)"
             if self.net is None and want in ("gpu", "cpu"):
                 o = ort.SessionOptions()
