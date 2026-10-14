@@ -482,8 +482,7 @@ class Service:
         try:
             os.makedirs(os.path.dirname(self.IDENTITY_FILE), exist_ok=True)
             with open(self.IDENTITY_FILE, "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, default=str) + "
-")
+                f.write(json.dumps(rec, default=str) + "\n")
         except OSError:
             pass
 
