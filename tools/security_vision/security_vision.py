@@ -387,7 +387,11 @@ class Service:
                     d0 = time.perf_counter()
                     people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
                     # A named person just lost (Labeler.lost): look again, zoomed, where they were.
-                    lost = [rec[0] for rec in getattr(self.labeler, "lost", {}).values()]
+                    # Only where someone else's box now covers the lost spot (occlusion: Ali behind
+                    # Nour). An empty spot means they walked away - a zoom there finds nothing and
+                    # cost ~35 ms a pass (detect p50 140 ms with 4 people).
+                    lost = [rec[0] for rec in getattr(self.labeler, "lost", {}).values()
+                            if any(iou(rec[0], p) > 0.1 for p in people)]
                     # ...and inside unusually WIDE person boxes: two people seated together come
                     # out as one box (lab frames: one seated person w/h 0.56-0.60, Ali+Nour 0.78).
                     wide = [b for b in people if b[3] > 0 and b[2] / b[3] > 0.7]
