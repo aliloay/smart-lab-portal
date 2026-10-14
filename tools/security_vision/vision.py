@@ -886,6 +886,12 @@ class Labeler:
         # Door names AND face names: a face-named person (not entered yet) must
         # keep their name through a crossing just the same.
         who = {**{k: v[0] for k, v in self.face_named.items()}, **inside}
+        # The face outranks the body look: a track whose current face votes agree on its
+        # name keeps it, and nobody takes a name their own face votes contradict.
+        # (Lab 2026-10-14: face confirmed Nour on track 22, then the look-only re-deal moved
+        # her name to the seated woman beside her - "by crossing", wrong.)
+        anchored = {t.id for t in group if t.label and self._agreed(t) == t.label}
+        group = [t for t in group if t.id not in anchored]
         labels = [t.label for t in group if t.label and t.label in who
                   and t.label in self.identities
                   and self.identities[t.label].samples >= self.LOCK_SAMPLES]
@@ -895,6 +901,9 @@ class Labeler:
         def cost(pairs):
             total = 0.0
             for t, label in pairs:
+                said = self._agreed(t)
+                if said is not None and said != label:
+                    return None                  # their own face says someone else
                 d = look_distance(t.look, self.identities[label].look)
                 if d is None:
                     return None

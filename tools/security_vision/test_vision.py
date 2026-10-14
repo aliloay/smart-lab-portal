@@ -642,3 +642,23 @@ def test_a_track_keeps_its_clean_look_while_people_touch():
     tr.update([near_a, near_b], 0.3, [lb, la])                        # looks mixed while touching
     ali = next(t for t in tr.tracks if t.id == ali_id)
     assert look_distance(ali.look, la) < 0.1                          # still Ali's own look
+
+
+def test_face_confirmed_name_is_not_moved_by_a_look_only_crossing_fix():
+    """Lab 2026-10-14: the face confirmed Nour on her track, then the look-only re-deal after
+    two seated people touched moved her name to the woman beside her. A track whose current
+    face votes agree on its name keeps it."""
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    lab = Labeler()
+    nour = {"auth_subject": "USER6", "name": "Nour", "role": "STUDENT"}
+    lab.face_named["USER6"] = (nour, 0.0)
+    ta = Track(1, a, 0, 0, label="USER6", name="Nour", role="STUDENT", look=la)
+    ta.source = "face"
+    tb = Track(2, b, 0, 0, look=lb)
+    _learnt(lab, [ta, tb], [])
+    ta.look, tb.look = lb, la                       # seated / half hidden: the looks now point the other way
+    lab.votes[ta.id] = [("USER6", 10.5)] * Labeler.FACE_VOTES   # ...but her face, just now, says Nour
+    ta.separated_at = tb.separated_at = 10.0
+    lab.assign([ta, tb], [], None, now=11.0)
+    assert ta.label == "USER6" and tb.label is None
