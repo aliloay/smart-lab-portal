@@ -1338,7 +1338,11 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
                                       int((door_rect_norm[1] + door_rect_norm[3]) * h)), (200, 200, 200), 1)
         word = {True: "door OPEN", False: "door closed"}.get(door_open, "door")
         _tag(frame, word, x, y, (0, 165, 255) if door_open else (200, 200, 200))
-    for t in tracks:
+    # Name tags never cover each other: people sitting side by side had the neighbour's
+    # "Unknown" drawn over a name (lab 2026-10-14). Named people are drawn last (on top) and
+    # each tag moves up (or below the box) until it is clear of the tags already placed.
+    placed: list[tuple] = []
+    for t in sorted(tracks, key=lambda t: bool(t.label)):
         c = MISMATCH if t.mismatch else ON_HOLD if t.label and not t.entered \
             else COLORS.get(t.role if t.label else None, COLORS[None])
         x, y, bw, bh = (int(v) for v in t.box)
@@ -1362,8 +1366,27 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
                 label += f" {t.identity_confidence:.0%}"
         else:
             label = "Unknown"
-        _tag(frame, label, x, y, MISMATCH if t.identity_state == "IDENTITY_CONFLICT" else c)
+        _tag_clear(frame, label, x, y, y + bh, MISMATCH if t.identity_state == "IDENTITY_CONFLICT" else c, placed)
     return frame
+
+
+def _tag_clear(frame, text, x, y_top, y_bottom, color, placed: list) -> tuple:
+    """A person's tag above the box, kept inside the picture and off the tags in `placed`."""
+    h, w = frame.shape[:2]
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    rw, rh = tw + 8, th + 6
+    x = max(0, min(x, w - rw))                                     # long names stay in the picture
+    hit = lambda y0: any(x < px + pw and px < x + rw and y0 - rh < py and py - ph < y0 for px, py, pw, ph in placed)
+    y0 = max(rh, y_top)
+    while hit(y0) and y0 - rh > 0:                                 # move up over the tags below
+        y0 -= rh + 2
+    if hit(y0) or y0 - rh < 0:                                     # no room above: under the box
+        y0 = min(h, y_bottom + rh)
+        while hit(y0) and y0 < h:
+            y0 += rh + 2
+    _tag(frame, text, x, y0, color)
+    placed.append((x, y0, rw, rh))
+    return x, y0
 
 
 def _tag(frame, text, x, y, color):
