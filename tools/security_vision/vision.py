@@ -937,6 +937,30 @@ class Labeler:
             else:
                 self.last_named.pop(t.id, None)
 
+    def home_desk(self, tracks: list[Track], desks: dict, zones_px: dict, occupants: list[dict],
+                  known: dict, now: float, standing_ratio: float = 2.2):
+        """Owner's rule (2026-10-14): a person's own desk names them - but ONLY when the system
+        already knows they are in the lab (door entry, or their face recognised), and only if
+        exactly one unnamed, seated person is at that desk. desks: {"USER5": ["PC-09", "PC-10"]};
+        zones_px: zone name -> (x, y, w, h) in frame pixels."""
+        taken = {t.label for t in tracks if t.label}
+        inside = {o["auth_subject"]: o for o in occupants}
+        for label, names in desks.items():
+            if label in taken:
+                continue
+            who = inside.get(label) or (self.face_named.get(label) or (None,))[0]
+            if who is None:
+                continue                                  # not known to be in the lab: no naming by desk
+            rects = [zones_px[n] for n in names if n in zones_px]
+            at = [t for t in tracks if not t.label and t.box[2] > 0
+                  and t.box[3] / t.box[2] <= standing_ratio                      # seated
+                  and any(iou(t.box, r) > 0.02 for r in rects)]
+            if len(at) == 1:
+                self._give(at[0], who, "door" if label in inside else "face", how="desk")
+                taken.add(label)
+                self._note("NAMED_BY_DESK", at[0].id, label, f"seated at {', '.join(names)}; in the lab per "
+                           + ("the door" if label in inside else "the face"))
+
     def _note(self, kind: str, track_id, label, detail: str):
         """A decision worth reading later: printed, and kept for /identity (service drains notes)."""
         if not hasattr(self, "notes"):

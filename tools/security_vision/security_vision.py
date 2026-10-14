@@ -177,6 +177,19 @@ class Camera:
             return (None if self.frame is None else self.frame.copy()), self.at, self.seq
 
 
+# Desk owners (owner's rule 2026-10-14): tools/security_vision/home_desks.json, e.g.
+# {"USER5": ["PC-09", "PC-10"]}. Used only for people the door or the face already placed in the lab.
+def _home_desks() -> dict:
+    p = os.path.join(HERE, "home_desks.json")
+    try:
+        return {k: list(v) for k, v in json.load(open(p, encoding="utf-8")).items() if not k.startswith("_")}
+    except (OSError, ValueError):
+        return {}
+
+
+HOME_DESKS = _home_desks()
+
+
 # --------------------------------------------------------------- service ---
 class Service:
     STATE_PERIOD_S = 2.0
@@ -391,6 +404,11 @@ class Service:
                 door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
                 with self.label_lock:
                     self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
+                    if HOME_DESKS:
+                        zpx = {z["name"]: (z["x"] * w, z["y"] * h, z["w"] * w, z["h"] * h)
+                               for z in self.cfg.get("zones", [])}
+                        self.labeler.home_desk(tracks, HOME_DESKS, zpx, occupants,
+                                               {k["auth_subject"]: k for k in (self.cfg.get("known") or [])}, t0)
                     id_events = list(self.labeler.events)
                     notes, self.labeler.notes = getattr(self.labeler, "notes", []), []
                 for nt in notes:                       # hand-back / door decisions, readable via /identity
