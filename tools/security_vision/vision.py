@@ -165,6 +165,20 @@ class Yolo26Detector:
                 ms = (time.perf_counter() - t) / 3 * 1000
                 if best is None or ms < best[0]:
                     best = (ms, dev, s, i)
+            # The GPU wakes from its idle power state (P8) slowly: one timing at start-up said
+            # >80 ms and the detector ran on the CPU all session (lab 2026-10-14, 23 ms when
+            # re-tested). Re-measure the best device a few times before giving up.
+            tries = 0
+            while best and best[0] >= 80 and tries < 4:
+                tries += 1
+                time.sleep(1.5)
+                xb = np.zeros((1, 3, self.size, self.size), np.float32)
+                t = time.perf_counter()
+                for _ in range(3):
+                    best[2].run(None, {best[3]: xb})
+                best = (min(best[0], (time.perf_counter() - t) / 3 * 1000), best[1], best[2], best[3])
+            if best and best[0] >= 80:
+                print(f"[detector] GPU {best[1]} measured {best[0]:.0f} ms (limit 80) - using the CPU")
             if best and best[0] < 80:                       # a real GPU, not slower than the CPU
                 _, dev, self.sess, self.input = best
                 self.engine = f"directml-gpu{dev} ({best[0]:.0f} ms)"
