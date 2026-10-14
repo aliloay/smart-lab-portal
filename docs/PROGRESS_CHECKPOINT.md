@@ -1,6 +1,6 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-Latest checkpoint: 2026-10-14 07:42 (local). Branch `offline-router-door-photos`. Nothing pushed.
+Latest checkpoint: 2026-10-14 ~16:30 (local, at the lab). Branch `offline-router-door-photos`. Nothing pushed.
 Resume = read this file, `git status`, `git log --oneline -6`, then continue at "Next".
 
 ## Done (with evidence)
@@ -26,6 +26,15 @@ directml-gpu1 (12 ms/crop)** - the busy-start-up fix verified live (the camera i
 ## Running / pending
 * Full backend suite: 436 passed (434 + the 2 AI-local tests after pinning OLLAMA_CPU_ONLY in conftest).
 * Knowledge service runs in its own window "Smart Lab - Knowledge" (current code, restarted 07:13).
+
+## At the lab 2026-10-14 (all recorded in docs/LAB_TEST_2026-10-15.md)
+* UR5e LIVE_VERIFIED (192.168.1.102, RTDE 48 Hz, J1-J6 mapping, stale 2.0 s on cable pull, auto-recovery).
+* Camera LIVE: GPU detector + re-ID; driver-crash root cause fixed (shared GPU session + GPU lock);
+  analysis 7 passes/s (pass p50 85 ms, p95 106 ms); zoom finds people seated behind others.
+* Identity: door naming via TEST entries (`tools/door_test_entry.py --watch-face`, window
+  "Smart Lab - Door test entries"); home desk USER5 -> PC-09/PC-10; face outranks look; hand-back while
+  touching. Decisions persisted in tools/security_vision/recordings/identity_log.jsonl (git-ignored).
+* Scripts: stop_all.bat / restart_all.bat.
 
 ## Waiting for the owner / hardware
 * At the lab: start the camera window (loads re-ID fix + masking) -> check `re-id on directml-gpu1`.
