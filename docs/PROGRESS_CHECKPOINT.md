@@ -8,7 +8,7 @@ Resume = read this file, `git status`, `git log --oneline -6`, then continue at 
 |---|---|
 | UR5e collector: frozen RTDE data never shown live; NaN rejected (422, was 500); rtde_check.py | d4e5685; 22 robot tests; new tests fail on old code |
 | Camera: strict DirectML detector, engines in /metrics + portal chip | d4e5685; camera tests |
-| Camera re-ID fell to CPU at a busy start-up (seen live 03:00) -> re-measure before fallback, logged | uncommitted; regression test fails on old code, passes now; 102 camera tests |
+| Camera re-ID fell to CPU at a busy start-up (seen live 03:00) -> re-measure before fallback, logged | d1aaa17; regression test fails on old code, passes now; 103 camera tests |
 | Camera password: not on the command line any more (env), masked in logs | uncommitted; test_masking.py |
 | Visual foundation (intro, /welcome, manifest, photo folder) | 5b47851; browser checks on dev and **live** |
 | n8n 01/03/05/07: owner versions recovered byte-exact, then option (b) repo = live (owner delegated) | docs/N8N_RECOVERY_2026-10-14.md; backups/n8n-recovery-20261014/ |
@@ -26,4 +26,4 @@ Resume = read this file, `git status`, `git log --oneline -6`, then continue at 
 * At the lab: start the camera window (loads re-ID fix + masking) -> check `re-id on directml-gpu1`.
 * UR5e: IP / RTDE from the pendant -> docs/LAB_TEST_2026-10-15.md section A.
 * Photos -> frontend/public/lab + labVisuals.ts.
-* Approvals: commit the uncommitted work; CodeBurn `npx` run; project CLAUDE.md; Ponytail trial (optional).
+* Optional (owner): CodeBurn `npx` run, Ponytail lite trial; TikTok effect needs a screen recording. All work committed (c4390ae), nothing pushed.
