@@ -386,6 +386,8 @@ class Service:
                 with self.det_lock:
                     d0 = time.perf_counter()
                     people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+                    z0 = time.perf_counter()
+                    self.part_ms.setdefault("detect_main", collections.deque(maxlen=100)).append((z0 - d0) * 1000)
                     # A named person just lost (Labeler.lost): look again, zoomed, where they were.
                     # Only where someone else's box now covers the lost spot (occlusion: Ali behind
                     # Nour). An empty spot means they walked away - a zoom there finds nothing and
@@ -400,9 +402,13 @@ class Service:
                     self._zoom_i = getattr(self, "_zoom_i", -1) + 1
                     # every 3rd pass only (speed: 8 people at 5 fps had no headroom, pass p95 207 ms)
                     turn = [people[(self._zoom_i // 3) % len(people)]] if people and self._zoom_i % 3 == 0 else []
-                    regions = lost + wide[:1] + [b for b in turn if b not in wide]
-                    if regions:                      # at most 2 zooms a pass: 7 people + 3 zooms lagged (3.2 fps)
-                        people += zoom_people(self.detector, frame, regions, people, max_n=2)
+                    # ONE zoom a pass (measured: zooms 50 ms vs main detection 41 ms per pass), by
+                    # priority: an occluded lost spot, then wide boxes in turn, then the round-robin.
+                    wide_turn = [wide[self._zoom_i % len(wide)]] if wide else []
+                    regions = lost[:1] or wide_turn or turn
+                    if regions:
+                        people += zoom_people(self.detector, frame, regions, people, max_n=1)
+                    self.part_ms.setdefault("zoom", collections.deque(maxlen=100)).append((time.perf_counter() - z0) * 1000)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
                 r0 = time.perf_counter()
