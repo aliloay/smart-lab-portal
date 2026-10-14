@@ -393,9 +393,9 @@ class Service:
                     # (lab: 0.67 with Ali behind Nour). ~20 ms on the GPU; each box ~once a second.
                     self._zoom_i = getattr(self, "_zoom_i", -1) + 1
                     turn = [people[self._zoom_i % len(people)]] if people else []
-                    regions = lost + wide + [b for b in turn if b not in wide]
-                    if regions:
-                        people += zoom_people(self.detector, frame, regions, people, max_n=3)
+                    regions = lost + wide[:1] + [b for b in turn if b not in wide]
+                    if regions:                      # at most 2 zooms a pass: 7 people + 3 zooms lagged (3.2 fps)
+                        people += zoom_people(self.detector, frame, regions, people, max_n=2)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
                 tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
@@ -413,6 +413,7 @@ class Service:
                     notes, self.labeler.notes = getattr(self.labeler, "notes", []), []
                 for nt in notes:                       # hand-back / door decisions, readable via /identity
                     self.identity_log.append({"t": round(time.time(), 2), **nt})
+                    self._persist_identity(self.identity_log[-1])
                 self._identity_events(id_events, tracks, occupants)
                 track_ms = (time.perf_counter() - k0) * 1000
                 z0 = time.perf_counter()
@@ -474,12 +475,25 @@ class Service:
     def detector_engine(self) -> str:
         return str(getattr(self.detector, "engine", "unknown"))
 
+    IDENTITY_FILE = os.path.join(HERE, "recordings", "identity_log.jsonl")   # git-ignored folder: names
+
+    def _persist_identity(self, rec: dict) -> None:
+        """Identity decisions survive a restart (the in-memory log was lost on every restart)."""
+        try:
+            os.makedirs(os.path.dirname(self.IDENTITY_FILE), exist_ok=True)
+            with open(self.IDENTITY_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, default=str) + "
+")
+        except OSError:
+            pass
+
     def _identity_events(self, events, tracks, occupants):
         """Identity decisions: all kept in a short local log (/identity, the
         evidence panel); a conflict is also an event for staff."""
         for e in events:
             self.identity_log.append({"t": round(time.time(), 2), "kind": e.kind, "track_id": e.track_id,
                                       "label": e.label, "detail": e.detail})
+            self._persist_identity(self.identity_log[-1])
             print(f"[identity] {e.kind} track {e.track_id}: {e.detail}")
             if e.kind == "PERSON_IDENTITY_CONFLICT":
                 self.event("PERSON_IDENTITY_CONFLICT", f"Track {e.track_id}: {e.detail}. The name was NOT "

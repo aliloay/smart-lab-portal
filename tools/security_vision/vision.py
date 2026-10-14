@@ -954,9 +954,16 @@ class Labeler:
             if who is None:
                 continue                                  # not known to be in the lab: no naming by desk
             rects = [zones_px[n] for n in names if n in zones_px]
+            def at_desk(b, r):
+                # Not mere 2D overlap: a person in FRONT overlaps a desk further back (lab 2026-10-14:
+                # the man at PC-08 took Hemaly's name). The centre must be at the desk (within one
+                # desk size) and the person no bigger than someone sitting at that distance.
+                cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+                near = abs(cx - (r[0] + r[2] / 2)) <= r[2] and abs(cy - (r[1] + r[3] / 2)) <= 1.5 * r[3]
+                return near and b[2] * b[3] <= 6 * r[2] * r[3]
             at = [t for t in tracks if not t.label and t.box[2] > 0
                   and t.box[3] / t.box[2] <= standing_ratio                      # seated
-                  and any(iou(t.box, r) > 0.02 for r in rects)]
+                  and any(at_desk(t.box, r) for r in rects)]
             if len(at) == 1:
                 self._give(at[0], who, "door" if label in inside else "face", how="desk")
                 taken.add(label)

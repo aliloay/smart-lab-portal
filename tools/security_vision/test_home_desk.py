@@ -45,3 +45,10 @@ def test_someone_standing_at_his_desk_is_not_named():
     t = Track(1, STANDING, 90.0, 100.0)
     run([t], [HEMALY])
     assert t.label is None
+
+
+def test_a_person_in_front_overlapping_the_desk_is_not_named():
+    """Lab 2026-10-14: the man seated at PC-08, in front, overlapped PC-09/PC-10 in the picture."""
+    front = Track(1, (480, 260, 110, 190), 90.0, 100.0)    # big: much closer to the camera
+    run([front], [HEMALY])
+    assert front.label is None
