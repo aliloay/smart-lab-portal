@@ -376,8 +376,13 @@ class Service:
                     # ...and inside unusually WIDE person boxes: two people seated together come
                     # out as one box (lab frames: one seated person w/h 0.56-0.60, Ali+Nour 0.78).
                     wide = [b for b in people if b[3] > 0 and b[2] / b[3] > 0.7]
-                    if lost or wide:
-                        people += zoom_people(self.detector, frame, lost + wide, people)
+                    # ...and one more person box each pass, in turn: a ratio alone misses pairs
+                    # (lab: 0.67 with Ali behind Nour). ~20 ms on the GPU; each box ~once a second.
+                    self._zoom_i = getattr(self, "_zoom_i", -1) + 1
+                    turn = [people[self._zoom_i % len(people)]] if people else []
+                    regions = lost + wide + [b for b in turn if b not in wide]
+                    if regions:
+                        people += zoom_people(self.detector, frame, regions, people, max_n=3)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
                 tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
