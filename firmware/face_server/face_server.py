@@ -870,6 +870,8 @@ def analyze():
             # is overloaded - or this console window is paused (see
             # start_face_server.bat).
             print(f"[analyze] SLOW frame: {total_ms:.0f}ms")
+        if face_name:
+            _last_face.update(name=face_name, distance=face_distance, at=time.time())   # read-only status
         if qr_payload or face_name:
             print(f"[analyze] qr={qr_payload}  face={face_name} (d={face_distance})"
                   f"   qr {1000*(t_qr-t0):.0f}ms  face {1000*(t_face-t_qr):.0f}ms")
@@ -991,6 +993,19 @@ def preview_mjpg():
     resp = Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame",
                     direct_passthrough=True)
     return _cors(resp)
+
+
+# The last face the DOOR camera recognised - read only, for the lab test while the lock is not
+# installed (tools/door_test_entry.py --watch-face). Changes nothing at the door: no access
+# result, no command; the Master ESP32 still decides. Device key required (it names people).
+_last_face: dict = {"name": None, "distance": None, "at": 0.0}
+
+
+@app.route("/door/last-face", methods=["GET"])
+def door_last_face():
+    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+        return jsonify({"error": "device key required"}), 401
+    return jsonify({**_last_face, "age_s": round(time.time() - _last_face["at"], 1) if _last_face["at"] else None})
 
 
 @app.route("/preview/state", methods=["GET"])

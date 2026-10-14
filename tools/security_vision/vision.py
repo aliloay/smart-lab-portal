@@ -811,11 +811,17 @@ class Labeler:
             self.lost: dict[int, tuple] = {}         # track id -> (box, who, source, lost at)
             self.last_named: dict[int, tuple] = {}
         live = {t.id: t for t in tracks}
+        if not hasattr(self, "lost_why"):
+            self.lost_why: dict[int, str] = {}       # why the name is not handed back yet (log)
         for tid, rec in list(self.last_named.items()):
             if tid not in live:
                 self.lost[tid] = (*rec, now)
                 del self.last_named[tid]
+                print(f"[identity] track {tid} ({rec[1]['auth_subject']}) lost - waiting up to "
+                      f"{self.HANDBACK_S:.0f} s to hand the name back to the same person")
         for tid in [k for k, v in self.lost.items() if now - v[3] > self.HANDBACK_S]:
+            print(f"[identity] {self.lost[tid][1]['auth_subject']} NOT handed back after {self.HANDBACK_S:.0f} s: "
+                  f"{self.lost_why.pop(tid, 'no new person appeared there')} - the face must name them again")
             del self.lost[tid]
         held = {t.label for t in tracks if t.label}
         claims: dict[int, list] = {}
@@ -825,9 +831,10 @@ class Labeler:
                 continue
             cx, cy = _center(box)
             reach = 0.6 * max(box[2], box[3])
-            near = [t for t in tracks if not t.label and not t.crowded and t.first_seen >= at - 1.0
-                    and math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
-                    and 0.5 <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= 2.0]
+            placed = [t for t in tracks if not t.label and t.first_seen >= at - 1.0
+                      and math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
+                      and 0.5 <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= 2.0]
+            near = apart = [t for t in placed if not t.crowded]
             # Big enough to judge the look: the look must agree too (someone
             # else walking through that place is not them).
             # The look must always agree - a person sitting in the same place is
@@ -839,6 +846,11 @@ class Labeler:
                     ((d := self._distance(t, label)) is not None and d <= self.REACQUIRE_MAX)]
             if len(near) == 1:
                 claims.setdefault(near[0].id, []).append((tid, who, source))
+            else:
+                self.lost_why[tid] = ("no new person at that place" if not placed else
+                                      "the new person there is still touching someone" if not apart else
+                                      "the look did not match" if not near else
+                                      f"{len(near)} people fit (too close to tell)")
         for t_id, cl in claims.items():
             if len(cl) != 1:
                 continue                            # two lost names fit this one: nobody
