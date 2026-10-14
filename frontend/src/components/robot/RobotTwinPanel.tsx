@@ -8,6 +8,8 @@
  *            and the panel says PREVIEW so it is never mistaken for the robot.
  */
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import WorkcellEditor from './WorkcellEditor'
+import { Workcell, collisions, defaultWorkcell, tableBox } from './workcell'
 import { Link } from 'react-router-dom'
 import { Bot, ChevronRight, Hand, Maximize2, Monitor, Radio, RotateCcw, X } from 'lucide-react'
 import { api, SecurityCamera } from '../../lib/api'
@@ -21,6 +23,8 @@ import { urdfFor } from './robotModels'
 const RobotTwin = lazy(() => import('./RobotTwin'))
 const JOINTS = ['J1 Base', 'J2 Shoulder', 'J3 Elbow', 'J4 Wrist 1', 'J5 Wrist 2', 'J6 Wrist 3']
 const DEG = 180 / Math.PI
+
+const CELLS = new Map<string, Workcell>()
 
 export default function RobotTwinPanels() {
   const { robots } = useRobots()
@@ -44,7 +48,7 @@ export default function RobotTwinPanels() {
       <LabPcs />
       {open && (
         <div className="fixed inset-0 z-50 bg-ink-950/90 backdrop-blur-sm p-4 overflow-auto" role="dialog" aria-label="Robot full view">
-          <div className="max-w-6xl mx-auto">
+          <div className="max-w-[1800px] mx-auto">
             <div className="flex justify-end mb-2">
               <button type="button" className="btn-ghost btn-sm" onClick={() => setFull(null)}><X size={14} /> Close</button>
             </div>
@@ -100,14 +104,28 @@ function Panel({ model, robot, onFull, big }: {
 }) {
   const [grip, setGrip] = useState(0)
   const live = !!robot && !robot.stale && !!robot.q && robot.q.length === 6
-  const [pose, setPose] = useState<number[]>([0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0])
+  // Each robot's own home pose: UR5e upright (J2, J4 at -90 deg); FANUC all joints 0 with the
+  // wrist J5 at -90 deg (the usual FANUC home - the lab's taught HOME may differ slightly).
+  const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : [0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0]
+  const [pose, setPose] = useState<number[]>(homePose)
   const q = live ? robot!.q! : pose
   const urdf = urdfFor(model.key)
   const moving = live ? robot!.joints_moving ?? null : null
   const limits = useMemo(() => model.limitsDeg, [model])
+  const wkey = model.key === 'FANUC' ? 'FANUC' : 'UR5E'
+  // Shared by the card and its full view (same robot), kept while the page is open.
+  const [cell, setCell] = useState<Workcell>(() => CELLS.get(wkey) ?? defaultWorkcell(wkey))
+  const setCellShared = (c: Workcell) => { CELLS.set(wkey, c); setCell(c) }
+  const [selObs, setSelObs] = useState<string | null>(null)
+  const poseKnown = live || !robot          // preview pose is the user's own; a stale live pose is not
+  const hits = useMemo(() => poseKnown ? collisions(urdf, q, cell, 0.06, wkey === 'UR5E' ? 0.15 : 0.10) : [],
+                       [urdf, q, cell, poseKnown, wkey])
+  // The FANUC has no measured cell: its table (if any) is drawn as a plain virtual box.
+  const shown = useMemo(() => wkey === 'FANUC' && cell.table?.present
+    ? { ...cell, obstacles: [...cell.obstacles, tableBox(cell.table)] } : cell, [cell, wkey])
 
   return (
-    <div className="card overflow-hidden">
+    <div className={`card overflow-hidden ${big ? 'lg:grid lg:grid-cols-[1fr_380px] lg:items-start [&>*:first-child]:col-span-full [&>*:nth-child(n+4)]:col-span-full' : ''}`}>
       <div className="p-4 flex flex-wrap items-center gap-2 border-b border-ink-700/60">
         <Bot size={16} className="text-accent-300" />
         <span className="font-semibold text-white">{model.key === 'UR5E' ? 'UR5e' : 'FANUC'}</span>
@@ -117,7 +135,7 @@ function Panel({ model, robot, onFull, big }: {
           {live ? 'LIVE · physical robot' : 'PREVIEW · not the robot'}</span>
       </div>
       <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
-        <RobotTwin model={model} q={q} moving={moving} compact={!big} className={`${big ? 'h-[62vh]' : 'h-72'} bg-ink-950/40`}
+        <RobotTwin model={model} q={q} moving={moving} compact={!big} workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[82vh]' : 'h-72'} bg-ink-950/40`}
                    gripper={live ? null : grip}
                    onPose={live ? undefined : setPose}
                    onJointDrag={live ? undefined : (j, d) => setPose(p => {
@@ -162,7 +180,7 @@ function Panel({ model, robot, onFull, big }: {
             <span className="flex items-center gap-1.5"><Hand size={13} />
               {robot ? `Robot ${robot.state === 'OFFLINE' ? 'offline' : 'telemetry stale'}` : 'No telemetry yet'}
               {' '}- grab any part of the arm and drag it, or use the bars</span>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setPose([0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0])}>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setPose(homePose)}>
               <RotateCcw size={13} /> Reset</button>
           </>}
           <span className="ml-auto flex gap-2">
@@ -172,5 +190,7 @@ function Panel({ model, robot, onFull, big }: {
         </div>
         {urdf.toolLabel && <div className="text-[11.5px] text-slate-500">Tool: {urdf.toolLabel}</div>}
       </div>
+      <WorkcellEditor robotKey={wkey} cell={cell} onChange={setCellShared} hits={hits} selected={selObs}
+                      onSelect={setSelObs} poseKnown={poseKnown} />
     </div>)
 }

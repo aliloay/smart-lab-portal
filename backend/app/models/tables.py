@@ -1134,3 +1134,17 @@ class RobotHomeCalibration(Base):
     note: Mapped[str] = mapped_column(String(255), default="")
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
+class WorkcellSetup(Base):
+    """A robot's VIRTUAL workcell (table + obstacles) drawn in the digital twin - manual or
+    camera-estimated, never physically verified. Versioned like HOME: a save adds a row; the
+    newest row per (robot_key, name) is the current one, older ones stay."""
+    __tablename__ = "workcell_setups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    robot_key: Mapped[str] = mapped_column(String(16), index=True)        # UR5E / FANUC
+    name: Mapped[str] = mapped_column(String(64))
+    data: Mapped[dict] = mapped_column(JSON)                               # {table, obstacles[]}
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)

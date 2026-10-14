@@ -40,7 +40,7 @@ const D = (deg: number) => (deg * PI) / 180
 export const UR5E: UrdfModel = {
   key: 'UR5E', label: 'Universal Robots UR5e', format: 'dae',
   // In the lab the UR5e hangs from the gantry frame (photos 2026-10-08); height approximate.
-  ceilingHeight: 1.15,
+  ceilingHeight: 1.88,   // hangs from the top of the frame (measured 2026-10-07)
   // The lab arm carries a Robotiq 2F-85 (photos 2026-10-08): UR-to-Robotiq adapter on the tool flange.
   toolLabel: 'Robotiq 2F-85 gripper',
   tool: [

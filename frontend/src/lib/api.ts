@@ -1123,6 +1123,10 @@ export const api = {
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
   robots: () => request<Robot[]>('/robots'),
   robot: (id: number) => request<RobotDetail>(`/robots/${id}`),
+  workcells: (key: 'UR5E' | 'FANUC') =>
+    request<{ name: string; data: import('../components/robot/workcell').Workcell; saved_at: string; version_id: number }[]>(`/workcell/${key}`),
+  saveWorkcell: (key: 'UR5E' | 'FANUC', name: string, data: import('../components/robot/workcell').Workcell) =>
+    request<{ name: string; version_id: number }>(`/workcell/${key}/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
   robotControl: (id: number) => request<RobotControl>(`/robots/${id}/control`),
   robotControlRequest: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/request`),
   robotControlRelease: (id: number) => post<RobotControl & { released: boolean }>(`/robots/${id}/control/release`),

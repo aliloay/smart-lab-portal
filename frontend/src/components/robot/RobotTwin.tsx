@@ -8,33 +8,51 @@
  * while the robot is still. Loaded lazily (three.js stays out of other pages).
  */
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
 import MeshArm from './MeshArm'
 import { Vec3, solveToward, tipPosition, urdfFor } from './robotModels'
+import type { Hit, Table, Workcell } from './workcell'
 
-const orbit: { current: OrbitControls | null } = { current: null }
+// Each twin keeps its OWN view controls (two twins on one page used to share one, so grabbing one
+// arm could leave the other's view stuck). Kept on the canvas element.
+type ViewName = 'front' | 'back' | 'right' | 'left' | 'top' | 'bottom' | 'iso'
+const orbitOf = (el: HTMLElement) => (el as HTMLElement & { __orbit?: OrbitControls }).__orbit ?? null
 
-function Controls({ resetKey, size }: { resetKey: number; size: number }) {
+function Controls({ resetKey, size, view, lookY }: { resetKey: number; size: number; view: { name: ViewName; n: number }; lookY?: number }) {
   const { camera, gl, invalidate } = useThree()
+  useEffect(() => {
+    // View buttons: the camera jumps to that side of the robot, same distance, looking at it.
+    const c = orbitOf(gl.domElement)
+    if (!c || view.n === 0) return
+    const k = size / 0.85, d = 2.4 * k, t = c.target
+    const at: Record<ViewName, [number, number, number]> = {
+      front: [d, 0, 0], back: [-d, 0, 0], right: [0, 0, -d], left: [0, 0, d], top: [0.001, d, 0], bottom: [0.001, -d, 0],
+      iso: [1.55 * k, 1.05 * k - 0.38 * k, 1.65 * k] }
+    const [x, y, z] = at[view.name]
+    camera.position.set(t.x + x, t.y + y, t.z + z)
+    camera.lookAt(t); c.update(); invalidate()
+  }, [view, camera, gl, invalidate, size])
   useEffect(() => {
     // Framed from the arm's own size: the whole robot in view, from front-right, slightly above.
     const k = size / 0.85
     camera.position.set(1.55 * k, 1.05 * k, 1.65 * k)
-    camera.lookAt(0, 0.38 * k, 0)
+    const ty = lookY ?? 0.38 * k
+    camera.position.y += ty - 0.38 * k
+    camera.lookAt(0, ty, 0)
     const c = new OrbitControls(camera, gl.domElement)
-    c.target.set(0, 0.38 * k, 0)
+    c.target.set(0, ty, 0)
     c.enableDamping = false
     c.minDistance = 0.4
     c.maxDistance = 4
     c.addEventListener('change', () => invalidate())
-    orbit.current = c
+    ;(gl.domElement as HTMLElement & { __orbit?: OrbitControls }).__orbit = c
     c.update()
     invalidate()
     return () => c.dispose()
-  }, [camera, gl, invalidate, resetKey, size])
+  }, [camera, gl, invalidate, resetKey, size, lookY])
   return null
 }
 
@@ -114,7 +132,45 @@ function Loaded({ onLoad }: { onLoad: () => void }) {
   return null
 }
 
-function Scene(props: TwinProps & { resetKey: number }) {
+// The UR5e's cell at the university: aluminium frame (robot hangs from its top) and the table.
+// Lab measurements of 2026-10-07 (robot touched marks); world: +x front, +y Kinect side, z up,
+// origin = floor under the robot base. Drawing only.
+const BEAM = 0.05
+function Box({ c, s, color, opacity = 1 }: { c: [number, number, number]; s: [number, number, number]; color: string; opacity?: number }) {
+  return <mesh position={c}><boxGeometry args={s} />
+    <meshStandardMaterial color={color} metalness={0.4} roughness={0.5} transparent={opacity < 1} opacity={opacity} /></mesh>
+}
+function UR5eCell({ table }: { table?: Table | null }) {
+  const fx = [-0.769, 0.731], fy = [-0.880, 1.135], H = 1.88
+  const cx = (fx[0] + fx[1]) / 2, cy = (fy[0] + fy[1]) / 2, lx = fx[1] - fx[0], ly = fy[1] - fy[0]
+  const t = table === undefined ? { present: true, x0: -0.514, x1: 0.186, y0: -0.630, y1: 0.770, height: 0.71 } : table
+  const tx = [t?.x0 ?? 0, t?.x1 ?? 0], ty = [t?.y0 ?? 0, t?.y1 ?? 0], T = t?.height ?? 0, alu = '#94a3b8', wood = '#c9a46a'
+  const beams: JSX.Element[] = []
+  for (const x of fx) for (const y of fy) beams.push(<Box key={`p${x}${y}`} c={[x, y, H / 2]} s={[BEAM, BEAM, H]} color={alu} />)
+  for (const z of [BEAM / 2, H]) {
+    for (const x of fx) beams.push(<Box key={`y${x}${z}`} c={[x, cy, z]} s={[BEAM, ly, BEAM]} color={alu} />)
+    for (const y of fy) beams.push(<Box key={`x${y}${z}`} c={[cx, y, z]} s={[lx, BEAM, BEAM]} color={alu} />)
+  }
+  const legs = [[tx[0], ty[0]], [tx[0], ty[1]], [tx[1], ty[0]], [tx[1], ty[1]]].map(([x, y], i) =>
+    <Box key={`l${i}`} c={[x + (x < 0 ? 0.025 : -0.025), y + (y < 0 ? 0.025 : -0.025), (T - 0.05) / 2]} s={[0.05, 0.05, T - 0.05]} color={alu} />)
+  return <group>{beams}{t?.present && legs}
+    {t?.present && <Box c={[(tx[0] + tx[1]) / 2, (ty[0] + ty[1]) / 2, T - 0.025]} s={[tx[1] - tx[0], ty[1] - ty[0], 0.05]} color={wood} opacity={0.9} />}</group>
+}
+
+/** Virtual obstacles (world frame, z up). Amber = MANUAL, violet = CAMERA_ESTIMATE (rough),
+ *  red = the model predicts a contact. Never drawn as "verified". */
+function Obstacles({ cell, hits, selected }: { cell: Workcell; hits: Hit[]; selected?: string | null }) {
+  const hit = new Set(hits.map(h => h.obstacle))
+  return <group>{cell.obstacles.map(o => (
+    <group key={o.id}>
+      <Box c={[o.x, o.y, o.z]} s={[o.w, o.d, o.h]} opacity={0.55}
+           color={hit.has(o.id) ? '#ef4444' : o.source === 'CAMERA_ESTIMATE' ? '#a78bfa' : '#f59e0b'} />
+      {selected === o.id && <mesh position={[o.x, o.y, o.z]}><boxGeometry args={[o.w + 0.01, o.d + 0.01, o.h + 0.01]} />
+        <meshBasicMaterial color="#ffffff" wireframe /></mesh>}
+    </group>))}</group>
+}
+
+function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n: number } }) {
   const { invalidate, camera, gl } = useThree()
   const baseRef = useRef<THREE.Group>(null)
   const qRef = useRef<number[]>(props.q ?? [])
@@ -125,7 +181,8 @@ function Scene(props: TwinProps & { resetKey: number }) {
   const urdf = urdfFor(props.model.key)
   return (
     <>
-      <Controls resetKey={props.resetKey} size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 1.35 : 1)} />
+      <Controls resetKey={props.resetKey} view={props.view} lookY={urdf.ceilingHeight ? urdf.ceilingHeight / 2 : undefined}
+                size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 2.1 : 1)} />
       <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
       <ambientLight intensity={0.35} />
       <directionalLight position={[2, 3, 2]} intensity={1.4} />
@@ -138,6 +195,8 @@ function Scene(props: TwinProps & { resetKey: number }) {
       </mesh>
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
+       {props.model.key === 'UR5E' && urdf.ceilingHeight && <UR5eCell table={props.workcell ? props.workcell.table : undefined} />}
+       {props.workcell && <Obstacles cell={props.workcell} hits={props.hits ?? []} selected={props.selectedObstacle} />}
        <group ref={baseRef} position={[0, 0, urdf.ceilingHeight ?? 0]} rotation={[urdf.ceilingHeight ? Math.PI : 0, 0, 0]}>
         {urdf.ceilingHeight && <mesh position={[0, 0, -0.012]}>
           <boxGeometry args={[0.5, 0.5, 0.02]} /><meshStandardMaterial color="#9ca3af" metalness={0.5} roughness={0.4} /></mesh>}
@@ -158,7 +217,7 @@ function Scene(props: TwinProps & { resetKey: number }) {
                      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, tip)
                      const ray = new THREE.Raycaster(), hit = new THREE.Vector3(), toBase = base.matrixWorld.clone().invert()
                      const lim = props.model.limitsDeg.map(([lo, hi]) => [lo * Math.PI / 180, hi * Math.PI / 180] as [number, number])
-                     if (orbit.current) orbit.current.enabled = false
+                     const unfreeze = freezeView(camera, gl.domElement, invalidate)
                      const move = (e: PointerEvent) => {
                        const r = gl.domElement.getBoundingClientRect()
                        ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera)
@@ -168,18 +227,18 @@ function Scene(props: TwinProps & { resetKey: number }) {
                      }
                      const up = () => {
                        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-                       if (orbit.current) orbit.current.enabled = true
+                       unfreeze()
                      }
                      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
                    } : props.onJointDrag ? (j, x0) => {
                      // Hold a link and drag left / right: that joint turns. The view
                      // does not orbit while a link is held. Drawing only.
                      let last = x0
-                     if (orbit.current) orbit.current.enabled = false
+                     const unfreeze = freezeView(camera, gl.domElement, invalidate)
                      const move = (e: PointerEvent) => { props.onJointDrag!(j, (e.clientX - last) * 0.01); last = e.clientX }
                      const up = () => {
                        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
-                       if (orbit.current) orbit.current.enabled = true
+                       unfreeze()
                      }
                      window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
                    } : undefined} />
@@ -189,7 +248,23 @@ function Scene(props: TwinProps & { resetKey: number }) {
     </>)
 }
 
+/** While a robot part is held the view must not turn: OrbitControls may already have started
+ *  rotating (it sees the same pointerdown), so its controls are switched off AND the camera is put
+ *  back where it was on every move until the part is released. */
+function freezeView(camera: THREE.Camera, el: HTMLElement, invalidate: () => void) {
+  const c = orbitOf(el)
+  const pos = camera.position.clone(), quat = camera.quaternion.clone(), tgt = c?.target.clone()
+  if (c) c.enabled = false
+  const pin = () => { camera.position.copy(pos); camera.quaternion.copy(quat); if (c && tgt) c.target.copy(tgt); invalidate() }
+  window.addEventListener('pointermove', pin, true)
+  return () => { window.removeEventListener('pointermove', pin, true); pin(); if (c) { c.enabled = true; c.update() } }
+}
+
 export interface TwinProps {
+  /** Virtual workcell (planning aid): table + obstacles, and the modelled contacts to highlight. */
+  workcell?: Workcell | null
+  hits?: Hit[]
+  selectedObstacle?: string | null
   /** Preview only: a link was dragged - turn joint j by d rad (never sent to a robot). */
   onJointDrag?: (j: number, d: number) => void
   /** Preview only: hand-guiding - grab any part and the whole arm follows (IK). */
@@ -211,14 +286,23 @@ export interface TwinProps {
   onSelect?: (j: number) => void
 }
 
+const VIEWS: [ViewName, string][] = [['front', 'Front'], ['back', 'Back'], ['right', 'Right'], ['left', 'Left'], ['top', 'Top'], ['bottom', 'Bottom'], ['iso', '3D']]
+
 export default function RobotTwin(props: TwinProps & { resetKey?: number; className?: string; label?: string }) {
+  const [view, setView] = useState<{ name: ViewName; n: number }>({ name: 'iso', n: 0 })
   return (
     <div className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
          aria-label={props.label ?? `${props.model.label} 3D view`} data-trail-points={props.trail?.length ?? 0}>
       <Canvas frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
               style={{ opacity: props.q ? (props.stale ? 0.55 : 1) : 0.45, filter: props.stale ? 'grayscale(0.7)' : undefined }}>
-        <Scene {...props} resetKey={props.resetKey ?? 0} />
+        <Scene {...props} resetKey={props.resetKey ?? 0} view={view} />
       </Canvas>
+      <div className="absolute bottom-2 right-2 flex flex-wrap gap-1 justify-end">
+        {VIEWS.map(([v, label]) => (
+          <button key={v} type="button" onClick={() => setView(o => ({ name: v, n: o.n + 1 }))}
+                  className={`px-2 py-0.5 rounded-md text-[11px] border ${view.name === v && view.n ? 'bg-accent-500/25 border-accent-400/60 text-white' : 'bg-ink-900/75 border-ink-600 text-slate-300 hover:text-white'}`}>
+            {label}</button>))}
+      </div>
       {!props.q && <div className="absolute inset-0 grid place-items-center pointer-events-none text-[12.5px] text-slate-400">
         No telemetry - pose unknown</div>}
       {props.q && props.stale && <div className="absolute top-2 left-2 pointer-events-none text-[11.5px] px-2 py-0.5 rounded-md bg-ink-900/80 text-warn-soft border border-warn/30">
