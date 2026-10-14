@@ -47,6 +47,19 @@ def grant(a, subject: str) -> bool:
     return r.status_code == 200
 
 
+def exit_(a, subject: str) -> bool:
+    """TEST exit: closes the person's open session the normal way (EXIT_RECORDED; kept, not deleted).
+    For a wrong test entry, e.g. the door camera mistook someone for this person."""
+    r = requests.post(a.portal.rstrip("/") + "/access/events", timeout=10,
+                      headers={"X-Device-Key": device_key()},
+                      json={"lab_id": a.lab, "device_uid": "DOOR_TEST", "event_type": "EXIT_RECORDED",
+                            "auth_subject": subject, "result": "GRANTED",
+                            "message": "TEST exit - correcting a test entry (door controller not installed)"})
+    if r.status_code != 200:
+        print(f"portal answered {r.status_code}: {r.text[:200]}")
+    return r.status_code == 200
+
+
 def watch_face(a, every_s: float = 60.0):
     """Poll the face server's last recognised door face (read only); a new one = that person is at the door."""
     url, key = a.face.rstrip("/") + "/door/last-face", device_key()
@@ -73,6 +86,7 @@ def watch_face(a, every_s: float = 60.0):
 def main():
     ap = argparse.ArgumentParser(description="Record a TEST door entry (no door is opened)")
     ap.add_argument("auth_subject", nargs="?", help="the person's id, e.g. USER1")
+    ap.add_argument("--exit", action="store_true", help="record a TEST exit instead (closes the open session)")
     ap.add_argument("--watch-face", action="store_true", help="automatic: every face recognised at the door")
     ap.add_argument("--lab", default="LAB_01")
     ap.add_argument("--method", default="FACE", choices=["FACE", "FINGERPRINT", "RFID"])
@@ -88,6 +102,10 @@ def main():
         return
     if not a.auth_subject:
         sys.exit("give a person id (e.g. USER1) or --watch-face")
+    if a.exit:
+        if exit_(a, a.auth_subject):
+            print(f"TEST exit recorded for {a.auth_subject} - no longer counted inside {a.lab}.")
+        return
     for left in range(int(a.wait), 0, -1):
         print(f"recording the test entry in {left} s - go to the door", flush=True)
         time.sleep(1)
