@@ -102,3 +102,12 @@ def test_ali_at_hemalys_desk_stays_ali_after_his_box_breaks():
     assert again.label != "USER5"                                      # never Hemaly by desk
     lab.assign([sara, again], people, None, now=11.5)
     assert again.label == "USER1"                                      # Ali back
+
+
+def test_sitting_beside_the_monitor_box_still_counts():
+    """Live 2026-10-14: Hemaly's box centre 35 px left of the PC-09 box centre (box 33 px wide)."""
+    zones = {"PC-09": (530, 267, 33, 24)}
+    t = Track(1, (493, 247, 38, 46), 90.0, 100.0)
+    lab = Labeler()
+    lab.home_desk([t], {"USER5": ["PC-09"]}, zones, [HEMALY], {}, now=100.0)
+    assert t.label == "USER5"

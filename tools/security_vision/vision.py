@@ -983,7 +983,9 @@ class Labeler:
                 # the man at PC-08 took Hemaly's name). The centre must be at the desk (within one
                 # desk size) and the person no bigger than someone sitting at that distance.
                 cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
-                near = abs(cx - (r[0] + r[2] / 2)) <= r[2] and abs(cy - (r[1] + r[3] / 2)) <= 1.5 * r[3]
+                # 2 desk-widths sideways: Hemaly sits beside his monitor box (35 px off its centre,
+                # box 33 px wide, live 2026-10-14). The size check below is what stops the front row.
+                near = abs(cx - (r[0] + r[2] / 2)) <= 2 * r[2] and abs(cy - (r[1] + r[3] / 2)) <= 1.5 * r[3]
                 return near and b[2] * b[3] <= 6 * r[2] * r[3]
             at = [t for t in tracks if not t.label and t.box[2] > 0
                   and t.box[3] / t.box[2] <= standing_ratio                      # seated
