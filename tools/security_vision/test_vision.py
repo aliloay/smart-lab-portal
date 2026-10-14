@@ -662,3 +662,37 @@ def test_face_confirmed_name_is_not_moved_by_a_look_only_crossing_fix():
     ta.separated_at = tb.separated_at = 10.0
     lab.assign([ta, tb], [], None, now=11.0)
     assert ta.label == "USER6" and tb.label is None
+
+
+def test_name_handed_back_to_a_seated_person_still_touching_the_neighbour():
+    """Lab 2026-10-14: Ali (named at the door) sat next to Nour; his track broke and the new
+    one kept touching her, so it never counted as 'apart' and his name expired."""
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    people = [occ("USER1", "Ali", "STUDENT", 0.0), occ("USER2", "Sara", "STUDENT", 0.0)]
+    ali = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    sara = Track(2, b, 0, 0, label="USER2", name="Sara", role="STUDENT", look=lb)
+    lab = Labeler()
+    _learnt(lab, [ali, sara], people)
+    lab.assign([sara], people, None, now=10.0)                       # Ali's track breaks
+    again = Track(3, a, 11.0, 11.0, look=la)                         # same seat, same look ...
+    again.crowded = sara.crowded = True
+    guest = Track(4, (700, a[1], a[2], a[3]), 0.0, 11.0)              # someone else, unnamed: no elimination                              # ... still touching Sara
+    lab.assign([sara, again, guest], people, None, now=11.0)
+    assert again.label == "USER1" and sara.label == "USER2"
+
+
+def test_touching_new_person_who_does_not_look_like_them_gets_no_name():
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    people = [occ("USER1", "Ali", "STUDENT", 0.0), occ("USER2", "Sara", "STUDENT", 0.0)]
+    ali = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    sara = Track(2, b, 0, 0, label="USER2", name="Sara", role="STUDENT", look=lb)
+    lab = Labeler()
+    _learnt(lab, [ali, sara], people)
+    lab.assign([sara], people, None, now=10.0)
+    stranger = Track(3, a, 11.0, 11.0, look=lb)                      # Ali's seat, Sara's clothes
+    stranger.crowded = sara.crowded = True
+    guest = Track(4, (700, a[1], a[2], a[3]), 0.0, 11.0)              # someone else, unnamed: no elimination
+    lab.assign([sara, stranger, guest], people, None, now=11.0)
+    assert stranger.label is None and guest.label is None

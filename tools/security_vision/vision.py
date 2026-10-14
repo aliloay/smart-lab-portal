@@ -747,9 +747,9 @@ class Labeler:
                 continue
             t.entered_at_door = True
             recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
-            print(f"[door] new person (track {t.id}) at the door; entries waiting: "
-                  + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
-                  + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
+            self._note("DOOR_NEW_PERSON", t.id, None, "entries waiting: "
+                       + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
+                       + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
             if recent:
                 o = min(recent, key=lambda o: abs(t.first_seen - o["entered_at"]))
                 self._give(t, o, how="door")
@@ -853,11 +853,11 @@ class Labeler:
             if tid not in live:
                 self.lost[tid] = (*rec, now)
                 del self.last_named[tid]
-                print(f"[identity] track {tid} ({rec[1]['auth_subject']}) lost - waiting up to "
-                      f"{self.HANDBACK_S:.0f} s to hand the name back to the same person")
+                self._note("NAME_LOST", tid, rec[1]["auth_subject"],
+                           f"track ended - waiting up to {self.HANDBACK_S:.0f} s to hand the name back")
         for tid in [k for k, v in self.lost.items() if now - v[3] > self.HANDBACK_S]:
-            print(f"[identity] {self.lost[tid][1]['auth_subject']} NOT handed back after {self.HANDBACK_S:.0f} s: "
-                  f"{self.lost_why.pop(tid, 'no new person appeared there')} - the face must name them again")
+            self._note("NAME_NOT_HANDED_BACK", tid, self.lost[tid][1]["auth_subject"],
+                       f"{self.lost_why.pop(tid, 'no new person appeared there')} - the face must name them again")
             del self.lost[tid]
         held = {t.label for t in tracks if t.label}
         claims: dict[int, list] = {}
@@ -880,6 +880,14 @@ class Labeler:
             near = [t for t in near if
                     (t.box[3] < self.MIN_LOOK_H and now - at <= self.HANDBACK_SMALL_S) or
                     ((d := self._distance(t, label)) is not None and d <= self.REACQUIRE_MAX)]
+            # Sitting side by side touches the neighbour the whole time, so the person never
+            # became "apart" and the name expired (lab 2026-10-14: Ali next to Nour). If the ONLY
+            # new person at that place touches someone, the look alone (not the place) may still
+            # hand it back. The neighbour is no candidate: their track is older than the loss.
+            if not apart and len(placed) == 1:
+                t1 = placed[0]
+                if (d := self._distance(t1, label)) is not None and d <= self.REACQUIRE_MAX:
+                    near = [t1]
             if len(near) == 1:
                 claims.setdefault(near[0].id, []).append((tid, who, source))
             else:
@@ -900,6 +908,13 @@ class Labeler:
                                          t.source)
             else:
                 self.last_named.pop(t.id, None)
+
+    def _note(self, kind: str, track_id, label, detail: str):
+        """A decision worth reading later: printed, and kept for /identity (service drains notes)."""
+        if not hasattr(self, "notes"):
+            self.notes: list[dict] = []
+        print(f"[identity] {kind} track {track_id} {label or ''}: {detail}")
+        self.notes.append({"kind": kind, "track_id": track_id, "label": label, "detail": detail})
 
     def _agreed(self, t: Track) -> Optional[str]:
         """The one person FACE_VOTES recent face matches agree on, else None."""

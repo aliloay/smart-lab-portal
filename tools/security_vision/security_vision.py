@@ -380,6 +380,9 @@ class Service:
                 with self.label_lock:
                     self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
                     id_events = list(self.labeler.events)
+                    notes, self.labeler.notes = getattr(self.labeler, "notes", []), []
+                for nt in notes:                       # hand-back / door decisions, readable via /identity
+                    self.identity_log.append({"t": round(time.time(), 2), **nt})
                 self._identity_events(id_events, tracks, occupants)
                 track_ms = (time.perf_counter() - k0) * 1000
                 z0 = time.perf_counter()
