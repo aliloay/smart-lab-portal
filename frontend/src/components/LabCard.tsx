@@ -11,6 +11,7 @@ import type { LabOverview } from '../lib/api'
 import { fmtTime } from '../lib/time'
 import { Chip, Dot } from './ui'
 import { LabArt, categoryMeta } from './labArt'
+import RoboticsCover from './RoboticsCover'
 
 export default function LabCard({ o, canBook = true }: { o: LabOverview; canBook?: boolean }) {
   const { lab } = o
@@ -25,9 +26,12 @@ export default function LabCard({ o, canBook = true }: { o: LabOverview; canBook
     <article className="group card card-hover overflow-hidden flex flex-col">
       <Link to={`/labs/${lab.id}`} className="relative block h-36 overflow-hidden"
             aria-label={`${lab.name} (${lab.code})`}>
-        <LabArt category={lab.category}
+        {lab.code === 'LAB_01'
+          ? <RoboticsCover className="absolute inset-0 w-full h-full"
+              fallback={<LabArt category={lab.category} className="absolute inset-0 w-full h-full" />} />
+          : <LabArt category={lab.category}
                 className="absolute inset-0 w-full h-full transition-transform
-                           duration-500 group-hover:scale-[1.03]" />
+                           duration-500 group-hover:scale-[1.03]" />}
         <div className="absolute inset-0 bg-gradient-to-t from-ink-800 via-ink-800/20
                         to-transparent" />
         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1
