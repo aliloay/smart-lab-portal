@@ -419,6 +419,8 @@ class Appearance:
                 print(f"[vision] re-id model not usable ({e.__class__.__name__}): colours only")
         print(f"[vision] re-id on {self.engine}")
 
+    MIN_DEEP_H = 80                    # px: smaller (far / half-hidden) people get colours only - their
+                                       # look is never judged (Labeler.MIN_LOOK_H); 13 people cost 138 ms
     DEEP_EVERY_S = 2.0                 # body model at least this often (~100 ms a person; was 1 s)...
     NEAR_HOLD_S = 2.0                  # ...and every frame while people are close / just apart
 
@@ -451,6 +453,8 @@ class Appearance:
             H, W = frame.shape[:2]
             for i, (x, y, w, h) in enumerate(boxes):
                 if only is not None and i not in only:
+                    continue
+                if h < self.MIN_DEEP_H:              # too small to judge anyway (Labeler.MIN_LOOK_H): skip
                     continue
                 x0, y0 = int(max(0, x)), int(max(0, y))
                 x1, y1 = int(min(W, x + w)), int(min(H, y + h))

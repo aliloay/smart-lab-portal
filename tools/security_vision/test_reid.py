@@ -239,3 +239,10 @@ def test_between_refreshes_only_touching_people_get_the_body_model():
     assert later[0].deep is not None and later[1].deep is not None and later[2].deep is None
     again = a.looks(f, boxes, now=100.0 + vision.Appearance.DEEP_EVERY_S + 0.1)
     assert all(l.deep is not None for l in again)                       # everyone refreshed again
+
+
+@needs_model
+def test_people_too_small_to_judge_get_no_body_model():
+    a = vision.Appearance(REID)
+    looks = a.looks(_frame(), [(10, 10, 30, 60), (200, 10, 60, 160)], now=100.0)
+    assert looks[0].deep is None and looks[1].deep is not None
