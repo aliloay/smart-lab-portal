@@ -249,7 +249,10 @@ class Collector:
         for e in events:
             d = e.as_dict()
             d["source"] = "SIMULATION" if self.args.source == "sim" else "RTDE"
-            print(f"[robot] {e.kind}" + (f" J{e.joint + 1}" if e.joint is not None else "") + f" {e.detail}")
+            shown = {k: v for k, v in e.detail.items() if k != "trajectory"}   # the path still goes to the portal
+            if "trajectory" in e.detail:
+                shown["path_points"] = len(e.detail["trajectory"].get("t", []))
+            print(f"[robot] {e.kind}" + (f" J{e.joint + 1}" if e.joint is not None else "") + f" {shown}")
             self.outbox.append(d)
         if events:
             self.flush()
