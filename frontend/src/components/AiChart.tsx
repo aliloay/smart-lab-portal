@@ -9,7 +9,7 @@ import {
 } from 'recharts'
 import { Download } from 'lucide-react'
 import type { AiChartData } from '../lib/api'
-import { C, axisProps, tooltipProps } from './charts'
+import { C, axisProps, tooltipProps, xTitle, yTitle } from './charts'
 
 /** light: on the white printable report (dark text, light grid, no Save button in print). */
 export default function AiChart({ chart, light = false }: { chart: AiChartData; light?: boolean }) {
@@ -45,10 +45,10 @@ export default function AiChart({ chart, light = false }: { chart: AiChartData; 
                 <Legend wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
             ) : (
-              <BarChart data={rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={rows} margin={{ top: 4, right: 8, left: 4, bottom: 14 }}>
                 <CartesianGrid stroke={grid} strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="x" {...axis} interval="preserveStartEnd" />
-                <YAxis allowDecimals={false} width={28} {...axis} />
+                <XAxis dataKey="x" {...axis} interval="preserveStartEnd" {...xTitle(chart.x_label ?? 'Category')} />
+                <YAxis allowDecimals={false} {...axis} {...yTitle(chart.y_label ?? 'Count')} />
                 <Tooltip {...tooltipProps} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {chart.series.map(s => (

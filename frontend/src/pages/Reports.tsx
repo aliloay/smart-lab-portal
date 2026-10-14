@@ -13,7 +13,7 @@ import { BarChart3, CalendarRange, DoorOpen, FileText, ShieldX, Timer } from 'lu
 import { IssueSummary, ReportsOverview, api } from '../lib/api'
 import { denialShort } from '../lib/labels'
 import { ErrorBanner, MetricCard, PageHeader, SectionTitle, Skeleton } from '../components/ui'
-import { C, ChartCard, PALETTE, axisProps, tooltipProps } from '../components/charts'
+import { C, ChartCard, PALETTE, axisProps, tooltipProps, xTitle, yTitle } from '../components/charts'
 
 const PERIODS = [7, 30, 90, 365]
 const DELAY_LABEL: Record<string, string> = {
@@ -89,8 +89,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={r.bookings_by_lab}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="label" {...axisProps} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="label" {...axisProps} {...xTitle('Laboratory')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Bookings')} />
                     <Tooltip {...tooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar dataKey="count" name="Booked" fill={C.accent} radius={[6, 6, 0, 0]} />
@@ -103,8 +103,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <LineChart data={r.booking_volume}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} minTickGap={20} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} minTickGap={20} {...xTitle('Day (MM-DD)')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Bookings')} />
                     <Tooltip {...tooltipProps} />
                     <Line type="monotone" dataKey="count" name="Bookings" stroke={C.accent} strokeWidth={2.5} dot={{ r: 3 }} />
                   </LineChart>
@@ -115,8 +115,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={bookingHours.map((b, i) => ({ ...b, entries: entryHours[i].count }))}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="hour" {...axisProps} interval={1} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="hour" {...axisProps} interval={1} {...xTitle('Hour of day (local)')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Count')} />
                     <Tooltip {...tooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar dataKey="count" name="Bookings starting" fill={C.violet} radius={[4, 4, 0, 0]} />
@@ -129,8 +129,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={delays} layout="vertical" margin={{ left: 30 }}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-                    <XAxis type="number" {...axisProps} allowDecimals={false} />
-                    <YAxis type="category" dataKey="label" {...axisProps} width={120} />
+                    <XAxis type="number" {...axisProps} allowDecimals={false} {...xTitle('People (count)')} />
+                    <YAxis type="category" dataKey="label" {...axisProps} {...yTitle('Arrival vs booked start', 120)} />
                     <Tooltip {...tooltipProps} />
                     <Bar dataKey="count" name="Bookings" radius={[0, 6, 6, 0]}>
                       {delays.map((_, i) => <Cell key={i} fill={[C.accent, C.ok, C.warn, C.warn, C.bad][i] ?? C.accent} />)}
@@ -148,8 +148,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={outcomes}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} {...xTitle('Day (MM-DD)')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Attempts')} />
                     <Tooltip {...tooltipProps} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar dataKey="granted" name="Granted" stackId="a" fill={C.ok} />
@@ -181,8 +181,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={r.asset_checkouts} layout="vertical" margin={{ left: 20 }}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-                    <XAxis type="number" {...axisProps} allowDecimals={false} />
-                    <YAxis type="category" dataKey="label" {...axisProps} width={160} />
+                    <XAxis type="number" {...axisProps} allowDecimals={false} {...xTitle('Check-outs (count)')} />
+                    <YAxis type="category" dataKey="label" {...axisProps} {...yTitle('Item', 160)} />
                     <Tooltip {...tooltipProps} />
                     <Bar dataKey="count" name="Check-outs" fill={C.teal} radius={[0, 6, 6, 0]} />
                   </BarChart>
@@ -194,8 +194,8 @@ export default function Reports() {
                 <ResponsiveContainer>
                   <BarChart data={issues?.by_status ?? []}>
                     <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-                    <XAxis dataKey="label" {...axisProps} />
-                    <YAxis {...axisProps} allowDecimals={false} width={28} />
+                    <XAxis dataKey="label" {...axisProps} {...xTitle('Status')} />
+                    <YAxis {...axisProps} allowDecimals={false} {...yTitle('Issues')} />
                     <Tooltip {...tooltipProps} />
                     <Bar dataKey="count" name="Issues" radius={[6, 6, 0, 0]}>
                       {(issues?.by_status ?? []).map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}

@@ -840,6 +840,8 @@ export interface Priority {
 /** A chart the agent answered with: data from the records; the chat draws it. */
 export interface AiChartData {
   kind: 'bar' | 'pie'; title: string; x: string[]; stacked?: boolean
+  /** Axis titles from the agent, when it gives them. */
+  x_label?: string; y_label?: string
   series: { name: string; color: string; data: number[]; colors?: string[] }[]
 }
 export interface AiAnswer {

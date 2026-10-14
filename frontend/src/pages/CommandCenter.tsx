@@ -25,6 +25,7 @@ import { DemoBadge, RobotStateChip, useRobots } from '../components/robot/robotL
 import './CommandCenterWall.css'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
+const STATUS_REFRESH_MS = 3000          // status-driven page refresh, at most this often
 
 type HealthState = 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'STALE' | 'UNKNOWN' | 'SIMULATION'
 type EventKind = 'ACCESS' | 'VISION' | 'ROBOTS' | 'ENVIRONMENT'
@@ -631,7 +632,9 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
   const { connected } = useLive()
   const { robots } = useRobots()
 
+  const lastLoadAt = useRef(0)
   const loadPageData = useCallback(async () => {
+    lastLoadAt.current = Date.now()
     const [monitorResult, cameraResult, serviceResult, alertResult, accessResult, securityResult, hazardResult, environmentResult] = await Promise.allSettled([
       api.monitor(), api.securityCameras(), api.systemServices(), api.alerts(true),
       api.events({ limit: 40 }), api.securityEvents({ limit: 30 }), api.activeHazards(), api.allEnvironments(),
@@ -658,9 +661,19 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
     else { setEnvironments(null); setEnvironmentError(true) }
   }, [])
 
-  const scheduleRefresh = useCallback(() => {
-    if (refreshTimer.current != null) window.clearTimeout(refreshTimer.current)
-    refreshTimer.current = window.setTimeout(loadPageData, 400)
+  // Safety messages (hazard, alert, door) refresh within 400 ms, as before. Status messages arrive
+  // several times a second with a camera, robots and the environment node live; each used to reload
+  // all 8 endpoints (/command at 13.5 requests/s, /api/health 0.5-0.9 s, 2026-10-14 load test), so
+  // they refresh at most every 3 s - the last one is always applied, never dropped.
+  const scheduleRefresh = useCallback((urgent = false) => {
+    if (urgent) {
+      if (refreshTimer.current != null) window.clearTimeout(refreshTimer.current)
+      refreshTimer.current = window.setTimeout(() => { refreshTimer.current = null; loadPageData() }, 400)
+      return
+    }
+    if (refreshTimer.current != null) return
+    const wait = Math.max(400, lastLoadAt.current + STATUS_REFRESH_MS - Date.now())
+    refreshTimer.current = window.setTimeout(() => { refreshTimer.current = null; loadPageData() }, wait)
   }, [loadPageData])
 
   useEffect(() => {
@@ -691,12 +704,25 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
       .then(rows => setRobotEvents(rows.flat()))
   }, [robotIds]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadRobotEvents() }, [loadRobotEvents])
+  const robotEventsTimer = useRef<number | null>(null)
+  const robotEventsAt = useRef(0)
+  const scheduleRobotEvents = useCallback(() => {
+    if (robotEventsTimer.current != null) return
+    const wait = Math.max(0, robotEventsAt.current + STATUS_REFRESH_MS - Date.now())
+    robotEventsTimer.current = window.setTimeout(() => {
+      robotEventsTimer.current = null
+      robotEventsAt.current = Date.now()
+      loadRobotEvents()
+    }, wait)
+  }, [loadRobotEvents])
+  useEffect(() => () => { if (robotEventsTimer.current != null) window.clearTimeout(robotEventsTimer.current) }, [])
 
   useLiveMessages(message => {
-    if (['security_state', 'door_state', 'env_update', 'hazard', 'device_state', 'alert'].includes(message.type)) scheduleRefresh()
+    if (['door_state', 'hazard', 'alert'].includes(message.type)) scheduleRefresh(true)
+    else if (['security_state', 'env_update', 'device_state'].includes(message.type)) scheduleRefresh()
     if (message.type === 'robot_status' || (message.type === 'staff' && message.kind === 'robot_event')) {
       scheduleRefresh()
-      loadRobotEvents()
+      scheduleRobotEvents()
     }
   })
 
