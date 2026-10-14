@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 from collections import deque
 import hmac
+import collections
 import copy
 import json
 import os
@@ -252,6 +253,7 @@ class Service:
         self.view_wake = threading.Event()  # set when many boxes change at once: check the view now
         self.fps = 0.0
         self.analysed_at = 0.0               # last finished analysis pass (staleness)
+        self.part_ms: dict = {}               # re-ID / tracker / naming split of track_ms (/metrics)
         self.analysis_errors = 0
         self.jpeg = self.raw_jpeg = None
         self.jpeg_at = 0.0                  # when the frame in self.jpeg was received from the camera
@@ -399,7 +401,11 @@ class Service:
                         people += zoom_people(self.detector, frame, regions, people, max_n=2)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
-                tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
+                r0 = time.perf_counter()
+                looks = self.appearance.looks(frame, people, t0)
+                r1 = time.perf_counter()
+                tracks = self.tracker.update(people, t0, looks)
+                r2 = time.perf_counter()
                 occupants = self.cfg.get("occupants", [])
                 door = self.cfg.get("door")
                 door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
@@ -417,6 +423,9 @@ class Service:
                     self._persist_identity(self.identity_log[-1])
                 self._identity_events(id_events, tracks, occupants)
                 track_ms = (time.perf_counter() - k0) * 1000
+                for part, ms in (("reid", (r1 - r0) * 1000), ("tracker", (r2 - r1) * 1000),
+                                 ("naming", (time.perf_counter() - r2) * 1000)):
+                    self.part_ms.setdefault(part, collections.deque(maxlen=100)).append(ms)
                 z0 = time.perf_counter()
                 pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
                 with self.lock:
@@ -983,6 +992,7 @@ def make_app(svc: Service) -> Flask:
             return Response("device key required", status=401)
         return jsonify({**svc.metrics.summary(), "process": process_load(),
                         "engines": {"detector": svc.detector_engine(), "reid": svc.appearance.engine},
+                        "track_parts_ms_p50": {k: round(sorted(v)[len(v) // 2], 1) for k, v in svc.part_ms.items() if v},
                         "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
                                      "max_width": svc.args.max_width, "render_fps": svc.RENDER_FPS}})
 
