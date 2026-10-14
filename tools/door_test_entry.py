@@ -17,7 +17,7 @@ Leave the lab first if you are already being tracked inside - the name goes to a
     py tools/door_test_entry.py --watch-face
 Automatic while the lock is not installed: reads the face server's last recognised door face
 (GET /door/last-face, read only) and records a TEST entry each time the door's ESP32-CAM
-recognises a registered person, at most once per person per 60 s. Ctrl+C stops it.
+recognises a registered person; each new recognition refreshes the entry (at most every 10 s). Ctrl+C stops it.
 """
 import argparse
 import os
@@ -60,7 +60,7 @@ def exit_(a, subject: str) -> bool:
     return r.status_code == 200
 
 
-def watch_face(a, every_s: float = 60.0):
+def watch_face(a, every_s: float = 10.0):
     """Poll the face server's last recognised door face (read only); a new one = that person is at the door."""
     url, key = a.face.rstrip("/") + "/door/last-face", device_key()
     last: dict[str, float] = {}

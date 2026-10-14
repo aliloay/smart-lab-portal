@@ -733,6 +733,9 @@ class Labeler:
                 continue
             t.entered_at_door = True
             recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
+            print(f"[door] new person (track {t.id}) at the door; entries waiting: "
+                  + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
+                  + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
             if recent:
                 o = min(recent, key=lambda o: abs(t.first_seen - o["entered_at"]))
                 self._give(t, o, how="door")
