@@ -27,7 +27,11 @@ def test_tracker_keeps_ids_and_confirms_after_three_frames():
     out = tr.update([(14, 10, 50, 100), (300, 10, 50, 100)], now=1.0)
     assert [t.id for t in out] == [1]              # the new one is not confirmed yet
     tr.update([], now=4.0)
-    assert tr.tracks == []                          # both gone after MAX_MISS_S
+    # 2026-10-14: a confirmed STILL track (here ~3 px/s) survives MAX_MISS_STILL_S (seated people
+    # behind monitors); the unconfirmed one is gone after MAX_MISS_S as before.
+    assert [t.id for t in tr.tracks] == [1]
+    tr.update([], now=1.0 + Tracker.MAX_MISS_STILL_S + 0.1)
+    assert tr.tracks == []                          # and the still one too, after MAX_MISS_STILL_S
 
 
 def test_entrant_in_door_area_gets_that_name():
@@ -696,3 +700,43 @@ def test_touching_new_person_who_does_not_look_like_them_gets_no_name():
     guest = Track(4, (700, a[1], a[2], a[3]), 0.0, 11.0)              # someone else, unnamed: no elimination
     lab.assign([sara, stranger, guest], people, None, now=11.0)
     assert stranger.label is None and guest.label is None
+
+
+
+def test_a_moving_track_still_ends_after_max_miss():
+    tr = Tracker()
+    for i in range(4):
+        tr.update([(10 + 60 * i, 10, 50, 100)], now=i * 0.2)        # walking ~300 px/s
+    tr.update([], now=0.6 + Tracker.MAX_MISS_S + 0.1)
+    assert tr.tracks == []
+
+
+def test_a_still_person_missed_for_seconds_keeps_the_track():
+    """Live 2026-10-14: Hemaly seated behind his monitors was missed for seconds; at 2 s his track
+    broke every few seconds."""
+    tr = Tracker()
+    for i in range(5):
+        tr.update([(500, 250, 40, 45)], now=i * 0.15)
+    out = tr.update([(501, 251, 40, 45)], now=0.6 + 4.0)          # 4 s unseen, same seat
+    assert [t.id for t in tr.tracks] == [1]
+
+
+def test_after_a_gap_someone_clearly_different_in_the_seat_gets_a_new_track():
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, lb = _looks(img, [a, b])
+    assert look_distance(la, lb) > Tracker.REACQ_UNLIKE           # the two really look different
+    tr = Tracker()
+    for i in range(5):
+        tr.update([a], now=i * 0.15, looks=[la])
+    tr.update([a], now=0.6 + 3.0, looks=[lb])                      # same seat, after a gap, other person
+    assert sorted(t.id for t in tr.tracks) == [1, 2]                 # not glued onto track 1
+
+
+def test_after_a_gap_the_same_person_rejoins_the_track():
+    img, (a, b) = _frame((100, ALI), (400, SARA))
+    la, _ = _looks(img, [a, b])
+    tr = Tracker()
+    for i in range(5):
+        tr.update([a], now=i * 0.15, looks=[la])
+    tr.update([a], now=0.6 + 3.0, looks=[la])
+    assert [t.id for t in tr.tracks] == [1]

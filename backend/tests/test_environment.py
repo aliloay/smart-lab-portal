@@ -247,3 +247,25 @@ def test_no_full_screen_alarm_from_a_node_that_stopped_reporting(client, db, ali
     db.commit()
     assert client.get("/api/labs/hazards/active", headers=h).json() == []
     assert db.query(Alert).filter(Alert.is_resolved.is_(False)).count() >= 1
+
+
+def test_latest_many_returns_the_newest_reading_per_lab_and_metric(db, lab, env_node):
+    """latest_many now walks the (lab_id, metric, recorded_at) index per lab and metric instead of
+    sorting the whole table (72 ms on 2026-10-14). Same answer: the newest of each, per lab."""
+    from app.models import Lab
+    from app.services import environment
+    other = Lab(code="LAB_TEST2", name="Other", capacity=5)
+    db.add(other)
+    db.commit()
+    now = datetime.now(timezone.utc)
+    rows = [(lab, "temperature", 20.0, 30), (lab, "temperature", 23.5, 1), (lab, "temperature", 21.0, 10),
+            (lab, "humidity", 40.0, 2), (other, "temperature", 18.0, 5), (other, "temperature", 19.5, 50)]
+    for l, metric, value, minutes_ago in rows:                     # inserted out of time order
+        db.add(SensorReading(lab_id=l.id, device_id=env_node.id, metric=metric, value=value,
+                             unit="x", recorded_at=now - timedelta(minutes=minutes_ago)))
+    db.commit()
+    out = environment.latest_many(db, [lab, other], now)
+    assert out[lab.id]["metrics"]["temperature"]["value"] == 23.5
+    assert out[lab.id]["metrics"]["humidity"]["value"] == 40.0
+    assert out[other.id]["metrics"]["temperature"]["value"] == 18.0
+    assert out[lab.id]["metrics"]["flame"]["value"] is None and out[other.id]["metrics"]["humidity"]["value"] is None

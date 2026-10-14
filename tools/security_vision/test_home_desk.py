@@ -111,3 +111,20 @@ def test_sitting_beside_the_monitor_box_still_counts():
     lab = Labeler()
     lab.home_desk([t], {"USER5": ["PC-09"]}, zones, [HEMALY], {}, now=100.0)
     assert t.label == "USER5"
+
+
+def test_a_desk_name_is_drawn_as_a_guess():
+    import numpy as np
+    from vision import draw
+    t = Track(1, SEATED, 90.0, 100.0, hits=5)
+    lab = Labeler()
+    lab.home_desk([t], DESKS, ZONES, [HEMALY], {}, now=100.0)
+    import vision
+    seen = []
+    orig = vision._tag_clear
+    vision._tag_clear = lambda frame, text, *a, **k: (seen.append(text), orig(frame, text, *a, **k))[1]
+    try:
+        draw(np.zeros((540, 960, 3), np.uint8), [t], [], {})
+    finally:
+        vision._tag_clear = orig
+    assert any("? (desk)" in s for s in seen)

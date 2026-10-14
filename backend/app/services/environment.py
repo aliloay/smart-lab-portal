@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -274,12 +274,18 @@ def latest_many(db: Session, labs: list[Lab], now: Optional[datetime] = None) ->
             Device.lab_id.in_(ids), Device.device_type == DeviceType.SENSOR_NODE)
             .order_by(Device.lab_id, desc(Device.last_seen_at))).all():
         nodes.setdefault(d.lab_id, d)                 # the most recently seen node per lab
+    # Newest reading per (lab, metric) through the (lab_id, metric, recorded_at) index: one
+    # backward index step each. DISTINCT ON sorted the whole table every call (21,892 rows,
+    # 72 ms on 2026-10-14, growing with every reading) - the wall screen's slowest part.
+    newest_ids = db.execute(text(
+        "SELECT r.id FROM unnest(CAST(:labs AS integer[])) AS l(id) "
+        "CROSS JOIN unnest(CAST(:metrics AS varchar[])) AS m(metric) "
+        "CROSS JOIN LATERAL (SELECT s.id FROM sensor_readings s WHERE s.lab_id = l.id "
+        "AND s.metric = m.metric ORDER BY s.recorded_at DESC LIMIT 1) r"),
+        {"labs": ids, "metrics": list(METRICS)}).scalars().all()
     newest: dict[tuple[int, str], SensorReading] = {
         (r.lab_id, r.metric): r for r in db.scalars(
-            select(SensorReading).where(SensorReading.lab_id.in_(ids),
-                                        SensorReading.metric.in_(METRICS))
-            .order_by(SensorReading.lab_id, SensorReading.metric, desc(SensorReading.recorded_at))
-            .distinct(SensorReading.lab_id, SensorReading.metric)).all()}
+            select(SensorReading).where(SensorReading.id.in_(newest_ids))).all()} if newest_ids else {}
     return {lab.id: _latest_view(nodes.get(lab.id), {m: newest.get((lab.id, m)) for m in METRICS}, now)
             for lab in labs}
 

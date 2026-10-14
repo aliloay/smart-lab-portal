@@ -535,6 +535,14 @@ class Tracker:
     APPEAR_W = 0.6                     # weight of appearance against overlap
     APPEAR_GATE = 0.35                 # no overlap, but this alike and near: same person
     CONFIRM_HITS = 3                   # seen in this many frames before it counts
+    # Seated people behind monitors are missed for seconds at a time; at 2 s their track broke
+    # every few seconds and the name had to be handed over each time (live 2026-10-14). A STILL
+    # track (slower than STILL_SPEED x its own height per second) survives MAX_MISS_STILL_S, and
+    # after a gap a box only rejoins it if the look is not clearly someone else.
+    MAX_MISS_STILL_S = 6.0
+    STILL_SPEED = 0.3                  # box heights per second
+    GAP_S = 0.6                        # unseen longer than this = a gap (also confirmed()'s window)
+    REACQ_UNLIKE = 0.65                # this unlike the track's look after a gap = someone else (= Labeler.VETO_AT)
 
     def __init__(self):
         self.tracks: list[Track] = []
@@ -554,6 +562,8 @@ class Tracker:
             for bi, b in enumerate(boxes):
                 ov = iou(pred, b)
                 d = look_distance(t.look, looks[bi])
+                if now - t.last_seen > self.GAP_S and d is not None and d > self.REACQ_UNLIKE:
+                    continue                   # back after a gap, but clearly someone else
                 near = math.dist(_center(pred), _center(b)) < max(b[3], pred[3])
                 if ov < self.MIN_IOU and not (d is not None and d < self.APPEAR_GATE and near):
                     continue
@@ -579,7 +589,9 @@ class Tracker:
             if bi not in used_b:
                 self.tracks.append(Track(self._next, b, now, now, look=looks[bi]))
                 self._next += 1
-        self.tracks = [t for t in self.tracks if now - t.last_seen <= self.MAX_MISS_S]
+        self.tracks = [t for t in self.tracks if now - t.last_seen <= self.MAX_MISS_S
+                       or (t.hits >= self.CONFIRM_HITS and self._still(t)
+                           and now - t.last_seen <= self.MAX_MISS_STILL_S)]
         live = [t for t in self.tracks if t.last_seen == now]
         for t in live:
             was = t.crowded
@@ -590,8 +602,11 @@ class Tracker:
                 t.separated_at = now
         return self.confirmed(now)
 
+    def _still(self, t: Track) -> bool:
+        return math.hypot(*t.vel) < self.STILL_SPEED * max(t.box[3], 1.0)
+
     def confirmed(self, now: float) -> list[Track]:
-        return [t for t in self.tracks if t.hits >= self.CONFIRM_HITS and now - t.last_seen < 0.6]
+        return [t for t in self.tracks if t.hits >= self.CONFIRM_HITS and now - t.last_seen < self.GAP_S]
 
 
 def predicted(tracks: list[Track], now: float) -> list[Track]:
@@ -722,6 +737,7 @@ class Labeler:
     FACE_KEEP_S = 15 * 60.0            # a face-named look is remembered this long out of view
     FACE_REACQUIRE_MAX = 0.22          # stricter than a door name: no door entry backs it up
     MIN_LOOK_H = 80                    # px: a smaller (far / half-hidden) person's look is not judged
+    FRESH_S = 1800.0                   # elimination only for names entered / seen within 30 min
 
     def __init__(self):
         from identity import IdentityLedger
@@ -868,10 +884,20 @@ class Labeler:
             self._give(cands[0][2], o, how="look")
             free.remove(o)
 
-        # 3) Elimination: one free name, one unlabelled person.
+        # 3) Elimination: one free name, one unlabelled person - but only a FRESH name: entered
+        #    within FRESH_S or seen on someone by this camera within FRESH_S. Nobody records exits
+        #    in the test setup, so an entry from hours ago (live 2026-10-14: USER2, 2.2 h, never
+        #    seen) would otherwise name a stranger.
+        if not hasattr(self, "seen_at"):
+            self.seen_at: dict[str, float] = {}
+        for t in tracks:
+            if t.label:
+                self.seen_at[t.label] = now
+        fresh = [o for o in free if now - o["entered_at"] <= self.FRESH_S
+                 or now - self.seen_at.get(o["auth_subject"], -1e9) <= self.FRESH_S]
         unlabelled = [t for t in tracks if not t.label]
-        if len(free) == 1 and len(unlabelled) == 1:
-            self._give(unlabelled[0], free[0], how="elimination")
+        if len(free) == 1 and len(fresh) == 1 and len(unlabelled) == 1:
+            self._give(unlabelled[0], fresh[0], how="elimination")
 
         self._one_name_one_person(tracks)
         self._veto(tracks)             # before learning: never learn a wrong look into a name
@@ -915,6 +941,9 @@ class Labeler:
         live = {t.id: t for t in tracks}
         if not hasattr(self, "lost_why"):
             self.lost_why: dict[int, str] = {}       # why the name is not handed back yet (log)
+        for tid in [k for k in self.lost if k in live]:   # back under its own id (tracker kept it): not lost
+            del self.lost[tid]
+            self.lost_why.pop(tid, None)
         for tid, rec in list(self.last_named.items()):
             if tid not in live:
                 self.lost[tid] = (*rec, now)
@@ -1541,7 +1570,11 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
         if t.label:
             role = ROLE_NAMES.get(t.role, "")
             label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
-            if t.mismatch:
+            if t.source == "desk":
+                # Owner 2026-10-14: a desk alone never confirms a name - shown as a guess until the
+                # face or a door entry confirms it.
+                label += " ? (desk)"
+            elif t.mismatch:
                 label += f" - face says {t.mismatch}"
             elif not t.entered:
                 label += " - not entered"

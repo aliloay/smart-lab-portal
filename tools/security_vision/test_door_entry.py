@@ -29,3 +29,21 @@ def test_someone_already_inside_is_not_named_by_a_new_entry():
     ali = {"auth_subject": "USER1", "name": "Ali Loay", "role": "STUDENT", "entered_at": 95.0}
     lab.assign([old, other], [ali], DOOR, now=100.0)
     assert old.label is None and other.label is None
+
+
+def test_elimination_ignores_an_entry_from_hours_ago_nobody_has_seen_since():
+    """Live 2026-10-14: test entries are never closed by an exit; USER2 entered 2.2 h earlier and
+    was never seen - elimination would have named a stranger USER2."""
+    lab = Labeler()
+    stranger = Track(9, (600, 260, 70, 180), 7900.0, 8000.0)
+    old = {"auth_subject": "USER2", "name": "Old Entry", "role": "STUDENT", "entered_at": 0.0}
+    lab.assign([stranger], [old], DOOR, now=8000.0)
+    assert stranger.label is None
+
+
+def test_elimination_still_works_for_a_recent_entry():
+    lab = Labeler()
+    t = Track(9, (600, 260, 70, 180), 7900.0, 8000.0)
+    recent = {"auth_subject": "USER1", "name": "Ali Loay", "role": "STUDENT", "entered_at": 7000.0}
+    lab.assign([t], [recent], DOOR, now=8000.0)
+    assert t.label == "USER1" and t.named_by == "elimination"
