@@ -773,11 +773,13 @@ class Labeler:
                 continue
             if not (t.entered_at_door or at_door(t.box, door_rect)):
                 continue
+            first_time = not t.entered_at_door
             t.entered_at_door = True
             recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
-            self._note("DOOR_NEW_PERSON", t.id, None, "entries waiting: "
-                       + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
-                       + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
+            if first_time or recent:
+                self._note("DOOR_NEW_PERSON", t.id, None, "entries waiting: "
+                           + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
+                           + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
             if recent:
                 o = min(recent, key=lambda o: abs(t.first_seen - o["entered_at"]))
                 self._give(t, o, how="door")
