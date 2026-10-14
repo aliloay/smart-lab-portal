@@ -29,6 +29,6 @@ directml-gpu1 (12 ms/crop)** - the busy-start-up fix verified live (the camera i
 
 ## Waiting for the owner / hardware
 * At the lab: start the camera window (loads re-ID fix + masking) -> check `re-id on directml-gpu1`.
-* UR5e: IP / RTDE from the pendant -> docs/LAB_TEST_2026-10-15.md section A.
+* UR5e: **LIVE_VERIFIED telemetry** (192.168.1.102, RTDE, 48 Hz, twin working). Left: per-joint jog check, cable-pull test.
 * Photos -> frontend/public/lab + labVisuals.ts.
 * Optional (owner): CodeBurn `npx` run, Ponytail lite trial; TikTok effect needs a screen recording. All work committed (c4390ae), nothing pushed.
