@@ -30,6 +30,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import graph  # noqa: E402
 import kb  # noqa: E402
 
 LIMITS = {"steps": 6, "tool_output_chars": 4000, "files": 4, "seconds": 180, "grep_hits": 30}
@@ -267,6 +268,9 @@ def investigate(cfg, q, hits, res, out, run_tests):
     words = [t for t in kb.tokens(q) if len(t) > 4 and t.isalpha() and t not in COMMAND_WORDS]
     terms = list(dict.fromkeys(idents + sorted(set(words), key=len, reverse=True)))[:3]
     extra, files = [], []
+    hit_files = {str(h.get("source", "")).split(":")[0] for h in hits}
+    for src in list(hit_files):                         # files the top documents point at (graph 'mentions')
+        hit_files |= {e["dst"] for e in graph.related(cfg, src, kinds=("mentions",), limit=20) if e["src"] == src}
     for term in terms:                                   # most specific term first
         if time.perf_counter() > t_end or len(files) >= LIMITS["files"]:
             break
@@ -279,7 +283,9 @@ def investigate(cfg, q, hits, res, out, run_tests):
                 if "/test_" not in f:
                     per_file.setdefault(f, []).append(int(ln))
         out(f"step: grep '{term}' -> {sum(len(v) for v in per_file.values())} hits in {len(per_file)} files")
-        for f, lns in sorted(per_file.items(), key=lambda kv: -len(kv[1]))[:2]:   # where the term matters most
+        # Files the search already ranked for this question come first (a generic word like
+        # "embeddings" otherwise lands in whichever file uses it most), then by hit count.
+        for f, lns in sorted(per_file.items(), key=lambda kv: (kv[0] not in hit_files, -len(kv[1])))[:2]:
             if f not in [x[0] for x in files]:
                 files.append((f, lns[len(lns) // 2]))
     for f, line in files[:2]:
@@ -291,6 +297,14 @@ def investigate(cfg, q, hits, res, out, run_tests):
         res["steps"].append({"tool": "git_log", "args": [f], "ok": gl["ok"]})
         out(f"step: git log {f}")
         extra.append((gl["source"], "HISTORICAL (git)", gl["text"][:400]))
+    # Graph (graph.py): tests that import these files and the commits that changed them - each with
+    # its evidence pointer. Missing graph = this step is skipped, the plain search above still stands.
+    rel = [e for f, _ in files[:2] for e in graph.related(cfg, f, kinds=("tests", "changed"), limit=6)]
+    if rel:
+        res["steps"].append({"tool": "graph", "args": [f for f, _ in files[:2]], "edges": len(rel)})
+        out(f"step: graph -> {sum(e['kind'] == 'tests' for e in rel)} tests, {sum(e['kind'] == 'changed' for e in rel)} commits")
+        extra.append(("graph: tests and commits of these files", "VERIFIED_CURRENT / HISTORICAL (graph edges)",
+                      "\n".join(f"{e['kind']} {e['src']} -> {e['dst']} [{e['evidence']}] {e.get('label', '')}" for e in rel)[:900]))
     tests = [h for h in tool_grep(cfg, "|".join(re.escape(t) for t in terms), "tools").get("hits", []) if "/test_" in h["source"]][:3] if terms else []
     if tests:
         res["steps"].append({"tool": "grep-tests", "hits": [t["source"] for t in tests]})

@@ -93,3 +93,14 @@ later builds only embed changed chunks.
 * Demo passwords: owner chose to keep them simple for now (2026-10-14) — risk stays open in Known-Bugs-and-Risks.
 * The portal's existing "Ask the lab" assistant loads qwen2.5:3b on the GPU (2.07 GB VRAM, `OLLAMA_CPU_ONLY`
   defaults to false) next to the camera (~0.5 GB). Not changed; `OLLAMA_CPU_ONLY=true` in `.env` moves it to the CPU.
+
+## Knowledge graph (2026-10-14, `tools/knowledge/graph.py`, approved option C)
+Deterministic edges, each with evidence: `imports` / `tests` (python `ast`, file:line), `changed` (git commit),
+`mentions` (a path written in a doc; status = the doc's trust: documented / tested / reported_unverified /
+proposal), `calls_api` (n8n workflow -> backend route). 418 files, 2,186 edges, built in ~2 s, atomic write,
+idempotent; rebuilt by the build job (n8n Knowledge 1). The investigate route uses it to (a) prefer code files
+that the top documents point at and (b) add the tests and commits of the files it read. Measured on
+"why could re-id embeddings differ when the number of people changes": before, it read `kb.py`/`serve.py`
+(wrong); after, `tools/benchmarks/reid_audit.py` and `tools/security_vision/vision.py:309-337` + 4 tests, 3 commits.
+`py tools/knowledge/graph.py related <path>` lists a file's links. No graph = the step is skipped.
+Speed: models warm at service start and stay loaded 2 h (no first-question model load).

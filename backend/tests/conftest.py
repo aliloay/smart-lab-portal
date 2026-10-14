@@ -25,6 +25,9 @@ os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device
 # holds the production key), and not the published default either.
 TEST_DEVICE_KEY = "test-suite-device-key"
 os.environ["DEVICE_API_KEY"] = TEST_DEVICE_KEY
+# Laptop-specific settings from the live .env must not change what the tests expect
+# (2026-10-14: OLLAMA_CPU_ONLY=true on this laptop broke two GPU-fallback tests).
+os.environ["OLLAMA_CPU_ONLY"] = "false"
 
 
 def _ensure_test_database(url: str) -> None:
@@ -54,7 +57,21 @@ from app.models import (Device, DeviceType, Lab, RfidCredential, Role,  # noqa: 
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _schema():
+def _one_run_at_a_time():
+    """Two suites on the same _test database deadlocked (2026-10-14: one held a transaction,
+    the other's TRUNCATE waited on it; 25 min stuck). A session-level advisory lock makes a
+    second run wait for the first to finish instead."""
+    import psycopg
+    c = psycopg.connect(_test_url.replace("postgresql+psycopg://", "postgresql://"), autocommit=True)
+    if not c.execute("select pg_try_advisory_lock(727001)").fetchone()[0]:
+        print("\n[tests] another test run is using smartlab_test - waiting for it to finish...")
+        c.execute("select pg_advisory_lock(727001)")
+    yield
+    c.close()                                     # releases the lock
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _schema(_one_run_at_a_time):
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield

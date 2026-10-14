@@ -54,7 +54,7 @@ def run_job(name: str) -> dict:
     """Maintenance jobs, each a fixed command of this tool (no arguments from the request)."""
     py = sys.executable
     cmds = {"build": [[py, os.path.join(HERE, "history.py"), "import"], [py, os.path.join(HERE, "history.py"), "pages"],
-                      [py, os.path.join(HERE, "kb.py"), "live-export"], [py, os.path.join(HERE, "kb.py"), "build"],
+                      [py, os.path.join(HERE, "kb.py"), "live-export"], [py, os.path.join(HERE, "kb.py"), "build"], [py, os.path.join(HERE, "graph.py"), "build"],
                       [py, "-c", "import sys;sys.path.insert(0,r'%s');import kb;print(kb.build_embeddings(kb.load_config(),log=None))" % HERE]],
             "health": [[py, os.path.join(HERE, "kb.py"), "health"]],
             "drift": [[py, os.path.join(HERE, "kb.py"), "live-export"], [py, os.path.join(HERE, "kb.py"), "drift"]],

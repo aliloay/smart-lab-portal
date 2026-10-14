@@ -41,6 +41,7 @@ from collections import deque
 import hmac
 import json
 import os
+import re
 import threading
 import time
 from typing import Optional
@@ -76,6 +77,11 @@ def device_key() -> str:
 
 
 # --------------------------------------------------------------- capture ---
+def masked(src) -> str:
+    """The camera address without its user/password, for logs."""
+    return re.sub(r"(rtsp|https?)://[^@/\s]+@", r"\1://***@", str(src))
+
+
 class Camera:
     """Keeps only the newest frame (an RTSP buffer would otherwise lag)."""
 
@@ -117,7 +123,7 @@ class Camera:
             if cap is None:
                 still = still if still is not None else cv2.imread(self.source)
                 if still is None:
-                    print(f"[camera] cannot read {self.source}")
+                    print(f"[camera] cannot read {masked(self.source)}")
                     time.sleep(5)
                     continue
                 self._store(still.copy())

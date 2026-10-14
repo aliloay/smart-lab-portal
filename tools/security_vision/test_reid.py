@@ -7,6 +7,8 @@ import os
 
 import numpy as np
 import pytest
+import time as _time
+real_sleep = _time.sleep
 
 import vision
 
@@ -192,3 +194,33 @@ def test_real_model_five_people_matches_one_at_a_time(monkeypatch):
         for b, look in zip(boxes, crowd):
             alone = a.looks(f, [b])[0].deep
             assert float(look.deep @ alone) > 0.999, (engine, b)
+
+
+@needs_model
+def test_busy_start_up_does_not_push_a_fast_gpu_to_the_cpu(monkeypatch):
+    # 2026-10-14: launch.bat starts everything at once; the single start-up timing came out > 25 ms
+    # and re-id ran on the CPU all session although the GTX 1650 does a crop in ~10 ms.
+    import onnxruntime as ort
+    if "DmlExecutionProvider" not in ort.get_available_providers():
+        pytest.skip("no DirectML on this machine")
+    real = ort.InferenceSession
+
+    class SlowAtFirst:
+        def __init__(self, s): self.s, self.n = s, 0
+        def run(self, *a, **k):
+            self.n += 1
+            if self.n <= 10:                     # warm-up + the first timing: "busy laptop"
+                vision.time.sleep(0.03)
+            return self.s.run(*a, **k)
+        def __getattr__(self, name): return getattr(self.s, name)
+
+    def wrapped(path, *a, providers=None, **k):
+        s = real(path, *a, providers=providers, **k)
+        dml = providers and any((p[0] if isinstance(p, tuple) else p) == "DmlExecutionProvider" for p in providers)
+        return SlowAtFirst(s) if dml else s
+    monkeypatch.setenv("SMARTLAB_REID", "gpu")
+    monkeypatch.setenv("SMARTLAB_DML_DEVICES", "2")
+    monkeypatch.setattr(ort, "InferenceSession", wrapped)
+    monkeypatch.setattr(vision.time, "sleep", lambda s: None if s >= 1 else real_sleep(s))
+    a = vision.Appearance(REID)
+    assert a.engine.startswith("directml"), a.engine

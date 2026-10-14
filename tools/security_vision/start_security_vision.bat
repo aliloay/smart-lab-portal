@@ -37,6 +37,9 @@ rem The camera forgets its clock when it loses power: set it from this laptop.
 echo Do NOT click inside this window: Windows pauses the program while text is
 echo selected. If the title says "Select", press Esc.
 echo.
-%PY% security_vision.py --source "%SOURCE%" --lab %LAB% --device %DEVICE% --portal http://127.0.0.1:8000/api
+rem The camera address (with its password) goes through the environment, not the command
+rem line, so it does not show in Task Manager / process lists (2026-10-14).
+set "SECURITY_CAMERA_SOURCE=%SOURCE%"
+%PY% security_vision.py --lab %LAB% --device %DEVICE% --portal http://127.0.0.1:8000/api
 echo.
 echo The security camera service has stopped.

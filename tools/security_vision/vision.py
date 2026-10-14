@@ -349,6 +349,21 @@ class Appearance:
                     ms = float(np.median(runs))
                     if best is None or ms < best[0]:
                         best = (ms, dev, sess)
+                # One timing at start-up is fragile: launch.bat starts Docker, Ollama and this at once,
+                # and a busy moment pushed a 10 ms GPU over the limit -> CPU for the whole session
+                # (seen 2026-10-14). Re-measure the best device a few times before giving up.
+                tries = 0
+                while best and best[0] >= 25 and tries < 4:
+                    tries += 1
+                    time.sleep(1.5)
+                    runs = []
+                    for _ in range(7):
+                        t = time.perf_counter()
+                        best[2].run(None, {"input": x})
+                        runs.append((time.perf_counter() - t) * 1000)
+                    best = (min(best[0], float(np.median(runs))), best[1], best[2])
+                if best and best[0] >= 25:
+                    print(f"[vision] re-id: GPU {best[1]} measured {best[0]:.0f} ms/crop (limit 25) - using the CPU")
                 if best and best[0] < 25:            # a real GPU (CPU: ~30 ms a crop)
                     self.net = lambda b, s=best[2]: s.run(None, {"input": b})[0]
                     self.engine = f"directml-gpu{best[1]} ({best[0]:.0f} ms/crop)"
