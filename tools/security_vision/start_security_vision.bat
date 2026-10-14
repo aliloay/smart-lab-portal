@@ -6,6 +6,14 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 title Smart Lab - Security camera
 set "VIRTUAL_ENV="
+rem Only one camera service at a time: a second copy cannot take port 5100, keeps
+rem a second camera stream open and serves nothing (seen at the lab 2026-10-14).
+netstat -ano | findstr /r /c:"127.0.0.1:5100 .*LISTENING" >nul
+if not errorlevel 1 (
+  echo The security camera service is already running ^(port 5100^).
+  echo Close its window "Smart Lab - Security camera" first, then start this again.
+  pause & exit /b 1
+)
 if not exist camera.env (
   echo No camera.env here yet: copy camera.env.example to camera.env and fill it in.
   pause & exit /b 1
