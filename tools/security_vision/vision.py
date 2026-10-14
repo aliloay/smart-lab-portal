@@ -1014,7 +1014,10 @@ class Labeler:
                 mine = self._distance(t, label)
                 others = [d for other in self.identities if other != label and other not in taken
                           and (d := self._distance(t, other)) is not None]
-                return bool(others) and (mine is None or min(others) < mine)
+                # only a CLEAR fit to someone else blocks (an owner without a locked look yet
+                # was blocked by any other profile at all - live 2026-10-14, Hemaly unnamed)
+                close_other = [d for d in others if d <= self.REACQUIRE_MAX]
+                return bool(close_other) and (mine is None or min(close_other) < mine)
             at = [t for t in at if not fits_someone_else(t)]
             if len(at) == 1:
                 self._give(at[0], who, "desk", how="desk")      # weak evidence: a door entry overrides it
