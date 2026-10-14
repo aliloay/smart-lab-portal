@@ -1092,6 +1092,13 @@ class ZoneWatcher:
                             and int(big.sum()) >= self.MIN_MOVING_PX)
         return out
 
+    STANDING_RATIO = 2.2               # person box height / width above this = standing (lab 2026-10-14:
+                                       # seated 1.7-1.8, standing 2.4-2.9) - PCs only; VERIFY on more people
+
+    def _standing(self, p: tuple, fw: int, fh: int) -> bool:
+        """p = (x, y, w, h) normalised; ratio measured in pixels."""
+        return p[2] > 0 and (p[3] * fh) / (p[2] * fw) > self.STANDING_RATIO
+
     def update(self, zones: list[dict], gray: np.ndarray, person_rects_norm: list[tuple],
                now: float) -> list[ZoneState]:
         """zones: [{"id", "name", "x", "y", "w", "h"}] normalised 0-1."""
@@ -1114,7 +1121,11 @@ class ZoneWatcher:
                 area = (rect[0] - g * rect[2], rect[1] - g * rect[3], rect[2] * (1 + 2 * g), rect[3] * (1 + 2 * g))
                 occupied = any(iou(area, p) > 0.02 for p in person_rects_norm)
             else:
-                occupied = any(iou(rect, p) > 0.02 for p in person_rects_norm)
+                # A PC is used by someone SITTING at it. Standing in front of it (talking,
+                # passing, waiting) overlaps the box in the picture too, but is not use
+                # (2026-10-14 lab: a man standing at PC-11 made it "in use").
+                fh, fw = gray.shape[:2]
+                occupied = any(iou(rect, p) > 0.02 and not self._standing(p, fw, fh) for p in person_rects_norm)
             # Motion compares with the picture from MOTION_GAP_S ago (the thresholds
             # were set for that gap), however often update() is called.
             prev = self.prev.get(zid)
