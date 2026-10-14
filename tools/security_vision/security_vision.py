@@ -392,7 +392,8 @@ class Service:
                     # ...and one more person box each pass, in turn: a ratio alone misses pairs
                     # (lab: 0.67 with Ali behind Nour). ~20 ms on the GPU; each box ~once a second.
                     self._zoom_i = getattr(self, "_zoom_i", -1) + 1
-                    turn = [people[self._zoom_i % len(people)]] if people else []
+                    # every 3rd pass only (speed: 8 people at 5 fps had no headroom, pass p95 207 ms)
+                    turn = [people[(self._zoom_i // 3) % len(people)]] if people and self._zoom_i % 3 == 0 else []
                     regions = lost + wide[:1] + [b for b in turn if b not in wide]
                     if regions:                      # at most 2 zooms a pass: 7 people + 3 zooms lagged (3.2 fps)
                         people += zoom_people(self.detector, frame, regions, people, max_n=2)

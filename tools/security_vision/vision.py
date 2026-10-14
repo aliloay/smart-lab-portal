@@ -435,12 +435,23 @@ class Appearance:
         out = [Look(color_signature(frame, b)) for b in boxes]
         if now is not None and not self.wants_deep(boxes, now):
             return out
+        only = None
         if now is not None:
-            self._last_deep = now
+            # Speed (lab 2026-10-14, 8 people: re-ID for all of them every pass, 63 ms): while people
+            # touch, only THEY need the body model every pass; everyone is refreshed every
+            # DEEP_EVERY_S, and right after a separation (nobody touching now) all of them.
+            close = {k for (i, a), (j, b) in itertools.combinations(enumerate(boxes), 2)
+                     if _close(a, b) for k in (i, j)}
+            if close and now - self._last_deep < self.DEEP_EVERY_S:
+                only = close
+            else:
+                self._last_deep = now
         if self.net is not None and boxes:
             crops, idx = [], []
             H, W = frame.shape[:2]
             for i, (x, y, w, h) in enumerate(boxes):
+                if only is not None and i not in only:
+                    continue
                 x0, y0 = int(max(0, x)), int(max(0, y))
                 x1, y1 = int(min(W, x + w)), int(min(H, y + h))
                 if x1 - x0 < 8 or y1 - y0 < 16:

@@ -224,3 +224,18 @@ def test_busy_start_up_does_not_push_a_fast_gpu_to_the_cpu(monkeypatch):
     monkeypatch.setattr(vision.time, "sleep", lambda s: None if s >= 1 else real_sleep(s))
     a = vision.Appearance(REID)
     assert a.engine.startswith("directml"), a.engine
+
+
+@needs_model
+def test_between_refreshes_only_touching_people_get_the_body_model():
+    """Speed (lab 2026-10-14): with 8 people, re-ID ran for everyone every pass. Between full
+    refreshes only the people touching someone need it."""
+    a = vision.Appearance(REID)
+    f = _frame()
+    boxes = [(10, 10, 60, 120), (65, 12, 60, 118), (400, 10, 60, 120)]   # 0 and 1 touch, 2 far
+    first = a.looks(f, boxes, now=100.0)                                # full refresh
+    assert all(l.deep is not None for l in first)
+    later = a.looks(f, boxes, now=100.4)                                # within DEEP_EVERY_S
+    assert later[0].deep is not None and later[1].deep is not None and later[2].deep is None
+    again = a.looks(f, boxes, now=100.0 + vision.Appearance.DEEP_EVERY_S + 0.1)
+    assert all(l.deep is not None for l in again)                       # everyone refreshed again
