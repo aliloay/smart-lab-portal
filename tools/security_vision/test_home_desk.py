@@ -81,3 +81,24 @@ def test_without_a_new_entry_the_desk_name_stays():
     other = Track(8, (600, 260, 70, 180), 20.0, 101.0)                    # someone else, unnamed
     lab.assign([sitter, other], [dict(HEMALY, entered_at=0.0)], DOOR, now=101.0)
     assert sitter.label == "USER5"
+
+
+def test_ali_at_hemalys_desk_stays_ali_after_his_box_breaks():
+    """Owner (2026-10-14): 'if I go to Hemaly's desk I should stay Ali Loay'. A box break there
+    must give Ali his own name back - not Hemaly's by desk."""
+    import test_vision as tv
+    img, (a, b) = tv._frame((100, tv.ALI), (400, tv.SARA))
+    la, lb = tv._looks(img, [a, b])
+    zones = {"PC-09": (a[0], a[1] + a[3] // 3, a[2], a[3] // 3)}            # Hemaly's desk = where Ali sits
+    people = [tv.occ("USER1", "Ali", "STUDENT", 0.0), tv.occ("USER2", "Sara", "STUDENT", 0.0), dict(HEMALY)]
+    ali = Track(1, a, 0, 0, label="USER1", name="Ali", role="STUDENT", look=la)
+    sara = Track(2, b, 0, 0, label="USER2", name="Sara", role="STUDENT", look=lb)
+    lab = Labeler()
+    tv._learnt(lab, [ali, sara], people)
+    lab.assign([sara], people, None, now=10.0)                         # Ali's box breaks at the desk
+    again = Track(3, a, 11.0, 11.0, look=la)
+    lab.home_desk([sara, again], {"USER5": ["PC-09"]}, zones, people, {}, now=11.0,
+                  standing_ratio=10.0)                                 # the drawn figure counts as seated
+    assert again.label != "USER5"                                      # never Hemaly by desk
+    lab.assign([sara, again], people, None, now=11.5)
+    assert again.label == "USER1"                                      # Ali back

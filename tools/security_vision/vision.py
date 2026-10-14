@@ -988,6 +988,20 @@ class Labeler:
             at = [t for t in tracks if not t.label and t.box[2] > 0
                   and t.box[3] / t.box[2] <= standing_ratio                      # seated
                   and any(at_desk(t.box, r) for r in rects)]
+            # Locked profiles first (owner: "if I go to Hemaly's desk I stay Ali Loay"):
+            #  * a named person whose box was just lost AT this desk gets their own name back first
+            #    (hand-back, HANDBACK_S) - the desk waits;
+            #  * nobody whose look fits ANOTHER locked profile better than the owner's.
+            just_lost = [rec for rec in getattr(self, "lost", {}).values()
+                         if rec[1]["auth_subject"] != label and any(at_desk(rec[0], r) or iou(rec[0], r) > 0.02 for r in rects)]
+            if just_lost:
+                continue
+            def fits_someone_else(t):
+                mine = self._distance(t, label)
+                others = [d for other in self.identities if other != label and other not in taken
+                          and (d := self._distance(t, other)) is not None]
+                return bool(others) and (mine is None or min(others) < mine)
+            at = [t for t in at if not fits_someone_else(t)]
             if len(at) == 1:
                 self._give(at[0], who, "desk", how="desk")      # weak evidence: a door entry overrides it
                 if not hasattr(self, "desk_named_at"):
