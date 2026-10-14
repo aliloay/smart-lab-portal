@@ -14,9 +14,9 @@ import { fmtDateTime } from '../lib/time'
 import { ErrorBanner, ProgressBar, Spinner } from './ui'
 import { FaceSubmissionReview } from './FaceSubmission'
 
-// Pause between automatic captures: time to turn the head slightly, so the
-// samples differ (angle, expression) instead of being one frame 20 times.
-const AUTO_GAP_MS = 900
+// Progress of automatic capture is read this often (the face server spaces and
+// varies the samples itself: steady face, a new look, >= 0.35 s apart).
+const AUTO_POLL_MS = 500
 
 export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   userId: number
@@ -42,7 +42,9 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   }, [userId])
   useEffect(load, [load])
 
-  // Live view: one frame about every 0.8 s while the panel is open.
+  // Live view: a frame about every 0.4 s while the panel is open - the frame the door camera
+  // already sent to the face server, so the camera does no extra work (its own snapshot only
+  // as a fallback, in the portal backend).
   // When an error occurs, the stale frame is cleared so an offline camera
   // never masquerades as a live preview.
   useEffect(() => {
@@ -68,13 +70,17 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
           }
         }
       }
-      if (!stop) timer = window.setTimeout(tick, 800)
+      if (!stop) timer = window.setTimeout(tick, 400)
     }
     tick()
     return () => { stop = true; window.clearTimeout(timer); if (url) URL.revokeObjectURL(url) }
   }, [open])
 
-  useEffect(() => () => { autoRef.current = false }, [])
+  // Leaving the page or closing the panel ends a running automatic capture on the face server too.
+  useEffect(() => () => {
+    if (autoRef.current) api.faceAutoStop(userId).catch(() => undefined)
+    autoRef.current = false
+  }, [userId])
 
   async function captureOnce(): Promise<boolean> {
     if (busy) return false
@@ -110,20 +116,32 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
     setBusy(false)
   }
 
+  // Automatic capture (2026-10-14): the face server keeps every steady, sharp, new-looking frame
+  // of this person from the door camera's normal stream - no camera round trip per sample, and a
+  // rejected frame (blurred, moving, same look) just waits for the next one instead of stopping.
   async function startAuto() {
     if (!st) return
+    const want = Math.max(1, st.target_samples - st.samples)
     autoRef.current = true
-    setAuto(true)
-    let samples = st.samples
-    while (autoRef.current && samples < st.target_samples) {
-      const ok = await captureOnce()
-      if (!ok) break
-      samples = await api.faceStatus(userId).then(s => { setSt(s); return s.samples })
-        .catch(() => samples + 1)
-      await new Promise(r => window.setTimeout(r, AUTO_GAP_MS))
+    setAuto(true); setError(''); setDone(false)
+    try {
+      let s = await api.faceAutoStart(userId, want)
+      while (autoRef.current && s.active) {
+        await new Promise(r => window.setTimeout(r, AUTO_POLL_MS))
+        s = await api.faceAuto(userId)
+        if (s.samples != null) setSt(prev => prev && { ...prev, samples: s.samples ?? prev.samples,
+                                                         has_photo: prev.has_photo || (s.saved ?? 0) > 0 })
+        setMsg(s.active ? `${s.saved ?? 0} / ${s.target ?? want} new samples - ${s.hint ?? ''}`
+                        : `${s.saved ?? 0} new samples saved${s.ended ? ` (${s.ended})` : ''}.`)
+      }
+      if (!autoRef.current) await api.faceAutoStop(userId).catch(() => undefined)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Automatic capture failed')
+    } finally {
+      autoRef.current = false
+      setAuto(false)
+      load()
     }
-    autoRef.current = false
-    setAuto(false)
   }
 
   // Photos staff already have (e.g. from a phone): straight to the face server.

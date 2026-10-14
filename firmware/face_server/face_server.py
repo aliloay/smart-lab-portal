@@ -151,8 +151,9 @@ templates = {}                   # name -> unit-length mean embedding
 _feature_cache = {}              # sample path -> (mtime, embedding)
 
 
-def yunet_face(img):
-    """Largest face in a BGR frame as YuNet's 15-value row (full-res coords)."""
+def yunet_faces(img):
+    """(largest face as YuNet's 15-value row in full-res coords or None, number of faces) -
+    ONE detector pass (the enrolment used to run three on the same frame, 2026-10-14)."""
     scale = DETECT_WIDTH / img.shape[1]
     small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) \
         if scale < 1 else img
@@ -161,19 +162,20 @@ def yunet_face(img):
     yunet.setInputSize((small.shape[1], small.shape[0]))
     _, faces = yunet.detect(small)
     if faces is None or not len(faces):
-        return None
+        return None, 0
     face = max(faces, key=lambda f: f[2] * f[3]).copy()
     face[:14] /= scale                        # box + 5 landmarks back to full size
-    return face
+    return face, len(faces)
+
+
+def yunet_face(img):
+    """Largest face in a BGR frame as YuNet's 15-value row (full-res coords)."""
+    return yunet_faces(img)[0]
 
 
 def yunet_count(img):
     """How many faces YuNet sees in the frame."""
-    scale = min(1.0, DETECT_WIDTH / img.shape[1])
-    small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else img
-    yunet.setInputSize((small.shape[1], small.shape[0]))
-    _, faces = yunet.detect(small)
-    return 0 if faces is None else len(faces)
+    return yunet_faces(img)[1]
 
 
 # Enrolment sample quality (audit 2026-10-12). VERIFY the numbers on real
@@ -255,13 +257,24 @@ def rebuild_templates(only=None):
 
 def sface_identify(img):
     """(name or None, cosine or None, face found?, YuNet row or None)."""
-    face = yunet_face(img)
-    if face is None or not templates:
-        return None, None, face is not None, face
-    q = _unit(sface.feature(sface.alignCrop(img, face)))
-    name, score = max(((n, float(np.dot(q, t))) for n, t in templates.items()),
-                      key=lambda x: x[1])
-    return (name if score >= SFACE_THRESHOLD else None), score, True, face
+    r = sface_look(img)
+    return r["name"], r["score"], r["row"] is not None, r["row"]
+
+
+def sface_look(img):
+    """Everything one detector + one embedding pass gives: largest face row, number of faces,
+    aligned crop, unit embedding, and the match (name only at cosine >= SFACE_THRESHOLD)."""
+    row, n = yunet_faces(img)
+    out = {"row": row, "n": n, "aligned": None, "feat": None, "name": None, "score": None}
+    if row is None:
+        return out
+    out["aligned"] = sface.alignCrop(img, row)
+    out["feat"] = _unit(sface.feature(out["aligned"]))
+    if templates:
+        name, score = max(((nm, float(np.dot(out["feat"], t))) for nm, t in templates.items()),
+                          key=lambda x: x[1])
+        out.update(name=name if score >= SFACE_THRESHOLD else None, score=score)
+    return out
 
 
 def sface_distance(score):
@@ -525,15 +538,8 @@ def enroll():
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     # YuNet (the detector SFace matching uses) finds faces Haar misses - turned
     # head, uneven light; Haar stays the fallback when YuNet is not loaded.
-    box = None
-    if ENGINE == "sface":
-        row = yunet_face(img)
-        if row is not None:
-            x, y, w, h = (int(round(v)) for v in row[:4])
-            H, W = gray.shape[:2]
-            x, y = max(0, x), max(0, y)
-            w, h = min(w, W - x), min(h, H - y)
-            box = (x, y, w, h) if w > 20 and h > 20 else None
+    look = sface_look(img) if ENGINE == "sface" else None
+    box = _clamped_box(look["row"], gray.shape) if look else None
     if box is None:
         box = largest_face_box(gray)
     if box is None:
@@ -541,25 +547,52 @@ def enroll():
         return jsonify({"status": "no face found - try again"}), 200
     x, y, w, h = box
     # Quality gate before anything is stored.
-    new_feat, aligned = None, None
-    if ENGINE == "sface":
-        row = yunet_face(img)
-        if row is not None:
-            aligned = sface.alignCrop(img, row)
-            new_feat = _unit(sface.feature(aligned))
-    why = enroll_quality(gray[y:y + h, x:x + w], yunet_count(img) if ENGINE == "sface" else 1,
-                         new_feat, _last_sample_feat.get(name))
+    why = enroll_quality(gray[y:y + h, x:x + w], look["n"] if look else 1,
+                         look["feat"] if look else None, _last_sample_feat.get(name)) \
+        or (_identity_check(name, look["feat"]) if look else None)
     if why:
         print(f"[enroll] {name}: rejected - {why}")
         return jsonify({"status": "rejected", "reason": why}), 200
-    face = cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE)
-    keep_best_portrait(name, img, w * h)
+    idx = _store_sample(name, img, gray, box, look["aligned"] if look else None,
+                        look["feat"] if look else None)
+    print(f"[enroll] {name}: sample {idx + 1} saved ({(time.perf_counter() - t0) * 1000:.0f} ms)")
+    return jsonify({"status": "saved", "name": name, "samples": idx + 1,
+                    "engine": ENGINE})
 
+
+def _clamped_box(row, shape):
+    """YuNet row -> (x, y, w, h) inside the frame, or None for a tiny/absent face."""
+    if row is None:
+        return None
+    x, y, w, h = (int(round(v)) for v in row[:4])
+    H, W = shape[:2]
+    x, y = max(0, x), max(0, y)
+    w, h = min(w, W - x), min(h, H - y)
+    return (x, y, w, h) if w > 20 and h > 20 else None
+
+
+def _identity_check(name, feat):
+    """Refuse a sample that is clearly ANOTHER enrolled person (at the door's own threshold), so a
+    wrong person in front of the camera cannot be enrolled under this name. None = fine."""
+    if feat is None:
+        return None
+    others = [(float(np.dot(feat, t)), n) for n, t in templates.items() if n != name]
+    best = max(others, default=(None, None))
+    own = templates.get(name)
+    if best[0] is not None and best[0] >= SFACE_THRESHOLD and (own is None or best[0] > float(np.dot(feat, own))):
+        return f"this looks like {best[1]}, not {name} - is the right person in front of the camera?"
+    return None
+
+
+def _store_sample(name, img, gray, box, aligned, feat):
+    """Save one accepted sample exactly as before (grey crop, aligned colour face, best portrait)
+    and rebuild this person's template at once. Returns the sample index."""
+    x, y, w, h = box
+    keep_best_portrait(name, img, w * h)
     user_dir = os.path.join(DATASET_DIR, name)
     os.makedirs(user_dir, exist_ok=True)
     idx = len(os.listdir(user_dir))
-    cv2.imwrite(os.path.join(user_dir, f"{idx}.jpg"), face)
-
+    cv2.imwrite(os.path.join(user_dir, f"{idx}.jpg"), cv2.resize(gray[y:y + h, x:x + w], FACE_SIZE))
     if ENGINE == "sface":
         # The aligned colour face for SFace, then this person's template is
         # rebuilt at once: no separate training step.
@@ -567,12 +600,109 @@ def enroll():
             sdir = os.path.join(SFACE_DATASET_DIR, name)
             os.makedirs(sdir, exist_ok=True)
             cv2.imwrite(os.path.join(sdir, f"{idx}.png"), aligned)
-            _last_sample_feat[name] = new_feat
+            _last_sample_feat[name] = feat
         rebuild_templates({name})
+    return idx
 
-    print(f"[enroll] {name}: sample {idx + 1} saved ({(time.perf_counter() - t0) * 1000:.0f} ms)")
-    return jsonify({"status": "saved", "name": name, "samples": idx + 1,
-                    "engine": ENGINE})
+
+# ---------------------------------------------------------------------------
+# Automatic enrolment (2026-10-14): samples taken from the frames the door camera ALREADY sends to
+# /analyze (~6/s), instead of one camera round trip per sample (portal -> camera -> here, ~1-2 s
+# each plus a pause). A frame is saved only when it passes the same quality gate as a manual
+# capture AND the face is steady (not moving = not motion-blurred), at least AUTO_GAP_S after the
+# last sample, and not clearly another enrolled person. Started and watched by the portal (device
+# key); ends at the target, on Stop, or AUTO_IDLE_S after the last poll. Door decisions are
+# unchanged: the frame is analysed for the door exactly as before, the session only stores samples.
+AUTO_GAP_S = 0.35
+AUTO_STEADY = 0.06               # face centre moved at most this share of the face width since the last frame
+AUTO_IDLE_S = 30.0
+_auto: dict = {}
+_auto_lock = threading.Lock()
+
+
+def _auto_status():
+    a = _auto
+    if not a:
+        return {"active": False}
+    return {"active": a["active"], "name": a["name"], "saved": a["saved"], "target": a["target"],
+            "samples": a["base"] + a["saved"], "frames": a["frames"], "hint": a["hint"],
+            "seconds": round(time.time() - a["started"], 1),
+            "first_sample_s": a["first_s"], "ended": a.get("ended")}
+
+
+def _auto_consider(img, gray, look):
+    """Called by /analyze (inside cv_lock) for every frame while a session runs."""
+    a = _auto
+    if not a or not a["active"]:
+        return
+    now = time.time()
+    if now - a["polled"] > AUTO_IDLE_S:
+        a.update(active=False, ended="nobody watching - stopped")
+        return
+    a["frames"] += 1
+    row, prev = look["row"], a.get("prev")
+    a["prev"] = (row[:4].copy(), now) if row is not None else None
+    box = _clamped_box(row, gray.shape)
+    if box is None:
+        a["hint"] = "no face - look at the camera"
+        return
+    if prev is None or now - prev[1] > 0.6:
+        a["hint"] = "hold still"
+        return
+    (px, py, pw, ph), (x, y, w, h) = prev[0], row[:4]
+    if np.hypot(px + pw / 2 - x - w / 2, py + ph / 2 - y - h / 2) > AUTO_STEADY * w:
+        a["hint"] = "hold still"
+        return
+    if now - a["last_saved"] < AUTO_GAP_S:
+        return
+    bx, by, bw, bh = box
+    why = enroll_quality(gray[by:by + bh, bx:bx + bw], look["n"], look["feat"],
+                         _last_sample_feat.get(a["name"])) or _identity_check(a["name"], look["feat"])
+    if why:
+        a["hint"] = why
+        return
+    idx = _store_sample(a["name"], img, gray, box, look["aligned"], look["feat"])
+    a["saved"] += 1
+    a["last_saved"] = now
+    a["hint"] = "saved - turn your head slightly"
+    if a["first_s"] is None:
+        a["first_s"] = round(now - a["started"], 2)
+    print(f"[auto-enroll] {a['name']}: sample {idx + 1} saved ({a['saved']}/{a['target']})")
+    if a["saved"] >= a["target"]:
+        a.update(active=False, ended="target reached")
+
+
+@app.route("/enroll/auto", methods=["GET", "POST", "DELETE"])
+def enroll_auto():
+    """POST ?name=USER5&target=12 starts, GET reports progress, DELETE stops. Device key required:
+    it stores pictures of a person."""
+    global _enrolling_at
+    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+        return jsonify({"error": "device key required"}), 403
+    if ENGINE != "sface":
+        return jsonify({"error": "automatic enrolment needs the SFace models"}), 501
+    with _auto_lock:
+        if request.method == "POST":
+            name = request.args.get("name", "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+                return jsonify({"error": "name must be letters/digits only, e.g. USER5"}), 400
+            target = max(1, min(40, int(request.args.get("target", "12") or 12)))
+            folder = os.path.join(DATASET_DIR, name)
+            base = len(os.listdir(folder)) if os.path.isdir(folder) else 0
+            now = time.time()
+            _auto.clear()
+            _auto.update(active=True, name=name, target=target, base=base, saved=0, frames=0,
+                         started=now, polled=now, last_saved=0.0, prev=None, first_s=None,
+                         hint="look at the camera")
+            print(f"[auto-enroll] {name}: started, {target} samples")
+        elif request.method == "DELETE":
+            if _auto.get("active"):
+                _auto.update(active=False, ended="stopped")
+        elif _auto:
+            _auto["polled"] = time.time()
+        if _auto.get("active"):
+            _enrolling_at = time.time()      # the security camera's /identify waits, as for manual capture
+        return jsonify(_auto_status())
 
 
 # ---------------------------------------------------------------------------
@@ -799,10 +929,12 @@ def analyze():
         face_name, face_distance = None, None
         face = None
         face_row = None
+        look = None
         if ENGINE == "sface":
-            name, score, found, face_row = sface_identify(img)
-            face = True if found else None     # only "was there a face" is used below
-            face_name, face_distance = name, sface_distance(score)
+            look = sface_look(img)
+            face_row = look["row"]
+            face = True if face_row is not None else None     # only "was there a face" is used below
+            face_name, face_distance = look["name"], sface_distance(look["score"])
         elif model_trained:
             face = largest_face(gray)
             if face is not None:
@@ -812,6 +944,9 @@ def analyze():
                     face_name = label_to_name.get(label)
 
         t_face = time.perf_counter()
+        if look is not None and _auto.get("active"):
+            with _auto_lock:                         # (lock order: cv_lock, then _auto_lock)
+                _auto_consider(img, gray, look)      # after the door's result: it cannot change it
         # The tablet's live view: where the face is in this frame.
         # A few numbers - the camera does nothing extra.
         set_preview(img.shape, face_row, face is not None, face_name)

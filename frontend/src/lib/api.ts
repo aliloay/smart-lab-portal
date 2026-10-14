@@ -242,6 +242,12 @@ export interface FaceSubmission {
 }
 
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
+/** Automatic capture on the face server: samples taken from the door camera's own stream. */
+export interface FaceAuto {
+  active: boolean; name?: string; saved?: number; target?: number; samples?: number
+  frames?: number; hint?: string; seconds?: number; first_sample_s?: number | null; ended?: string | null
+}
+
 export interface FaceStatus {
   auth_subject: string | null; face_enrolled_at: string | null
   samples: number; has_photo: boolean; face_server_online: boolean
@@ -1209,6 +1215,10 @@ export const api = {
   cancelDeviceCommand: (id: number) => post<DeviceCommand>(`/device-commands/${id}/cancel`),
   faceStatus: (id: number) => request<FaceStatus>(`/users/${id}/face`),
   faceReset: (id: number) => post<{ reset: boolean; archived_to: string | null }>(`/users/${id}/face/reset`),
+  faceAutoStart: (id: number, target: number) =>
+    post<FaceAuto>(`/users/${id}/face/auto?target=${target}`),
+  faceAuto: (id: number) => request<FaceAuto>(`/users/${id}/face/auto`),
+  faceAutoStop: (id: number) => request<FaceAuto>(`/users/${id}/face/auto`, { method: 'DELETE' }),
   faceCapture: (id: number) =>
     post<{ saved: boolean; samples: number | null; message: string }>(`/users/${id}/face/capture`),
   faceFinish: (id: number) =>

@@ -62,7 +62,16 @@ def _face_server_users() -> tuple[dict, list]:
 
 @router.get("/enrollment/camera/snapshot")
 def camera_snapshot(_: User = Depends(require_staff)):
-    """One frame from the door camera, for the live preview while enrolling."""
+    """One frame from the door camera, for the live preview while enrolling. First the frame the
+    camera already sent to the face server (no extra work for the camera, which is also busy with
+    the door); the camera's own /snapshot only when the face server has no fresh frame."""
+    try:
+        r = httpx.get(f"{settings.FACE_SERVER_URL}/preview.jpg", timeout=httpx.Timeout(2.0, connect=1.0))
+        if r.status_code == 200 and r.content:
+            return Response(r.content, media_type="image/jpeg",
+                            headers={"Cache-Control": "no-store", "X-Frame-Source": "face-server"})
+    except httpx.HTTPError:
+        pass
     try:
         r = httpx.get(f"{settings.CAMERA_URL}/snapshot",
                       timeout=httpx.Timeout(5.0, connect=2.5))
@@ -114,6 +123,47 @@ def face_capture(user_id: int, db: Session = Depends(get_db),
             "message": "Sample saved" if saved else
                        f"Not saved: {body['reason']}" if body.get("reason") else
                        "No face found - look straight at the camera and try again"}
+
+
+def _auto(method: str, params: dict | None = None) -> dict:
+    """Relay to the face server's automatic enrolment (device key: it stores pictures of people)."""
+    try:
+        r = httpx.request(method, f"{settings.FACE_SERVER_URL}/enroll/auto", params=params,
+                          headers={"X-Device-Key": settings.DEVICE_API_KEY},
+                          timeout=httpx.Timeout(5.0, connect=2.0))
+        body = r.json()
+    except (httpx.HTTPError, ValueError):
+        raise _unreachable("face server", settings.FACE_SERVER_URL)
+    if r.status_code >= 400:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, body.get("error") or "Face server refused")
+    return body
+
+
+@router.post("/users/{user_id}/face/auto")
+def face_auto_start(user_id: int, target: int = TARGET_SAMPLES, db: Session = Depends(get_db),
+                    _: User = Depends(require_staff)):
+    """Start automatic capture: the face server keeps every steady, sharp, new-looking frame of
+    this person from the door camera's normal stream until `target` samples are saved."""
+    u = _person(db, user_id)
+    return _auto("POST", {"name": u.auth_subject, "target": max(1, min(40, target))})
+
+
+@router.get("/users/{user_id}/face/auto")
+def face_auto_status(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    st = _auto("GET")
+    if st.get("name") != u.auth_subject:          # a session for someone else: not this person's
+        return {"active": False}
+    return st
+
+
+@router.delete("/users/{user_id}/face/auto")
+def face_auto_stop(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    st = _auto("GET")
+    if st.get("name") == u.auth_subject and st.get("active"):
+        st = _auto("DELETE")
+    return st
 
 
 @router.post("/users/{user_id}/face/reset")

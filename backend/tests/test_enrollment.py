@@ -46,6 +46,8 @@ def fake_devices(monkeypatch):
         if url.endswith("/users"):
             return _Resp({"users": {"USER7": state["samples"]},
                           "portraits": ["USER7"] if state["samples"] else []})
+        if url.endswith("/preview.jpg"):            # face server: fresh door frame, if any
+            return _Resp(status=200, content=b"\xff\xd8fs") if state.get("preview") else _Resp(status=204)
         if not state["camera_up"]:
             raise httpx.ConnectTimeout("down")
         if url.endswith("/enroll"):
@@ -115,6 +117,62 @@ def test_camera_offline_is_a_clear_503(client, staff, newbie, fake_devices):
     r = client.post(f"/api/users/{newbie.id}/face/capture", headers=h)
     assert r.status_code == 503
     assert "camera" in r.json()["detail"]
+
+
+def test_preview_prefers_the_face_servers_frame_then_the_camera(client, staff, fake_devices):
+    h = auth_headers(client, staff.email)
+    r = client.get("/api/enrollment/camera/snapshot", headers=h)
+    assert r.status_code == 200 and r.content == b"\xff\xd8jpeg"          # no fresh frame: camera
+    fake_devices["preview"] = True
+    r = client.get("/api/enrollment/camera/snapshot", headers=h)
+    assert r.content == b"\xff\xd8fs" and r.headers["X-Frame-Source"] == "face-server"
+
+
+@pytest.fixture
+def fake_auto(monkeypatch):
+    """The face server's automatic enrolment: remembers the session and the key it was given."""
+    seen = {"calls": [], "session": {}}
+
+    def request(method, url, params=None, headers=None, timeout=None):
+        assert url.endswith("/enroll/auto")
+        seen["calls"].append((method, params, headers.get("X-Device-Key")))
+        s = seen["session"]
+        if method == "POST":
+            s.clear(); s.update(active=True, name=params["name"], target=params["target"], saved=0)
+        elif method == "DELETE":
+            s["active"] = False
+        return _Resp(dict(s) or {"active": False})
+
+    monkeypatch.setattr(enrollment.httpx, "request", request)
+    return seen
+
+
+def test_automatic_capture_start_progress_stop(client, staff, newbie, fake_auto):
+    h = auth_headers(client, staff.email)
+    r = client.post(f"/api/users/{newbie.id}/face/auto?target=12", headers=h)
+    assert r.status_code == 200 and r.json()["active"] and r.json()["name"] == "USER7"
+    method, params, key = fake_auto["calls"][0]
+    assert params == {"name": "USER7", "target": 12} and key == enrollment.settings.DEVICE_API_KEY
+    assert client.get(f"/api/users/{newbie.id}/face/auto", headers=h).json()["active"] is True
+    assert client.delete(f"/api/users/{newbie.id}/face/auto", headers=h).json()["active"] is False
+
+
+def test_automatic_capture_is_staff_only_and_needs_an_identity(client, db, alice, staff, newbie, fake_auto):
+    assert client.post(f"/api/users/{newbie.id}/face/auto",
+                       headers=auth_headers(client, alice.email)).status_code == 403
+    newbie.auth_subject = None
+    db.commit()
+    assert client.post(f"/api/users/{newbie.id}/face/auto",
+                       headers=auth_headers(client, staff.email)).status_code == 409
+    assert fake_auto["calls"] == []
+
+
+def test_another_persons_session_is_not_shown_or_stopped(client, staff, newbie, fake_auto):
+    fake_auto["session"].update(active=True, name="USER3", target=10, saved=4)
+    h = auth_headers(client, staff.email)
+    assert client.get(f"/api/users/{newbie.id}/face/auto", headers=h).json() == {"active": False}
+    client.delete(f"/api/users/{newbie.id}/face/auto", headers=h)
+    assert fake_auto["session"]["active"] is True                          # USER3's session untouched
 
 
 # --------------------------------------------- photos uploaded by staff ---
