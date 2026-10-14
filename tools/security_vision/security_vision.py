@@ -60,7 +60,7 @@ from robotvision import RobotVisualMotion
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
-from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, head_crop, iou
+from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, head_crop, iou, zoom_people
 from vision import make_detector, predicted, red_share
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -371,6 +371,13 @@ class Service:
                 with self.det_lock:
                     d0 = time.perf_counter()
                     people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+                    # A named person just lost (Labeler.lost): look again, zoomed, where they were.
+                    lost = [rec[0] for rec in getattr(self.labeler, "lost", {}).values()]
+                    # ...and inside unusually WIDE person boxes: two people seated together come
+                    # out as one box (lab frames: one seated person w/h 0.56-0.60, Ali+Nour 0.78).
+                    wide = [b for b in people if b[3] > 0 and b[2] / b[3] > 0.7]
+                    if lost or wide:
+                        people += zoom_people(self.detector, frame, lost + wide, people)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
                 tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))

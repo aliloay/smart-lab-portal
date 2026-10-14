@@ -600,6 +600,34 @@ DOOR_GROW_W, DOOR_GROW_H = 1.5, 0.3     # door zone = door box + 1.5 door-widths
 DOOR_OVERLAP = 0.15                     # this share of the person's box inside the zone = at the door
 
 
+def zoom_people(det, frame, regions: list[tuple], existing: list[tuple], pad: float = 0.6,
+                max_n: int = 2) -> list[tuple]:
+    """People the full-frame pass missed. Two people seated close together come out as ONE box
+    (lab 2026-10-14: Ali behind Nour - not detected at all, found at 0.76 in a zoomed crop).
+    Re-detect in a crop around each region (where a named person was just lost), and return
+    the people there that are not already a box (IoU < 0.3 with every existing box)."""
+    h, w = frame.shape[:2]
+    found: list[tuple] = []
+    for (x, y, bw, bh) in regions[:max_n]:
+        x0, y0 = max(0, int(x - pad * bw)), max(0, int(y - pad * bh))
+        x1, y1 = min(w, int(x + bw * (1 + pad))), min(h, int(y + bh * (1 + pad)))
+        if x1 - x0 < 16 or y1 - y0 < 16:
+            continue
+        for d in det.detect(frame[y0:y1, x0:x1]):
+            if d.cls != PERSON:
+                continue
+            b = (d.box[0] + x0, d.box[1] + y0, d.box[2], d.box[3])
+            def inside(a, e):                   # share of a lying inside e
+                ix = max(0.0, min(a[0] + a[2], e[0] + e[2]) - max(a[0], e[0]))
+                iy = max(0.0, min(a[1] + a[3], e[1] + e[3]) - max(a[1], e[1]))
+                return ix * iy / max(a[2] * a[3], 1.0)
+            # A sliver of a person already boxed is not a new person (lab frame: a 25 px wide
+            # strip inside the next person's box); someone half behind another (Ali, 55 %) is.
+            if all(iou(b, e) < 0.3 and inside(b, e) < 0.7 for e in existing + found):
+                found.append(b)
+    return found
+
+
 def at_door(box, door_rect) -> bool:
     """A person coming through the door. The drawn door box is narrow and the detector sees a
     person only once most of the body is in view - by then the centre has left the box (lab
