@@ -52,3 +52,32 @@ def test_a_person_in_front_overlapping_the_desk_is_not_named():
     front = Track(1, (480, 260, 110, 190), 90.0, 100.0)    # big: much closer to the camera
     run([front], [HEMALY])
     assert front.label is None
+
+
+DOOR = (72, 168, 48, 165)
+
+
+def _desk_named(lab, entered_at=0.0):
+    sitter = Track(1, SEATED, 90.0, 100.0)
+    lab.home_desk([sitter], DESKS, ZONES, [dict(HEMALY, entered_at=entered_at)], {}, now=100.0)
+    assert sitter.label == "USER5"
+    return sitter
+
+
+def test_a_newer_door_entry_takes_the_name_from_the_desk_sitter():
+    """Owner (2026-10-14): someone sat at Hemaly's desk and got his name; when Hemaly then comes
+    in through the door, the one walking in is him and the desk-sitter is not."""
+    lab = Labeler()
+    sitter = _desk_named(lab)
+    walker = Track(7, (115, 200, 70, 180), 201.0, 202.0)                  # new person at the door
+    lab.assign([sitter, walker], [dict(HEMALY, entered_at=200.0)], DOOR, now=202.0)
+    assert walker.label == "USER5" and walker.named_by == "door"
+    assert sitter.label is None
+
+
+def test_without_a_new_entry_the_desk_name_stays():
+    lab = Labeler()
+    sitter = _desk_named(lab)
+    other = Track(8, (600, 260, 70, 180), 20.0, 101.0)                    # someone else, unnamed
+    lab.assign([sitter, other], [dict(HEMALY, entered_at=0.0)], DOOR, now=101.0)
+    assert sitter.label == "USER5"

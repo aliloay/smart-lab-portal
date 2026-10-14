@@ -779,6 +779,15 @@ class Labeler:
         self._fix_after_crossing(tracks, inside, now)
         self._hand_back(tracks, inside, now)
 
+        # A desk name is a guess ("whoever sits there"); a door entry AFTER it is fact: the
+        # desk-sitter drops the name and the person walking in gets it (owner, 2026-10-14).
+        for o in occupants:
+            for t in tracks:
+                if t.label == o["auth_subject"] and t.source == "desk"                         and o["entered_at"] > getattr(self, "desk_named_at", {}).get(t.label, float("inf")):
+                    self._note("DESK_NAME_YIELDS_TO_DOOR", t.id, t.label,
+                               "a new door entry for this person - the one at the desk is someone else")
+                    t.label = t.name = t.role = None
+                    t.source, t.named_by = None, None
         taken = {t.label for t in tracks if t.label}
         free = [o for o in occupants if o["auth_subject"] not in taken]
 
@@ -980,7 +989,10 @@ class Labeler:
                   and t.box[3] / t.box[2] <= standing_ratio                      # seated
                   and any(at_desk(t.box, r) for r in rects)]
             if len(at) == 1:
-                self._give(at[0], who, "door" if label in inside else "face", how="desk")
+                self._give(at[0], who, "desk", how="desk")      # weak evidence: a door entry overrides it
+                if not hasattr(self, "desk_named_at"):
+                    self.desk_named_at: dict[str, float] = {}
+                self.desk_named_at[label] = now                  # per name: survives box breaks
                 taken.add(label)
                 self._note("NAMED_BY_DESK", at[0].id, label, f"seated at {', '.join(names)}; in the lab per "
                            + ("the door" if label in inside else "the face"))
