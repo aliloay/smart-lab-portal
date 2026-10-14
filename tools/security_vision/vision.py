@@ -582,6 +582,25 @@ predicted.MAX_AHEAD_S = 0.5
 
 
 # ---------------------------------------------------------------- labeler ---
+DOOR_GROW_W, DOOR_GROW_H = 1.5, 0.3     # door zone = door box + 1.5 door-widths each side, +30 % height
+DOOR_OVERLAP = 0.15                     # this share of the person's box inside the zone = at the door
+
+
+def at_door(box, door_rect) -> bool:
+    """A person coming through the door. The drawn door box is narrow and the detector sees a
+    person only once most of the body is in view - by then the centre has left the box (lab
+    2026-10-14: entry recorded, nobody named). So: the person's box overlaps the widened door zone."""
+    if door_rect is None:
+        return False
+    dx, dy, dw, dh = door_rect
+    zx, zy = dx - DOOR_GROW_W * dw, dy - DOOR_GROW_H / 2 * dh
+    zw, zh = dw * (1 + 2 * DOOR_GROW_W), dh * (1 + DOOR_GROW_H)
+    x, y, w, h = box
+    ix = max(0.0, min(x + w, zx + zw) - max(x, zx))
+    iy = max(0.0, min(y + h, zy + zh) - max(y, zy))
+    return w * h > 0 and ix * iy / (w * h) >= DOOR_OVERLAP
+
+
 def in_rect(pt, rect) -> bool:
     return rect is not None and rect[0] <= pt[0] <= rect[0] + rect[2] and rect[1] <= pt[1] <= rect[1] + rect[3]
 
@@ -710,7 +729,7 @@ class Labeler:
         for t in sorted(tracks, key=lambda t: t.first_seen):
             if t.label or not free:
                 continue
-            if not (t.entered_at_door or in_rect(t.center(), door_rect)):
+            if not (t.entered_at_door or at_door(t.box, door_rect)):
                 continue
             t.entered_at_door = True
             recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
