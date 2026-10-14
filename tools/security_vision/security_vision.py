@@ -43,6 +43,7 @@ import json
 import os
 import re
 import threading
+import traceback
 import time
 from typing import Optional
 
@@ -236,6 +237,8 @@ class Service:
         self.view_lost_checks = 0
         self.view_wake = threading.Event()  # set when many boxes change at once: check the view now
         self.fps = 0.0
+        self.analysed_at = 0.0               # last finished analysis pass (staleness)
+        self.analysis_errors = 0
         self.jpeg = self.raw_jpeg = None
         self.jpeg_at = 0.0                  # when the frame in self.jpeg was received from the camera
         self.lock = threading.Lock()
@@ -320,7 +323,7 @@ class Service:
                      for t in tracks if t.label]
             try:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
-                    "device_uid": self.args.device, "fps": self.fps, "people": len(tracks),
+                    "device_uid": self.args.device, "fps": self.live_fps(), "people": len(tracks),
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
                     "source_ok": self.camera.ok, "door_open": self.door_open,
                     "metrics": self._metrics_brief()})
@@ -361,50 +364,63 @@ class Service:
             if frame is None or t0 - at > 5:
                 time.sleep(0.2)
                 continue
-            age_ms = (t0 - at) * 1000
-            h, w = frame.shape[:2]
-            with self.det_lock:
-                d0 = time.perf_counter()
-                people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
-                detect_ms = (time.perf_counter() - d0) * 1000
-            k0 = time.perf_counter()
-            tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
-            occupants = self.cfg.get("occupants", [])
-            door = self.cfg.get("door")
-            door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
-            with self.label_lock:
-                self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
-                id_events = list(self.labeler.events)
-            self._identity_events(id_events, tracks, occupants)
-            track_ms = (time.perf_counter() - k0) * 1000
-            z0 = time.perf_counter()
-            pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
-            with self.lock:
-                self.person_rects = pnorm          # for the fast box loop (watch_zones)
-                states = list(self.zone_states)
-            if door:
-                was = self.door_open
-                drect = (door["x"], door["y"], door["w"], door["h"])
-                self.door_open = self.door_watch.update(red_share(frame, drect),
-                                                        any(iou(drect, p) > 0.02 for p in pnorm))
-                if was is not None and self.door_open is not None and was != self.door_open:
-                    print(f"[door] {'opened' if self.door_open else 'closed'} (camera)")
-            else:
-                self.door_open = None
-            with self.lock:
-                self.tracks = tracks
-                # The frame these boxes come from: faces are cut from THIS frame,
-                # so a face can never be cropped from a later frame where the
-                # box already holds someone else (2026-10-12 root cause #1).
-                self.det_frame = (frame, t0, {t.id: tuple(t.box) for t in tracks},
-                                  {t.id for t in tracks if t.crowded})
-            self.check(tracks, occupants, states)
-            zones_ms = (time.perf_counter() - z0) * 1000
-            self.metrics.analysed(seq, age_ms, detect_ms, track_ms, zones_ms, (time.time() - t0) * 1000)
+            try:
+                age_ms = (t0 - at) * 1000
+                h, w = frame.shape[:2]
+                with self.det_lock:
+                    d0 = time.perf_counter()
+                    people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+                    detect_ms = (time.perf_counter() - d0) * 1000
+                k0 = time.perf_counter()
+                tracks = self.tracker.update(people, t0, self.appearance.looks(frame, people, t0))
+                occupants = self.cfg.get("occupants", [])
+                door = self.cfg.get("door")
+                door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
+                with self.label_lock:
+                    self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
+                    id_events = list(self.labeler.events)
+                self._identity_events(id_events, tracks, occupants)
+                track_ms = (time.perf_counter() - k0) * 1000
+                z0 = time.perf_counter()
+                pnorm = [(b[0] / w, b[1] / h, b[2] / w, b[3] / h) for b in (t.box for t in tracks)]
+                with self.lock:
+                    self.person_rects = pnorm          # for the fast box loop (watch_zones)
+                    states = list(self.zone_states)
+                if door:
+                    was = self.door_open
+                    drect = (door["x"], door["y"], door["w"], door["h"])
+                    self.door_open = self.door_watch.update(red_share(frame, drect),
+                                                            any(iou(drect, p) > 0.02 for p in pnorm))
+                    if was is not None and self.door_open is not None and was != self.door_open:
+                        print(f"[door] {'opened' if self.door_open else 'closed'} (camera)")
+                else:
+                    self.door_open = None
+                with self.lock:
+                    self.tracks = tracks
+                    # The frame these boxes come from: faces are cut from THIS frame,
+                    # so a face can never be cropped from a later frame where the
+                    # box already holds someone else (2026-10-12 root cause #1).
+                    self.det_frame = (frame, t0, {t.id: tuple(t.box) for t in tracks},
+                                      {t.id for t in tracks if t.crowded})
+                self.check(tracks, occupants, states)
+                zones_ms = (time.perf_counter() - z0) * 1000
+                self.metrics.analysed(seq, age_ms, detect_ms, track_ms, zones_ms, (time.time() - t0) * 1000)
+            except Exception as e:                 # one bad pass must not stop analysis for good
+                self.analysis_errors += 1
+                if self.analysis_errors <= 3 or self.analysis_errors % 100 == 0:
+                    print(f"[analysis] pass failed ({self.analysis_errors} so far): {e.__class__.__name__}: {e}")
+                    traceback.print_exc()
+                time.sleep(0.5)
+                continue
+            self.analysed_at = time.time()
             times.append(time.time() - t0)
             times = times[-20:]
             self.fps = round(1.0 / max(sum(times) / len(times), period), 1)
             time.sleep(max(0.0, period - (time.time() - t0)))
+
+    def live_fps(self) -> float:
+        """Analysis rate, or 0 when no pass has finished for 3 s (never a frozen old value)."""
+        return self.fps if time.time() - self.analysed_at < 3.0 else 0.0
 
     def _metrics_brief(self) -> dict:
         m = self.metrics.summary()
@@ -871,7 +887,9 @@ def make_app(svc: Service) -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "camera": svc.camera.ok, "fps": svc.fps,
+        return jsonify({"status": "ok", "camera": svc.camera.ok, "fps": svc.live_fps(),
+                        "analysis_age_s": round(time.time() - svc.analysed_at, 1) if svc.analysed_at else None,
+                        "analysis_errors": svc.analysis_errors,
                         "people": len(svc.tracks), "zones": len(svc.cfg.get("zones", []))})
 
     @app.get("/frame.jpg")
@@ -886,7 +904,7 @@ def make_app(svc: Service) -> Flask:
     def state():
         if not authorised():
             return Response("device key required", status=401)
-        return jsonify({"fps": svc.fps, "camera": svc.camera.ok, "door_open": svc.door_open,
+        return jsonify({"fps": svc.live_fps(), "camera": svc.camera.ok, "door_open": svc.door_open,
                         "tracks": [{"id": t.id, "label": t.label, "name": t.name, "role": t.role,
                                     "box": t.box, "identity_state": t.identity_state,
                                     "confidence": t.identity_confidence, "named_by": t.named_by}
@@ -1015,7 +1033,7 @@ def make_app(svc: Service) -> Flask:
         def demo_state():
             with svc.lock:
                 tracks = list(svc.tracks)
-            return jsonify({"fps": svc.fps, "people": [
+            return jsonify({"fps": svc.live_fps(), "people": [
                 {"id": t.id, "label": t.label, "name": t.name, "crowded": t.crowded} for t in tracks],
                 "locked": {k: v.samples for k, v in svc.labeler.identities.items()},
                 "inside": [o["auth_subject"] for o in svc.cfg["occupants"]]})
