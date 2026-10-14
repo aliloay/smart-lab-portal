@@ -643,6 +643,18 @@ def zoom_people(det, frame, regions: list[tuple], existing: list[tuple], pad: fl
     return found
 
 
+def drop_slivers(boxes: list[tuple]) -> list[tuple]:
+    """One person, two boxes: a thin strip mostly inside a wider box is the same person (live
+    2026-10-14: 19 px strip inside Hemaly's 40 px box -> 'two people at the desk', nobody named).
+    Someone half behind another (Ali behind Nour, ~55 % inside, similar width) is kept."""
+    def inside(a, e):
+        ix = max(0.0, min(a[0] + a[2], e[0] + e[2]) - max(a[0], e[0]))
+        iy = max(0.0, min(a[1] + a[3], e[1] + e[3]) - max(a[1], e[1]))
+        return ix * iy / max(a[2] * a[3], 1.0)
+    return [b for i, b in enumerate(boxes)
+            if not any(j != i and inside(b, e) > 0.7 and b[2] < 0.6 * e[2] for j, e in enumerate(boxes))]
+
+
 def at_door(box, door_rect) -> bool:
     """A person coming through the door. The drawn door box is narrow and the detector sees a
     person only once most of the body is in view - by then the centre has left the box (lab

@@ -61,7 +61,7 @@ from robotvision import RobotVisualMotion
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
-from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, head_crop, iou, zoom_people
+from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, drop_slivers, head_crop, iou, zoom_people
 from vision import make_detector, predicted, red_share
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -411,6 +411,7 @@ class Service:
                     self.part_ms.setdefault("zoom", collections.deque(maxlen=100)).append((time.perf_counter() - z0) * 1000)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
+                people = drop_slivers(people)
                 r0 = time.perf_counter()
                 looks = self.appearance.looks(frame, people, t0)
                 r1 = time.perf_counter()

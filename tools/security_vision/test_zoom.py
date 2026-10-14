@@ -42,3 +42,11 @@ def test_a_sliver_inside_an_existing_box_is_not_a_new_person():
     x0, y0 = int(700 - 0.6 * 60), int(330 - 0.6 * 80)
     det = FakeDet([(787 - x0, 348 - y0, 25, 181)])            # the 25 px strip the zoom returned
     assert zoom_people(det, frame, [(700, 330, 60, 80)], existing) == []
+
+
+def test_a_thin_duplicate_inside_a_person_is_dropped_but_a_half_hidden_person_stays():
+    from vision import drop_slivers
+    hemaly, strip = (491, 248, 40, 45), (489, 249, 19, 45)          # live 2026-10-14
+    nour, ali = (637, 341, 108, 138), (649, 309, 56, 71)             # Ali behind Nour
+    assert drop_slivers([hemaly, strip]) == [hemaly]
+    assert drop_slivers([nour, ali]) == [nour, ali]
