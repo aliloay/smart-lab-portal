@@ -2,8 +2,8 @@
  "_about": "MASTER_LAB01 door controller enclosure - every dimension in mm. Edit, then run build.ps1 to regenerate all parts in SOLIDWORKS. Confidence labels (2026-10-20 research, reports/Door enclosure component dimensions.md): DATASHEET = manufacturer drawing for the exact part; VARIANT = drawing of the matching board variant; REFERENCE = similar part / other seller; CHOSEN = design choice; MEASURE = check with calipers or the fit coupon before the full print. No speaker / PAM8403 (removed by the owner 2026-10-20).",
 
  "envelope": {
-  "width": 170, "height": 210, "depth": 90,
-  "_status": "CHOSEN: fits a 220 x 220 bed printed back-down; interference check in out/interference.txt; 25 mm wire space between the plate modules (top z 40) and the front modules (bottom z 65).",
+  "width": 170, "height": 210, "depth": 110,
+  "_status": "CHOSEN: fits a 220 x 220 bed printed back-down; interference check in out/interference.txt; 45 mm wire space between the plate modules (top z 40) and the front modules (bottom z 85); depth 90 -> 110 on 2026-10-20 (owner: more room for wires).",
   "wall": 3.0, "corner_radius": 8.0
  },
  "print": { "clearance": 0.3, "_status": "CHOSEN: FDM sliding fit 0.2-0.3 (Xometry); general tolerance +-0.3" },
@@ -115,12 +115,12 @@
   {"id": "driver_bb", "label": "breadboard BC557 / LED", "on": "plate", "x": 38, "y": 117, "z": 13, "w": 48, "h": 37.5, "d": 18, "conf": "REFERENCE SYB-170 + parts 8 mm", "src": "Most ME-29142"},
   {"id": "wago1", "label": "WAGO 12V", "on": "plate", "x": -1, "y": 51, "z": 13, "w": 22, "h": 13.5, "d": 15.5, "conf": "VARIANT PCT-212 21 x 12.5 x 14.5 +1", "src": "Most WAGO PCT-212"},
   {"id": "wago2", "label": "WAGO GND", "on": "plate", "x": 25, "y": 51, "z": 13, "w": 22, "h": 13.5, "d": 15.5, "conf": "VARIANT PCT-212 +1", "src": "Most WAGO PCT-212"},
-  {"id": "tft_glass", "label": "TFT glass", "on": "panel", "x": 0, "y": 150, "z": 90, "dir": "down", "w": 34.9, "h": 46.9, "d": 2.4, "conf": "DATASHEET 34.7 x 46.7 x 2.4 +0.2", "src": "QDTFT1801"},
-  {"id": "tft_pcb", "label": "TFT PCB + header plugs", "on": "panel", "x": 0, "y": 150, "z": 87.6, "dir": "down", "w": 34.5, "h": 58, "d": 15.6, "conf": "VARIANT PCB 1.6 + plugs 14", "src": "LCDWIKI MSP1803"},
-  {"id": "nfc", "label": "PN532 + header plugs", "on": "panel", "x": -40, "y": 95, "z": 90, "dir": "down", "w": 43, "h": 41, "d": 17.6, "conf": "VARIANT 42.7 x 40.4; plugs 16 REFERENCE", "src": "Ekostra EK506 / Elechouse"},
-  {"id": "fp", "label": "R307 body + connector", "on": "panel", "x": 40, "y": 95, "z": 91.5, "dir": "down", "w": 44.6, "h": 20.5, "d": 26.7, "conf": "DATASHEET 44.1 x 20 x 23.5 + 3.2 connector", "src": "GROW R307 manual"},
-  {"id": "led_g", "label": "LED green + wires", "on": "panel", "round": true, "x": -20, "y": 52, "z": 90, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
-  {"id": "led_r", "label": "LED red + wires", "on": "panel", "round": true, "x": 20, "y": 52, "z": 90, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
-  {"id": "buzzer", "label": "active buzzer D12", "on": "panel", "round": true, "x": 0, "y": 28, "z": 90, "dir": "down", "w": 12.4, "h": 12.4, "d": 21, "conf": "DATASHEET TMB12A05 (cylinder D12.4) 12 x 9.5 + pins 5.5 + wires", "src": "Huaneng TMB12A05 / Most ME-32997"}
+  {"id": "tft_glass", "label": "TFT glass", "on": "panel", "x": 0, "y": 150, "z": 110, "dir": "down", "w": 34.9, "h": 46.9, "d": 2.4, "conf": "DATASHEET 34.7 x 46.7 x 2.4 +0.2", "src": "QDTFT1801"},
+  {"id": "tft_pcb", "label": "TFT PCB + header plugs", "on": "panel", "x": 0, "y": 150, "z": 107.6, "dir": "down", "w": 34.5, "h": 58, "d": 15.6, "conf": "VARIANT PCB 1.6 + plugs 14", "src": "LCDWIKI MSP1803"},
+  {"id": "nfc", "label": "PN532 + header plugs", "on": "panel", "x": -40, "y": 95, "z": 110, "dir": "down", "w": 43, "h": 41, "d": 17.6, "conf": "VARIANT 42.7 x 40.4; plugs 16 REFERENCE", "src": "Ekostra EK506 / Elechouse"},
+  {"id": "fp", "label": "R307 body + connector", "on": "panel", "x": 40, "y": 95, "z": 111.5, "dir": "down", "w": 44.6, "h": 20.5, "d": 26.7, "conf": "DATASHEET 44.1 x 20 x 23.5 + 3.2 connector", "src": "GROW R307 manual"},
+  {"id": "led_g", "label": "LED green + wires", "on": "panel", "round": true, "x": -20, "y": 52, "z": 110, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
+  {"id": "led_r", "label": "LED red + wires", "on": "panel", "round": true, "x": 20, "y": 52, "z": 110, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
+  {"id": "buzzer", "label": "active buzzer D12", "on": "panel", "round": true, "x": 0, "y": 28, "z": 110, "dir": "down", "w": 12.4, "h": 12.4, "d": 21, "conf": "DATASHEET TMB12A05 (cylinder D12.4) 12 x 9.5 + pins 5.5 + wires", "src": "Huaneng TMB12A05 / Most ME-32997"}
  ]
 }

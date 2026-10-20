@@ -21,7 +21,7 @@ this box (12 V only).
 | Part | Size (mm) | Material / orientation | Notes |
 |---|---|---|---|
 | FitCoupon | 180 x 150 x 4 (+12 cradle) | same as the panel, front DOWN | print FIRST |
-| Body | 170 x 210 x 90, wall 3 | PETG (or PLA indoors), back DOWN, no supports | 4 corner columns with M3 inserts; keyholes; 4 cable entries; USB opening; vents |
+| Body | 170 x 210 x 110, wall 3 (was 90 until 2026-10-20: deepened for wire room) | PETG (or PLA indoors), back DOWN, no supports | 4 corner columns with M3 inserts; keyholes; 4 cable entries; USB opening; vents |
 | FrontPanel | 170 x 210 x 4 (+12 behind) | front DOWN on a smooth / textured sheet, no supports | engraved labels; mounts for TFT, PN532, R307, LEDs, buzzer |
 | ElectronicsPlate | 142 x 156 x 4 | flat | M3 / tie slots everywhere, engraved placement labels |
 
@@ -42,6 +42,9 @@ layer, otherwise the engraved text closes up.
 | 1 | M16 x 1.5 gland + locknut (hole 16.0-16.3, cable 4-8) | electrical supplier | DC IN 12 V |
 | 2 | cable tie 2.5-3.6 mm | any | R307 retention through its cradle |
 | 2 | 4 mm pan-head wall screw + plug | any | keyholes |
+| 8+ | M3 flat washer (ISO 7089, 3.2 x 7 x 0.5) | Most | under the nuts on the 3.4 x 20 plate slots |
+| 4 | M3 nylon spacer / standoff 5 mm | Most | under the relay and buck converter (solder pins on their underside must not press on the plate) |
+| 4 | M3 x 12 screw (instead of M3 x 6-10) | Most | modules on 5 mm spacers: 4 plate + 5 spacer + 1.6 PCB + nut 2.4 |
 
 ## 4. Tolerance / evidence register (what each opening is based on)
 | Feature | Value | Basis | Confidence | Checked on the coupon by |
@@ -71,7 +74,7 @@ look, set `"label_style": "raised"` and rebuild.
 `out/DoorEnclosure_Assembly.SLDASM` / `.STEP`: body + front panel + plate + 14 component envelopes (each the
 part's outline + clearance, positions in params `components`). SOLIDWORKS interference detection (touching
 faces not counted) result: `out/interference.txt`. Wire space: the plate modules end at z = 40, the front
-modules start at z = 65 - 25 mm for the wiring loom. STL check (`check_stl.py`): every printed part closed, manifold, consistent
+modules start at z = 85 - 45 mm for the wiring loom (depth 110; was 65 / 25 mm at depth 90). STL check (`check_stl.py`): every printed part closed, manifold, consistent
 winding (`out/stl_check.json`).
 
 ## 6. Assembly order

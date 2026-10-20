@@ -1,5 +1,18 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## Checkpoint 2026-10-20 ~21:30 (home, cameras OFFLINE) - committed, NOT pushed, nothing deployed
+| Done | Evidence |
+|---|---|
+| Role matrix (`e2e/role_matrix_perf.mjs`, 1 trial, live portal): admin 19 / staff 16 / student 8 sidebar routes, 0 refused, 0 console errors; cold content 0.29-0.90 s, warm 52-267 ms; search 1.2-6.2 ms, right first hit for lab1/robot/fanuk/door/oscilloscope | scratchpad role_matrix.json; only failures = camera frame.jpg 503 (cameras off) |
+| RBAC spot check: student GET /api/users -> 403 | live |
+| Door box deepened 90 -> 110 mm (owner: more room for wires): wire gap 25 -> 45 mm; front-panel envelopes z +20; washers + 5 mm spacers added to BOM | interference.txt NO INTERFERENCES (17 bodies); check_stl 4/4 OK; body 170 x 210 x 110, 370 cm3 |
+| Release ZIP refreshed (old kept as *_pre-snapfix.zip); STL-only ZIP DoorEnclosure_PrintReady_STL_2026-10-20.zip | tools/cad/door_enclosure/ |
+| Tests: backend 565 passed; camera 253; robot_monitor 41; knowledge 49; tsc + vite build; search_rank 9/9 | this session |
+
+**Blocked / physical:** print + measure the FitCoupon (inserts 3.9/4.0/4.2, pilots, LED, buzzer, glands, FP opening,
+NFC read through 1.5 skin); buy 1 x M16x1.5 + 3 x PG7 glands; drawings PDF still from 90 mm (HTML regenerated);
+camera walk tests; assign usernames.
+
 ## Checkpoint 2026-10-20 ~16:30 (laptop at home, cameras OFFLINE - no stream) - committed, NOT pushed
 Live deploy unchanged since `f5eaeff-dirty-20261020021246` (FANUC front facing, UR5e home start, Face-ID photo
 self-service, GPU gate code inactive by default). Nothing deployed this round (CAD + docs only).
