@@ -253,6 +253,8 @@ function Events() {
 function Sessions() {
   const [rows, setRows] = useState<Session[] | null>(null)
   const [openOnly, setOpenOnly] = useState(false)
+  // Same as Events: drawing every session at once froze the tab on open (owner, 2026-10-20); newest 60 first.
+  const [shown, setShown] = useState(60)
   const load = useCallback(() => api.sessions({ open_only: openOnly || undefined, limit: 300 })
     .then(setRows).catch(() => setRows([])), [openOnly])
   useEffect(() => { setRows(null); load() }, [load])
@@ -285,7 +287,7 @@ function Sessions() {
                   <th className="th">Exit / end</th><th className="th">Inside</th><th className="th"></th>
                 </tr></thead>
                 <tbody>
-                  {rows.map(s => (
+                  {rows.slice(0, shown).map(s => (
                     <tr key={s.id} className="tr">
                       <td className="td tnum text-slate-200">{fmtTimeSec(s.started_at)}
                         <div className="text-[11px] text-slate-500">{fmtDate(s.started_at)}</div></td>
@@ -309,6 +311,11 @@ function Sessions() {
                   ))}
                 </tbody>
               </table>
+              {rows.length > shown && (
+                <div className="p-3 text-center">
+                  <button className="btn-ghost btn-sm" onClick={() => setShown(n => n + 200)}>
+                    Show more ({rows.length - shown} older)</button>
+                </div>)}
             </div>
           )}
       </div>

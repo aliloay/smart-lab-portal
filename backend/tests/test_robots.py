@@ -177,6 +177,29 @@ def test_a_movement_path_is_stored_and_served_on_its_own(client, db, lab, staff,
     assert one["trajectory"]["t"] == [0.0, 0.1, 0.2] and len(one["trajectory"]["q"]) == 3
 
 
+def test_movement_list_is_filtered_in_the_database_and_matches_the_event_list(client, db, lab, staff, device_headers):
+    """2026-10-20: the list used to load every stored path (825 kB for the UR5e) to return 15 kB; the
+    database now filters and drops the path. Same fields as /events, only movements with a path."""
+    tele(client, device_headers)
+    now = datetime.now(timezone.utc).timestamp()
+    path = {"t": [0.0, 0.1], "q": [HOME, HOME]}
+    client.post("/api/robots/events", headers=device_headers, json={"device_uid": "UR5E_TEST", "events": [
+        {"kind": "MOVEMENT_STOPPED", "t": now - 3, "detail": {"duration_s": 0.1, "trajectory": path}},
+        {"kind": "MOVEMENT_STOPPED", "t": now - 2, "detail": {"duration_s": 0.4}},                    # no path
+        {"kind": "MOVEMENT_STOPPED", "t": now - 1, "detail": {"duration_s": 0.2, "trajectory": {}}},  # empty path
+        {"kind": "MOVEMENT_STOPPED", "t": now, "detail": {"duration_s": 0.3, "joints": [1, 2], "trajectory": path}}]})
+    h = auth_headers(client, staff.email)
+    rid = db.query(Device).filter_by(device_uid="UR5E_TEST").one().id
+    mv = client.get(f"/api/robots/{rid}/movements", headers=h).json()
+    assert [m["detail"]["duration_s"] for m in mv] == [0.3, 0.1]                   # newest first, paths only
+    assert all(m["has_trajectory"] and "trajectory" not in m["detail"] for m in mv)
+    assert mv[0]["detail"] == {"duration_s": 0.3, "joints": [1, 2]}
+    listed = {e["id"]: e for e in client.get(f"/api/robots/{rid}/events", headers=h).json()}
+    for m in mv:
+        assert m == listed[m["id"]]                                                 # identical to the event list
+    assert len(client.get(f"/api/robots/{rid}/movements?limit=1", headers=h).json()) == 1
+
+
 def test_non_finite_joint_values_are_rejected_not_stored(client, db, lab, staff, device_headers):
     # The collector filters these too; the API must not accept them (JSONB cannot hold NaN).
     body = '{"device_uid": "UR5E_TEST", "lab_id": "LAB_TEST", "model": "UR5e", "source": "RTDE", "state": "STATIONARY",' \

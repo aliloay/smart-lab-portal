@@ -86,7 +86,7 @@ export default {
           '100%': { transform: 'translateX(100%)' },
         },
         pageIn: {
-          from: { opacity: '0', transform: 'translateY(6px)' },
+          from: { opacity: '0.4', transform: 'translateY(3px)' },
           to:   { opacity: '1', transform: 'translateY(0)' },
         },
         breathe: {
@@ -108,7 +108,7 @@ export default {
         'pulse-dot': 'pulseDot 2.4s ease-in-out infinite',
         'ping-slow': 'ping2 2.4s cubic-bezier(0,0,.2,1) infinite',
         sweep: 'sweep 2.2s ease-in-out infinite',
-        'page-in': 'pageIn .22s cubic-bezier(.22,1,.36,1) both',
+        'page-in': 'pageIn .14s cubic-bezier(.22,1,.36,1) both',
         breathe: 'breathe 7s ease-in-out infinite',
         floaty: 'floaty 7s ease-in-out infinite',
         dash: 'dash 1.6s linear infinite',

@@ -1008,7 +1008,7 @@ async function fetchRetrying(url: string, init: RequestInit): Promise<Response> 
 // Every write clears the shared reads, when it starts and when it ends (2026-10-20: a photo uploaded within
 // 1 s of opening an issue stayed invisible - the reload got the pre-upload answer; e2e/workflows.mjs).
 const SHARE_MS = 1000
-const shared = new Map<string, { at: number; p: Promise<unknown> }>()
+const shared = new Map<string, { at: number; p: Promise<unknown>; ttl?: number }>()
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const read = (!init.method || init.method === 'GET') && !init.signal && !init.body
   if (!read) {
@@ -1017,12 +1017,29 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const key = `${getToken() ?? ''} ${path}`
   const hit = shared.get(key)
-  if (hit && Date.now() - hit.at < SHARE_MS) return hit.p.then(v => structuredClone(v) as T)
+  if (hit && Date.now() - hit.at < (hit.ttl ?? SHARE_MS)) return hit.p.then(v => structuredClone(v) as T)
   const p = send<T>(path, init)
   shared.set(key, { at: Date.now(), p })
   p.catch(() => shared.delete(key))
-  if (shared.size > 200) for (const [k, v] of shared) if (Date.now() - v.at > SHARE_MS) shared.delete(k)
+  if (shared.size > 200) for (const [k, v] of shared) if (Date.now() - v.at > (v.ttl ?? SHARE_MS)) shared.delete(k)
   return p.then(v => structuredClone(v) as T)
+}
+
+/** Start a page's first reads before it opens (sidebar hover / focus / touch; owner 2026-10-20: "I need
+ *  speed"). The page's own identical GETs then get this answer - at most WARM_MS old, and like every
+ *  shared read it is dropped by any write - instead of waiting ~100-150 ms after the click. */
+const WARM_MS = 5000
+export function warmGets(paths: string[]) {
+  const token = getToken()
+  if (!token) return
+  for (const path of paths) {
+    const key = `${token} ${path}`
+    const hit = shared.get(key)
+    if (hit && Date.now() - hit.at < (hit.ttl ?? SHARE_MS)) continue
+    const p = send<unknown>(path)
+    shared.set(key, { at: Date.now(), p, ttl: WARM_MS })
+    p.catch(() => shared.delete(key))
+  }
 }
 
 async function send<T>(path: string, init: RequestInit = {}): Promise<T> {

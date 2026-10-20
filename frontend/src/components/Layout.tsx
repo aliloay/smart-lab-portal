@@ -24,7 +24,7 @@ import EnvWarnings from './EnvWarnings'
 import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
-import { Summary, api } from '../lib/api'
+import { Summary, api, warmGets } from '../lib/api'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 
@@ -154,6 +154,29 @@ function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
   )
 }
 
+
+/** The first reads each sidebar page makes (recorded 2026-10-20 in a real browser), started on hover so
+ *  the data is usually there when the click lands. Must match the pages' own request paths exactly. */
+const WARM: Record<string, string[]> = {
+  '/admin/alerts': ['/alerts?open_only=false'],
+  '/notifications': ['/notifications/inbox?tab=all&offset=0&limit=50'],
+  '/admin/devices': ['/devices', '/labs'],
+  '/admin/users': ['/face-submissions', '/users'],
+  '/admin/access': ['/labs', '/users', '/access-events?limit=400'],
+  '/admin/bookings': ['/bookings'],
+  '/admin/incidents': ['/incidents?state=ACTIVE'],
+  '/admin/operations': ['/analytics/trends?weeks=5', '/analytics/operations?days=30'],
+  '/admin/system': ['/system/health', '/analytics/anomalies', '/analytics/system?days=30'],
+  '/admin/reliability': ['/reliability/briefing'],
+  '/admin/reports': ['/reports-center', '/reports/overview?days=30', '/issues/summary'],
+  '/admin/settings': ['/system/config'],
+  '/admin/emergency': ['/emergency/status'],
+  '/admin/equipment': ['/labs/environment/all', '/labs/1/environment'],
+  '/issues': ['/issues?limit=500&active=true', '/issues/summary', '/labs', '/users'],
+  '/command': ['/robots', '/monitor', '/security/cameras', '/system/services', '/alerts?open_only=true',
+               '/access-events?limit=40', '/security/events?limit=30', '/labs/environment/all'],
+}
+
 function NavItem({ item, badge, onNavigate }: {
   item: Item; badge?: number; onNavigate: () => void
 }) {
@@ -172,8 +195,10 @@ function NavItem({ item, badge, onNavigate }: {
       </a>
     )
   }
+  const warm = () => { const w = WARM[item.to]; if (w) warmGets(w) }
   return (
     <NavLink to={item.to} end={item.end} onClick={onNavigate}
+      onPointerEnter={warm} onFocus={warm} onTouchStart={warm}
       className={({ isActive }) =>
         `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
          transition-colors ${isActive
@@ -182,10 +207,10 @@ function NavItem({ item, badge, onNavigate }: {
       {({ isActive }) => (
         <>
           {isActive && (
-            <motion.span layoutId="nav-active"
-              className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
-                         shadow-[0_0_8px_rgba(56,189,248,.55)]"
-              transition={{ type: 'spring', stiffness: 500, damping: 40 }} />
+            // plain span (was a framer-motion shared layout "slide"): that re-measured the page's scroll
+            // containers on every route change - up to ~200 ms of main thread per click (2026-10-20)
+            <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
+                             shadow-[0_0_8px_rgba(56,189,248,.55)]" />
           )}
           <span className={isActive ? 'text-accent-300'
             : 'text-slate-400 group-hover:text-slate-200'}>{item.icon}</span>

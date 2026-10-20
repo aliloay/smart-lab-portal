@@ -186,13 +186,14 @@ function PanelInner({ model, robot, onFull, big }: {
   const [grip, setGrip] = useState(0)
   // Starting a 3D view blocks the browser ~0.5 s. Opening the tab used to start both at once, before
   // the page had even asked for its data (2026-10-19); now the page and data come first, then the
-  // 3D views one after another while the browser is idle. The full view starts at once.
+  // 3D views one after another while the browser is idle. The full view starts at once. Since shaders
+  // compile without blocking (threeSetup, 2026-10-20) the idle wait is capped at 300 ms (was 1.5 s).
   const [mount3d, setMount3d] = useState(!!big)
   useEffect(() => {
     warmTwins()
     if (mount3d) return
     const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback
-    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 1500 }) : setMount3d(true),
+    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 300 }) : setMount3d(true),
                                 model.key === 'FANUC' ? 250 : 0)   // meshes now preloaded: shorter waits
     return () => window.clearTimeout(t)
   }, [mount3d, model.key])

@@ -331,8 +331,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, id }: {
             </span>
           )}
           {value === t.key && (
-            <motion.span layoutId={`tab-${id}`}
-              className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-400" />
+            <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent-400" />
           )}
         </button>
       ))}

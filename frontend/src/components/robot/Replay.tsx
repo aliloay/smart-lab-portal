@@ -25,7 +25,16 @@ function Replay({ robotId, onFrame, active }: {
   const [speed, setSpeed] = useState(1)
   const raf = useRef(0)
 
-  useEffect(() => { api.robotMovements(robotId, 1000).then(setMoves).catch(() => setMoves([])) }, [robotId])
+  // The movement list costs the server ~170 ms (UR5e, 2026-10-20) and is only needed for the replay
+  // picker, so it is fetched once the page and its own data are in (idle, at most 2 s later) instead
+  // of competing with them for the server on open.
+  useEffect(() => {
+    let gone = false
+    const go = () => api.robotMovements(robotId, 1000).then(m => { if (!gone) setMoves(m) }).catch(() => { if (!gone) setMoves([]) })
+    const w = window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (h: number) => void }
+    const h = w.requestIdleCallback ? w.requestIdleCallback(go, { timeout: 2000 }) : window.setTimeout(go, 800)
+    return () => { gone = true; if (w.requestIdleCallback && w.cancelIdleCallback) w.cancelIdleCallback(h); else window.clearTimeout(h) }
+  }, [robotId])
   useEffect(() => { if (!active) { setTr(null); setPlaying(false) } }, [active])
 
   const duration = tr ? tr.t[tr.t.length - 1] ?? 0 : 0
