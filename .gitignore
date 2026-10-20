@@ -70,3 +70,11 @@ tools/pc_agent/agent.env
 
 # deploy version stamp (tools/deploy/deploy.py writes it at each deploy)
 backend/app/build_info.json
+
+# Windows 7 offline agent package (installers + wheels, downloaded, not source)
+tools/pc_agent/win7_usb/python/
+tools/pc_agent/win7_usb/wheels/
+tools/pc_agent/win7_usb/ucrt/
+tools/pc_agent/win7_usb/agent/agent.env
+tools/lan_presence/presence_log.jsonl
+tools/pc_agent/SmartLab_PC_agent_Win7_USB.zip

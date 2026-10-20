@@ -19,6 +19,7 @@ import { Bot, Crown, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, Shie
 import { api, type PcMode } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
+import { pcStatus } from '../lib/pcStatus'
 import { relative } from '../lib/time'
 import { PcMessageModal, PcScreenViewer } from './PcControls'
 import PcActions from './PcActions'
@@ -103,8 +104,10 @@ export default function NetworkedEquipment() {
       ) : (
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           {items.map(e => {
-            const tone = e.online === false ? 'bad' : e.state === 'FAULT' ? 'bad'
+            const st = e.kind === 'PC' ? pcStatus(e) : null
+            const tone = st ? st.tone : e.online === false ? 'bad' : e.state === 'FAULT' ? 'bad'
               : e.state === 'RUNNING' ? 'ok' : 'idle'
+            const usable = st ? st.agent : e.online !== false
             return (
               <div key={e.device_id} className="card p-4 space-y-2">
                 <div className="flex items-center gap-2">
@@ -115,7 +118,7 @@ export default function NetworkedEquipment() {
                   </div>
                   {e.is_master_pc && <Chip tone="violet" className="ml-auto shrink-0"><Crown size={11} /> Master PC</Chip>}
                   <Chip tone={tone} dot className={e.is_master_pc ? 'shrink-0' : 'ml-auto'}>
-                    {e.online === false ? 'offline' : (e.state ?? 'no data').toLowerCase()}</Chip>
+                    {st ? st.word : e.online === false ? 'offline' : (e.state ?? 'no data').toLowerCase()}</Chip>
                 </div>
                 <div className="text-[12.5px] text-slate-300 space-y-0.5">
                   {e.user_name && <div>Booking: <b className="text-white">{e.user_name}</b></div>}
@@ -129,7 +132,10 @@ export default function NetworkedEquipment() {
                     ? <div className="text-warn-soft">Clock {(e.detail.clock_offset_s as number) > 0 ? 'behind' : 'ahead of'} the server by {Math.abs(e.detail.clock_offset_s as number).toFixed(0)} s</div> : null}
                   <div>Running today: {hours(e.running_today_s)}</div>
                   {e.since && e.online !== false && <div className="text-slate-500">In this state since {relative(e.since)}</div>}
-                  <div className="text-slate-500">Last report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>
+                  {e.lan && <div className={e.lan.present ? 'text-slate-400' : 'text-bad-soft'}>
+                    Network: {e.lan.present ? 'connected' : 'not on the LAN'} since {relative(e.lan.since)}
+                    {e.lan.ip ? <span className="mono"> · {e.lan.ip}</span> : null} ({e.lan.via === 'ping' ? 'ping' : 'ARP'})</div>}
+                  <div className="text-slate-500">Last agent report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>
                 </div>
                 {e.kind === 'PC' && e.is_master_pc && !admin && (
                   <div className="text-[12px] text-slate-400 pt-1">
@@ -154,15 +160,15 @@ export default function NetworkedEquipment() {
                           if (window.confirm(`Remove access on ${e.name}? It locks now and stays locked until you give access.`))
                             setMode(e.device_id, 'LOCKED')
                         }}><Lock size={13} /> Remove access</button>}
-                    <button className="btn-ghost btn-sm" disabled={e.online === false} onClick={() => setViewing(e)}>
+                    <button className="btn-ghost btn-sm" disabled={!usable} onClick={() => setViewing(e)}>
                       <MonitorPlay size={13} /> View screen</button>
-                    <button className="btn-ghost btn-sm" disabled={e.online === false} onClick={() => setMessaging(e)}>
+                    <button className="btn-ghost btn-sm" disabled={!usable} onClick={() => setMessaging(e)}>
                       <MessageSquare size={13} /> Message</button>
                     {admin && <button className="btn-ghost btn-sm" onClick={() => setMaster(e)}>
                       <Crown size={13} /> {e.is_master_pc ? 'Not master PC' : 'Make master PC'}</button>}
                   </div>)}
                 {e.kind === 'PC' && (admin || !e.is_master_pc) && (
-                  <PcActions deviceId={e.device_id} name={e.name} admin={admin} online={e.online !== false} />)}
+                  <PcActions deviceId={e.device_id} name={e.name} admin={admin} online={usable} />)}
               </div>)
           })}
         </div>
@@ -183,7 +189,7 @@ export default function NetworkedEquipment() {
         </div>
       )}
       {admin && <div className="mt-4"><SharePanel hasMasterPc={items.some(e => e.kind === 'PC' && e.is_master_pc)}
-        pcs={pcs.map(e => ({ id: e.device_id, name: e.name, online: e.online !== false }))} /></div>}
+        pcs={pcs.map(e => ({ id: e.device_id, name: e.name, online: pcStatus(e).agent }))} /></div>}
       {wall && <ScreenWall pcs={admin ? items.filter(e => e.kind === 'PC') : pcs} onClose={closeWall} />}
       {viewing && <PcScreenViewer deviceId={viewing.device_id} name={viewing.name} onClose={closeViewer}
         monitors={Array.isArray(viewing.detail?.monitors) ? viewing.detail!.monitors as { index: number; width: number; height: number; primary: boolean }[] : []} />}

@@ -17,6 +17,8 @@ import { Bot, ChevronRight, Hand, Maximize2, Monitor, Radio, RotateCcw, X } from
 import { api, SecurityCamera } from '../../lib/api'
 import { Robot } from '../../lib/api'
 import { relative } from '../../lib/time'
+import { isStaff, useAuth } from '../../lib/auth'
+import { pcStatus } from '../../lib/pcStatus'
 import { Skeleton } from '../ui'
 import { MODELS, RobotModel } from './kinematics'
 import { effective, useRobots } from './robotLive'
@@ -71,14 +73,19 @@ export default function RobotTwinPanels() {
     </div>)
 }
 
-/** The lab's PCs: no PC agent yet, so each is OFFLINE as a device; whether
- *  someone works at it comes from the security camera's PC boxes. */
+/** The lab's PCs: on / off from the LAN check (tools/lan_presence, nothing installed on the PC) and
+ *  the PC agent's heartbeat; whether someone works at it comes from the security camera's PC boxes. */
 function LabPcs() {
   const [cams, setCams] = useState<SecurityCamera[] | null>(null)
+  const [pcs, setPcs] = useState<Awaited<ReturnType<typeof api.equipment>>>([])
+  const staff = isStaff(useAuth().user)
   useEffect(() => {
-    const load = () => api.securityCameras().then(setCams).catch(() => setCams([]))
+    const load = () => {
+      api.securityCameras().then(setCams).catch(() => setCams([]))
+      if (staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => {})
+    }
     load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
-  }, [])
+  }, [staff])
   const zones = (cams ?? []).flatMap(c => c.zones ?? [])
   const names = Array.from({ length: 11 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
   const word: Record<string, [string, string]> = {
@@ -93,17 +100,22 @@ function LabPcs() {
       <div className="flex items-center gap-2 mb-3">
         <Monitor size={16} className="text-accent-300" />
         <span className="font-semibold text-white">Lab PCs</span>
-        <span className="text-[12px] text-slate-400">device OFFLINE until its PC agent is installed · use seen by the security camera</span>
+        <span className="text-[12px] text-slate-400">on / off over the lab LAN · details from the PC agent · use seen by the security camera</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
         {names.map(n => {
           const z = zones.find(x => x.name === n)
+          const d = pcs.find(e => (e.asset_tag ?? e.name) === n)
+          const st = d ? pcStatus(d) : null
+          const stCls = !st ? 'text-slate-500' : st.tone === 'ok' ? 'text-ok-soft' : st.tone === 'warn' ? 'text-warn-soft'
+            : st.tone === 'bad' ? 'text-bad-soft' : 'text-slate-300'
           const [w, cls] = z ? (word[z.status] ?? [z.status, 'border-ink-500 text-slate-300']) : ['No camera box', 'border-ink-600 text-slate-500']
           return (
             <div key={n} className="rounded-lg border border-ink-600/70 bg-ink-900/40 p-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[13px] text-white font-medium">{n}</span>
-                <span className="text-[10.5px] text-slate-500">OFFLINE</span>
+                <span className={`text-[10.5px] uppercase ${stCls}`} title={d?.lan?.ip ? `LAN ${d.lan.ip} (${d.lan.via})` : undefined}>
+                  {st ? st.word : 'not checked'}</span>
               </div>
               <span className={`mt-1.5 inline-block rounded-md border px-1.5 py-0.5 text-[11px] ${cls}`}>{w}</span>
             </div>)

@@ -28,6 +28,9 @@ needs a managed / kiosk exam browser, which is a lab policy, not this agent.
     pip install psutil requests pillow
     py pc_agent.py --device PC_01 --portal http://192.168.1.200:8000/api
 """
+# Windows 7 PCs run at most Python 3.8, which would evaluate `str | None` at import and crash.
+from __future__ import annotations
+
 import argparse
 import ctypes
 import io

@@ -37,3 +37,24 @@ def test_gdi_fallback_without_pillow(monkeypatch):
     pytest.importorskip("cv2")
     j = a._grab_gdi(a.monitors()[0]["bbox"], 60)
     assert j is not None and j[:2] == b"\xff\xd8"
+
+
+def test_runs_on_python_3_8_for_windows_7():
+    """Windows 7 lab PCs can run at most Python 3.8 (2026-10-21, old HP laptop as PC-01). 3.8 evaluates
+    annotations at import: `str | None` / `list[dict]` crash there unless annotations are postponed."""
+    import ast
+    import pathlib
+    src = pathlib.Path(a.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src, feature_version=(3, 8))          # 3.8 syntax only (no match, no except*)
+    postponed = any(isinstance(n, ast.ImportFrom) and n.module == "__future__"
+                    and any(x.name == "annotations" for x in n.names) for n in tree.body)
+
+    def new_style(ann):
+        return any(isinstance(x, ast.BinOp) and isinstance(x.op, ast.BitOr) or
+                   isinstance(x, ast.Subscript) and isinstance(x.value, ast.Name)
+                   and x.value.id in ("list", "dict", "tuple", "set", "type") for x in ast.walk(ann))
+    anns = [n.returns for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.returns]
+    anns += [x.annotation for n in ast.walk(tree) if isinstance(n, ast.arg) for x in [n] if x.annotation]
+    anns += [n.annotation for n in ast.walk(tree) if isinstance(n, ast.AnnAssign)]
+    bad = [ast.unparse(x) for x in anns if new_style(x)]
+    assert postponed or not bad, f"annotations that crash Python 3.8: {bad}"

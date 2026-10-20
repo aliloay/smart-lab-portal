@@ -37,6 +37,7 @@ from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingS
                         Device, DeviceCommand, DeviceType, EquipmentSession, Lab,
                         PolicyViolation, Role, SensorReading, User)
 from app.services import commands as cmds
+from app.services import lan_presence
 from app.services import pc_control
 from app.services.access import get_device, get_lab_by_code
 from app.services.devices import is_fresh, refresh_liveness
@@ -201,6 +202,7 @@ def list_equipment(db: Session = Depends(get_db), _: User = Depends(require_staf
             "booking_id": s.booking_id if s else None, "mode": d.mode or "NORMAL",
             "is_master_pc": bool(d.is_master_pc),
             "running_today_s": _today_seconds(db, d, "RUNNING", now),
+            "lan": lan_presence.get(d.device_uid, now) if d.device_type == DeviceType.PC else None,
             "open_violations": db.query(PolicyViolation).filter_by(
                 device_id=d.id, reviewed=False).count()})
     return out
@@ -282,6 +284,60 @@ def set_master(device_id: int, req: MasterRequest, db: Session = Depends(get_db)
 
 
 # ------------------------------------------- admin master PC: agent side ---
+class LanSeen(BaseModel):
+    device_uid: str = Field(max_length=64)
+    asset_tag: Optional[str] = Field(default=None, max_length=64)
+    present: bool
+    ip: Optional[str] = Field(default=None, max_length=45)
+    mac: Optional[str] = Field(default=None, max_length=17)
+    via: Literal["ping", "arp", "none"] = "none"
+
+
+class LanPresenceReport(BaseModel):
+    lab_id: str = Field(max_length=32)
+    pcs: list[LanSeen] = Field(max_length=64)
+
+
+@router.post("/pc/presence", tags=["devices"])
+def report_lan_presence(req: LanPresenceReport, db: Session = Depends(get_db),
+                        identity: str = Depends(require_device)):
+    """tools/lan_presence (on the lab laptop): which lab PCs answer on the LAN right now, by MAC
+    address - no agent needed on the PC. One PC's own key must not speak for the others, so only
+    the lab's shared device key is accepted. A PC seen for the first time gets its device row
+    (like the agent's first report); connects / disconnects are audited."""
+    from app.api.deps import SHARED
+    if identity != SHARED:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "LAN presence needs the lab's shared device key")
+    lab = get_lab_by_code(db, req.lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
+    now = datetime.now(timezone.utc)
+    changes = 0
+    for pc in req.pcs:
+        d = get_device(db, pc.device_uid)
+        if d is None:
+            if not pc.present:
+                continue                            # never seen and absent: nothing to show yet
+            d = Device(device_uid=pc.device_uid, name=pc.asset_tag or pc.device_uid,
+                       device_type=DeviceType.PC, lab_id=lab.id)
+            db.add(d)
+            db.flush()
+        if d.device_type != DeviceType.PC:
+            continue
+        if pc.asset_tag and d.asset_id is None:
+            a = db.scalar(select(Asset).where(Asset.asset_tag == pc.asset_tag))
+            if a is not None:
+                d.asset_id = a.id
+        changed = lan_presence.update(d.device_uid, pc.present, pc.ip, pc.mac, pc.via, now)
+        if changed is not None:
+            changes += 1
+            db.add(AuditLog(actor_user_id=None, action="PC_LAN_CONNECTED" if changed else "PC_LAN_DISCONNECTED",
+                            entity_type="device", entity_id=str(d.id),
+                            detail={"device": d.device_uid, "ip": pc.ip, "mac": pc.mac, "via": pc.via}))
+    db.commit()
+    return {"ok": True, "changes": changes}
+
+
 @router.get("/pc/poll", tags=["devices"])
 def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db),
             identity: str = Depends(require_device)):

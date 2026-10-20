@@ -1151,6 +1151,10 @@ export interface PerfReport {
   db_pool: { size: number; checked_out: number; overflow: number }
 }
 
+/** A lab PC as seen on the lab LAN by tools/lan_presence (no agent needed); null = not checked. */
+export type PcLan = { present: boolean; ip: string | null; mac: string | null; via: 'ping' | 'arp' | 'none'
+  since: string; checked_at: string }
+
 export const api = {
   login: (email: string, password: string) =>
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
@@ -1304,7 +1308,8 @@ export const api = {
     lab_code: string | null; online: boolean | null; last_seen_at: string | null
     state: 'RUNNING' | 'IDLE' | 'FAULT' | null; since: string | null; detail: Record<string, unknown>
     user_name: string | null; booking_id: number | null; mode: PcMode
-    running_today_s: number; open_violations: number; is_master_pc: boolean }[]>('/equipment'),
+    running_today_s: number; open_violations: number; is_master_pc: boolean
+    lan: PcLan | null }[]>('/equipment'),
   equipmentViolations: () => request<{ id: number; device_uid: string; kind: string; detail: string
     os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
   setEquipmentMode: (id: number, mode: PcMode) =>
