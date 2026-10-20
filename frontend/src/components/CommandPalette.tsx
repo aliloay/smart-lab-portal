@@ -8,9 +8,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CornerDownLeft, Search } from 'lucide-react'
 import { getToken } from '../lib/api'
+import { PAGE_WORDS, SearchItem, prepare, rank } from '../lib/searchRank'
 
 export interface PaletteItem { to: string; label: string; section?: string }
 interface Hit { type: string; title: string; subtitle: string; to: string }
+
+// The search index (2026-10-20): loaded once in the background, refreshed when older than INDEX_TTL
+// on open; ranked in the browser on every keystroke (lib/searchRank.ts) - no wait per letter.
+const INDEX_TTL = 60_000
+let index: { at: number; items: SearchItem[] } | null = null
+let loading: Promise<void> | null = null
+function loadIndex(): Promise<void> {
+  if (loading) return loading
+  loading = fetch('/api/search/index', { headers: { Authorization: `Bearer ${getToken() ?? ''}` } })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(b => { index = { at: Date.now(), items: b.items } })
+    .catch(() => { /* the server search below still works */ })
+    .finally(() => { loading = null })
+  return loading
+}
 
 export function openPalette() { window.dispatchEvent(new Event('smartlab:palette')) }
 
@@ -35,8 +51,32 @@ export default function CommandPalette({ pages, staff }: { pages: PaletteItem[];
   }, [])
   useEffect(() => { if (open) { setQ(''); setHits([]); setSel(0); window.setTimeout(() => input.current?.focus(), 0) } }, [open])
 
+  // load the index in the background soon after sign-in, and again on open when it is old
+  const [indexAt, setIndexAt] = useState(index?.at ?? 0)
   useEffect(() => {
-    if (!open || !staff || q.trim().length < 2) { setHits([]); return }
+    if (!staff) return
+    const w = window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number }
+    const go = () => loadIndex().then(() => setIndexAt(index?.at ?? 0))
+    const h = window.setTimeout(() => (w.requestIdleCallback ? w.requestIdleCallback(go, { timeout: 4000 }) : go()), 2500)
+    return () => window.clearTimeout(h)
+  }, [staff])
+  useEffect(() => {
+    if (open && staff && (!index || Date.now() - index.at > INDEX_TTL)) loadIndex().then(() => setIndexAt(index?.at ?? 0))
+  }, [open, staff])
+
+  const prepared = useMemo(() => prepare([
+    ...pages.map(p => ({ type: 'page', title: p.label, subtitle: p.section ?? 'page', to: p.to,
+                         words: `${p.section ?? ''} ${PAGE_WORDS[p.to.split('?')[0]] ?? ''}` })),
+    ...(staff && index ? index.items : []),
+  ]), [pages, staff, indexAt])                     // eslint-disable-line react-hooks/exhaustive-deps
+  const local = useMemo(() => q.trim()
+    ? rank(prepared, q, 20)
+    : pages.slice(0, 8).map(p => ({ type: 'page', title: p.label, subtitle: p.section ?? 'page', to: p.to })), [prepared, q, pages])
+
+  // The server search only fills gaps: an incident number, no index yet, or (almost) nothing found here.
+  const needServer = staff && q.trim().length >= 2 && (!index || /^(inc-?)?\d+$/i.test(q.trim()) || local.length < 3)
+  useEffect(() => {
+    if (!open || !needServer) { setHits([]); return }
     const ctl = new AbortController()
     const t = window.setTimeout(async () => {
       setLoading(true)
@@ -44,17 +84,17 @@ export default function CommandPalette({ pages, staff }: { pages: PaletteItem[];
         const r = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}`, {
           headers: { Authorization: `Bearer ${getToken() ?? ''}` }, signal: ctl.signal })
         if (r.ok) setHits((await r.json()).results)
-      } catch { /* aborted or offline: pages still work */ } finally { setLoading(false) }
-    }, 120)   // server answers in ~60-80 ms; 220 ms of typing pause made results feel slow
+      } catch { /* aborted or offline: local results still show */ } finally { setLoading(false) }
+    }, 120)
     return () => { window.clearTimeout(t); ctl.abort() }
-  }, [q, open, staff])
+  }, [q, open, needServer])
 
-  const pageHits = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return (s ? pages.filter(p => p.label.toLowerCase().includes(s) || (p.section ?? '').toLowerCase().includes(s)) : pages).slice(0, 8)
-  }, [q, pages])
-  const all = [...pageHits.map(p => ({ type: 'page', title: p.label, subtitle: p.section ?? 'page', to: p.to })), ...hits]
-  useEffect(() => { setSel(0) }, [q, hits.length])
+  const all = useMemo(() => {
+    const seen = new Set<string>(), out: Hit[] = []
+    for (const h of [...local, ...hits]) { const k = h.to + '|' + h.title; if (!seen.has(k)) { seen.add(k); out.push(h) } }
+    return out.slice(0, 24)
+  }, [local, hits])
+  useEffect(() => { setSel(0) }, [q])
   const go = (to: string) => { setOpen(false); nav(to) }
 
   if (!open) return null
@@ -63,7 +103,7 @@ export default function CommandPalette({ pages, staff }: { pages: PaletteItem[];
       <div className="w-full max-w-xl card p-0 overflow-hidden" onClick={e => e.stopPropagation()} role="dialog" aria-label="Search">
         <div className="flex items-center gap-2 px-3 border-b border-ink-600">
           <Search size={16} className="text-slate-400" />
-          <input ref={input} value={q} onChange={e => setQ(e.target.value)} placeholder={staff ? 'Search pages, devices, incidents, equipment, labs…' : 'Search pages…'}
+          <input ref={input} value={q} onChange={e => setQ(e.target.value)} placeholder={staff ? 'Search labs, robots, devices, equipment, people, incidents, pages…' : 'Search pages…'}
             className="flex-1 bg-transparent py-3 text-[14px] text-white outline-none"
             onKeyDown={e => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setSel(s => Math.min(all.length - 1, s + 1)) }

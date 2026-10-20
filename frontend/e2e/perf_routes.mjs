@@ -21,7 +21,7 @@ page.on('requestfinished', async r => {
   (api[k] ??= []).push(ms)
 })
 await page.goto(`${BASE}/login`)
-await page.fill('input[type=email]', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
+await page.fill('#email', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
 const t0 = Date.now(); await page.click('button[type=submit]')
 await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 30000 })
 const loginToApp = Date.now() - t0

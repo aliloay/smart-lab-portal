@@ -5,7 +5,7 @@ const [BASE, OUT] = [process.argv[2] || 'http://127.0.0.1:5173', process.argv[3]
 const b = await chromium.launch({ channel: 'chrome' })
 const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
 await p.goto(`${BASE}/login`)
-await p.fill('input[type=email]', 'admin@giu-uni.de'); await p.fill('input[type=password]', 'Admin#2026')
+await p.fill('#email', 'admin@giu-uni.de'); await p.fill('input[type=password]', 'Admin#2026')
 await p.click('form button[type=submit]'); await p.waitForURL(u => u.pathname === '/welcome')
 await p.goto(`${BASE}/admin/security`); await p.waitForTimeout(9000)
 await p.screenshot({ path: `${OUT}/security-wall.png` })

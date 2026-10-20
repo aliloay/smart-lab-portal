@@ -25,6 +25,8 @@ export type PhotoStage = 'REPORT' | 'BEFORE' | 'AFTER'
 export interface User {
   id: number
   email: string
+  /** sign-in name, firstname.lastname; null until an administrator gives one (2026-10-20) */
+  username?: string | null
   full_name: string
   role: Role
   is_active: boolean
@@ -982,6 +984,10 @@ async function parseError(res: Response): Promise<ApiError> {
       code = 'VALIDATION'
     }
   } catch { /* non-JSON error body */ }
+  // The web server's own gateway errors (API restarting / unreachable) carry no detail: say what it means.
+  // Writes are not repeated automatically (2026-10-20: "Request failed (502)" on Approve during a deploy).
+  if (code === undefined && [502, 503, 504].includes(res.status) && /^(Bad Gateway|Service Unavailable|Gateway Time-?out|Request failed)/i.test(message))
+    message = 'The portal server was restarting or unreachable, so this did not go through. Wait a few seconds and press it again.'
   return new ApiError(res.status, message, code)
 }
 
@@ -1155,7 +1161,7 @@ export const api = {
   revokeMyDoorQr: () => request<{ revoked: number }>('/auth/me/door-qr', { method: 'DELETE' }),
   signupConfig: () => request<{ enabled: boolean; email_domains: string[]; requires_approval: boolean }>(
     '/auth/signup-config'),
-  signup: (u: { email: string; full_name: string; password: string; student_id?: string; department?: string }) =>
+  signup: (u: { email: string; username: string; full_name: string; password: string; student_id?: string; department?: string }) =>
     post<{ pending_approval: boolean; message?: string; access_token?: string }>('/auth/signup', u),
 
   // --- labs
@@ -1401,6 +1407,10 @@ export const api = {
   pendingFaceSubmission: (userId: number) =>
     request<FaceSubmission | null>(`/users/${userId}/face/submission`),
   approveFaceSubmission: (id: number) => post<FaceSubmission>(`/face-submissions/${id}/approve`),
+  /** Photo by photo (2026-10-20): accept | refuse | retake | auto (= skip: the system decides) for each photo. */
+  reviewFaceSubmission: (id: number, photos: ('accept' | 'refuse' | 'retake' | 'auto')[], note?: string) =>
+    post<FaceSubmission & { photos: { n: number; decision: string; used: boolean; why: string }[] }>(
+      `/face-submissions/${id}/review`, { photos, note: note || undefined }),
   rejectFaceSubmission: (id: number, reason: string) =>
     post<FaceSubmission>(`/face-submissions/${id}/reject`, { reason }),
   retakeFaceSubmission: (id: number, reason: string) =>

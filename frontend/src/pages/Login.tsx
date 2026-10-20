@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Bot, Cpu, Eye, EyeOff, Lock, ShieldCheck, UserPlus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { suggestUsername, USERNAME_HINT, validUsername } from '../lib/usernames'
 import { api } from '../lib/api'
 import { ErrorBanner, Notice } from '../components/ui'
 import { InstitutionLogo, SmartLabMark, Wordmark } from '../components/Brand'
@@ -21,6 +22,10 @@ export default function Login() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [signupCfg, setSignupCfg] = useState<{ enabled: boolean; email_domains: string[]; requires_approval: boolean } | null>(null)
   const [fullName, setFullName] = useState('')
+  // sign-up: firstname.lastname, pre-filled from the name until the person edits it (2026-10-20)
+  const [username, setUsername] = useState('')
+  const [usernameEdited, setUsernameEdited] = useState(false)
+  const shownUsername = usernameEdited ? username : suggestUsername(fullName)
   const [studentId, setStudentId] = useState('')
   const [department, setDepartment] = useState('')
   const [done, setDone] = useState('')
@@ -52,7 +57,8 @@ export default function Login() {
     const f = e.currentTarget as HTMLFormElement
     const emailNow = (f.querySelector('#email') as HTMLInputElement | null)?.value ?? email
     const pwNow = (f.querySelector('#password') as HTMLInputElement | null)?.value ?? password
-    if (!emailNow || !pwNow) { setError('Enter your email and password.'); return }
+    if (!emailNow || !pwNow) { setError(signingUp ? 'Enter your email and password.' : 'Enter your email or username and your password.'); return }
+    if (signingUp && !validUsername(shownUsername)) { setError(`Username: ${USERNAME_HINT}.`); return }
     if (emailNow !== email) setEmail(emailNow)
     if (pwNow !== password) setPassword(pwNow)
     setError('')
@@ -60,7 +66,7 @@ export default function Login() {
     try {
       if (signingUp) {
         const r = await api.signup({
-          email: email.trim().toLowerCase(), full_name: fullName.trim(), password,
+          email: email.trim().toLowerCase(), username: shownUsername.trim().toLowerCase(), full_name: fullName.trim(), password,
           student_id: studentId.trim() || undefined, department: department.trim() || undefined,
         })
         if (r.pending_approval) {
@@ -69,7 +75,7 @@ export default function Login() {
           return
         }
       }
-      await login(emailNow.trim().toLowerCase(), pwNow)
+      await login((signingUp ? emailNow : emailNow).trim().toLowerCase(), pwNow)
       const next = params.get('next')
       // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
       // After every sign-in: the /welcome story; it stays until Skip / Enter Dashboard, which go to
@@ -191,13 +197,23 @@ export default function Login() {
                   <input id="full_name" className="input" value={fullName} autoComplete="name"
                          required minLength={2} onChange={e => setFullName(e.target.value)} />
                 </div>)}
+              {signingUp && (
+                <div>
+                  <label htmlFor="username" className="label block mb-1.5">Username</label>
+                  <input id="username" className="input mono" value={shownUsername} autoComplete="off" spellCheck={false}
+                         required maxLength={64} placeholder="firstname.lastname"
+                         onChange={e => { setUsernameEdited(true); setUsername(e.target.value.toLowerCase()) }} />
+                  <p className={`mt-1 text-[11.5px] ${shownUsername && !validUsername(shownUsername) ? 'text-warn-soft' : 'text-slate-500'}`}>
+                    {USERNAME_HINT}. You can sign in with it or with your email.</p>
+                </div>)}
 
               <div>
-                <label htmlFor="email" className="label block mb-1.5">Email</label>
-                <input id="email" className="input" type="email" value={email}
-                       autoFocus autoComplete="username" required
-                       placeholder={signingUp && signupCfg?.email_domains.length
-                         ? `you@${signupCfg.email_domains[0]}` : 'you@giu-uni.de'}
+                <label htmlFor="email" className="label block mb-1.5">{signingUp ? 'Email' : 'Email or username'}</label>
+                {/* sign-in takes an e-mail OR a username (firstname.lastname), so not type=email there */}
+                <input id="email" className="input" type={signingUp ? 'email' : 'text'} value={email}
+                       autoFocus autoComplete="username" required spellCheck={false} autoCapitalize="none"
+                       placeholder={signingUp ? (signupCfg?.email_domains.length
+                         ? `you@${signupCfg.email_domains[0]}` : 'you@giu-uni.de') : 'you@giu-uni.de or firstname.lastname'}
                        onChange={e => setEmail(e.target.value)} />
               </div>
               <div>
@@ -234,7 +250,7 @@ export default function Login() {
 
               <button type="submit" className="btn-primary w-full !py-3"
                       disabled={busy
-                        || (signingUp && (fullName.trim().length < 2 || password.length < 8))}>
+                        || (signingUp && (fullName.trim().length < 2 || password.length < 8 || !validUsername(shownUsername)))}>
                 {busy ? (signingUp ? 'Creating account…' : 'Signing in…')
                   : (signingUp ? 'Create account' : 'Sign in')}
                 {!busy && <ArrowRight size={16} />}

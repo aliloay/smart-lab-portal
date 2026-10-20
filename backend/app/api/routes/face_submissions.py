@@ -22,7 +22,7 @@ the images; only the record of the decision stays. Every step is audited.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -250,6 +250,11 @@ def _waiting_or_409(db: Session, sid: int) -> FaceSubmission:
 
 @router.post("/face-submissions/{sid}/approve")
 def approve(sid: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    # Pressing Approve again (double click, or retrying after a lost answer) returns the result
+    # instead of a conflict - nothing is enrolled twice.
+    done = db.get(FaceSubmission, sid)
+    if done is not None and done.status == "APPROVED":
+        return _out(db, done)
     s = _waiting_or_409(db, sid)
     person = db.get(User, s.user_id)
     if person is None or not person.auth_subject:
@@ -295,6 +300,99 @@ def approve(sid: int, db: Session = Depends(get_db), staff: User = Depends(requi
                             "samples_saved": saved, "face_enrolled": enrolled}))
     db.commit()
     return _out(db, s)
+
+
+class PhotoReview(BaseModel):
+    """One decision per photo, in the order sent (owner 2026-10-20): accept = use it (staff vouch;
+    the face server must still find a face) | refuse = never use it | retake = not used, ask for a new
+    one | auto = "skip": the system decides with the same check as at upload - used only when the face
+    server sees a face that is this account holder (or nobody registered), dropped otherwise."""
+    photos: list[Literal["accept", "refuse", "retake", "auto"]] = Field(min_length=1, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=255)
+
+
+@router.post("/face-submissions/{sid}/review")
+def review_photos(sid: int, req: PhotoReview, db: Session = Depends(get_db),
+                  staff: User = Depends(require_staff)):
+    done = db.get(FaceSubmission, sid)
+    if done is not None and done.status in ("APPROVED", "RETAKE") and done.reviewed_at is not None             and (done.reason or "").startswith("Reviewed photo by photo"):
+        return _out(db, done)                                # repeated press: the result, nothing twice
+    s = _waiting_or_409(db, sid)
+    if len(req.photos) != len(s.photo_keys or []):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"Give one decision for each of the {len(s.photo_keys or [])} photos.")
+    person = db.get(User, s.user_id)
+    if person is None or not person.auth_subject:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This person has no door identity.")
+    storage, saved, outcome = get_storage(), 0, []
+    try:
+        for i, (key, d) in enumerate(zip(s.photo_keys or [], req.photos), start=1):
+            row = {"n": i, "decision": d, "used": False, "why": ""}
+            if d in ("refuse", "retake"):
+                row["why"] = "refused by staff" if d == "refuse" else "staff asked for a new photo"
+                outcome.append(row)
+                continue
+            data = b"".join(storage.open(key))
+            if d == "auto":
+                v = check_photo(data)
+                if v is None:
+                    raise httpx.ConnectError("identify unavailable")
+                if not v.get("face"):
+                    row["why"] = "system: no clear face"
+                    outcome.append(row)
+                    continue
+                if v.get("name") and v["name"] != person.auth_subject:
+                    row["why"] = "system: matches another registered person"     # never says whom
+                    outcome.append(row)
+                    continue
+            r = httpx.post(f"{settings.FACE_SERVER_URL}/enroll",
+                           params={"name": person.auth_subject}, content=data,
+                           headers={"Content-Type": "image/jpeg"},
+                           timeout=httpx.Timeout(20.0, connect=3.0))
+            r.raise_for_status()
+            row["used"] = r.json().get("status") == "saved"
+            row["why"] = ("accepted by staff" if d == "accept" else "system: this person") if row["used"]                 else "the face server found no usable face"
+            saved += row["used"]
+            outcome.append(row)
+        if saved:
+            httpx.post(f"{settings.FACE_SERVER_URL}/train",
+                       timeout=httpx.Timeout(120.0, connect=3.0)).raise_for_status()
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            f"The face server is not reachable at {settings.FACE_SERVER_URL}. "
+                            "Nothing was approved; try again when it is running.")
+    now = datetime.now(timezone.utc)
+    again = [o["n"] for o in outcome if o["decision"] == "retake"]
+    s.reviewed_by_id, s.reviewed_at, s.samples_saved = staff.id, now, saved
+    note = f" {req.note.strip()}" if req.note and req.note.strip() else ""
+    if saved >= MIN_SAMPLES_TO_ENROLL:
+        enrolment.mark(db, person, "face", True)
+    if again or saved == 0:
+        s.status = "RETAKE"
+        which = ", ".join(map(str, again)) if again else "all"
+        s.reason = f"Reviewed photo by photo: {saved} used; please send new photos (photo {which}).{note}"
+        notify(db, [person.id], "ACCESS_SETUP", "Please retake some of your Face ID photos",
+               body=(f"{saved} of your photos are now used. " if saved else "")
+                    + f"Please send new photos (photo {which}) from your profile.{note}",
+               link="/profile", severity="warning")
+    else:
+        s.status = "APPROVED"
+        s.reason = f"Reviewed photo by photo: {saved} of {s.photo_count} used.{note}"
+        if saved >= MIN_SAMPLES_TO_ENROLL:
+            notify(db, [person.id], "ACCESS_SETUP", "Face ID photos approved",
+                   body=f"{saved} of your photos are now used by the door camera and the lab cameras.",
+                   link="/profile", severity="info")
+        else:
+            notify(db, [person.id], "ACCESS_SETUP", "Face photos approved, but too few were usable",
+                   body=f"Only {saved} of your photos could be used. Visit lab staff to add a few more "
+                        "at the door camera.", link="/profile", severity="warning")
+    _delete_files(s)
+    db.add(AuditLog(actor_user_id=staff.id, action="FACE_PHOTOS_REVIEWED",
+                    entity_type="face_submission", entity_id=str(s.id),
+                    detail={"user_id": person.id, "photos": [{k: o[k] for k in ("n", "decision", "used", "why")} for o in outcome],
+                            "samples_saved": saved, "status": s.status}))
+    db.commit()
+    return {**_out(db, s), "photos": outcome}
 
 
 class RejectRequest(BaseModel):

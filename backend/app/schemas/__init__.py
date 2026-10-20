@@ -19,7 +19,8 @@ class ORM(BaseModel):
 
 # --- auth ------------------------------------------------------------------
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # e-mail OR username (2026-10-20); the field keeps its name so existing clients still work
+    email: str = Field(min_length=3, max_length=255)
     password: str = Field(max_length=256)       # an old password may be shorter than today's rule
 
 
@@ -34,6 +35,7 @@ class TokenResponse(BaseModel):
 class UserOut(ORM):
     id: int
     email: EmailStr
+    username: Optional[str] = None
     full_name: str
     role: Role
     is_active: bool
@@ -47,6 +49,7 @@ class UserOut(ORM):
 
 class UserCreate(BaseModel):
     email: EmailStr
+    username: Optional[str] = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
     password: str = Field(max_length=password_policy.MAX_LENGTH)
     role: Role = Role.STUDENT
@@ -61,8 +64,10 @@ class UserCreate(BaseModel):
 
 
 class SignupRequest(BaseModel):
-    """Public sign-up. No role and no auth_subject: always a plain student."""
+    """Public sign-up. No role and no auth_subject: always a plain student. A username
+    (firstname.lastname) is required for new accounts (owner, 2026-10-20)."""
     email: EmailStr
+    username: str = Field(min_length=3, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
     password: str = Field(max_length=password_policy.MAX_LENGTH)
     student_id: Optional[str] = Field(default=None, max_length=64)
@@ -79,6 +84,8 @@ class UserUpdate(BaseModel):
     # The sign-in address. Not derived from the name: changing the name never
     # changes it; change it here when the person's address changes.
     email: Optional[EmailStr] = None
+    # administrators only; "" removes it
+    username: Optional[str] = Field(default=None, max_length=64)
     role: Optional[Role] = None
     is_active: Optional[bool] = None
     auth_subject: Optional[str] = Field(default=None, max_length=32)

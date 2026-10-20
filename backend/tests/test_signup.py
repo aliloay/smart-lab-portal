@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models import Notification, Role, User
 
-NEW = {"email": "New.Student@Example.com", "full_name": "New Student",
+NEW = {"email": "New.Student@Example.com", "username": "new.student", "full_name": "New Student",
        "password": "Lab-Secure#2026", "student_id": "S-9", "department": "EE"}
 
 
@@ -66,9 +66,9 @@ def test_signup_rate_limited_per_ip(client, monkeypatch):
     monkeypatch.setattr(settings, "SIGNUPS_PER_IP_PER_HOUR", 2)
     for i in range(2):
         assert client.post("/api/auth/signup",
-                           json={**NEW, "email": f"s{i}@example.com"}).status_code == 201
+                           json={**NEW, "email": f"s{i}@example.com", "username": f"s{i}.student"}).status_code == 201
     assert client.post("/api/auth/signup",
-                       json={**NEW, "email": "s3@example.com"}).status_code == 429
+                       json={**NEW, "email": "s3@example.com", "username": "s3.student"}).status_code == 429
 
 
 def test_signup_weak_password(client):
@@ -95,6 +95,6 @@ def test_auth_subjects_are_sequential_and_never_reused(client, db, admin, alice,
     u = db.scalar(select(User).where(User.email == "new.student@example.com"))
     assert u.auth_subject == "USER4"
     monkeypatch.setattr(settings, "AUTO_ASSIGN_AUTH_SUBJECT", False)
-    r = client.post("/api/auth/signup", json={**NEW, "email": "x@example.com"})
+    r = client.post("/api/auth/signup", json={**NEW, "email": "x@example.com", "username": "x.student"})
     x = db.scalar(select(User).where(User.email == "x@example.com"))
     assert x.auth_subject is None

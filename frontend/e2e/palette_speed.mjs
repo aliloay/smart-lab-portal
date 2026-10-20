@@ -17,7 +17,7 @@ const settle = async (t0) => {
 }
 // sign-in -> welcome -> enter
 await p.goto(`${BASE}/login`)
-await p.fill('input[type=email]', 'admin@giu-uni.de'); await p.fill('input[type=password]', process.env.SMARTLAB_PASSWORD || '')
+await p.fill('#email', 'admin@giu-uni.de'); await p.fill('input[type=password]', process.env.SMARTLAB_PASSWORD || '')
 let t0 = Date.now()
 await p.click('button[type=submit]'); await p.waitForURL(u => u.pathname.startsWith('/welcome'), { timeout: 20000 })
 console.log('sign-in -> welcome', JSON.stringify(await settle(t0)))

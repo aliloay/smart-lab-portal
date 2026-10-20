@@ -33,7 +33,7 @@ const shot = async (name, full = true) => {
   console.log('saved', name)
 }
 await p.goto(`${BASE}/login`); await p.waitForTimeout(2500); await shot('00a_sign_in', false)
-await p.fill('input[type=email]', 'admin@giu-uni.de'); await p.fill('input[type=password]', process.env.SMARTLAB_PASSWORD || '')
+await p.fill('#email', 'admin@giu-uni.de'); await p.fill('input[type=password]', process.env.SMARTLAB_PASSWORD || '')
 await p.click('button[type=submit]'); await p.waitForURL(u => u.pathname.startsWith('/welcome'), { timeout: 20000 })
 await p.waitForTimeout(3000); await shot('00b_welcome_top', false)
 for (const [name, path] of PAGES) {

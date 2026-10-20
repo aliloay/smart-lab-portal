@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Fingerprint, KeyRound, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { Role, User, api } from '../lib/api'
+import { suggestUsername, USERNAME_HINT, validUsername } from '../lib/usernames'
 import FaceEnrollment from '../components/FaceEnrollment'
 import { FaceReviewQueue } from '../components/FaceSubmission'
 import { useSearchParams } from 'react-router-dom'
@@ -40,10 +41,17 @@ export default function Users() {
     if (u) setEnrolling(u)
     setParams(p => { p.delete('face'); return p }, { replace: true })
   }, [faceFor, rows, setParams])
+  // ?find=<text> (a person picked in the global search) pre-fills the filter
+  const find = params.get('find')
+  useEffect(() => {
+    if (!find) return
+    setQ(find)
+    setParams(p => { p.delete('find'); return p }, { replace: true })
+  }, [find, setParams])
 
   const [showRemoved, setShowRemoved] = useState(false)
   const list = useMemo(() => (rows ?? []).filter(u => (showRemoved || u.is_active) && (!role || u.role === role) &&
-    (!q || `${u.full_name} ${u.email} ${u.auth_subject ?? ''} ${u.department ?? ''}`.toLowerCase()
+    (!q || `${u.full_name} ${u.email} ${u.username ?? ''} ${u.auth_subject ?? ''} ${u.department ?? ''}`.toLowerCase()
       .includes(q.toLowerCase()))), [rows, q, role, showRemoved])
   const count = (r: Role) => (rows ?? []).filter(u => u.role === r).length
 
@@ -107,7 +115,7 @@ export default function Users() {
                         <Avatar name={u.full_name} size={32} />
                         <div className="min-w-0"><div className="text-slate-100">{u.full_name}
                           {u.id === me?.id && <span className="text-[11px] text-accent-300"> · you</span>}</div>
-                          <div className="text-[12px] text-slate-400">{u.email}</div></div></div></td>
+                          <div className="text-[12px] text-slate-400">{u.email}{u.username && <span className="mono text-slate-500"> · {u.username}</span>}</div></div></div></td>
                       <td className="td"><Chip tone={ROLE_TONE[u.role]}>{roleLabel(u.role)}</Chip></td>
                       <td className="td">{u.auth_subject ? <span className="mono text-accent-200">{u.auth_subject}</span>
                         : <span className="text-[12px] text-slate-500">no door identity</span>}
@@ -160,7 +168,7 @@ export default function Users() {
 }
 
 function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () => void }) {
-  const [f, setF] = useState({ full_name: u.full_name, email: u.email, role: u.role, is_active: u.is_active,
+  const [f, setF] = useState({ full_name: u.full_name, email: u.email, username: u.username ?? '', role: u.role, is_active: u.is_active,
     auth_subject: u.auth_subject ?? '', department: u.department ?? '', student_id: u.student_id ?? '',
     fingerprint_enrolled: !!u.fingerprint_enrolled_at, face_enrolled: !!u.face_enrolled_at })
   const [error, setError] = useState('')
@@ -168,7 +176,9 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
     try {
-      await api.updateUser(u.id, { ...f, auth_subject: f.auth_subject.trim() || null,
+      const un = f.username.trim().toLowerCase()
+      if (un && !validUsername(un)) { setError(`Username: ${USERNAME_HINT}.`); setBusy(false); return }
+      await api.updateUser(u.id, { ...f, username: un, auth_subject: f.auth_subject.trim() || null,
         department: f.department || null, student_id: f.student_id || null })
       onSaved()
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setBusy(false) }
@@ -181,6 +191,14 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
       <Field label="Email" hint="The sign-in address. Changing the name does not change it; edit it here.">
         <input className="input" type="email" value={f.email} required
                onChange={e => setF({ ...f, email: e.target.value })} /></Field>
+      <Field label="Username" hint={`Signs in like the email. ${USERNAME_HINT}. Empty = none.`}>
+        <div className="flex gap-2">
+          <input className="input mono flex-1" value={f.username} maxLength={64} spellCheck={false} placeholder={suggestUsername(f.full_name)}
+                 onChange={e => setF({ ...f, username: e.target.value.toLowerCase() })} />
+          {!f.username && suggestUsername(f.full_name) && (
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setF(x => ({ ...x, username: suggestUsername(x.full_name) }))}>
+              Use {suggestUsername(f.full_name)}</button>)}
+        </div></Field>
       <Field label="Role" hint={self ? 'You cannot change your own role.' : undefined}>
         <select className="input" value={f.role} disabled={self}
                 onChange={e => setF({ ...f, role: e.target.value as Role })}>
@@ -245,6 +263,8 @@ function EditUser({ u, self, onSaved }: { u: User; self: boolean; onSaved: () =>
 function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ email: '', full_name: '', password: '', role,
     auth_subject: '', department: '', student_id: '' })
+  const [username, setUsername] = useState<string | null>(null)        // null = follow the name
+  const un = (username ?? suggestUsername(f.full_name)).trim().toLowerCase()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [nextSubject, setNextSubject] = useState('')
@@ -252,7 +272,8 @@ function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => voi
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
     try {
-      await api.createUser({ ...f, auth_subject: f.auth_subject.trim() || null,
+      if (!validUsername(un)) { setError(`Username: ${USERNAME_HINT}.`); setBusy(false); return }
+      await api.createUser({ ...f, username: un, auth_subject: f.auth_subject.trim() || null,
         department: f.department || null, student_id: f.student_id || null })
       onSaved()
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setBusy(false) }
@@ -269,8 +290,13 @@ function CreateUser({ role, onClose, onSaved }: { role: Role; onClose: () => voi
             <option value="STUDENT">Student</option><option value="LAB_STAFF">Laboratory staff</option>
             <option value="ADMIN">Administrator</option></select></Field>
         </div>
-        <Field label="Email"><input className="input" type="email" required value={f.email}
-          onChange={e => setF({ ...f, email: e.target.value })} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Email"><input className="input" type="email" required value={f.email}
+            onChange={e => setF({ ...f, email: e.target.value })} /></Field>
+          <Field label="Username" hint="firstname.lastname"><input className="input mono" required maxLength={64} spellCheck={false}
+            value={username ?? suggestUsername(f.full_name)} placeholder="firstname.lastname"
+            onChange={e => setUsername(e.target.value.toLowerCase())} /></Field>
+        </div>
         <Field label="Initial password" hint="At least 8 characters. Share it securely."><input className="input"
           type="password" minLength={8} required value={f.password}
           onChange={e => setF({ ...f, password: e.target.value })} /></Field>

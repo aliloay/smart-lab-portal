@@ -82,6 +82,8 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    # sign-in name, firstname.lastname (core/usernames.py); NULL until given one (2026-10-20)
+    username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     full_name: Mapped[str] = mapped_column(String(255))
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(_enum(Role, "role_enum"),

@@ -21,7 +21,7 @@ async function session() {
       .observe({ type: 'longtask', buffered: true })
   })
   const p = await ctx.newPage()
-  await p.goto(BASE + '/login'); await p.fill('input[type=email]', process.env.E2E_EMAIL || 'admin@giu-uni.de')
+  await p.goto(BASE + '/login'); await p.fill('#email', process.env.E2E_EMAIL || 'admin@giu-uni.de')
   await p.fill('input[type=password]', process.env.E2E_PASSWORD); await p.click('button[type=submit]')
   await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 30000 })
   return { b, p }

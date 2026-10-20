@@ -369,6 +369,9 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                                 "Another account already uses this email")
         else:
             changes["email"] = email
+    if "username" in changes:                        # administrators only (not in STAFF_EDITABLE)
+        from app.api.routes.auth import _username_or_422
+        changes["username"] = _username_or_422(db, changes["username"], u.id)
     if "auth_subject" in changes:
         subj = (changes["auth_subject"] or "").strip() or None
         if subj and db.scalar(select(User).where(User.auth_subject == subj,

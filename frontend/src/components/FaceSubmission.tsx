@@ -9,7 +9,7 @@
  * The portal deletes its copies after any decision.
  */
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, Check, ImagePlus, RotateCcw, ScanFace, Send, X } from 'lucide-react'
+import { Camera, Check, ChevronLeft, ChevronRight, ImagePlus, RotateCcw, ScanFace, Send, SkipForward, X } from 'lucide-react'
 import { FaceSubmission, api, fetchBlob } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { fmtDateTime } from '../lib/time'
@@ -199,6 +199,103 @@ const DECISION: Record<Decision, { label: string; placeholder: string; done: str
             done: 'Refused - the person was told to come to the lab staff to be enrolled in person.' },
 }
 
+type PhotoDecision = 'accept' | 'refuse' | 'retake' | 'auto'
+const PD: Record<PhotoDecision, { label: string; tone: string; hint: string }> = {
+  accept: { label: 'Accept', tone: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40', hint: 'use this photo' },
+  retake: { label: 'Retake', tone: 'bg-amber-500/15 text-amber-200 border-amber-400/40', hint: 'not used - the person is asked for a new one' },
+  refuse: { label: 'Refuse', tone: 'bg-rose-500/15 text-rose-200 border-rose-400/40', hint: 'never used' },
+  auto: { label: 'Skip', tone: 'bg-ink-700 text-slate-300 border-ink-500', hint: 'the system decides - used only if the face server confirms it is this person' },
+}
+
+/** Open the photos and decide each one (owner 2026-10-20). Skip leaves that photo to the system. */
+function PhotoByPhoto({ sub, onClose, onDone }: { sub: FaceSubmission; onClose: () => void; onDone: (text: string, enrolled: boolean) => void }) {
+  const [urls, setUrls] = useState<string[]>([])
+  const [at, setAt] = useState(0)
+  const [dec, setDec] = useState<PhotoDecision[]>(() => Array(sub.photo_count).fill('auto'))
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let made: string[] = [], stop = false
+    Promise.all(Array.from({ length: sub.photo_count }, (_, n) =>
+      fetchBlob(`/face-submissions/${sub.id}/photos/${n}`).then(b => URL.createObjectURL(b)).catch(() => '')))
+      .then(list => { made = list; if (!stop) setUrls(list) })
+    return () => { stop = true; made.forEach(u => u && URL.revokeObjectURL(u)) }
+  }, [sub.id, sub.photo_count])
+  const last = sub.photo_count - 1
+  const set = useCallback((d: PhotoDecision) => {
+    setDec(x => x.map((v, i) => (i === at ? d : v)))
+    setAt(a => Math.min(last, a + 1))
+  }, [at, last])
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === 'INPUT') return
+      if (e.key === 'ArrowRight') setAt(a => Math.min(last, a + 1))
+      if (e.key === 'ArrowLeft') setAt(a => Math.max(0, a - 1))
+      const m: Record<string, PhotoDecision> = { a: 'accept', r: 'retake', x: 'refuse', s: 'auto' }
+      if (m[e.key]) set(m[e.key])
+    }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [set, last])
+  async function send() {
+    setBusy(true); setError('')
+    try {
+      const r = await api.reviewFaceSubmission(sub.id, dec, note.trim())
+      const lines = r.photos.map(p => `${p.n}: ${p.used ? 'used' : 'not used'} (${p.why})`).join(' · ')
+      const enrolled = (r.samples_saved ?? 0) >= r.min_samples
+      onDone(`${r.status === 'RETAKE' ? 'Asked for new photos. ' : 'Approved. '}${r.samples_saved ?? 0} of ${r.photo_count} used${enrolled ? ' - Face ID is registered' : ''}. ${lines}`, enrolled)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setBusy(false) }
+  }
+  const count = (d: PhotoDecision) => dec.filter(x => x === d).length
+  return (
+    <Modal open onClose={onClose} title={`Review photo by photo${sub.user_name ? ` - ${sub.user_name}` : ''}`}>
+      <div className="space-y-3" data-testid="photo-review">
+        {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+        <div className="relative rounded-lg overflow-hidden bg-ink-950 border border-ink-600 aspect-[4/3] grid place-items-center">
+          {urls[at] ? <img src={urls[at]} alt={`Photo ${at + 1}`} className="max-h-full max-w-full object-contain" />
+            : <span className="text-[12.5px] text-slate-500">Loading photo {at + 1}…</span>}
+          <button type="button" aria-label="Previous photo" disabled={at === 0} onClick={() => setAt(at - 1)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 btn-ghost btn-sm !px-2 disabled:opacity-30"><ChevronLeft size={18} /></button>
+          <button type="button" aria-label="Next photo" disabled={at === last} onClick={() => setAt(at + 1)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 btn-ghost btn-sm !px-2 disabled:opacity-30"><ChevronRight size={18} /></button>
+          <span className={`absolute top-2 left-2 text-[11.5px] px-2 py-0.5 rounded-md border ${PD[dec[at]].tone}`}>
+            Photo {at + 1} of {sub.photo_count}: {PD[dec[at]].label}</span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <button type="button" className="btn-primary btn-sm" onClick={() => set('accept')}><Check size={14} /> Accept</button>
+          <button type="button" className="btn-ghost btn-sm" onClick={() => set('retake')}><RotateCcw size={14} /> Retake</button>
+          <button type="button" className="btn-ghost btn-sm" onClick={() => set('refuse')}><X size={14} /> Refuse</button>
+          <button type="button" className="btn-ghost btn-sm" onClick={() => set('auto')}><SkipForward size={14} /> Skip</button>
+        </div>
+        <p className="text-[11.5px] text-slate-500">{PD[dec[at]].label}: {PD[dec[at]].hint}. Keys: A accept · R retake · X refuse · S skip · arrows.</p>
+        <div className="flex flex-wrap gap-1.5">
+          {dec.map((d, i) => (
+            <button key={i} type="button" onClick={() => setAt(i)} aria-label={`Photo ${i + 1}: ${PD[d].label}`}
+                    className={`relative w-14 h-14 rounded-md overflow-hidden border-2 ${i === at ? 'border-accent-400' : 'border-transparent'}`}>
+              {urls[i] && <img src={urls[i]} alt="" className="w-full h-full object-cover" />}
+              <span className={`absolute bottom-0 inset-x-0 text-[9.5px] text-center border-t ${PD[d].tone}`}>{PD[d].label}</span>
+            </button>))}
+        </div>
+        <div className="flex flex-wrap gap-3 text-[11.5px]">
+          <span className="text-slate-400">All photos:</span>
+          {(['accept', 'retake', 'refuse', 'auto'] as PhotoDecision[]).map(d => (
+            <button key={d} type="button" className="link" onClick={() => setDec(Array(sub.photo_count).fill(d))}>{PD[d].label}</button>))}
+        </div>
+        <input className="input !py-1.5 text-[13px]" maxLength={255} value={note} onChange={e => setNote(e.target.value)}
+               placeholder="Optional note to the person (e.g. less light behind you)" />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] text-slate-400">{count('accept')} accept · {count('auto')} system decides · {count('retake')} retake · {count('refuse')} refuse</span>
+          <div className="flex gap-2">
+            <button type="button" className="btn-quiet" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn-primary" disabled={busy} onClick={send}>{busy ? 'Sending to the face server…' : 'Apply decisions'}</button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export function FaceSubmissionReview({ userId, onEnrolled }: { userId: number; onEnrolled: () => void }) {
   const [sub, setSub] = useState<FaceSubmission | null>(null)
   const [reason, setReason] = useState('')
@@ -206,6 +303,7 @@ export function FaceSubmissionReview({ userId, onEnrolled }: { userId: number; o
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
+  const [byPhoto, setByPhoto] = useState(false)
 
   useEffect(() => { api.pendingFaceSubmission(userId).then(setSub).catch(() => setSub(null)) }, [userId])
   if (!sub && !result) return null
@@ -259,8 +357,12 @@ export function FaceSubmissionReview({ userId, onEnrolled }: { userId: number; o
                     onClick={() => setDeciding('retake')}><RotateCcw size={14} /> {DECISION.retake.label}</button>
             <button type="button" className="btn-ghost btn-sm flex-1" disabled={busy}
                     onClick={() => setDeciding('reject')}><X size={14} /> {DECISION.reject.label}</button>
+            <button type="button" className="btn-ghost btn-sm w-full" disabled={busy} onClick={() => setByPhoto(true)}>
+              <ScanFace size={14} /> Open the photos and decide each one</button>
           </div>
         )}
+        {byPhoto && <PhotoByPhoto sub={sub} onClose={() => setByPhoto(false)}
+          onDone={(text, enrolled) => { setByPhoto(false); setResult(text); setSub(null); if (enrolled) onEnrolled() }} />}
       </>}
     </div>
   )

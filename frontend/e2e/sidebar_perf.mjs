@@ -31,7 +31,7 @@ async function session() {
   p.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0, 160)) })
   p.on('pageerror', e => errors.push(String(e).slice(0, 160)))
   p.on('crash', () => { errors.push('PAGE CRASHED'); console.log('    PAGE CRASHED at ' + p.url()) })
-  await p.goto(BASE + '/login'); await p.fill('input[type=email]', EMAIL)
+  await p.goto(BASE + '/login'); await p.fill('#email', EMAIL)
   await p.fill('input[type=password]', process.env.E2E_PASSWORD); await p.click('button[type=submit]')
   await p.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 30000 })
   await p.goto(BASE + '/labs'); await p.waitForSelector('aside nav a[href^="/"]', { timeout: 30000 })

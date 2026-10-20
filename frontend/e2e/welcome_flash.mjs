@@ -5,7 +5,7 @@ const b = await chromium.launch({ channel: 'chrome' })
 const p = await (await b.newContext({ viewport: { width: 1440, height: 900 } })).newPage()
 await p.goto(`${BASE}/login`); await p.waitForTimeout(1200)
 await p.screenshot({ path: `${OUT}/login-desktop.png` })
-await p.fill('input[type=email]', 'admin@giu-uni.de'); await p.fill('input[type=password]', 'Admin#2026')
+await p.fill('#email', 'admin@giu-uni.de'); await p.fill('input[type=password]', 'Admin#2026')
 await p.click('form button[type=submit]')
 const seen = []
 for (let i = 0; i < 40; i++) {

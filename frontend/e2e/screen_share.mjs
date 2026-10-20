@@ -9,7 +9,7 @@ async function login(base, email, pw) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1400, height: 900 } })
   const p = await ctx.newPage()
   await p.goto(`${base}/login`)
-  await p.fill('input[type=email]', email); await p.fill('input[type=password]', pw)
+  await p.fill('#email', email); await p.fill('input[type=password]', pw)
   await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'))
   return p
 }

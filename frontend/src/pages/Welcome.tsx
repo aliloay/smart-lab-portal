@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowDown, ArrowRight, Bot, Camera, Car, CircuitBoard, Cpu, DoorClosed, Factory, Fingerprint, Gauge, Hammer, Microchip, Network, PenTool, QrCode, ScrollText, Server, Shirt, Workflow, Zap, type LucideIcon } from 'lucide-react'
 import { api, Lab } from '../lib/api'
 import { firstName, useAuth } from '../lib/auth'
+import { warmRoute } from '../lib/warm'
 import { InstitutionLogo, SmartLabMark } from '../components/Brand'
 import './welcome.css'
 import { WRITE } from '../components/welcome/writeState'
@@ -240,13 +241,19 @@ export default function Welcome() {
     return () => { el.removeEventListener('scroll', on); cancelAnimationFrame(raf) }
   }, [])
 
+  const target = () => {
+    const next = new URLSearchParams(window.location.search).get('next')
+    return next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/welcome') ? next : '/'
+  }
+  // pointer on Skip / Enter: the dashboard's data starts loading before the click (owner 2026-10-20:
+  // "after skipping it should dive into the portal immediately")
+  const prime = () => warmRoute(user?.role, target())
   const enter = () => {
     if (leaving) return
     setLeaving(true)
-    // the fade-out, then where the sign-in was going (?next=) or this role's own dashboard
-    const next = new URLSearchParams(window.location.search).get('next')
-    const to = next && next.startsWith('/') && !next.startsWith('//') && !next.startsWith('/welcome') ? next : '/'
-    window.setTimeout(() => nav(to, { replace: true }), 380)
+    prime()
+    // straight in: no wait for a fade-out (was 380 ms); the portal page fades itself in
+    nav(target(), { replace: true })
   }
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
   const count = labs?.length ?? 0
@@ -264,7 +271,7 @@ export default function Welcome() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button type="button" onClick={enter} className="wl-btn">Skip <ArrowRight size={15} /></button>
+          <button type="button" onClick={enter} onPointerEnter={prime} onFocus={prime} className="wl-btn">Skip <ArrowRight size={15} /></button>
           <InstitutionLogo className="hidden md:block !h-12" />
         </div>
       </header>
@@ -280,7 +287,7 @@ export default function Welcome() {
             <div className="font-mono text-[12.5px] tracking-[.34em] text-slate-300">INTELLIGENT RESEARCH LABORATORY</div>
             <div className="mt-10 flex flex-wrap gap-3 justify-center">
               <button type="button" className="wl-btn-primary" onClick={() => go('wl-hero')}>Dive in <ArrowDown size={17} /></button>
-              <button type="button" className="wl-btn" onClick={enter}>Skip to dashboard <ArrowRight size={15} /></button>
+              <button type="button" className="wl-btn" onClick={enter} onPointerEnter={prime} onFocus={prime}>Skip to dashboard <ArrowRight size={15} /></button>
             </div>
           </div>
         </div>
@@ -513,8 +520,8 @@ export default function Welcome() {
           <EndHeading />
           <R d={260}><p className="mt-5 mx-auto max-w-xl text-[17px] text-slate-200">Explore connected laboratories, equipment records, bookings and secure access through one portal.</p></R>
           <R d={400} className="mt-8 flex flex-wrap gap-3 justify-center">
-            <button type="button" onClick={enter} className="wl-btn-primary">Enter Dashboard <ArrowRight size={17} /></button>
-            <button type="button" onClick={enter} className="wl-btn">Skip for now</button>
+            <button type="button" onClick={enter} onPointerEnter={prime} onFocus={prime} className="wl-btn-primary">Enter Dashboard <ArrowRight size={17} /></button>
+            <button type="button" onClick={enter} onPointerEnter={prime} onFocus={prime} className="wl-btn">Skip for now</button>
           </R>
           <R d={460}><div className="mt-6 inline-flex"><Tag tone="slate">Background: ABB IRB 2400 (writing), Kinova Gen3 &amp; UR5e models · demo motion</Tag></div></R>
           <R d={500}><div className="mt-10 font-mono text-[10.5px] tracking-[.2em] text-slate-500">END OF WELCOME</div></R>

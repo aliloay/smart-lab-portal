@@ -147,6 +147,12 @@ def test_approve_enrolls_and_deletes_the_images(client, db, staff, newbie, face_
     db.refresh(s)
     assert not _files_exist(s) and s.photo_keys == []
     assert db.query(AuditLog).filter_by(action="FACE_PHOTOS_APPROVED").count() == 1
+    # 2026-10-20: pressing Approve again (double click / retry after a 502 during a deploy) returns the
+    # result - nothing enrolled twice, no second audit entry, no conflict error
+    again = client.post(f"/api/face-submissions/{sid}/approve", headers=h)
+    assert again.status_code == 200 and again.json()["status"] == "APPROVED"
+    assert face_server["posts"] == 5 and face_server["trains"] == 1
+    assert db.query(AuditLog).filter_by(action="FACE_PHOTOS_APPROVED").count() == 1
 
 
 def test_too_few_usable_faces_does_not_register(client, db, staff, newbie, face_server):
@@ -234,3 +240,50 @@ def test_withdraw(client, db, newbie, face_server):
     s = db.get(FaceSubmission, sid)
     db.refresh(s)
     assert not _files_exist(s)
+
+
+# ---- per-photo review (owner 2026-10-20: open the photos, accept / refuse / retake each, or skip) ----
+def test_review_each_photo_accept_refuse_and_skip(client, db, staff, newbie, face_server):
+    sid = _send(client, newbie).json()["id"]
+    # skip = the system decides: photo 4 shows someone else, photo 5 no face, photo 3 this person
+    seen = {"n": 0}
+
+    def verdict(_):        # review checks run for the "auto" photos 3, 4, 5 in order
+        seen["n"] += 1
+        return [{"face": True, "name": None}, {"face": True, "name": "USER2"}, {"face": False, "name": None}][seen["n"] - 1]
+    face_server["identify"] = verdict
+    h = auth_headers(client, staff.email)
+    r = client.post(f"/api/face-submissions/{sid}/review", headers=h,
+                    json={"photos": ["accept", "refuse", "auto", "auto", "auto"]})
+    assert r.status_code == 200, r.text
+    b = r.json()
+    used = [p["n"] for p in b["photos"] if p["used"]]
+    assert used == [1, 3] and b["samples_saved"] == 2 and b["status"] == "APPROVED"
+    why = {p["n"]: p["why"] for p in b["photos"]}
+    assert why[2] == "refused by staff" and "another registered person" in why[4] and "no clear face" in why[5]
+    assert "USER2" not in str(b)                                   # never says whom it matched
+    assert face_server["posts"] == 2 and face_server["trains"] == 1
+    again = client.post(f"/api/face-submissions/{sid}/review", headers=h,
+                        json={"photos": ["accept"] * 5})
+    assert again.status_code == 200 and face_server["posts"] == 2  # nothing enrolled twice
+    assert db.query(AuditLog).filter_by(action="FACE_PHOTOS_REVIEWED").count() == 1
+
+
+def test_review_with_retakes_asks_for_new_photos_and_keeps_the_good_ones(client, db, staff, newbie, face_server):
+    sid = _send(client, newbie).json()["id"]
+    h = auth_headers(client, staff.email)
+    r = client.post(f"/api/face-submissions/{sid}/review", headers=h,
+                    json={"photos": ["accept", "accept", "accept", "retake", "retake"], "note": "Less light behind you."})
+    b = r.json()
+    assert b["status"] == "RETAKE" and b["samples_saved"] == 3 and "photo 4, 5" in b["reason"]
+    db.refresh(newbie)
+    assert newbie.face_enrolled_at is not None                      # 3 good ones are enough to register
+    assert client.post(f"/api/face-submissions/{sid}/review", headers=h,
+                       json={"photos": ["accept"] * 4}).status_code in (200, 409, 422)
+
+
+def test_review_needs_one_decision_per_photo(client, staff, newbie, face_server):
+    sid = _send(client, newbie).json()["id"]
+    r = client.post(f"/api/face-submissions/{sid}/review", headers=auth_headers(client, staff.email),
+                    json={"photos": ["accept"] * 3})
+    assert r.status_code == 422 and face_server["posts"] == 0

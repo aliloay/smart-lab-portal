@@ -24,7 +24,8 @@ import EnvWarnings from './EnvWarnings'
 import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
-import { Summary, api, warmGets } from '../lib/api'
+import { Summary, api } from '../lib/api'
+import { warmRoute } from '../lib/warm'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 
@@ -155,31 +156,10 @@ function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
 }
 
 
-/** The first reads each sidebar page makes (recorded 2026-10-20 in a real browser), started on hover so
- *  the data is usually there when the click lands. Must match the pages' own request paths exactly. */
-const WARM: Record<string, string[]> = {
-  '/admin/alerts': ['/alerts?open_only=false'],
-  '/notifications': ['/notifications/inbox?tab=all&offset=0&limit=50'],
-  '/admin/devices': ['/devices', '/labs'],
-  '/admin/users': ['/face-submissions', '/users'],
-  '/admin/access': ['/labs', '/users', '/access-events?limit=400'],
-  '/admin/bookings': ['/bookings'],
-  '/admin/incidents': ['/incidents?state=ACTIVE'],
-  '/admin/operations': ['/analytics/trends?weeks=5', '/analytics/operations?days=30'],
-  '/admin/system': ['/system/health', '/analytics/anomalies', '/analytics/system?days=30'],
-  '/admin/reliability': ['/reliability/briefing'],
-  '/admin/reports': ['/reports-center', '/reports/overview?days=30', '/issues/summary'],
-  '/admin/settings': ['/system/config'],
-  '/admin/emergency': ['/emergency/status'],
-  '/admin/equipment': ['/labs/environment/all', '/labs/1/environment'],
-  '/issues': ['/issues?limit=500&active=true', '/issues/summary', '/labs', '/users'],
-  '/command': ['/robots', '/monitor', '/security/cameras', '/system/services', '/alerts?open_only=true',
-               '/access-events?limit=40', '/security/events?limit=30', '/labs/environment/all'],
-}
-
 function NavItem({ item, badge, onNavigate }: {
   item: Item; badge?: number; onNavigate: () => void
 }) {
+  const { user: me } = useAuth()          // before any return (rules of hooks)
   if (item.window) {
     // Its own window, so it can go on a second screen and full screen.
     return (
@@ -195,7 +175,7 @@ function NavItem({ item, badge, onNavigate }: {
       </a>
     )
   }
-  const warm = () => { const w = WARM[item.to]; if (w) warmGets(w) }
+  const warm = () => warmRoute(me?.role, item.to)
   return (
     <NavLink to={item.to} end={item.end} onClick={onNavigate}
       onPointerEnter={warm} onFocus={warm} onTouchStart={warm}

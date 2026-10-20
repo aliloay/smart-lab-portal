@@ -8,7 +8,7 @@ const browser = await chromium.launch({ channel: 'chrome', args: ['--auto-select
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 950 } })
 const page = await ctx.newPage()
 await page.goto(`${BASE}/login`)
-await page.fill('input[type=email]', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
+await page.fill('#email', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
 await page.click('button[type=submit]'); await page.waitForURL(u => !u.pathname.startsWith('/login'))
 const token = await page.evaluate(() => localStorage.getItem('token') || sessionStorage.getItem('token') ||
   Object.values(localStorage).find(v => typeof v === 'string' && v.split('.').length === 3))

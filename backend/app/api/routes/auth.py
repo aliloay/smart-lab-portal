@@ -1,13 +1,13 @@
 """Authentication, self-service sign-up and the caller's own profile."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin
 from app.core.config import settings
-from app.core import throttle
+from app.core import throttle, usernames
 from app.core.security import create_access_token, hash_password, verify_and_upgrade
 from app.db.session import get_db
 from app.models import AuditLog, Role, User
@@ -20,18 +20,35 @@ from app.services.notifications import admin_ids, notify
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _username_or_422(db: Session, name: str | None, user_id: int | None = None) -> str | None:
+    """Normalised username, or 422 (format) / 409 (taken). None stays None."""
+    try:
+        n = usernames.normalize(name)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    if n and db.scalar(select(User).where(User.username == n, User.id != (user_id or -1))):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"The username {n} is already taken")
+    return n
+
+
+@router.get("/username-suggestion")
+def username_suggestion(full_name: str = Query(min_length=1, max_length=255)):
+    """firstname.lastname from a name (the sign-up and Add user forms pre-fill it)."""
+    return {"username": usernames.suggest(full_name)}
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    email = req.email.lower()
+    ident = req.email.strip().lower()             # e-mail or username (2026-10-20)
     ip = request.client.host if request.client else None
-    account_key, address_key = f"acct:{email}", f"ip:{ip}"
+    account_key, address_key = f"acct:{ident}", f"ip:{ip}"
     wait = max(throttle.login_by_account.blocked_for(account_key),
                throttle.login_by_address.blocked_for(address_key))
     if wait > 0:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
                             f"Too many failed sign-ins. Try again in {int(wait // 60) + 1} min.",
                             headers={"Retry-After": str(int(wait) + 1)})
-    user = db.scalar(select(User).where(User.email == email))
+    user = db.scalar(select(User).where(User.email == ident if "@" in ident else User.username == ident))
 
     # Same message and same work either way: a different response for "no such
     # user" would let anyone enumerate valid accounts.
@@ -45,7 +62,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
                         detail={"known_account": user is not None}, ip_address=ip))
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            "Incorrect email or password")
+                            "Incorrect email / username or password")
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Account is disabled")
     throttle.login_by_account.clear(account_key)
@@ -76,6 +93,7 @@ def register(req: UserCreate, db: Session = Depends(get_db),
     """
     if db.scalar(select(User).where(User.email == req.email.lower())):
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
+    username = _username_or_422(db, req.username)
     if req.auth_subject and db.scalar(
             select(User).where(User.auth_subject == req.auth_subject)):
         raise HTTPException(status.HTTP_409_CONFLICT,
@@ -83,7 +101,7 @@ def register(req: UserCreate, db: Session = Depends(get_db),
 
     subject = req.auth_subject or (
         next_auth_subject(db) if settings.AUTO_ASSIGN_AUTH_SUBJECT else None)
-    user = User(email=req.email.lower(), full_name=req.full_name,
+    user = User(email=req.email.lower(), username=username, full_name=req.full_name,
                 hashed_password=hash_password(req.password), role=req.role,
                 auth_subject=subject, student_id=req.student_id,
                 department=req.department)
@@ -137,9 +155,10 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "An account with this email already exists")
+    username = _username_or_422(db, req.username)
 
     pending = settings.SIGNUP_REQUIRES_APPROVAL
-    user = User(email=email, full_name=req.full_name.strip(),
+    user = User(email=email, username=username, full_name=req.full_name.strip(),
                 hashed_password=hash_password(req.password),
                 role=Role.STUDENT, student_id=req.student_id or None,
                 auth_subject=(next_auth_subject(db)

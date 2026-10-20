@@ -23,7 +23,7 @@ const browser = await chromium.launch({ channel: 'chrome', args: ['--enable-unsa
 
 async function login(page, r) {
   await page.goto(`${BASE}/login`)
-  await page.fill('input[type=email]', r.email)
+  await page.fill('#email', r.email)
   await page.fill('input[type=password]', r.password)
   await page.click('form button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 })

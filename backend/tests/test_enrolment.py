@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.models import Notification
 from tests.conftest import auth_headers
 
-NEW = {"email": "new@example.com", "full_name": "New Student", "password": "Lab-Secure#2026"}
+NEW = {"email": "new@example.com", "username": "new.student", "full_name": "New Student", "password": "Lab-Secure#2026"}
 
 
 def _titles(db, user_id):

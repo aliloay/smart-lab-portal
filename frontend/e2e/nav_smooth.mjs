@@ -13,7 +13,7 @@ await page.addInitScript(() => {
   new PerformanceObserver(l => { for (const e of l.getEntries()) window.__lt.push(e.duration) }).observe({ type: 'longtask', buffered: true })
 })
 await page.goto(`${BASE}/login`)
-await page.fill('input[type=email]', process.env.SMARTLAB_EMAIL || 'admin@giu-uni.de')
+await page.fill('#email', process.env.SMARTLAB_EMAIL || 'admin@giu-uni.de')
 await page.fill('input[type=password]', process.env.SMARTLAB_PASSWORD || '')
 await page.click('button[type=submit]'); await page.waitForURL(u => !u.pathname.startsWith('/login'))
 await page.goto(BASE + '/admin/system', { waitUntil: 'networkidle' })

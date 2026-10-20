@@ -8,7 +8,7 @@ const q = (a, p) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(
 const browser = await chromium.launch({ channel: 'chrome' })
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 await page.goto(`${BASE}/login`)
-await page.fill('input[type=email]', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
+await page.fill('#email', 'admin@giu-uni.de'); await page.fill('input[type=password]', 'Admin#2026')
 await page.click('button[type=submit]'); await page.waitForURL(u => !u.pathname.startsWith('/login'))
 await page.goto(BASE + '/', { waitUntil: 'networkidle' })
 let pending = 0

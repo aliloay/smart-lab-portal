@@ -177,6 +177,26 @@ def test_global_search_is_staff_only_bounded_and_links(client, db, lab, staff, a
     assert byid[0]["to"] == f"/admin/incidents?open={a.id}"
 
 
+def test_search_index_is_staff_only_and_carries_meaning(client, db, lab, staff, alice):
+    # 2026-10-20: the palette ranks this index in the browser ("lab1" / "robot" -> the Robotics Lab).
+    from app.models import Lab
+    robo = Lab(code="LAB_RB", name="Robotics Lab")
+    db.add(robo); db.commit()
+    db.add(Device(device_uid="UR5E_IDX", name="UR5e (physical)", device_type=DeviceType.ROBOT, lab_id=robo.id))
+    db.add(Alert(lab_id=robo.id, severity=AlertSeverity.WARNING, title="UR5e offline", is_resolved=True))
+    db.commit()
+    assert client.get("/api/search/index", headers=auth_headers(client, alice.email)).status_code == 403
+    items = client.get("/api/search/index", headers=auth_headers(client, staff.email)).json()["items"]
+    lab_item = next(i for i in items if i["type"] == "lab" and i["title"] == "Robotics Lab")
+    assert lab_item["keys"] == "LAB_RB" and "robot" in lab_item["words"].split() and lab_item["to"] == f"/labs/{robo.id}"
+    dev = next(i for i in items if i["type"] == "device" and i["keys"] == "UR5E_IDX")
+    assert "robot" in dev["words"] and "Robotics Lab" in dev["lab"] and dev["to"].startswith("/robots/")
+    inc = next(i for i in items if i["type"] == "incident" and i["title"] == "UR5e offline")
+    assert inc["resolved"] is True and inc["to"].startswith("/admin/incidents?open=")
+    people = [i for i in items if i["type"] == "person"]
+    assert people and all("password" not in str(p).lower() and p["to"].startswith("/admin/users?find=") for p in people)
+
+
 def test_search_lists_the_device_before_its_old_incidents(client, db, lab, staff):
     # 2026-10-18: "UR5" put a resolved "UR5e offline" incident above the robot itself.
     db.add(Alert(lab_id=lab.id, severity=AlertSeverity.WARNING, title="UR5e (physical) offline", is_resolved=True))
