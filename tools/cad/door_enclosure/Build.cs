@@ -550,6 +550,13 @@ public class Builder
         sw = (SldWorks)Activator.CreateInstance(Type.GetTypeFromProgID("SldWorks.Application"));
         sw.Visible = true;
         sw.CloseAllDocuments(true);
+        // Sketch snapping off while building (2026-10-20, found by comparing with an independent SolidCraft
+        // model): with it on, a shape drawn next to another in the same sketch snapped to it - the coupon's
+        // 21 x 19 FP test opening came out 21 x 16.2 (its edges on the 16.2 gland circle's quadrants) and the
+        // second R307 tie slot was not cut. The user's own setting is put back afterwards.
+        var inferPref = (int)swUserPreferenceToggle_e.swSketchInference;
+        bool inferWas = sw.GetUserPreferenceToggle(inferPref);
+        sw.SetUserPreferenceToggle(inferPref, false);
         try
         {
             if (which == "all" || which == "coupon") BuildCoupon(p, outDir);
@@ -559,6 +566,7 @@ public class Builder
             if (which == "all" || which == "assembly") { BuildEnvelopes(p, outDir); BuildAssembly(p, outDir); }
         }
         catch (Exception ex) { L("ERROR: " + ex.Message + "\n" + ex.StackTrace); }
+        finally { sw.SetUserPreferenceToggle(inferPref, inferWas); }
         return log.ToString();
     }
 }
