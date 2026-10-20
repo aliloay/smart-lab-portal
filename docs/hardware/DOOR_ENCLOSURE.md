@@ -38,8 +38,8 @@ layer, otherwise the engraved text closes up.
 | 4 | M3 x 8 cap screw | Most | electronics plate |
 | 6 | M2.5 x 6 self-tapping (PT/KA) screw | any | TFT (4), PN532 (2) |
 | 8+ | M3 x 6-10 screw + nut, or cable ties 3.6 mm | Most | modules on the plate slots |
-| 3 | PG7 cable gland + locknut (hole 12.5-12.8, cable 3-6.5) | electrical supplier (Most has none) | LOCK, DOOR, SPARE |
-| 1 | M16 x 1.5 gland + locknut (hole 16.0-16.3, cable 4-8) | electrical supplier | DC IN 12 V |
+| 3 | PG7 cable gland + locknut (hole 12.8, cable 3-6.5) | electrical supplier (Most has none) | LOCK, DOOR, SPARE |
+| 1 | M16 x 1.5 gland + locknut (hole 16.3, cable 4-8) | electrical supplier | DC IN 12 V |
 | 2 | cable tie 2.5-3.6 mm | any | R307 retention through its cradle |
 | 2 | 4 mm pan-head wall screw + plug | any | keyholes |
 | 8+ | M3 flat washer (ISO 7089, 3.2 x 7 x 0.5) | Most | under the nuts on the 3.4 x 20 plate slots |
@@ -47,17 +47,23 @@ layer, otherwise the engraved text closes up.
 | 4 | M3 x 12 screw (instead of M3 x 6-10) | Most | modules on 5 mm spacers: 4 plate + 5 spacer + 1.6 PCB + nut 2.4 |
 
 ## 4. Tolerance / evidence register (what each opening is based on)
+**0.3 rule (2026-10-21, owner + the printer's operator, Elegoo Neptune 4):** every slide / pass-through fit is
+part + 0.3 mm (M3 screw 3.3, plate slots 3.3, keyhole slot 4.3, LED 5.3, buzzer 12.3, glands 12.8 / 16.3, pockets
++0.3). Exceptions ON PURPOSE: heat-set insert holes (Ø4.0 for a Ø4.6 insert - melt fit) and M2.5 self-tap pilots
+(Ø2.2 - the screw cuts its thread) stay smaller than the part; the TFT window and USB opening are view / plug
+openings, not fits. The coupon brackets each 0.3 value with one tighter and one looser size.
+
 | Feature | Value | Basis | Confidence | Checked on the coupon by |
 |---|---|---|---|---|
 | TFT window | 30 x 40 | active area 28.03 x 35.04 (QDTFT1801) + glass position margin | DATASHEET + CHOSEN | the real TFT on the coupon mount |
 | TFT bosses | 4 x Ø4.2 x 2.4 on 28.5 x 52 | LCDWIKI MSP1803 holes Ø3.2 on 28.5 x 52; glass 2.4 ± 0.1 | VARIANT | screwing the TFT on |
-| PN532 pocket | 43.6 x 41.4 x 2.5, skin 1.5 | Elechouse 42.7 x 40.4; clones 43 x 40 | VARIANT | the board drops in; a card reads through |
+| PN532 pocket | 43.3 x 40.7 x 2.5, skin 1.5 (0.3 rule) | Elechouse 42.7 x 40.4; clones 43 x 40 | VARIANT | the board drops in; a card reads through |
 | PN532 islands | Ø6 on 27.8 x 25.2 (both diagonals) | Elechouse V4 STEP ("same holes as V3") | REFERENCE | the 2 screws line up |
-| R307 pocket / cradle | 44.6 x 20.5 / h 12 | GROW R307 manual 44.1 x 20 x 23.5 | DATASHEET (no tolerances) | the module sits; if ~52 long -> R307S |
-| R307 aperture | 21.4 x 19.4 at the sensor end | manual "window 19 x 21" (head face); sensing area 15 x 11.19 | DATASHEET (interpretation) | coupon 21.0 x 19.0 vs 21.4 x 19.4 |
-| LED holes | Ø5.1 | 5.0 body / 5.9 flange (Kingbright family) | REFERENCE | 5.0 / 5.1 / 5.2 / 5.3 |
-| Buzzer cradle | ID 12.5, sound holes 7 x Ø1.6 | TMB12A05 Ø12.0 ± 0.2; Most listing 12 x 9.5 | DATASHEET / VARIANT | 12.3 / 12.5 / 12.7 |
-| Gland holes | PG7 12.6, M16 16.2 | KLS / ABB / RS PRO gland sheets | DATASHEET | 12.4 / 12.6 / 12.8 / 16.2 |
+| R307 pocket / cradle | 44.4 x 20.3 / h 12 (0.3 rule) | GROW R307 manual 44.1 x 20 x 23.5 | DATASHEET (no tolerances) | the module sits; if ~52 long -> R307S |
+| R307 aperture | 21.3 x 19.3 at the sensor end (0.3 rule) | manual "window 19 x 21" (head face); sensing area 15 x 11.19 | DATASHEET (interpretation) | coupon 21.3 x 19.3 vs 21.6 x 19.6 |
+| LED holes | Ø5.3 (0.3 rule) | 5.0 body / 5.9 flange (Kingbright family) | REFERENCE | 5.1 / 5.2 / 5.3 / 5.4 |
+| Buzzer cradle | ID 12.3 (0.3 rule), sound holes 7 x Ø1.6 | TMB12A05 Ø12.0 ± 0.2; Most listing 12 x 9.5 | DATASHEET / VARIANT | 12.2 / 12.3 / 12.5 |
+| Gland holes | PG7 12.8, M16 16.3 (0.3 rule) | KLS / ABB / RS PRO gland sheets | DATASHEET | 12.6 / 12.8 / 13.0 / 16.3 |
 | Insert holes | Ø4.0 x 7 in Ø8-10 bosses | CNC Kitchen M3 x 5.7 table | DATASHEET (for CNC Kitchen; Most's insert unknown) | 3.9 / 4.0 / 4.2 |
 | M2.5 pilots | Ø2.2 | chosen | CHOSEN | 2.0 / 2.2 / 2.4 |
 | USB opening | 14 x 12 at y 95, z 28 | ESP32 51.5 x 28.5 (Most); breadboard height 8.5-10 | VARIANT + REFERENCE | dry fit of the plate before printing the body |

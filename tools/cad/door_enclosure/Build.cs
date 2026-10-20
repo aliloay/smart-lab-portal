@@ -409,18 +409,18 @@ public class Builder
         // row 1: the three real module mounts (same code as the panel)
         TftMount(T, F, -62, 30, t); labels.Add(new object[] { -62.0, -3.5, "TFT 30x40 + 4 bosses" });
         NfcMount(N, F, -6, 34, t); labels.Add(new object[] { -6.0, 9.0, "PN532 skin 1.5" });
-        FpMount(G, 56, 40, t); labels.Add(new object[] { 56.0, 24.0, "R307 21.4x19.4" });
+        FpMount(G, 56, 40, t); labels.Add(new object[] { 56.0, 24.0, "R307 21.3x19.3" });
         // row 2: hole series (thru)
         Open("Front Plane");
-        double[] led = { 5.0, 5.1, 5.2, 5.3 };
+        double[] led = { 5.1, 5.2, 5.3, 5.4 };
         for (int i = 0; i < led.Length; i++) { double x = -80 + i * 11; Circle(x, -14, led[i]); labels.Add(new object[] { x, -22.0, led[i].ToString("0.0") }); }
-        double[] gl = { 12.4, 12.6, 12.8, 16.2 };
+        double[] gl = { 12.6, 12.8, 13.0, 16.3 };
         for (int i = 0; i < gl.Length; i++) { double x = -26 + i * 20 + (i == 3 ? 2 : 0); Circle(x, -14, gl[i]); labels.Add(new object[] { x, -27.0, gl[i].ToString("0.0") }); }
-        Rect(64, -14, 21.0, 19.0);                     // the smaller FP aperture (the mount above has 21.4 x 19.4)
+        Rect(64, -14, 21.6, 19.6);                     // the looser FP aperture (the mount above has 21.3 x 19.3, the 0.3 rule)
         sk = Close();
         Extrude(sk, t, true, true, "Hole series");
-        labels.Add(new object[] { 64.0, -28.5, "FP 21.0x19.0" });
-        // row 3: insert bosses (D8, h6, hole 3.9/4.0/4.2, depth 7), pilot bosses (D6, h6, 2.0/2.2/2.4), buzzer cradles 12.3/12.5/12.7
+        labels.Add(new object[] { 64.0, -28.5, "FP 21.6x19.6" });
+        // row 3: insert bosses (D8, h6, hole 3.9/4.0/4.2, depth 7), pilot bosses (D6, h6, 2.0/2.2/2.4), buzzer cradles 12.2/12.3/12.5
         double[] ins = { 3.9, 4.0, 4.2 }, pil = { 2.0, 2.2, 2.4 };
         Behind(6, () => { for (int i = 0; i < 3; i++) { Circle(-78 + i * 12, -44, 8); Circle(-38 + i * 10, -44, 6); } }, "Test bosses");
         Open(Plane("Front Plane", -6)); for (int i = 0; i < 3; i++) { Circle(-78 + i * 12, -44, ins[i]); } sk = Close();
@@ -428,7 +428,7 @@ public class Builder
         Open(Plane("Front Plane", -6)); for (int i = 0; i < 3; i++) { Circle(-38 + i * 10, -44, pil[i]); } sk = Close();
         Extrude(sk, 7, true, false, "Pilot test holes");
         for (int i = 0; i < 3; i++) { labels.Add(new object[] { -78.0 + i * 12, -54.0, ins[i].ToString("0.0") }); labels.Add(new object[] { -38.0 + i * 10, -54.0, pil[i].ToString("0.0") }); }
-        double[] bz = { 12.3, 12.5, 12.7 };
+        double[] bz = { 12.2, 12.3, 12.5 };
         for (int i = 0; i < 3; i++) { BuzzerMount(B, 4 + i * 22, -44, t, bz[i]); labels.Add(new object[] { 4.0 + i * 22, -58.0, bz[i].ToString("0.0") }); }
         Open(front);
         bool ok = true;
