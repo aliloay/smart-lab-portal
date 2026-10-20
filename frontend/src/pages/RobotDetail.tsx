@@ -128,7 +128,7 @@ export default function RobotDetail() {
         <div className="card overflow-hidden flex flex-col h-[min(640px,calc(100vh-180px))] min-h-[480px] xl:sticky xl:top-20">
           <div className="px-4 py-2.5 flex flex-wrap items-center gap-2 border-b border-ink-700/60 text-[12.5px]">
             <Bot size={14} className="text-accent-300" /><span className="text-slate-200 font-medium">Digital twin</span>
-            {!model.exact && <Chip tone="warn">arm model to be confirmed</Chip>}
+            {!model.exact && <span title="The lab arm is an ER-4iA; the 3D arm uses LR Mate 200iD meshes and link lengths as a stand-in"><Chip tone="warn">3D arm: stand-in geometry</Chip></span>}
             <span className="ml-auto flex gap-1.5">
               {home && <button className={`btn-sm ${ghost ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setGhost(g => !g)}>
                 <Home size={12} /> HOME pose</button>}

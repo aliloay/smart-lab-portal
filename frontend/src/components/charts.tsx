@@ -2,7 +2,7 @@
  * Chart styling shared by the reports and maintenance analytics. Loaded only
  * with those pages (they are lazy), so Recharts stays out of the main bundle.
  */
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { BarChart3 } from 'lucide-react'
 import { EmptyState } from './ui'
 
@@ -34,8 +34,21 @@ export function ChartCard({ title, sub, children, empty, height = 260, action }:
   title: string; sub?: string; children: ReactNode; empty?: boolean; height?: number
   action?: ReactNode
 }) {
+  // A chart is built only when its card comes near the screen (2026-10-20: System analytics built 12 charts at
+  // once - a 643 ms main-thread block on opening the tab). Same height before and after: nothing jumps.
+  const box = useRef<HTMLDivElement>(null)
+  const [near, setNear] = useState(false)
+  useEffect(() => {
+    const el = box.current
+    if (!el || near) return
+    if (typeof IntersectionObserver === 'undefined') { setNear(true); return }
+    const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { setNear(true); io.disconnect() } },
+                                        { rootMargin: '300px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [near])
   return (
-    <div className="card p-5">
+    <div className="card p-5" ref={box}>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <div className="text-[14px] font-semibold text-slate-100">{title}</div>
@@ -48,7 +61,7 @@ export function ChartCard({ title, sub, children, empty, height = 260, action }:
           <EmptyState compact icon={<BarChart3 size={18} />} title="Not enough data yet"
             detail="This chart fills in from real records as they accumulate." />
         </div>
-      ) : <div style={{ height }}>{children}</div>}
+      ) : <div style={{ height }}>{near ? children : null}</div>}
     </div>
   )
 }

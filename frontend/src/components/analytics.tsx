@@ -186,7 +186,7 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
 /** Horizontal bar over the period with the observed outages cut out. */
 export function OutageStrip({ outages, days, state }: {
   outages: { from: string; to: string }[]; days: number
-  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'NO_DATA'
 }) {
   if (state === 'NO_DATA') {
     return <div className="h-2.5 rounded-full bg-ink-700/50" title="Never reported" />

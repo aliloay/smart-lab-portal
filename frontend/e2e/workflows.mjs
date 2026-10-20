@@ -32,13 +32,20 @@ function ok(label) { passed++; console.log(`ok    ${label}`) }
 function fail(label, why) { problems.push(`${label}: ${why}`); console.log(`FAIL  ${label}: ${why}`) }
 
 async function step(label, fn) {
-  try { await fn(); ok(label) } catch (e) { fail(label, String(e?.message ?? e).split('\n')[0]) }
+  try { await fn(); ok(label) } catch (e) {
+    const at = String(e?.stack ?? '').split('\n').find(l => l.includes('workflows.mjs'))?.match(/:(\d+):\d+\)?$/)?.[1]
+    fail(label, String(e?.message ?? e).split('\n')[0] + (at ? ` (workflows.mjs:${at})` : ''))
+  }
 }
 
 async function signIn(browser, who, viewport = { width: 1366, height: 860 }) {
   const ctx = await browser.newContext({ viewport })
   const page = await ctx.newPage()
   const errors = []
+  if (process.env.E2E_TRACE) {     // E2E_TRACE=1: every /api/issues request with its time, per signed-in role
+    const t0 = Date.now()
+    page.on('requestfinished', async r => { if (r.url().includes('/api/issues')) console.log(`      [${who.email.split('@')[0]} ${Date.now() - t0} ms] ${r.method()} ${(await r.response())?.status()} ${r.url().replace(BASE, '')}`) })
+  }
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
   page.on('pageerror', e => errors.push(String(e)))
   await page.goto(`${BASE}/login`)
@@ -118,7 +125,8 @@ async function bookThroughWizard(page, { forUserIndex } = {}) {
   if (!found) throw new Error('no free hour in the next 14 days')
   const hour = (await free.innerText()).trim().slice(0, 5)
   await free.click(); await free.click()
-  await page.getByText(/→.*\(1 h\)/).first().waitFor({ timeout: 4000 })
+  // the selected span shows as "08:00 → 09:00" with "(1 h)" in its own element (the AM/PM copy is on a hidden tab)
+  await page.locator('main').getByText('(1 h)', { exact: true }).first().waitFor({ timeout: 4000 })
   await cont.click()
   // 3: purpose (and, for staff, the person)
   await page.getByRole('button', { name: 'Thesis experiment' }).click()
@@ -126,7 +134,9 @@ async function bookThroughWizard(page, { forUserIndex } = {}) {
     await page.selectOption('#for', { index: forUserIndex })
   }
   await cont.click()
-  // 4: review
+  // 4: equipment ("What will you need?", optional - nothing reserved here), then 5: review
+  await page.getByText('What will you need?').waitFor({ timeout: 4000 })
+  await cont.click()
   await page.getByText('Review and confirm').waitFor({ timeout: 4000 })
   await page.getByRole('button', { name: /Confirm booking/ }).click()
   await page.getByText(/Booking confirmed|Request submitted/).waitFor({ timeout: 10000 })
@@ -294,7 +304,8 @@ try {
     })
     await step('the reporter was notified of the resolution', async () => {
       await st.page.goto(`${BASE}/notifications`)
-      await st.page.getByText(/resolved/i).first().waitFor({ timeout: 8000 })
+      // in the list itself: the page's filters also say "Resolved" (hidden options matched first)
+      await st.page.locator('[data-testid=notification-list]').getByText(/resolved/i).first().waitFor({ timeout: 8000 })
     })
     consoleCheck('student follow-up', st.errors)
     await st.ctx.close()

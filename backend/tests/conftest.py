@@ -21,6 +21,7 @@ os.environ["DATABASE_URL"] = _test_url
 # Everything the test suite writes is, by definition, a software test.
 os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
 os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device from a test
+os.environ["LIVENESS_THROTTLE_S"] = "0"    # tests check outage transitions immediately
 # A device key of the suite's own: never the live one (the container's .env
 # holds the production key), and not the published default either.
 TEST_DEVICE_KEY = "test-suite-device-key"
@@ -28,6 +29,7 @@ os.environ["DEVICE_API_KEY"] = TEST_DEVICE_KEY
 # Laptop-specific settings from the live .env must not change what the tests expect
 # (2026-10-14: OLLAMA_CPU_ONLY=true on this laptop broke two GPU-fallback tests).
 os.environ["OLLAMA_CPU_ONLY"] = "false"
+os.environ["OLLAMA_GPU_POLICY"] = "gpu"      # tests that need "auto" set it themselves
 
 
 def _ensure_test_database(url: str) -> None:

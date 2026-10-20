@@ -21,6 +21,9 @@ try {
   await page.fill('#password', PASSWORD)
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 })
+  // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.
+  await page.goto(`${BASE}/labs`)
+  await page.waitForSelector('aside nav a[href^="/"]', { timeout: 20000 })
 
   await page.click('button[aria-label="Open AI assistant"]')
   await page.fill('[aria-label="Question for the AI assistant"]', 'weekly report')

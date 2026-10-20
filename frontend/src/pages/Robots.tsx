@@ -59,7 +59,7 @@ export default function Robots() {
                           {r.rate_hz ? `${r.rate_hz} samples/s` : 'no rate yet'}</span>
                         <span>source {r.source ?? '—'}</span>
                         <span>last report {r.last_seen_at ? relative(r.last_seen_at) : 'never'}</span>
-                        {!model.exact && <span className="text-warn-soft">arm model to be confirmed</span>}
+                        {!model.exact && <span className="text-warn-soft" title="The lab arm is an ER-4iA; the 3D arm uses LR Mate 200iD meshes and link lengths as a stand-in">3D arm: stand-in geometry</span>}
                         <Link to={`/robots/${r.device_id}`} className="ml-auto btn-ghost btn-sm">
                           Open <ChevronRight size={13} /></Link>
                       </div>

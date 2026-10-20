@@ -19,7 +19,7 @@ from typing import Optional
 from sqlalchemy import (JSON, Boolean, CheckConstraint, DateTime, Enum, Float,
                         ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
-from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship, validates
 from sqlalchemy.sql.expression import false as sa_false
 
 from app.db.session import Base
@@ -535,6 +535,41 @@ class Alert(ProvenanceMixin, Base):
     # Set by automation (n8n) so a retried call cannot raise the same alert
     # twice. NULL for alerts the portal raises itself.
     dedupe_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    # Incident handling (2026-10-17): OPEN -> ACKNOWLEDGED -> INVESTIGATING -> RESOLVED (or reopened).
+    state: Mapped[str] = mapped_column(String(16), default="OPEN", server_default="OPEN", index=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    acknowledged_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    resolution: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Grouping (2026-10-18, app/services/alert_grouping.py): one incident per continuing condition.
+    # The same fingerprint while open adds an occurrence; a return soon after resolution reopens it.
+    # The original events stay in their own tables - nothing is merged away.
+    fingerprint: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_seen_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    reopened_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    @validates("is_resolved")
+    def _resolve_closes_state(self, _key, value):
+        # Many places resolve with `is_resolved = True` only (device back online, backup recovered,
+        # hazard cleared); without this the lifecycle state stayed OPEN and the Incidents page listed
+        # a resolved incident as open (found live 2026-10-18 with BIN_NODE_1 / REUSE_BIN_1).
+        if value and self.state != "RESOLVED":
+            self.state = "RESOLVED"
+        return value
+
+
+class IncidentNote(Base):
+    """Activity on an incident: notes, state changes, recovery actions, AI hypotheses (labelled)."""
+    __tablename__ = "incident_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16))      # NOTE | STATE | RECOVERY | AI_HYPOTHESIS
+    text: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow, index=True)
 
 
 class AuditLog(Base):
@@ -872,6 +907,8 @@ class InventoryBin(Base):
 class InventoryMeasurement(Base):
     """A stable reading reported by a bin node (raw history for analysis)."""
     __tablename__ = "inventory_measurements"
+    # "The newest reading of this bin" (every reading, and the bin list): migration b7c3e1f9a204.
+    __table_args__ = (Index("ix_inventory_measurements_bin_time", "bin_id", "recorded_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     bin_id: Mapped[int] = mapped_column(ForeignKey("inventory_bins.id"), index=True)

@@ -114,6 +114,11 @@ if exist "%~dp0tools\knowledge\config.json" (
   )
 )
 
+rem ---- The friendly name https://smartlab.local for every device on the Smart_Lab network (mDNS).
+tasklist /v /fi "WINDOWTITLE eq Smart Lab - Name*" | findstr /i "Name" >nul || (
+  start "Smart Lab - Name smartlab.local" /min cmd /k py "%~dp0tools\mdns\announce.py"
+)
+
 rem ---- Automation (n8n) is optional: on only when .env configures it ----------
 set "PROFILE="
 if exist ".env" findstr /r /c:"^AUTOMATION_WEBHOOK_BASE=..*" ".env" >nul && set "PROFILE=--profile automation"

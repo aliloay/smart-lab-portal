@@ -27,6 +27,12 @@ from app.services.storage import ImageRejected, process_image
 
 router = APIRouter(tags=["enrollment"])
 
+# One kept-alive connection pool to the face server (same pattern as the camera frames in
+# security.py). Measured 2026-10-18 from the backend container: a new connection per call cost
+# 38 ms (preview) / 51 ms (/users) against 8 / 10 ms reused - and the Face ID panel calls it every
+# 0.4-0.5 s. Per-request timeouts below are unchanged. The ESP32-CAM itself keeps one-off calls.
+_face = httpx.Client(limits=httpx.Limits(max_connections=10, max_keepalive_connections=4))
+
 # Enough variety (angle, expression, distance) for a reliable match; fewer
 # is refused at "finish", more is welcome.
 TARGET_SAMPLES = 20
@@ -52,7 +58,7 @@ def _unreachable(what: str, url: str) -> HTTPException:
 def _face_server_users() -> tuple[dict, list]:
     """(samples per USERn, names that have a grant-screen photo); raises 503."""
     try:
-        r = httpx.get(f"{settings.FACE_SERVER_URL}/users", timeout=4.0)
+        r = _face.get(f"{settings.FACE_SERVER_URL}/users", timeout=4.0)
         r.raise_for_status()
         body = r.json()
     except (httpx.HTTPError, ValueError):
@@ -66,7 +72,7 @@ def camera_snapshot(_: User = Depends(require_staff)):
     camera already sent to the face server (no extra work for the camera, which is also busy with
     the door); the camera's own /snapshot only when the face server has no fresh frame."""
     try:
-        r = httpx.get(f"{settings.FACE_SERVER_URL}/preview.jpg", timeout=httpx.Timeout(2.0, connect=1.0))
+        r = _face.get(f"{settings.FACE_SERVER_URL}/preview.jpg", timeout=httpx.Timeout(2.0, connect=1.0))
         if r.status_code == 200 and r.content:
             return Response(r.content, media_type="image/jpeg",
                             headers={"Cache-Control": "no-store", "X-Frame-Source": "face-server"})
@@ -128,7 +134,7 @@ def face_capture(user_id: int, db: Session = Depends(get_db),
 def _auto(method: str, params: dict | None = None) -> dict:
     """Relay to the face server's automatic enrolment (device key: it stores pictures of people)."""
     try:
-        r = httpx.request(method, f"{settings.FACE_SERVER_URL}/enroll/auto", params=params,
+        r = _face.request(method, f"{settings.FACE_SERVER_URL}/enroll/auto", params=params,
                           headers={"X-Device-Key": settings.DEVICE_API_KEY},
                           timeout=httpx.Timeout(5.0, connect=2.0))
         body = r.json()
@@ -174,7 +180,7 @@ def face_reset(user_id: int, db: Session = Depends(get_db),
     ones, then Finish."""
     u = _person(db, user_id)
     try:
-        r = httpx.post(f"{settings.FACE_SERVER_URL}/reset", params={"name": u.auth_subject},
+        r = _face.post(f"{settings.FACE_SERVER_URL}/reset", params={"name": u.auth_subject},
                        headers={"X-Device-Key": settings.DEVICE_API_KEY},
                        timeout=httpx.Timeout(30.0, connect=3.0))
         r.raise_for_status()
@@ -200,7 +206,7 @@ def face_finish(user_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Only {samples} samples so far - capture at least {MIN_SAMPLES}.")
     try:
-        r = httpx.post(f"{settings.FACE_SERVER_URL}/train",
+        r = _face.post(f"{settings.FACE_SERVER_URL}/train",
                        timeout=httpx.Timeout(120.0, connect=3.0))
         r.raise_for_status()
     except httpx.HTTPError:
@@ -242,7 +248,7 @@ async def face_upload(user_id: int, files: list[UploadFile] = File(...),
             except ImageRejected as e:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Photo {i}: {e}")
             try:
-                r = httpx.post(f"{settings.FACE_SERVER_URL}/enroll",
+                r = _face.post(f"{settings.FACE_SERVER_URL}/enroll",
                                params={"name": u.auth_subject}, content=img.data,
                                headers={"Content-Type": img.content_type},
                                timeout=httpx.Timeout(20.0, connect=3.0))
@@ -252,7 +258,7 @@ async def face_upload(user_id: int, files: list[UploadFile] = File(...),
                 raise _unreachable("face server", settings.FACE_SERVER_URL)
         if saved:
             try:                                # LBPH needs it; SFace refreshes templates
-                httpx.post(f"{settings.FACE_SERVER_URL}/train",
+                _face.post(f"{settings.FACE_SERVER_URL}/train",
                            timeout=httpx.Timeout(120.0, connect=3.0)).raise_for_status()
             except httpx.HTTPError:
                 raise _unreachable("face server", settings.FACE_SERVER_URL)

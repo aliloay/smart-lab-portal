@@ -30,6 +30,7 @@ report goes to /api/equipment/state (used by n8n workflows 18-19).
 """
 from __future__ import annotations
 
+from control_source import DashboardReader, classify
 import argparse
 import math
 import os
@@ -58,6 +59,13 @@ def device_key() -> str:
     return key or "dev-device-key-change-me"
 
 
+def _status_bits(rx):
+    try:
+        return int(rx.getRobotStatus())               # bit 2 = teach (freedrive) button - control_source.py
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------- sources ---
 class URSource:
     """UR RTDE receive-only."""
@@ -79,7 +87,8 @@ class URSource:
                       tcp=list(rx.getActualTCPPose()),
                       extra={"robot_mode": rx.getRobotMode(), "safety_mode": rx.getSafetyMode(),
                              "runtime_state": rx.getRuntimeState(),
-                             "speed_scaling": round(float(rx.getSpeedScaling()), 3)})
+                             "speed_scaling": round(float(rx.getSpeedScaling()), 3),
+                             "robot_status_bits": _status_bits(rx)})
 
     def close(self):
         try:
@@ -275,6 +284,11 @@ class Collector:
 
     def run(self):
         a = self.args
+        # Who drives the UR5e (control_source.py): read-only Dashboard queries, off with --no-dashboard.
+        self.dash = None
+        if a.source == "ur" and a.robot and not getattr(a, "no_dashboard", True):
+            self.dash = DashboardReader(a.robot)
+            self.dash.start()
         period = 1.0 / a.hz
         print(f"[robot] {a.device} ({a.model}) source={a.source} read-only. Ctrl+C stops.")
         # A simulation stops by itself (default 30 min) so a forgotten demo
@@ -312,6 +326,11 @@ class Collector:
                         self.last_ctrl_t = s.t
                         s.extra["controller_t"] = round(s.t, 3)
                         s.t = now                              # controller clock -> laptop clock (offset not assumed)
+                    if self.dash is not None:
+                        s.extra.update(self.dash.current())
+                    if a.source == "ur":
+                        moving = bool(s.qd) and max(abs(v) for v in s.qd) > 0.005
+                        s.extra["control_source"], s.extra["control_detail"] = classify(s.extra, moving)
                     self.rate_t.append(now)
                     self._events(self.motion.update(s, arrival=now))
             except Exception as e:
@@ -356,6 +375,8 @@ def main():
     ap.add_argument("--hz", type=float, default=50.0, help="samples per second read from the robot")
     ap.add_argument("--report-s", type=float, default=0.2, help="latest state to the portal this often")
     ap.add_argument("--stale-s", type=float, default=2.0)
+    ap.add_argument("--no-dashboard", action="store_true",
+                    help="do not read remote/local mode and the loaded program from the Dashboard Server (port 29999)")
     ap.add_argument("--max-minutes", type=float, default=30.0, help="simulation only: stop after this long (0 = never)")
     args = ap.parse_args()
     if args.source == "fanuc" and "--hz" not in sys.argv:

@@ -184,3 +184,40 @@ def test_non_finite_joint_values_are_rejected_not_stored(client, db, lab, staff,
     r = client.post("/api/robots/telemetry", headers={**device_headers, "Content-Type": "application/json"}, content=body)
     assert r.status_code == 422
     assert db.query(Device).filter_by(device_uid="UR5E_TEST").first() is None
+
+
+def test_the_script_sender_is_reached_only_in_live_mode_and_only_with_two_scripts():
+    """2026-10-17 master controls: the URScript sender may build ONLY the Home movej and stopj,
+    and robot_control reaches it only when ROBOT_CONTROL=live (off until commissioning)."""
+    import inspect
+    from app.services import robot_control, ur_script
+    src = inspect.getsource(ur_script)
+    for bad in ("movel", "servoj", "speedj", "set_digital_out", "power on", "power off", "brake release", "unlock"):
+        assert bad not in src, bad
+    assert robot_control.MODE != "live"
+    assert inspect.getsource(robot_control).count("ur_script.send(") == 2
+
+
+# ------------------------------------------------- camera robot box state ---
+def test_camera_config_gives_robot_boxes_the_live_robot_state(client, db, lab, device_headers):
+    """Live 2026-10-19 18:31: robot_state read Device.model (no such column) -> /security/config 500 ->
+    both cameras lost their boxes for 4 minutes. A robot box (no motion alert) gets the real robot's
+    state; a SIM robot never counts."""
+    from app.models import SecurityZone
+    tele(client, device_headers, state="MOVING", uid="UR5E_SIM_DEMO")   # simulator: ignored
+    cfg = client.get("/api/security/config", headers=device_headers,
+                     params={"device_uid": "SECCAM_LAB01", "lab_id": lab.code}).json()
+    db.add(SecurityZone(device_id=cfg["device_id"], name="UR5e", kind="EQUIPMENT", x=.1, y=.1, w=.1, h=.1,
+                        alert_on_motion=False))
+    db.add(SecurityZone(device_id=cfg["device_id"], name="PC-01", kind="EQUIPMENT", x=.5, y=.5, w=.1, h=.1))
+    db.commit()
+    r = client.get("/api/security/config", headers=device_headers,
+                   params={"device_uid": "SECCAM_LAB01", "lab_id": lab.code})
+    assert r.status_code == 200, r.text
+    assert {z["name"]: z["robot_state"] for z in r.json()["zones"]} == {"UR5e": None, "PC-01": None}
+    tele(client, device_headers, state="MOVING")                          # the real UR5e moves
+    r = client.get("/api/security/config", headers=device_headers,
+                   params={"device_uid": "SECCAM_LAB01", "lab_id": lab.code})
+    assert r.status_code == 200, r.text
+    zs = {z["name"]: z["robot_state"] for z in r.json()["zones"]}
+    assert zs["UR5e"] == "MOVING" and zs["PC-01"] is None

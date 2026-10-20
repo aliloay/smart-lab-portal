@@ -8,7 +8,7 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Open the door from anything but the Master ESP32; change door firmware, auth or credentials.
 - Edit/activate/deactivate live n8n workflows; push to GitHub; commit secrets, `.env`, `camera.env`, `robot.env`, photos of people.
 - Overwrite the owner's uncommitted work (`.env.example`, `frontend/e2e/command_center.mjs`, untracked files) - copy first.
-- Install packages / download models without asking. Camera and GPU have priority (LLMs stay on CPU).
+- Install packages / download models without asking. Cameras keep GPU priority; since 2026-10-19 (owner approved after an A/B: answers 68 s -> 3 s, camera 2 unaffected) both assistants run qwen2.5:1.5b on the GPU - revert with OLLAMA_CPU_ONLY=true + knowledge llm_on_cpu if a camera suffers.
 
 ## Map
 - backend/ FastAPI (routes in app/api/routes) · frontend/ React+TS+Tailwind · docker-compose.yml (db, backend, frontend, n8n, backup)

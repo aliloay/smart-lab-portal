@@ -40,9 +40,9 @@ def test_entrant_in_door_area_gets_that_name():
     a = Track(1, (520, 100, 60, 200), first_seen=100.0, last_seen=100.0)     # in the door area
     b = Track(2, (100, 100, 60, 200), first_seen=50.0, last_seen=100.0)      # already inside
     people = [occ("USER1", "Ali", "STUDENT", 40.0), occ("USER2", "Dr. Ramy", "LAB_STAFF", 98.0)]
-    lab.assign([a, b], people, door, now=100.0)
+    lab.assign([a, b], people, door, now=100.0 + Labeler.ENTRY_SETTLE_S)    # settled (2026-10-18)
     assert a.label == "USER2" and a.role == "LAB_STAFF"
-    assert b.label == "USER1"                       # elimination: the only name left
+    assert b.label is None                          # 2026-10-15: no naming by elimination
 
 
 def test_no_guessing_with_two_unknowns():
@@ -57,6 +57,7 @@ def test_no_guessing_with_two_unknowns():
 def test_name_dropped_when_person_left():
     lab = Labeler()
     t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    Labeler._give(t, occ("USER1", "Ali", "STUDENT", 0.0), "door")      # named at the door
     lab.assign([t], [occ("USER1", "Ali", "STUDENT", 0.0)], None, 10.0)
     assert t.label == "USER1"
     lab.assign([t], [], None, 20.0)
@@ -319,6 +320,7 @@ def test_face_matches_that_disagree_or_are_old_name_nobody():
 def test_door_name_is_not_overridden_by_a_face():
     lab = Labeler()
     t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
+    Labeler._give(t, occ("USER2", "Dr. Ramy", "LAB_STAFF", 0.0), "door")
     lab.assign([t], [occ("USER2", "Dr. Ramy", "LAB_STAFF", 0.0)], None, 10.0, known=KNOWN)
     assert (t.label, t.source, t.entered) == ("USER2", "door", True)
     lab.face_vote(1, "USER1", 11.0)
@@ -331,6 +333,7 @@ def test_face_that_agrees_with_the_door_verifies_the_name():
     lab = Labeler()
     t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
     inside = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    Labeler._give(t, inside[0], "door")                       # named at the door
     lab.assign([t], inside, None, 10.0, known=KNOWN)
     assert (t.label, t.verified) == ("USER1", False)          # the door alone named him
     lab.face_vote(1, "USER1", 11.0)
@@ -344,6 +347,7 @@ def test_face_of_someone_else_than_the_badge_is_a_mismatch():
     lab = Labeler()
     t = Track(1, (100, 100, 60, 200), 10.0, 10.0)
     inside = [occ("USER1", "Ali", "STUDENT", 0.0)]
+    Labeler._give(t, inside[0], "door")                       # named at the door
     lab.assign([t], inside, None, 10.0, known=KNOWN)
     lab.face_vote(1, "USER2", 11.0)
     lab.face_vote(1, "USER2", 12.0)
@@ -504,7 +508,9 @@ def test_a_seated_person_who_drops_out_gets_the_name_back_at_the_same_place():
     again = Track(2, (437, 236, 31, 47), 15.0, 15.0)
     elsewhere = Track(3, (100, 300, 70, 150), 15.0, 15.0)
     lab.assign([again, elsewhere], [], None, now=15.0, known=KNOWN5)
-    assert again.label == "USER5" and elsewhere.label is None
+    # 2026-10-15: no hand-back by place alone (a tiny box there may be someone else) - Unknown
+    # until the face names them again.
+    assert again.label is None and elsewhere.label is None
     lab.assign([], [], None, now=16.0, known=KNOWN5)
     late = Track(4, (437, 236, 31, 47), 60.0, 60.0)                   # long after: not handed back
     lab.assign([late], [], None, now=60.0, known=KNOWN5)
@@ -740,3 +746,63 @@ def test_after_a_gap_the_same_person_rejoins_the_track():
         tr.update([a], now=i * 0.15, looks=[la])
     tr.update([a], now=0.6 + 3.0, looks=[la])
     assert [t.id for t in tr.tracks] == [1]
+
+
+def test_home_saved_for_one_named_robot_keeps_the_others():
+    """Owner 2026-10-19: the FANUC was at HOME while the UR5e ran a program - save only the FANUC."""
+    import numpy as np
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    rng = np.random.default_rng(2)
+    a, b = (rng.integers(0, 255, (200, 200), dtype=np.uint8) for _ in range(2))
+    ur = {"id": 1, "name": "UR5e", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3, "alert_on_motion": False}
+    fanuc = {"id": 2, "name": "Fanuc", "x": 0.5, "y": 0.5, "w": 0.3, "h": 0.3, "alert_on_motion": False}
+    assert zw.save_home([ur, fanuc], a) == ["UR5e", "Fanuc"]
+    ur_home = zw.home[1][0].copy()
+    assert zw.save_home([ur, fanuc], b, only="fanuc") == ["Fanuc"]   # name match ignores case
+    assert np.array_equal(zw.home[1][0], ur_home)
+
+
+def _robot_home_watcher():
+    import numpy as np
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    rng = np.random.default_rng(3)
+    home = rng.integers(0, 255, (200, 200), dtype=np.uint8)
+    robot = {"id": 1, "name": "Fanuc", "x": 0.2, "y": 0.2, "w": 0.4, "h": 0.4, "alert_on_motion": False}
+    zw.save_home([robot], home)
+    return zw, robot, home, rng
+
+
+def test_robot_home_hidden_by_a_person_is_not_away():
+    """Lab 2026-10-19: owner standing behind the FANUC cell made camera 1 say 'away from home'."""
+    zw, robot, home, rng = _robot_home_watcher()
+    covered = home.copy()
+    covered[40:120, 40:120] = rng.integers(0, 255, (80, 80), dtype=np.uint8)   # a person over the box
+    person = (0.2, 0.2, 0.4, 0.4)                                               # covers it fully
+    st = {s.id: s for s in zw.update([robot], covered, [person], 0.0)}
+    assert st[1].home == "HIDDEN"
+
+
+def test_robot_home_partial_cover_and_multiple_people():
+    zw, robot, home, rng = _robot_home_watcher()
+    away = rng.integers(0, 255, (200, 200), dtype=np.uint8)
+    edge = (0.55, 0.55, 0.2, 0.2)                     # 0.05 x 0.05 of a 0.4 x 0.4 box: about 1.6 %
+    assert {s.id: s for s in zw.update([robot], away, [edge], 0.0)}[1].home == "AWAY"   # barely touched
+    two = [(0.2, 0.2, 0.1, 0.4), (0.3, 0.2, 0.1, 0.4)]   # two people side by side cover half of it
+    assert {s.id: s for s in zw.update([robot], away, two, 1.0)}[1].home == "HIDDEN"
+
+
+def test_robot_home_visible_at_home_and_away_without_people():
+    zw, robot, home, rng = _robot_home_watcher()
+    assert {s.id: s for s in zw.update([robot], home, [], 0.0)}[1].home == "AT_HOME"
+    away = rng.integers(0, 255, (200, 200), dtype=np.uint8)
+    assert {s.id: s for s in zw.update([robot], away, [], 1.0)}[1].home == "AWAY"
+
+
+def test_robot_home_hidden_label():
+    from types import SimpleNamespace
+    import vision
+    tags = vision.zone_tags([{"id": 1, "name": "Fanuc", "x": .1, "y": .1, "w": .1, "h": .1}],
+                            {1: SimpleNamespace(status="OK", home="HIDDEN")}, 960, 540, [])
+    assert tags[0]["text"] == "Fanuc - home hidden by a person"

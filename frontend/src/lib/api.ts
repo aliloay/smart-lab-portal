@@ -179,8 +179,10 @@ export interface RobotDetail extends Robot {
 }
 export interface ServiceHealth {
   key: string; name: string; group?: string; device_id?: number
-  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN' | 'SIMULATION'
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'STALE' | 'UNKNOWN' | 'SIMULATION'
   latency_ms: number | null; detail: string
+  device_uid?: string; last_seen?: string | null; last_ok?: string | null; last_check?: string | null
+  failing_since?: string | null; consecutive_failures?: number; guidance?: string | null; open_alerts?: number
 }
 export interface IdentityEvidence {
   people: { track_id: number; label: string | null; name: string | null
@@ -236,19 +238,56 @@ export interface BinItem {
 /** Face photos a person sent for review (Profile -> Face ID). */
 export interface FaceSubmission {
   id: number; user_id: number; user_name: string | null; auth_subject: string | null
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'WITHDRAWN'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETAKE' | 'WITHDRAWN'
   photo_count: number; has_photos: boolean; created_at: string; reviewed_at: string | null
   reason: string | null; samples_saved: number | null; min_samples: number
+  /** the person's own view: refused, so they must come to the lab staff */
+  refused_until_seen?: boolean
+  /** on submit: false when the face server could not check the photos */
+  auto_checked?: boolean
 }
 
 /** Face enrollment status (Users & roles -> Edit user -> Face ID). */
 /** Automatic capture on the face server: samples taken from the door camera's own stream. */
+export interface RobotCheck { key: string; name: string; ok: boolean; detail: string }
 /** Portal control of one robot. Motion stays UNAVAILABLE until the controller is commissioned. */
 export interface RobotControl {
   device_id: number; model: string | null; adapter: string; controller_mode: string
   capabilities: { home: boolean; routines: string[]; stop: boolean; interface: string; unavailable_reason: string | null; home_program?: string }
   telemetry_age_s: number | null
   owner: { user_id: number; name: string; expires_in_s: number } | null
+  control_mode?: string
+  /** A simulator record: shown, but never counted as physical evidence. */
+  simulated?: boolean
+  /** Pre-conditions for a supervised physical test, from what the controller reports (both robots). */
+  readiness?: { readiness: 'READY' | 'READY_FOR_PHYSICAL_TEST' | 'BLOCKED'; checks: RobotCheck[]; dependencies: string[] } | null
+  /** UR5e master controls: phase is computed from joint FEEDBACK, never from a command reply. */
+  master?: {
+    phase: 'READY' | 'HOMING' | 'HOME_REACHED' | 'BLOCKED' | 'FAILED' | 'STOP_REQUESTED' | 'STOPPED'; detail: string
+    readiness?: 'READY' | 'READY_FOR_PHYSICAL_TEST' | 'BLOCKED'; home_method?: string; home_program?: string
+    checks?: RobotCheck[]
+    home_q_deg: number[]; tolerance_deg: number; max_error_deg: number | null
+    stop_latched: boolean; stop: { by: string; at: number; result?: string; restored?: boolean } | null; estop_note: string
+  } | null
+}
+/** Admin screen shared with the students' PCs (in memory on the server, nothing recorded). */
+export interface BroadcastState {
+  active: boolean; by: string | null; by_id: number | null; source: 'browser' | 'master_pc' | null
+  since: number | null; title: string; has_frame?: boolean; targets?: number[] | null
+}
+/** Upload one captured frame of the admin's screen (raw JPEG). */
+export async function uploadBroadcastFrame(jpeg: Blob): Promise<number> {
+  const token = getToken()
+  const r = await fetch('/api/equipment/broadcast/frame', {
+    method: 'POST', body: jpeg,
+    headers: { 'Content-Type': 'image/jpeg', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  return r.status
+}
+/** A staff action on a lab PC; the status is what the PC agent itself reported. */
+export interface PcAction {
+  id: number; status: 'QUEUED' | 'EXECUTING' | 'COMPLETED' | 'FAILED' | 'EXPIRED' | string
+  message: string | null; action: string; app?: string; created_at: string; completed_at: string | null
 }
 export interface RobotCommandResult { status: string; reason: string; command_id: string | null; action: string | null }
 
@@ -322,7 +361,7 @@ export interface Device {
   door_closed: boolean | null
   component_state?: Record<string, unknown> | null
   /** ONLINE / OFFLINE / NO_DATA (never reported). */
-  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'NO_DATA'
   seconds_since_seen: number | null
   /** Why the state is what it is when another device or the portal reports it. */
   state_note?: string | null
@@ -786,7 +825,7 @@ export interface AutomationStatus {
 }
 export interface OpsDevice {
   device_id: number; name: string; type: string; lab_code: string | null
-  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'; last_seen_at: string | null
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'NO_DATA'; last_seen_at: string | null
   components: Record<string, boolean> | null
   offline_events: number; offline_minutes: number | null
   outages: { from: string; to: string }[]
@@ -963,7 +1002,30 @@ async function fetchRetrying(url: string, init: RequestInit): Promise<Response> 
   }
 }
 
+// Identical GETs share one request: widgets that mount together (dashboard cards, the header,
+// polling panels) used to fetch /summary or /system/status two or three times at once, which
+// queued behind the browser's 6-connection limit. In flight + 1 s window; writes never shared.
+// Every write clears the shared reads, when it starts and when it ends (2026-10-20: a photo uploaded within
+// 1 s of opening an issue stayed invisible - the reload got the pre-upload answer; e2e/workflows.mjs).
+const SHARE_MS = 1000
+const shared = new Map<string, { at: number; p: Promise<unknown> }>()
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const read = (!init.method || init.method === 'GET') && !init.signal && !init.body
+  if (!read) {
+    shared.clear()
+    return send<T>(path, init).finally(() => shared.clear())
+  }
+  const key = `${getToken() ?? ''} ${path}`
+  const hit = shared.get(key)
+  if (hit && Date.now() - hit.at < SHARE_MS) return hit.p.then(v => structuredClone(v) as T)
+  const p = send<T>(path, init)
+  shared.set(key, { at: Date.now(), p })
+  p.catch(() => shared.delete(key))
+  if (shared.size > 200) for (const [k, v] of shared) if (Date.now() - v.at > SHARE_MS) shared.delete(k)
+  return p.then(v => structuredClone(v) as T)
+}
+
+async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.body && !(init.body instanceof FormData)
       ? { 'Content-Type': 'application/json' } : {}),
@@ -996,7 +1058,8 @@ const post = <T>(path: string, body?: unknown) =>
 /** Upload with progress. fetch() cannot report upload progress; XHR can. */
 function upload<T>(path: string, form: FormData,
                    onProgress?: (fraction: number) => void): Promise<T> {
-  return new Promise((resolve, reject) => {
+  shared.clear()                                       // a write: no read shared across it
+  return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `/api${path}`)
     const token = getToken()
@@ -1005,6 +1068,7 @@ function upload<T>(path: string, form: FormData,
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
     }
     xhr.onload = async () => {
+      shared.clear()
       if (xhr.status === 401 && token) { try { expired() } catch (e) { reject(e) } return }
       const res = new Response(xhr.responseText, { status: xhr.status })
       if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText))
@@ -1023,6 +1087,45 @@ export async function fetchBlob(path: string): Promise<Blob> {
   if (res.status === 401 && token) expired()
   if (!res.ok) throw await parseError(res)
   return res.blob()
+}
+
+export interface AlertQuality {
+  incidents: number; reports: number; grouped_share: number; repeat_rows: number; distinct_conditions: number
+  by_severity: Record<string, number>; noisy_devices: { device_id: number | null; device?: string; reports: number }[]
+  top_conditions: { fingerprint: string; title: string; rows: number; reports: number; reopened: number }[]
+  reopened_incidents: number; time_to_acknowledge_s_median: number | null
+  time_to_resolve_s_median: { by_staff: number | null; condition_cleared: number | null }; open: number
+  storms: { minute: string; new_incidents: number }[]
+}
+export interface Investigation {
+  incident: number; generated_at: string; statement: string; earliest_warning: string; unknowns: string[]
+  hypotheses: { id: string; title: string; supporting: string[]; contradicting: string[]; confidence: string; checks: string[] }[]
+  affected_components: { node: string; name: string; state: string }[]
+  related_incidents: { id: number; title: string; at: string }[]
+  suggestions: { action: string; text: string; policy: { result: string; reason: string } }[]
+}
+export interface RelNode {
+  key: string; name: string; kind: string; state: string; evidence: string; detail: string
+  needs: { node: string; inferred: boolean }[]; needed_by: string[]; physical?: string | null; control?: string
+  last_ok?: string | null; failing_since?: string | null; guidance?: string | null; device_uid?: string; open_alerts?: number
+}
+export interface RelGraph { generated_at: string; nodes: RelNode[]; summary: Record<string, number>
+  likely_roots: { node: string; name: string; state: string; also_failing_because_of_it: string[] }[] }
+export interface WhatIf { kind: string; node: string; name: string; affected: { node: string; name: string; now: string }[]
+  expected_alerts: string[]; recovery_order: string[]; note: string }
+export interface DriftFinding { id: string; component: string; expected: unknown; actual: unknown; severity: string; impact: string
+  class: string; remediation: string; approval_required: boolean; detected_at: string
+  accepted?: { reason: string; owner: string; expires_at: string | null; accepted_at: string } }
+export interface DriftReport { baseline_version: string; checked_at: string; findings: DriftFinding[]; compliant: boolean
+  summary: Record<string, number>; auto_correct_whitelist: string[]; history: { at: string; ids: string[] }[] }
+export interface PerfRoute { route: string; n: number; p50: number | null; p95: number | null; p99: number | null; errors_5xx: number }
+export interface PerfReport {
+  summary: { since_s: number; requests: number; p50: number | null; p95: number | null; p99: number | null; routes: PerfRoute[] }
+  regressions: { route: string; baseline_p95: number; current_p95: number; change_pct: number; samples: { baseline: number; current: number }; note: string }[]
+  objectives: { key: string; objective: string; samples: number; window_s: number; met: boolean | null; error_budget_used: number | null
+    measured_p95_ms?: number | null; within_target_share?: number | null; measured?: number | null }[]
+  baseline: { captured_at: string | null; note: string; compare: { route: string; baseline_p95: number; current_p95: number; change_pct: number }[] }
+  db_pool: { size: number; checked_out: number; overflow: number }
 }
 
 export const api = {
@@ -1133,6 +1236,9 @@ export const api = {
     request<{ name: string; version_id: number }>(`/workcell/${key}/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
   robotControl: (id: number) => request<RobotControl>(`/robots/${id}/control`),
   robotControlRequest: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/request`),
+  robotGlobalStop: (id: number, command_id: string) =>
+    post<RobotCommandResult & RobotControl>(`/robots/${id}/control/stop`, { command_id }),
+  robotStopRecover: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/recover`),
   robotControlRelease: (id: number) => post<RobotControl & { released: boolean }>(`/robots/${id}/control/release`),
   robotCommand: (id: number, body: { action: 'home' | 'routine' | 'stop'; routine?: string; command_id: string; confirmed: boolean }) =>
     post<RobotCommandResult>(`/robots/${id}/control/command`, body),
@@ -1143,6 +1249,9 @@ export const api = {
   calibrateHome: (id: number, body: { tolerance_deg?: number; note?: string }) =>
     post<{ version: number; home_q: number[] }>(`/robots/${id}/home`, body),
   systemServices: () => request<{ checked_at: string; services: ServiceHealth[] }>('/system/services'),
+  systemHealth: () => request<{ checked_at: string; services: ServiceHealth[]; summary: Record<string, number>
+    data_sources: Record<string, { source: string; last: string | null; state: string; records: number }>
+    backup: Record<string, unknown> | null }>('/system/health'),
   securityIdentity: (cam: number) => request<IdentityEvidence>(`/security/cameras/${cam}/identity`),
   securitySuggestions: (cam: number) => request<EquipmentSuggestion[]>(`/security/cameras/${cam}/suggestions`),
   // Recording (administrators): the video stays on the laptop.
@@ -1178,8 +1287,65 @@ export const api = {
   setEquipmentMode: (id: number, mode: PcMode) =>
     request<{ device_id: number; mode: string }>(`/equipment/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
   // Admin master PC (System 1): screen view while staff watch, and messages.
-  pcScreenStart: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/start`),
+  pcScreenStart: (id: number, opts?: { monitor: number; quality: number; fps: number }) =>
+    post<{ watching: boolean }>(`/equipment/${id}/screen/start`, opts),
   pcScreenStop: (id: number) => post<{ watching: boolean }>(`/equipment/${id}/screen/stop`),
+  pcAction: (id: number, body: { action: string; app?: string; confirmed?: boolean }) =>
+    post<PcAction>(`/equipment/${id}/action`, body),
+  broadcastStart: (source: 'browser' | 'master_pc', title = '', targets: number[] | null = null) =>
+    post<BroadcastState>('/equipment/broadcast/start', { source, title, targets }),
+  broadcastStop: () => post<BroadcastState>('/equipment/broadcast/stop'),
+  broadcastStatus: () => request<BroadcastState>('/equipment/broadcast/status'),
+  reportCatalogue: () => request<{ kind: string; title: string; description: string; source: string }[]>('/reports-center'),
+  reportCenter: (kind: string, start: string, end: string) => request<{
+    kind: string; title: string; description: string; source: string; start: string; end: string; generated_at: string
+    columns: string[]; rows: Record<string, unknown>[]; count: number; truncated: boolean; warnings: string[]
+  }>(`/reports-center/${kind}?start=${start}&end=${end}`),
+  reportTimeline: (days: number, sources = '') => request<{
+    items: { time: string; source: string; kind: string; summary: string; person: string | null; lab: string | null; ref: string; group: number | null }[]
+    count: number; note: string; co_occurrence_window_s: number
+  }>(`/reports-center/timeline?days=${days}${sources ? `&sources=${sources}` : ''}`),
+  inventoryDiscrepancies: () => request<{ note: string; bins: {
+    bin_id: number; bin: string; item: string; measured_qty: number | null; measured_error: number | null; last_measured_at: string | null
+    last_count: number | null; last_count_at: string | null; net_since_count: number; transactions_since_count: number
+    unattributed_withdrawals: number; expected_qty: number | null; difference: number | null; status: string }[] }>('/reports-center/inventory-discrepancies'),
+  incidents: (f: { state?: string; severity?: string; q?: string }) => request<{ incidents: { id: number; code: string; title: string; detail: string; severity: string; state: string; lab: string | null
+    device: string | null; source: string; created_at: string; acknowledged_at: string | null; acknowledged_by: string | null
+    owner: string | null; owner_id: number | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null; escalate: boolean; provenance?: string | null; occurrences?: number; last_seen_at?: string; reopened_count?: number; escalation_reason?: string | null; fingerprint?: string | null }[];
+    counts: Record<string, number>; escalations: number; reports?: number }>(`/incidents${qs({ state: f.state, severity: f.severity, q: f.q })}`),
+  incident: (id: number) => request<{ id: number; code: string; title: string; detail: string; severity: string; state: string; lab: string | null
+    device: string | null; source: string; created_at: string; acknowledged_at: string | null; acknowledged_by: string | null
+    owner: string | null; owner_id: number | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null; escalate: boolean; provenance?: string | null; occurrences?: number; last_seen_at?: string; reopened_count?: number; escalation_reason?: string | null; fingerprint?: string | null } & { facts: string[]; related_note: string
+    related: { time: string; source: string; kind: string; summary: string; person: string | null; ref: string }[]
+    notes: { id: number; kind: string; text: string; by: string | null; at: string; label?: string }[] }>(`/incidents/${id}`),
+  // ---- Reliability centre (2026-10-18) ----
+  incidentQuality: (days = 30) => request<AlertQuality>(`/incidents/quality?days=${days}`),
+  investigate: (id: number) => request<Investigation>(`/reliability/incidents/${id}/investigate`),
+  relGraph: () => request<RelGraph>('/reliability/graph'),
+  relWhatIf: (node: string) => post<WhatIf>('/reliability/graph/whatif', { node }),
+  relDrift: () => request<DriftReport>('/reliability/drift'),
+  relDriftAccept: (id: string, reason: string, days?: number) => post<unknown>('/reliability/drift/accept', { id, reason, days }),
+  relPerformance: () => request<PerfReport>('/reliability/performance'),
+  relBaseline: () => post<{ captured_at: string; requests: number; routes: number }>('/reliability/performance/baseline'),
+  relPolicy: () => request<{ rules: { action: string; automatic: string; on_request: string; role: string; why: string }[]; results: string[] }>('/reliability/policy'),
+  relDiagnose: () => post<{ ran_ms: number }>('/reliability/diagnose', { check: 'services' }),
+  relCapacity: () => request<{ warnings: string[]; disk: { total_gb: number; free_gb: number; used_pct: number; where: string } | null
+    database_mb: number; largest_tables: { table: string; mb: number }[]; retention: string }>('/reliability/capacity'),
+  relBackups: () => request<{ backup: Record<string, unknown>; restore_drill: Record<string, unknown> | null; how: string }>('/reliability/backups'),
+  relBriefing: () => request<{ generated_at: string; note: string; items: { id: string; priority: number; kind: string; title: string
+    evidence: string[]; link: string; uncertainty: string | null; repeated: boolean }[] }>('/reliability/briefing'),
+  incidentAction: (id: number, body: { action: string; text?: string; owner_id?: number }) =>
+    post<Awaited<ReturnType<typeof api.incident>>>(`/incidents/${id}/actions`, body),
+  anomalies: () => request<{ generated_at: string; ml_status: string; not_covered: string
+    findings: { layer: string; kind: string; severity: string; signal: string; observed: string; expected: string; window: string
+      confidence: string; explanation: string; source: string; device: string; lab: string | null; metric: string; evaluated_at: string; stale: boolean }[]
+    evaluated: { device: string; metric: string; readings: number; baseline?: unknown }[] }>('/analytics/anomalies'),
+  raiseAnomaly: (index: number) => post<{ created: boolean; incident_id: number }>(`/analytics/anomalies/raise?index=${index}`),
+  assetLifecycle: () => request<{ count: number; flagged: number; note: string; assets: {
+    id: number; asset_tag: string; name: string; category: string | null; lab: string | null; status: string; holder: string | null
+    checked_out_at: string | null; due_back: string | null; last_inspected_at: string | null; next_maintenance_at: string | null
+    open_issues: number; last_movement: string | null; checkouts: number; flags: string[] }[] }>('/reports-center/asset-lifecycle'),
+  pcActions: (id: number) => request<{ apps: string[]; actions: PcAction[] }>(`/equipment/${id}/actions`),
   pcMessage: (id: number, text: string) => post<DeviceCommand>(`/equipment/${id}/message`, { text }),
   binItems: (labId: number) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
@@ -1220,6 +1386,9 @@ export const api = {
   approveFaceSubmission: (id: number) => post<FaceSubmission>(`/face-submissions/${id}/approve`),
   rejectFaceSubmission: (id: number, reason: string) =>
     post<FaceSubmission>(`/face-submissions/${id}/reject`, { reason }),
+  retakeFaceSubmission: (id: number, reason: string) =>
+    post<FaceSubmission>(`/face-submissions/${id}/retake`, { reason }),
+  waitingFaceSubmissions: () => request<FaceSubmission[]>('/face-submissions'),
   fingerprintEnroll: (id: number, force: boolean) =>
     post<DeviceCommand>(`/users/${id}/fingerprint/enroll`, { force }),
   // RFID card: the person taps it at the door; the controller stores it.
@@ -1277,6 +1446,7 @@ export const api = {
     request<{ lab: string; day: string; event: string; count: number }[]>(
       `/reports/access?days=${days}`),
   reports: (days = 30) => request<ReportsOverview>(`/reports/overview?days=${days}`),
+  systemAnalytics: <T,>(days = 30) => request<T>(`/analytics/system?days=${days}`),
   operations: (days = 30, labId?: number) =>
     request<Operations>(`/analytics/operations${qs({ days, lab_id: labId })}`),
   trends: (weeks = 8, labId?: number) =>

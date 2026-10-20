@@ -64,3 +64,9 @@ firmware/face_server/dataset_archive/
 # n8n.cloud trial export (owner backup, 2026-10-13) - same workflows as automation/n8n/json
 automation/n8n/aliloay-workflows/
 automation/n8n/aliloay-workflows.zip
+
+# PC agent: the PC's own device key
+tools/pc_agent/agent.env
+
+# deploy version stamp (tools/deploy/deploy.py writes it at each deploy)
+backend/app/build_info.json

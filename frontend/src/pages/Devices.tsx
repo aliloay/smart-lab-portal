@@ -105,15 +105,16 @@ export default function Devices() {
                     <div className="flex items-center gap-3 min-w-0">
                       <span className={`grid place-items-center w-10 h-10 rounded-xl border ${d.state === 'ONLINE'
                         ? 'border-ok/40 bg-ok/10 text-ok-soft' : d.state === 'OFFLINE'
-                        ? 'border-bad/40 bg-bad/10 text-bad-soft' : 'border-ink-500 bg-ink-700/60 text-slate-400'}`}>
+                        ? 'border-bad/40 bg-bad/10 text-bad-soft' : d.state === 'DEGRADED'
+                        ? 'border-warn/40 bg-warn/10 text-warn-soft' : 'border-ink-500 bg-ink-700/60 text-slate-400'}`}>
                         {typeOf(d.device_type).icon}</span>
                       <div className="min-w-0">
                         <div className="text-[14px] text-white truncate">{d.name}</div>
                         <div className="text-[11.5px] text-slate-400">{typeOf(d.device_type).label}</div>
                       </div>
                     </div>
-                    <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : 'idle'} dot>
-                      {d.state === 'NO_DATA' ? 'No data' : d.state.toLowerCase()}</Chip>
+                    <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : d.state === 'DEGRADED' ? 'warn' : 'idle'} dot>
+                      {d.state === 'NO_DATA' ? 'No data' : d.state === 'DEGRADED' ? 'partly working' : d.state.toLowerCase()}</Chip>
                   </div>
                   {d.state_note && <p className={`mt-2 text-[12px] ${d.state === 'ONLINE' ? 'text-slate-400' : 'text-warn-soft'}`}>{d.state_note}</p>}
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">

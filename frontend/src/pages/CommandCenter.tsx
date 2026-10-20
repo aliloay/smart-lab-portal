@@ -4,7 +4,7 @@
  * This view combines existing staff APIs and live updates. Missing reports stay
  * unknown; the page does not issue door, robot, inventory, or safety commands.
  */
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Activity, AlertTriangle, ArrowRight, Bot, Cctv, Clock3, Database, DoorClosed,
@@ -20,11 +20,9 @@ import { relative } from '../lib/time'
 import LabFloor from '../components/LabFloor'
 import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, Skeleton, Tone } from '../components/ui'
-import { modelFor } from '../components/robot/kinematics'
 import { DemoBadge, RobotStateChip, useRobots } from '../components/robot/robotLive'
 import './CommandCenterWall.css'
 
-const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
 const STATUS_REFRESH_MS = 3000          // status-driven page refresh, at most this often
 
 type HealthState = 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'STALE' | 'UNKNOWN' | 'SIMULATION'
@@ -43,10 +41,10 @@ type DashboardEvent = {
 type RobotActivity = RobotEventRow & { robot: string; robotId: number; labId: number }
 
 const HEALTH_TONE: Record<HealthState, Tone> = {
-  ONLINE: 'ok', DEGRADED: 'bad', OFFLINE: 'bad', STALE: 'warn', UNKNOWN: 'idle', SIMULATION: 'violet',
+  ONLINE: 'ok', DEGRADED: 'warn', OFFLINE: 'bad', STALE: 'warn', UNKNOWN: 'idle', SIMULATION: 'violet',
 }
 const HEALTH_LABEL: Record<HealthState, string> = {
-  ONLINE: 'Online', DEGRADED: 'Offline', OFFLINE: 'Offline', STALE: 'Stale data',
+  ONLINE: 'Online', DEGRADED: 'Partly working', OFFLINE: 'Offline', STALE: 'Stale data',
   UNKNOWN: 'Unknown', SIMULATION: 'Simulated',
 }
 const EVENT_LABEL: Record<EventKind | 'ALL', string> = {
@@ -286,15 +284,21 @@ function AttentionPanel({ alerts, failed, scopeId, compact = false }: {
   )
 }
 
-function CameraPanel({ cam, loading, failed, compact = false }: {
-  cam: SecurityCamera | null; loading: boolean; failed: boolean; compact?: boolean
+const camLabel = (c: SecurityCamera) => { const n = /(\d+)$/.exec(c.device_uid)?.[1]; return n ? `Camera ${Number(n)}` : c.name }
+const camWord = (c: SecurityCamera): [string, string] => c.online !== true ? ['offline', 'text-bad-soft']
+  : c.source_ok === false ? ['no picture', 'text-warn-soft'] : c.source_ok ? ['online', 'text-ok-soft'] : ['unknown', 'text-slate-400']
+
+function CameraPanel({ cam, all = [], loading, failed, compact = false }: {
+  cam: SecurityCamera | null; all?: SecurityCamera[]; loading: boolean; failed: boolean; compact?: boolean
 }) {
   const online = cam?.online === true
   const sourceOk = cam?.source_ok === true
   const frameAge = cam?.metrics?.frame_age_ms_p50
-  const status: HealthState = !cam ? 'UNKNOWN' : cam.online === false ? 'OFFLINE'
+  const own: HealthState = !cam ? 'UNKNOWN' : cam.online === false ? 'OFFLINE'
     : cam.online == null || cam.source_ok == null ? 'UNKNOWN'
       : cam.source_ok === false ? 'DEGRADED' : 'ONLINE'
+  // One camera working and another not: orange, not "offline".
+  const status: HealthState = own === 'ONLINE' && all.some(c => c.online !== true || c.source_ok !== true) ? 'DEGRADED' : own
   const hint = failed ? 'Camera health could not be retrieved from the portal.'
     : !cam ? 'No security camera is registered for this scope.'
     : !online ? 'The camera service has no recent online report.'
@@ -309,7 +313,10 @@ function CameraPanel({ cam, loading, failed, compact = false }: {
           <Cctv size={15} className="shrink-0 text-cyan-300" />
           <div className="min-w-0">
             <h2 id={compact ? 'wall-camera-heading' : 'camera-heading'} className="truncate text-sm font-semibold text-white">Camera</h2>
-            {!compact && <p className="truncate text-[11px] text-slate-500">{cam?.lab_code ?? 'Camera data'}</p>}
+            {all.length > 1
+              ? <p className="truncate text-[11px]">{all.map((c, i) => { const [w, cls] = camWord(c)
+                  return <span key={c.device_id} className={cls}>{i ? ' · ' : ''}{camLabel(c)} {w}</span> })}</p>
+              : !compact && <p className="truncate text-[11px] text-slate-500">{cam?.lab_code ?? 'Camera data'}</p>}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -468,16 +475,20 @@ function RobotPanel({ robots, labId, compact = false }: {
     <section className="rounded-2xl border border-white/[.09] bg-[#121922] p-4" aria-labelledby="robots-heading">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2"><Bot size={15} className="text-cyan-300" /><h2 id="robots-heading" className="text-sm font-semibold text-white">Robot fleet</h2></div>
-        <Link to="/robots" className="text-xs text-cyan-300 hover:text-cyan-200">Fleet details <ArrowRight size={12} className="inline" /></Link>
+        <Link to="/admin/equipment?tab=noncons" className="text-xs text-cyan-300 hover:text-cyan-200">Fleet details <ArrowRight size={12} className="inline" /></Link>
       </div>
       {robots === null ? <div className="mt-3 space-y-2"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
         : scoped.length === 0 ? <div className="mt-4 rounded-lg border border-white/[.06] bg-black/15 p-4 text-xs text-slate-500">No robot telemetry is reporting in this scope. Movement state is unknown.</div>
           : <div className="mt-3 space-y-2">
             {scoped.slice(0, 3).map(robot => (
               <Link key={robot.device_id} to={'/robots/' + robot.device_id} className="flex items-center gap-3 rounded-xl border border-white/[.07] bg-black/20 p-2.5 transition hover:border-cyan-400/30">
-                <Suspense fallback={<Skeleton className="h-12 w-16 shrink-0" />}>
-                  <RobotTwin model={modelFor(robot.model)} q={robot.q ?? null} moving={robot.state === 'MOVING' ? robot.joints_moving : null} stale={robot.state === 'TELEMETRY_STALE'} compact className="h-12 w-16 shrink-0 bg-transparent" />
-                </Suspense>
+                {/* A 64 x 48 px thumbnail does not need a 3D scene: one WebGL scene per robot cost ~2.4 s
+                    of frozen page on every first visit (mesh parsing + shader compile, profiled 2026-10-18).
+                    The live 3D twin is in Lab Equipment -> Robots. */}
+                <span className={'grid h-12 w-16 shrink-0 place-items-center rounded-lg border ' + (robot.state === 'MOVING'
+                  ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-300' : robot.state === 'OFFLINE' || robot.state === 'TELEMETRY_STALE'
+                    ? 'border-white/[.08] bg-black/20 text-slate-500' : 'border-cyan-400/30 bg-cyan-500/10 text-cyan-300')}>
+                  <Bot size={20} /></span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-xs font-medium text-slate-100">{robot.name}</span>
@@ -728,10 +739,12 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
 
   const selectedLabId = scope === 'all' ? null : Number(scope)
   const scopedTiles = useMemo(() => (tiles ?? []).filter(tile => selectedLabId == null || tile.lab_id === selectedLabId), [tiles, selectedLabId])
-  const currentCam = useMemo(() => {
-    if (!cams?.length) return null
-    return selectedLabId == null ? cams[0] : cams.find(camera => camera.lab_id === selectedLabId) ?? null
-  }, [cams, selectedLabId])
+  // Several cameras in a lab: show one that delivers a picture (owner 2026-10-18 - camera 2 worked
+  // while the dashboard showed camera 1 "offline"); the panel lists every camera's own state.
+  const scopedCams = useMemo(() => (cams ?? []).filter(c => selectedLabId == null || c.lab_id === selectedLabId),
+                             [cams, selectedLabId])
+  const currentCam = useMemo(() => scopedCams.find(c => c.online === true && c.source_ok === true) ?? scopedCams[0] ?? null,
+                             [scopedCams])
   const currentTile = useMemo(() => {
     if (!scopedTiles.length) return null
     return (currentCam && scopedTiles.find(tile => tile.lab_id === currentCam.lab_id)) ?? scopedTiles[0]
@@ -864,7 +877,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
           </div>
         </section>
         <section className="wall-media" aria-label="Camera and robot fleet">
-          <CameraPanel cam={currentCam} loading={cams === null && !cameraError} failed={cameraError} compact />
+          <CameraPanel cam={currentCam} all={scopedCams} loading={cams === null && !cameraError} failed={cameraError} compact />
           <RobotPanel robots={robots} labId={selectedLabId} compact />
         </section>
         </div>
@@ -971,7 +984,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
       </div>
 
       <section aria-label="Live system panels" className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-4">
-        <CameraPanel cam={currentCam} loading={cams === null && !cameraError} failed={cameraError} />
+        <CameraPanel cam={currentCam} all={scopedCams} loading={cams === null && !cameraError} failed={cameraError} />
         <RobotPanel robots={robots} labId={selectedLabId} />
         <EnvironmentPanel environment={environment} loading={environments === null && !environmentError} failed={environmentError} labCode={currentTile?.code ?? scopeName} />
         <section className="rounded-2xl border border-white/[.09] bg-[#121922] p-4" aria-labelledby="recent-heading">

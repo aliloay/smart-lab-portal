@@ -49,7 +49,7 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
   // never masquerades as a live preview.
   useEffect(() => {
     if (!open) return
-    let stop = false, url: string | null = null, timer: number | undefined
+    let stop = false, url: string | null = null, timer: number | undefined, misses = 0
     const tick = async () => {
       try {
         const blob = await fetchBlob('/enrollment/camera/snapshot')
@@ -58,9 +58,12 @@ export default function FaceEnrollment({ userId, savedSubject, onEnrolled }: {
         setFrame(next)
         if (url) URL.revokeObjectURL(url)
         url = next
+        misses = 0
         setCameraError('')
       } catch (e) {
-        if (!stop) {
+        // One missed frame (a Wi-Fi hiccup of the door camera, seen 2026-10-18) is not an outage:
+        // keep the last frame and only report the camera unreachable after 3 misses in a row.
+        if (!stop && ++misses >= 3) {
           setCameraError(e instanceof Error ? e.message : 'Camera not reachable')
           // Clear stale frame on connection loss:
           setFrame(null)

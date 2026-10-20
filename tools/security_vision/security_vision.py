@@ -43,6 +43,7 @@ import collections
 import copy
 import json
 import os
+import random
 import re
 import threading
 import traceback
@@ -56,7 +57,7 @@ from flask import Flask, Response, jsonify, request, send_file
 
 from dataset import Collector
 from equipwatch import NOT_SEEN_SCANS, EquipmentWatch, Found
-from latency import PipelineMetrics, process_load
+from latency import PipelineMetrics, gpu_load, process_load
 from robotvision import RobotVisualMotion
 from recorder import Recorder
 import realign
@@ -86,17 +87,40 @@ def masked(src) -> str:
 
 
 class Camera:
-    """Keeps only the newest frame (an RTSP buffer would otherwise lag)."""
+    """Keeps only the newest frame (an RTSP buffer would otherwise lag): there is never a backlog -
+    a frame that arrives while analysis is busy replaces the older one (latency.py counts the skips).
 
-    def __init__(self, source: str, max_width: int, metrics: Optional[PipelineMetrics] = None):
+    Reconnects on its own (2026-10-18): after a failed open or a lost stream it waits with exponential
+    backoff - 1 s doubling to 30 s, +-20 % jitter - instead of a fixed 3 s forever (camera 1 offline
+    all evening = 694 open attempts, each holding FFmpeg). FFmpeg's own open/read timeouts are set,
+    so a camera that stops sending ends the connection after READ_TIMEOUT_MS instead of hanging
+    inside read(). One connection at a time per camera (the loop is sequential).
+
+    state: CONNECTING -> STREAMING; RECONNECTING after a loss or a failed open; OFFLINE after
+    OFFLINE_AFTER failed opens in a row. A frame older than STALE_S is STALE (no frame is ever shown
+    or analysed as live after that)."""
+    BACKOFF_MIN_S, BACKOFF_MAX_S = 1.0, 30.0
+    OPEN_TIMEOUT_MS, READ_TIMEOUT_MS = 8000, 5000
+    LOST_S = 5.0                     # no frame for this long on an open stream = lost
+    OFFLINE_AFTER = 3
+    STALE_S = 2.0
+    VIDEO_EXT = (".mp4", ".avi", ".mkv")
+
+    def __init__(self, source: str, max_width: int, metrics: Optional[PipelineMetrics] = None,
+                 start: bool = True):
         self.source, self.max_width = source, max_width
         self.frame: Optional[np.ndarray] = None
         self.at = 0.0
         self.seq = 0                                  # frames received so far (skips = latest-frame policy)
         self.ok = False
         self.metrics = metrics
+        self.state, self.state_since = "CONNECTING", time.time()
+        self.fails_in_row = 0
+        self.retry_at = 0.0
+        self.last_error = ""
         self._lock = threading.Lock()
-        threading.Thread(target=self._run, daemon=True).start()
+        if start:
+            threading.Thread(target=self._run, daemon=True, name="camera").start()
 
     def _open(self):
         s = self.source
@@ -106,7 +130,30 @@ class Camera:
             return None                                   # a still image, for tests/demos
         if s.startswith("rtsp://"):
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+            params = []
+            for prop, ms in (("CAP_PROP_OPEN_TIMEOUT_MSEC", self.OPEN_TIMEOUT_MS),
+                             ("CAP_PROP_READ_TIMEOUT_MSEC", self.READ_TIMEOUT_MS)):
+                if hasattr(cv2, prop):                    # OpenCV >= 4.6 (installed: 4.10)
+                    params += [getattr(cv2, prop), ms]
+            if params:
+                return cv2.VideoCapture(s, cv2.CAP_FFMPEG, params)
         return cv2.VideoCapture(s, cv2.CAP_FFMPEG)
+
+    def _set(self, state: str, error: str = ""):
+        if state != self.state:
+            self.state, self.state_since = state, time.time()
+        if error:
+            self.last_error = error
+
+    def backoff_s(self) -> float:
+        """Wait before the next attempt: 1, 2, 4 ... 30 s (+-20 %), by failures in a row."""
+        base = min(self.BACKOFF_MAX_S, self.BACKOFF_MIN_S * 2 ** min(max(self.fails_in_row - 1, 0), 10))
+        return base * random.uniform(0.8, 1.2)
+
+    def _wait(self):
+        d = self.backoff_s()
+        self.retry_at = time.time() + d
+        time.sleep(d)
 
     def _store(self, frame, read_ms: float = 0.0):
         now = time.time()
@@ -116,8 +163,18 @@ class Camera:
         with self._lock:
             self.frame, self.at, self.ok = frame, now, True
             self.seq += 1
+        if self.state != "STREAMING":
+            self.fails_in_row = 0
+            self._set("STREAMING")
         if self.metrics:
             self.metrics.frame_in(now, read_ms)
+
+    def _failed_open(self, why: str):
+        self.ok = False
+        self.fails_in_row += 1
+        self._set("OFFLINE" if self.fails_in_row >= self.OFFLINE_AFTER else "RECONNECTING", why)
+        if self.metrics:
+            self.metrics.open_failures += 1
 
     def _run(self):
         still = None
@@ -127,40 +184,60 @@ class Camera:
                 still = still if still is not None else cv2.imread(self.source)
                 if still is None:
                     print(f"[camera] cannot read {masked(self.source)}")
-                    time.sleep(5)
+                    self._failed_open("cannot read the image file")
+                    self._wait()
                     continue
                 self._store(still.copy())
                 time.sleep(0.1)
                 continue
             if not cap.isOpened():
-                self.ok = False
-                if self.metrics:
-                    self.metrics.open_failures += 1
-                print(f"[camera] cannot open {self._safe()} - retrying in 3 s")
-                time.sleep(3)
+                self._failed_open("could not open the stream")
+                d = self.backoff_s()
+                print(f"[camera] cannot open {self._safe()} - retry {self.fails_in_row} in {d:.0f} s")
+                self.retry_at = time.time() + d
+                time.sleep(d)
                 continue
             print(f"[camera] streaming from {self._safe()}")
-            fails = 0
-            while fails < 30:
-                r0 = time.perf_counter()
-                ok, frame = cap.read()
-                read_ms = (time.perf_counter() - r0) * 1000
-                if not ok or frame is None:
-                    fails += 1
-                    time.sleep(0.05)
-                    if self.source.lower().endswith((".mp4", ".avi", ".mkv")):
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # loop a test video
-                    continue
-                fails = 0
-                self._store(frame, read_ms)
-                if self.source.lower().endswith((".mp4", ".avi", ".mkv")):
-                    time.sleep(1 / 15)
+            self._stream(cap)
             cap.release()
             self.ok = False
             if self.metrics:
                 self.metrics.reconnects += 1
-            print("[camera] stream lost - reconnecting")
-            time.sleep(1)
+            self.fails_in_row = max(self.fails_in_row, 1)
+            self._set("RECONNECTING", f"no frame for {self.LOST_S:.0f} s")
+            print(f"[camera] stream lost - reconnecting in about {self.backoff_s():.0f} s")
+            self._wait()
+
+    def _stream(self, cap):
+        """Read until no frame came for LOST_S (a stalled stream is not waited on for ever)."""
+        video = self.source.lower().endswith(self.VIDEO_EXT)
+        last_ok = time.monotonic()
+        while time.monotonic() - last_ok < self.LOST_S:
+            r0 = time.perf_counter()
+            ok, frame = cap.read()
+            read_ms = (time.perf_counter() - r0) * 1000
+            if not ok or frame is None:
+                time.sleep(0.05)
+                if video:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # loop a test video
+                continue
+            last_ok = time.monotonic()
+            self._store(frame, read_ms)
+            if video:
+                time.sleep(1 / 15)
+
+    def status(self) -> dict:
+        """For /health and the portal: what the stream is doing, never the address."""
+        now = time.time()
+        age = now - self.at if self.at else None
+        state = self.state
+        if state == "STREAMING" and (age is None or age > self.STALE_S):
+            state = "STALE"
+        return {"state": state, "since_s": round(now - self.state_since, 1),
+                "frame_age_s": None if age is None else round(age, 2),
+                "fails_in_row": self.fails_in_row,
+                "retry_in_s": round(max(0.0, self.retry_at - now), 1) if state in ("RECONNECTING", "OFFLINE") else None,
+                "last_error": self.last_error}
 
     def _safe(self):
         # Never print the camera password.
@@ -206,6 +283,7 @@ class Service:
     FACE_MAX_AGE_S = 1.0               # a detection older than this is not used for a face crop
     FACE_MIN = 0.50                    # and reach this: from the ceiling, wrong people matched 0.41-0.53,
                                        # the right one 0.59-0.66 (2026-10-12); the door camera stays at 0.363
+    RAW_WANTED_S = 5.0                 # keep encoding the plain picture this long after a request
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
 
     def __init__(self, args):
@@ -234,6 +312,19 @@ class Service:
         print(f"[record] {'FFmpeg found' if self.recorder.ffmpeg else 'FFmpeg NOT found - recording unavailable'};"
               f" files in {os.path.abspath(args.recordings)}")
         self.tracker, self.labeler, self.zones = Tracker(), Labeler(), ZoneWatcher()
+        # Two cameras, one name per person (crosscam.py): only with a floor map for this camera
+        # (anchors/<DEVICE>_floor.json) and the other camera's port (PEER_PORT / --peer).
+        from crosscam import CrossCam, FloorMap
+        try:
+            floor = FloorMap.load(os.path.join(HERE, "anchors"), args.device)
+        except ValueError as e:
+            floor = None
+            print(f"[crosscam] floor map ignored: {e}")
+        peer = f"http://127.0.0.1:{args.peer}" if args.peer else None
+        self.crosscam = CrossCam(peer, self.key, floor, obs_path=os.path.join(
+            os.path.abspath(args.recordings), f"crosscam_obs_{args.device}.jsonl"))
+        self.frame_wh = (0, 0)
+        print(f"[crosscam] other camera {peer or 'none'}; floor map {'loaded' if floor else 'not calibrated - nothing shared'}")
         self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
         self.robot_vis = RobotVisualMotion() # optical flow in robot boxes (alert_on_motion off)
         self.robot_visual: dict[int, dict] = {}
@@ -343,7 +434,8 @@ class Service:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
                     "device_uid": self.args.device, "fps": self.live_fps(), "people": len(tracks),
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
-                    "source_ok": self.camera.ok, "door_open": self.door_open,
+                    "source_ok": self.camera.ok and self.camera.status()["state"] == "STREAMING",
+                    "door_open": self.door_open,
                     "metrics": self._metrics_brief()})
             except requests.RequestException:
                 pass
@@ -398,7 +490,9 @@ class Service:
                             if any(iou(rec[0], p) > 0.1 for p in people)]
                     # ...and inside unusually WIDE person boxes: two people seated together come
                     # out as one box (lab frames: one seated person w/h 0.56-0.60, Ali+Nour 0.78).
-                    wide = [b for b in people if b[3] > 0 and b[2] / b[3] > 0.7]
+                    # Only boxes shaped like two people side by side (0.7-1.6): a 2.2-wide box at
+                    # home (live 2026-10-15) zoomed EVERY pass - zoom 52 ms = half the pass time.
+                    wide = [b for b in people if b[3] > 0 and 0.7 < b[2] / b[3] <= 1.6]
                     # ...and one more person box each pass, in turn: a ratio alone misses pairs
                     # (lab: 0.67 with Ali behind Nour). ~20 ms on the GPU; each box ~once a second.
                     self._zoom_i = getattr(self, "_zoom_i", -1) + 1
@@ -406,7 +500,7 @@ class Service:
                     turn = [people[(self._zoom_i // 3) % len(people)]] if people and self._zoom_i % 3 == 0 else []
                     # ONE zoom a pass (measured: zooms 50 ms vs main detection 41 ms per pass), by
                     # priority: an occluded lost spot, then wide boxes in turn, then the round-robin.
-                    wide_turn = [wide[self._zoom_i % len(wide)]] if wide else []
+                    wide_turn = [wide[(self._zoom_i // 2) % len(wide)]] if wide and self._zoom_i % 2 == 0 else []
                     regions = lost[:1] or wide_turn or turn
                     if regions:
                         people += zoom_people(self.detector, frame, regions, people, max_n=1)
@@ -423,14 +517,19 @@ class Service:
                 door = self.cfg.get("door")
                 door_px = (door["x"] * w, door["y"] * h, door["w"] * w, door["h"] * h) if door else None
                 with self.label_lock:
-                    self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"))
+                    seen_ids = {t.id for t in tracks}          # alive in the tracker but missed a moment ago
+                    coasting = [t for t in self.tracker.tracks if t.id not in seen_ids]
+                    self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"),
+                                        coasting=coasting)
                     if HOME_DESKS:
                         zpx = {z["name"]: (z["x"] * w, z["y"] * h, z["w"] * w, z["h"] * h)
                                for z in self.cfg.get("zones", [])}
                         self.labeler.home_desk(tracks, HOME_DESKS, zpx, occupants,
                                                {k["auth_subject"]: k for k in (self.cfg.get("known") or [])}, t0)
+                    notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
+                    self.frame_wh = (w, h)
                     id_events = list(self.labeler.events)
-                    notes, self.labeler.notes = getattr(self.labeler, "notes", []), []
+                    notes, self.labeler.notes = getattr(self.labeler, "notes", []) + notes_cc, []
                 for nt in notes:                       # hand-back / door decisions, readable via /identity
                     self.identity_log.append({"t": round(time.time(), 2), **nt})
                     self._persist_identity(self.identity_log[-1])
@@ -493,7 +592,13 @@ class Service:
                 "skipped": m["analysis"]["skipped_latest_frame_policy"], "reconnects": m["capture"]["reconnects"], "open_failures": m["capture"].get("open_failures", 0),
                 # numbers only (the portal keeps numeric metrics): 1 = on the graphics card (DirectML)
                 "detector_gpu": int(self.detector_engine().startswith("directml")),
-                "reid_gpu": int(self.appearance.engine.startswith("directml"))}
+                "reid_gpu": int(self.appearance.engine.startswith("directml")),
+                # 2026-10-18: real process / card load (was always 0) and the stream's own age
+                "frame_age_s": self.camera.status()["frame_age_s"],
+                "cpu_percent": (process_load() or {}).get("cpu_percent"),
+                "private_mb": (process_load() or {}).get("private_mb"),
+                "gpu_util_percent": (gpu_load() or {}).get("util_percent"),
+                "gpu_mem_mb": (gpu_load() or {}).get("mem_used_mb")}
 
     def detector_engine(self) -> str:
         return str(getattr(self.detector, "engine", "unknown"))
@@ -520,6 +625,9 @@ class Service:
             if e.kind == "PERSON_IDENTITY_CONFLICT":
                 self.event("PERSON_IDENTITY_CONFLICT", f"Track {e.track_id}: {e.detail}. The name was NOT "
                            "changed - check who this is.", people_seen=len(tracks), people_inside=len(occupants))
+            elif e.kind == "PERSON_IDENTITY_REVIEW":       # ambiguous entry, names re-dealt, a name on two people
+                self.event("PERSON_IDENTITY_REVIEW", f"Track {e.track_id}: {e.detail}.",
+                           people_seen=len(tracks), people_inside=len(occupants))
 
     def check(self, tracks, occupants, states):
         seen, inside = len(tracks), len(occupants)
@@ -668,12 +776,12 @@ class Service:
         except Exception as e:                          # damaged file: no HOME, never a crash
             print(f"[home] could not load {p}: {e!r}")
 
-    def save_home(self) -> list[str]:
+    def save_home(self, only: Optional[str] = None) -> list[str]:
         frame, at = self.camera.latest()
         if frame is None or time.time() - at > 5:
             return []
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        saved = self.zones.save_home(self.cfg.get("zones", []), gray)
+        saved = self.zones.save_home(self.cfg.get("zones", []), gray, only)
         arrays = {}
         for zid, (patch, rect) in self.zones.home.items():
             arrays[f"patch_{zid}"] = patch
@@ -906,7 +1014,11 @@ class Service:
             if frame is not None and t0 - at < 5:
                 self.metrics.age_at_render_ms.add((t0 - at) * 1000)
                 e0 = time.perf_counter()
-                raw = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+                # The plain picture is only for drawing boxes / boxes-off views: encoded only while
+                # someone asked for it in the last RAW_WANTED_S (measured 2026-10-15: two encodes a
+                # frame = encode p50 40 ms, p95 76 ms per render).
+                raw = (cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+                       if t0 - getattr(self, "raw_wanted_at", 0.0) < self.RAW_WANTED_S else None)
                 saved = self.dataset.offer(frame)          # plain frame, before boxes are drawn
                 if saved:
                     print(f"[dataset] saved {saved}")
@@ -965,6 +1077,7 @@ def make_app(svc: Service) -> Flask:
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "camera": svc.camera.ok, "fps": svc.live_fps(),
+                        "stream": svc.camera.status(), "device": svc.args.device, "time": round(time.time(), 3),
                         "analysis_age_s": round(time.time() - svc.analysed_at, 1) if svc.analysed_at else None,
                         "analysis_errors": svc.analysis_errors,
                         "people": len(svc.tracks), "zones": len(svc.cfg.get("zones", []))})
@@ -975,7 +1088,24 @@ def make_app(svc: Service) -> Flask:
 
     @app.get("/raw.jpg")
     def raw():
-        return image(svc.raw_jpeg)
+        svc.raw_wanted_at = time.time()
+        data = svc.raw_jpeg
+        if data is None and authorised():          # first request after a quiet spell: encode now
+            frame, at = svc.camera.latest()
+            if frame is not None and time.time() - at < 5:
+                data = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+        return image(data)
+
+    @app.get("/peer")
+    def peer():
+        """For the other camera (crosscam.py): tracks with their floor position, if calibrated."""
+        if not authorised():
+            return Response("device key required", status=401)
+        from crosscam import peer_view
+        w, h = svc.frame_wh
+        with svc.lock:
+            tracks = list(svc.tracks)
+        return jsonify(peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time()))
 
     @app.get("/state")
     def state():
@@ -995,7 +1125,7 @@ def make_app(svc: Service) -> Flask:
         """Robots at HOME now: their boxes' look becomes the HOME look (kept on disk)."""
         if not authorised():
             return Response("device key required", status=401)
-        saved = svc.save_home()
+        saved = svc.save_home(request.args.get("only"))     # ?only=Fanuc: that robot only
         return jsonify({"saved": saved})
 
     @app.get("/metrics")
@@ -1003,7 +1133,8 @@ def make_app(svc: Service) -> Flask:
         """Measured stage timings (latency.py) + this process's load."""
         if not authorised():
             return Response("device key required", status=401)
-        return jsonify({**svc.metrics.summary(), "process": process_load(),
+        return jsonify({**svc.metrics.summary(), "process": process_load(), "gpu": gpu_load(),
+                        "stream": svc.camera.status(),
                         "engines": {"detector": svc.detector_engine(), "reid": svc.appearance.engine},
                         "track_parts_ms_p50": {k: round(sorted(v)[len(v) // 2], 1) for k, v in svc.part_ms.items() if v},
                         "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
@@ -1155,9 +1286,32 @@ def no_quick_edit() -> bool:
         return False
 
 
+def camera_priority() -> Optional[str]:
+    """Cameras have priority (project rule). Ollama starts its model runners at ABOVE NORMAL priority
+    with every core: one portal AI answer took camera 2 from 7 to 1.7 analyses/s (measured
+    2026-10-18). Run this service in the same class so the scheduler shares the CPU fairly.
+    SMARTLAB_CAMERA_PRIORITY=normal keeps the old behaviour. Returns what was set."""
+    want = os.environ.get("SMARTLAB_CAMERA_PRIORITY", "above_normal").lower()
+    if os.name != "nt" or want == "normal":
+        return None
+    try:
+        import psutil
+        cls = {"above_normal": psutil.ABOVE_NORMAL_PRIORITY_CLASS, "high": psutil.HIGH_PRIORITY_CLASS}.get(want)
+        if cls is None:
+            return None
+        psutil.Process().nice(cls)
+        return want
+    except Exception as e:                           # never fatal: the camera still runs at normal
+        print(f"[console] priority unchanged ({e.__class__.__name__})")
+        return None
+
+
 def main():
     if no_quick_edit():
         print("[console] QuickEdit off: clicking in this window no longer pauses the camera")
+    pr = camera_priority()
+    if pr:
+        print(f"[console] process priority: {pr.replace('_', ' ')} (cameras first; same class as the AI runner)")
     ap = argparse.ArgumentParser(description="Smart Lab security camera service")
     ap.add_argument("--source", default=os.environ.get("SECURITY_CAMERA_SOURCE", "0"),
                     help="rtsp://user:pass@ip:554/stream2, a webcam number, a video or image file")
@@ -1188,12 +1342,15 @@ def main():
     ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
     ap.add_argument("--det-fps", type=float, default=7.0)   # was 5; a pass takes ~95 ms (p95 ~146) since 2026-10-14
     ap.add_argument("--max-width", type=int, default=960)
+    ap.add_argument("--peer", type=int, default=int(os.environ.get("PEER_PORT") or 0),
+                    help="port of the OTHER camera service in the same lab (0 = none); see crosscam.py")
     ap.add_argument("--demo", default="", help='name-lock test without the portal, e.g. "USER1=Ali,USER2=Sara"; '
                                                'open http://127.0.0.1:<port>/demo')
     args = ap.parse_args()
     if not os.path.isfile(args.model):
         raise SystemExit(f"Model not found: {args.model}\nSee tools/security_vision/README.md (download once).")
     svc = Service(args)
+    svc.crosscam.start()
     for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces,
                    svc.watch_view, svc.watch_equipment, svc.watch_zones, svc.keep_identities):
         threading.Thread(target=target, daemon=True).start()

@@ -1205,6 +1205,14 @@ def health():
 
 
 if __name__ == "__main__":
+    # The door waits on this server: it outranks the camera services for the CPU (2026-10-15:
+    # /analyze took ~110 ms live vs 38 ms alone while camera 2 analysed in parallel).
+    try:
+        import psutil
+        psutil.Process().nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS if os.name == "nt" else -5)
+        print("[priority] face server runs above normal priority")
+    except Exception as e:
+        print(f"[priority] not raised: {e}")
     load_model_if_exists()
     if ENGINE == "sface":
         t0 = time.perf_counter()

@@ -5,7 +5,7 @@
  */
 import { useRef, useState } from 'react'
 
-export const ROBOTICS_COVER = '/assets/labs/robotics-lab-cover.png'
+export const ROBOTICS_COVER = '/assets/labs/robotics-lab-cover.jpg'
 
 export default function RoboticsCover({ fallback, className = '' }: { fallback: React.ReactNode; className?: string }) {
   const [ok, setOk] = useState(true)

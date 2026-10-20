@@ -283,7 +283,7 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
     <form onSubmit={go} className="card p-4 space-y-3 max-w-xl">
       <p className="text-[12.5px] text-slate-400">{mode === 'take'
         ? 'Take an item out FOR someone (e.g. their booking has ended). The bin opens; its weight confirms the take, recorded against that person.'
-        : 'Record that a checked-out item is back when it came back without the bin (bin fault, booking over). Logged as a staff return; the holder is notified.'}</p>
+        : 'Record that a checked-out item is back when it came back without the bin (bin fault, booking over). Logged as a staff return; the holder is notified. The bin does NOT open: to put the item back through the bin, scan its tag at the bin instead.'}</p>
       {error && <ErrorBanner message={error} />}
       {msg && <p className="text-[12.5px] text-ok-soft">{msg}</p>}
       {!list.length ? <p className="text-[12.5px] text-slate-400">

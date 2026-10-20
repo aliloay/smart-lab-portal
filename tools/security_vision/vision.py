@@ -307,6 +307,21 @@ class Look:
     deep: Optional[np.ndarray] = None   # L2-normalised re-id embedding
 
 
+def covered_share(rect, people) -> float:
+    """Share of `rect` (x, y, w, h, normalised) covered by the person boxes (overlaps counted once on a grid)."""
+    x, y, w, h = rect
+    if w <= 0 or h <= 0 or not people:
+        return 0.0
+    n = 20
+    gx = x + (np.arange(n) + 0.5) * w / n
+    gy = y + (np.arange(n) + 0.5) * h / n
+    X, Y = np.meshgrid(gx, gy)
+    hit = np.zeros_like(X, dtype=bool)
+    for px, py, pw, ph in people:
+        hit |= (X >= px) & (X <= px + pw) & (Y >= py) & (Y <= py + ph)
+    return float(hit.mean())
+
+
 def look_distance(a: Optional[Look], b: Optional[Look]) -> Optional[float]:
     """0 = looks the same, 1 = nothing alike. None when either is unknown."""
     if a is None or b is None:
@@ -483,6 +498,54 @@ def iou(a, b) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def assign_max(score: list) -> list[tuple[int, int]]:
+    """Best one-to-one matching: the pairs (row, col) with the highest TOTAL score; None = not
+    allowed. Hungarian algorithm (O(n^3), no scipy). Replaces best-pair-first matching, which
+    let two people side by side lose or swap their tracks (2026-10-15)."""
+    n = len(score)
+    m = len(score[0]) if n else 0
+    if not n or not m:
+        return []
+    N = max(n, m)
+    BIG = 1e6
+    c = [[(-score[i][j] if i < n and j < m and score[i][j] is not None else 0.0) for j in range(N)] for i in range(N)]
+    u, v, p, way = [0.0] * (N + 1), [0.0] * (N + 1), [0] * (N + 1), [0] * (N + 1)
+    for i in range(1, N + 1):
+        p[0], j0 = i, 0
+        minv, used = [BIG] * (N + 1), [False] * (N + 1)
+        while True:
+            used[j0] = True
+            i0, delta, j1 = p[j0], BIG, 0
+            for j in range(1, N + 1):
+                if not used[j]:
+                    cur = c[i0 - 1][j - 1] - u[i0] - v[j]
+                    if cur < minv[j]:
+                        minv[j], way[j] = cur, j0
+                    if minv[j] < delta:
+                        delta, j1 = minv[j], j
+            for j in range(N + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if not j0:
+                break
+    out = []
+    for j in range(1, N + 1):
+        i = p[j] - 1
+        if 0 <= i < n and j - 1 < m and score[i][j - 1] is not None:
+            out.append((i, j - 1))
+    return out
+
+
 @dataclass
 class Track:
     id: int
@@ -506,6 +569,7 @@ class Track:
     named_by: Optional[str] = None     # door / face / look / place / elimination (identity.py evidence)
     identity_state: str = "UNKNOWN"    # set by identity.IdentityLedger
     identity_confidence: float = 0.0
+    posture_changed_at: float = -1e9   # last joined across a posture change (Tracker._posture_pairs)
 
     def center(self):
         return (self.box[0] + self.box[2] / 2, self.box[1] + self.box[3] / 2)
@@ -513,6 +577,26 @@ class Track:
 
 def _center(b):
     return (b[0] + b[2] / 2, b[1] + b[3] / 2)
+
+
+def _feet(b):
+    """Bottom-centre of a person box: where they stand (stays put through posture changes)."""
+    return (b[0] + b[2] / 2, b[1] + b[3])
+
+
+def cover(a, b) -> float:
+    """Intersection over the SMALLER box (1.0 = one box lies inside the other)."""
+    iw = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    ih = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    small = min(a[2] * a[3], b[2] * b[3])
+    return iw * ih / small if small > 0 else 0.0
+
+
+def upright(box) -> bool:
+    """Standing or seated (taller than wide). The colour look is built from head / upper body / legs
+    bands of an UPRIGHT box: a crouching or lying person's look is not comparable, so it is neither
+    learnt into a name nor used to judge one."""
+    return box[3] >= 1.2 * box[2]
 
 
 def _close(a, b) -> bool:
@@ -553,38 +637,90 @@ class Tracker:
         dt = min(max(now - t.last_seen, 0.0), 1.0)
         return (t.box[0] + t.vel[0] * dt, t.box[1] + t.vel[1] * dt, t.box[2], t.box[3])
 
+    def _score(self, t: Track, b, look, now: float):
+        """Association score of track t with box b; None = not allowed."""
+        pred = self._predicted(t, now)
+        ov = iou(pred, b)
+        d = look_distance(t.look, look)
+        if now - t.last_seen > self.GAP_S and d is not None and d > self.REACQ_UNLIKE:
+            return None                        # back after a gap, but clearly someone else
+        near = math.dist(_center(pred), _center(b)) < max(b[3], pred[3])
+        if ov < self.MIN_IOU and not (d is not None and d < self.APPEAR_GATE and near):
+            return None
+        return ov + (self.APPEAR_W * (1 - d) if d is not None else 0.0)
+
+    def _take(self, t: Track, bi: int, boxes, looks, now: float, posture: bool = False, turn: bool = False):
+        dt = now - t.last_seen
+        if posture:                            # the centre jumps with the shape: no speed from it
+            t.vel, t.posture_changed_at = (0.0, 0.0), now
+        elif turn:                             # after a sharp turn the old speed is wrong, and a speed
+            t.vel = (0.0, 0.0)                 # from the jump overshot into the neighbour next frame
+        elif dt > 1e-3:
+            (ox, oy), (nx, ny) = t.center(), _center(boxes[bi])
+            t.vel = (0.5 * t.vel[0] + 0.5 * (nx - ox) / dt, 0.5 * t.vel[1] + 0.5 * (ny - oy) / dt)
+        t.box, t.last_seen, t.hits = boxes[bi], now, t.hits + 1
+        # While people touch, the box may hold parts of the other person:
+        # the track keeps its last clean look (2026-10-12 root cause #2).
+        touching = any(_close(boxes[bi], b2) for j, b2 in enumerate(boxes) if j != bi)
+        if looks[bi] is not None and not touching:
+            t.look = looks[bi]
+
+    def _match(self, tis, boxes, looks, now, used_t, used_b, veto=None):
+        """One optimal assignment (Hungarian) of these tracks to the boxes still free - not best pair
+        first: the order of the detections and a slightly better wrong pair cannot break or swap tracks."""
+        bis = [bi for bi in range(len(boxes)) if bi not in used_b]
+        tis = [ti for ti in tis if ti not in used_t]
+        if not tis or not bis:
+            return
+        score = [[None if veto and veto(ti, bi) else self._score(self.tracks[ti], boxes[bi], looks[bi], now)
+                  for bi in bis] for ti in tis]
+        for i, j in assign_max(score):
+            self._take(self.tracks[tis[i]], bis[j], boxes, looks, now)
+            used_t.add(tis[i])
+            used_b.add(bis[j])
+
     def update(self, boxes: list[tuple], now: float,
                looks: Optional[list[Optional[Look]]] = None) -> list[Track]:
+        """Staged association (2026-10-18, ByteTrack-style order): a track seen a moment ago keeps its
+        person before a track that has been missing for a while may take anyone. Found with the
+        simulated scenario bench: a runner crossing the spot where someone had just stood (that
+        track kept alive for seated people, MAX_MISS_STILL_S) took the old track - and its NAME -
+        when the runner's own track missed the box at a sharp turn.
+          1. just-seen tracks (within GAP_S), optimal assignment;
+          2. posture changes (unique pairs, _posture_pairs);
+          3. a just-seen track that missed its box at a sharp turn (unique, close to where it was or
+             where it was heading, and a look that positively agrees - _turn_pairs);
+          4. tracks back after a gap - never with a box that a just-seen, unmatched track explains
+             better (closer, look not clearly different);
+          5. a new track for every box left."""
         looks = looks if looks is not None else [None] * len(boxes)
-        pairs = []
-        for ti, t in enumerate(self.tracks):
-            pred = self._predicted(t, now)
-            for bi, b in enumerate(boxes):
-                ov = iou(pred, b)
-                d = look_distance(t.look, looks[bi])
-                if now - t.last_seen > self.GAP_S and d is not None and d > self.REACQ_UNLIKE:
-                    continue                   # back after a gap, but clearly someone else
-                near = math.dist(_center(pred), _center(b)) < max(b[3], pred[3])
-                if ov < self.MIN_IOU and not (d is not None and d < self.APPEAR_GATE and near):
-                    continue
-                pairs.append((ov + (self.APPEAR_W * (1 - d) if d is not None else 0.0), ti, bi))
         used_t, used_b = set(), set()
-        for score, ti, bi in sorted(pairs, reverse=True):
-            if ti in used_t or bi in used_b:
-                continue
-            t = self.tracks[ti]
-            dt = now - t.last_seen
-            if dt > 1e-3:
-                (ox, oy), (nx, ny) = t.center(), _center(boxes[bi])
-                t.vel = (0.5 * t.vel[0] + 0.5 * (nx - ox) / dt, 0.5 * t.vel[1] + 0.5 * (ny - oy) / dt)
-            t.box, t.last_seen, t.hits = boxes[bi], now, t.hits + 1
-            # While people touch, the box may hold parts of the other person:
-            # the track keeps its last clean look (2026-10-12 root cause #2).
-            touching = any(_close(boxes[bi], b2) for j, b2 in enumerate(boxes) if j != bi)
-            if looks[bi] is not None and not touching:
-                t.look = looks[bi]
+        recent = [ti for ti, t in enumerate(self.tracks) if now - t.last_seen <= self.GAP_S]
+        gap = [ti for ti, t in enumerate(self.tracks) if now - t.last_seen > self.GAP_S]
+        self._match(recent, boxes, looks, now, used_t, used_b)
+        for ti, bi in self._posture_pairs(boxes, looks, used_t, used_b, now):
+            self._take(self.tracks[ti], bi, boxes, looks, now, posture=True)
             used_t.add(ti)
             used_b.add(bi)
+        for ti, bi in self._turn_pairs(boxes, looks, used_t, used_b, now, recent):
+            self._take(self.tracks[ti], bi, boxes, looks, now, turn=True)
+            used_t.add(ti)
+            used_b.add(bi)
+        waiting = [ti for ti in recent if ti not in used_t]
+
+        def explained(ti, bi):                 # the box fits a just-seen, unmatched track better
+            mine = math.dist(_center(self.tracks[ti].box), _center(boxes[bi]))
+            for r in waiting:
+                t = self.tracks[r]
+                d = look_distance(t.look, looks[bi])
+                if d is not None and d > self.REACQ_UNLIKE:
+                    continue
+                theirs = min(math.dist(_center(t.box), _center(boxes[bi])),
+                             math.dist(_center(self._predicted(t, now)), _center(boxes[bi])))
+                if theirs < mine and theirs < max(boxes[bi][3], t.box[3]):
+                    return True
+            return False
+        self._match(gap, boxes, looks, now, used_t, used_b, veto=explained)
         for bi, b in enumerate(boxes):
             if bi not in used_b:
                 self.tracks.append(Track(self._next, b, now, now, look=looks[bi]))
@@ -601,6 +737,74 @@ class Tracker:
             elif was:
                 t.separated_at = now
         return self.confirmed(now)
+
+    # Posture change (2026-10-18): sitting down, crouching, lying on the floor or standing back up
+    # changes the box so much that the overlap with the predicted box can fall under MIN_IOU
+    # (standing 100x250 -> lying 250x100 on the same spot: IoU 0.25) and the body-part colours move
+    # with it - the person got a NEW track and lost their name. The feet stay put, though. A leftover
+    # track (seen within POSTURE_GAP_S) and a leftover box whose bottom-centres are close and that
+    # overlap by the smaller box are the same person - only as a UNIQUE pair (no other leftover box
+    # for that track, no other leftover track for that box) and unless the look clearly says
+    # someone else. Never a choice between two candidates.
+    POSTURE_GAP_S = 1.0
+    POSTURE_FEET = 0.35                # bottom-centres within this x the old box's longer side
+    POSTURE_COVER = 0.3                # intersection / smaller box area
+
+    def _posture_pairs(self, boxes, looks, used_t, used_b, now) -> list[tuple[int, int]]:
+        cand: dict[int, list[int]] = {}
+        for ti, t in enumerate(self.tracks):
+            if ti in used_t or now - t.last_seen > self.POSTURE_GAP_S:
+                continue
+            (fx, fy), reach = _feet(t.box), self.POSTURE_FEET * max(t.box[2], t.box[3])
+            for bi, b in enumerate(boxes):
+                if bi not in used_b and math.dist((fx, fy), _feet(b)) <= reach                         and cover(t.box, b) >= self.POSTURE_COVER:
+                    cand.setdefault(ti, []).append(bi)
+        per_box: dict[int, int] = {}
+        for ti, bs in cand.items():
+            for bi in bs:
+                per_box[bi] = per_box.get(bi, 0) + 1
+        pairs = []
+        for ti, bs in cand.items():
+            # unique by PLACE first (two boxes at one person's feet = ambiguous, whatever they look
+            # like), then the look must not clearly say someone else
+            if len(bs) != 1 or per_box[bs[0]] != 1:
+                continue
+            d = look_distance(self.tracks[ti].look, looks[bs[0]])
+            if d is None or d <= self.REACQ_UNLIKE:
+                pairs.append((ti, bs[0]))
+        return pairs
+
+    # Sharp turn at a run: the constant-speed prediction overshoots and the overlap gate fails for
+    # one frame. A just-seen track and a leftover box, close to where the track WAS or where it was
+    # heading (TURN_REACH x its height), same size class, with a look that positively AGREES
+    # (TURN_LOOK_MAX - stricter than "not clearly someone else") - unique pairs only.
+    TURN_REACH = 0.5
+    TURN_LOOK_MAX = 0.45
+
+    def _turn_pairs(self, boxes, looks, used_t, used_b, now, recent) -> list[tuple[int, int]]:
+        cand: dict[int, list[int]] = {}
+        for ti in recent:
+            if ti in used_t:
+                continue
+            t = self.tracks[ti]
+            pts = (_center(t.box), _center(self._predicted(t, now)))
+            for bi, b in enumerate(boxes):
+                if bi in used_b or not 0.67 <= (b[3] / max(t.box[3], 1.0)) <= 1.5:
+                    continue
+                if min(math.dist(p, _center(b)) for p in pts) <= self.TURN_REACH * max(b[3], t.box[3]):
+                    cand.setdefault(ti, []).append(bi)
+        per_box: dict[int, int] = {}
+        for bs in cand.values():
+            for bi in bs:
+                per_box[bi] = per_box.get(bi, 0) + 1
+        pairs = []
+        for ti, bs in cand.items():
+            if len(bs) != 1 or per_box[bs[0]] != 1:
+                continue
+            d = look_distance(self.tracks[ti].look, looks[bs[0]])
+            if d is not None and d <= self.TURN_LOOK_MAX:
+                pairs.append((ti, bs[0]))
+        return pairs
 
     def _still(self, t: Track) -> bool:
         return math.hypot(*t.vel) < self.STILL_SPEED * max(t.box[3], 1.0)
@@ -738,6 +942,10 @@ class Labeler:
     FACE_REACQUIRE_MAX = 0.22          # stricter than a door name: no door entry backs it up
     MIN_LOOK_H = 80                    # px: a smaller (far / half-hidden) person's look is not judged
     FRESH_S = 1800.0                   # elimination only for names entered / seen within 30 min
+    # 2026-10-15 (owner's two-camera brief): never name by elimination or by place alone - a
+    # guess can land on the wrong person. Unknown until door, face or a clear look says who.
+    ALLOW_ELIMINATION = False
+    HANDBACK_BY_PLACE = False
 
     def __init__(self):
         from identity import IdentityLedger
@@ -745,6 +953,7 @@ class Labeler:
         self.votes: dict[int, list[tuple[str, float]]] = {}
         self.ledger = IdentityLedger()          # evidence, state, confidence per track
         self.events: list = []                  # identity events of the last assign()
+        self._review: list = []                 # decisions for staff to check (PERSON_IDENTITY_REVIEW)
         # Named by face (not entered at the door): who, and when last seen -
         # so they get their name back by their look after the track was lost.
         self.face_named: dict[str, tuple[dict, float]] = {}
@@ -784,15 +993,20 @@ class Labeler:
         self.ledger.face_observation(track_id, label, score, now)
 
     def assign(self, tracks: list[Track], occupants: list[dict], door_rect, now: float,
-               known: Optional[list[dict]] = None):
+               known: Optional[list[dict]] = None, coasting: Optional[list[Track]] = None):
+        """coasting: tracks the tracker still keeps but did not see a moment ago (a seated person missed
+        behind a monitor for a second or two). Their names stay in use: nobody else gets them and they are
+        not reported lost (lab 2026-10-19: each miss logged NAME_LOST, and the desk gave the same name to a
+        second person - NAME_ON_TWO_PEOPLE x24)."""
+        self.coasting = [t for t in (coasting or []) if t.label]
         inside = {o["auth_subject"]: o for o in occupants}
         # A door name whose person left the lab is dropped from its track (a
         # face name stays: the face, not the door, said who it is).
         for t in tracks:
-            if t.label and t.label not in inside and t.source != "face":
+            if t.label and t.label not in inside and t.source not in ("face", "peer"):
                 t.label = t.name = t.role = t.source = t.mismatch = None
                 t.verified = False
-        held = {t.label for t in tracks if t.label}
+        held = self._in_use(tracks)
         for t in tracks:
             if t.label and t.source == "face" and t.label in self.face_named:
                 self.face_named[t.label] = (self.face_named[t.label][0], now)
@@ -802,8 +1016,17 @@ class Labeler:
         for label in list(self.identities):
             if label not in inside and label not in held and label not in self.face_named:
                 del self.identities[label]
+        self._drop_contradicted(tracks)
         self._face(tracks, inside, {k["auth_subject"]: k for k in (known or [])}, now)
 
+        if not hasattr(self, "label_seen"):
+            self.label_seen: dict[str, float] = {}       # name on any track (any source), last time
+            self.label_anchor: dict[str, float] = {}     # name on a track by real evidence (not the desk)
+        for t in list(tracks) + self.coasting:
+            if t.label:
+                self.label_seen[t.label] = now
+                if t.source != "desk":
+                    self.label_anchor[t.label] = now
         self._fix_after_crossing(tracks, inside, now)
         self._hand_back(tracks, inside, now)
 
@@ -816,26 +1039,11 @@ class Labeler:
                                "a new door entry for this person - the one at the desk is someone else")
                     t.label = t.name = t.role = None
                     t.source, t.named_by = None, None
-        taken = {t.label for t in tracks if t.label}
+        taken = self._in_use(tracks)
         free = [o for o in occupants if o["auth_subject"] not in taken]
 
-        # 1) New track in the door area right after an entry: that entrant.
-        for t in sorted(tracks, key=lambda t: t.first_seen):
-            if t.label or not free:
-                continue
-            if not (t.entered_at_door or at_door(t.box, door_rect)):
-                continue
-            first_time = not t.entered_at_door
-            t.entered_at_door = True
-            recent = [o for o in free if abs(t.first_seen - o["entered_at"]) <= self.ENTRY_MATCH_S]
-            if first_time or recent:
-                self._note("DOOR_NEW_PERSON", t.id, None, "entries waiting: "
-                           + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
-                           + ("" if recent else f" - none within {self.ENTRY_MATCH_S:.0f} s, not named"))
-            if recent:
-                o = min(recent, key=lambda o: abs(t.first_seen - o["entered_at"]))
-                self._give(t, o, how="door")
-                free.remove(o)
+        # 1) A person who CAME IN through the door right after an entry: that entrant.
+        self._door_entries(tracks, free, door_rect, now)
 
         # 2) Someone named before, back in view: by their locked look (door
         #    names, and face names not entered yet - those stay on hold).
@@ -896,7 +1104,7 @@ class Labeler:
         fresh = [o for o in free if now - o["entered_at"] <= self.FRESH_S
                  or now - self.seen_at.get(o["auth_subject"], -1e9) <= self.FRESH_S]
         unlabelled = [t for t in tracks if not t.label]
-        if len(free) == 1 and len(fresh) == 1 and len(unlabelled) == 1:
+        if self.ALLOW_ELIMINATION and len(free) == 1 and len(fresh) == 1 and len(unlabelled) == 1:
             self._give(unlabelled[0], fresh[0], how="elimination")
 
         self._one_name_one_person(tracks)
@@ -905,7 +1113,70 @@ class Labeler:
         for t in tracks:
             t.entered = bool(t.label and t.label in inside)
         self._verify(tracks)
-        self.events = self.ledger.update(tracks, now, self._distance, self._agreed)
+        self.events = self.ledger.update(tracks, now, self._distance, self._agreed) + self._review
+        self._review = []
+
+    # Door entries (2026-10-18, owner's two-camera brief: never a name for being near the door at the
+    # right time). A track is the entrant of an entry only when ALL hold:
+    #   * it was AT THE DOOR WHEN FIRST SEEN (came in) - not someone who walked to the door later or
+    #     was already standing there;
+    #   * it was first seen after the entry (ENTRY_PRE_S slack), within ENTRY_MATCH_S;
+    #   * it is ENTRY_SETTLE_S old, so a second person right behind is seen before anyone is named;
+    #   * it is the ONLY such person for the ONLY such entry. Two people in together, or two entries
+    #     at once, cannot be told apart by timing: nobody is named, a review note is written, and the
+    #     face (or staff) decides.
+    ENTRY_PRE_S = 3.0
+    ENTRY_SETTLE_S = 1.5
+
+    def _door_entries(self, tracks: list[Track], free: list[dict], door_rect, now: float):
+        if not hasattr(self, "born_at_door"):
+            self.born_at_door: dict[int, bool] = {}
+            self.ambiguous_noted: set = set()
+        live = {t.id for t in tracks}
+        for tid in [k for k in self.born_at_door if k not in live]:
+            del self.born_at_door[tid]
+        for t in tracks:
+            if t.id not in self.born_at_door:            # first sight decides, once
+                self.born_at_door[t.id] = bool(at_door(t.box, door_rect))
+                if self.born_at_door[t.id]:
+                    t.entered_at_door = True
+        if not free:
+            return
+
+        def fits(t, o):
+            return o["entered_at"] - self.ENTRY_PRE_S <= t.first_seen <= o["entered_at"] + self.ENTRY_MATCH_S
+        cands = [t for t in tracks if not t.label and self.born_at_door.get(t.id)]
+        for t in sorted(cands, key=lambda t: t.first_seen):
+            if t.label:
+                continue
+            mine = [o for o in free if fits(t, o)]
+            if not hasattr(t, "_door_noted"):
+                t._door_noted = True
+                self._note("DOOR_NEW_PERSON", t.id, None, "entries waiting: "
+                           + (", ".join(f"{o['auth_subject']} {t.first_seen - o['entered_at']:+.0f} s" for o in free) or "none")
+                           + ("" if mine else " - none fits (came in before the entry, or too late): not named"))
+            if not mine or now - t.first_seen < self.ENTRY_SETTLE_S:
+                continue
+            rivals = [u for u in cands if u is not t and not u.label and any(fits(u, o) for o in mine)]
+            if len(mine) > 1 or rivals:
+                key = (t.id, tuple(sorted(o["auth_subject"] for o in mine)))
+                if key not in self.ambiguous_noted:
+                    self.ambiguous_noted.add(key)
+                    detail = (f"{1 + len(rivals)} people came in for {len(mine)} entr{'y' if len(mine) == 1 else 'ies'} "
+                              f"({', '.join(o['auth_subject'] for o in mine)}) - timing cannot tell who is who, "
+                              "nobody named by the door; the face or staff decides")
+                    self._note("DOOR_ENTRY_AMBIGUOUS", t.id, None, detail)
+                    self._flag(t.id, None, detail)
+                continue
+            self._give(t, mine[0], how="door")
+            free.remove(mine[0])
+
+    def _flag(self, track_id, label, detail: str):
+        """A decision staff should look at (raised as a PERSON_IDENTITY_REVIEW event by the service)."""
+        from identity import IdentityEvent
+        if not hasattr(self, "_review"):
+            self._review = []
+        self._review.append(IdentityEvent("PERSON_IDENTITY_REVIEW", track_id, label, detail))
 
     def _face(self, tracks: list[Track], inside: dict, known: dict, now: float):
         live = {t.id for t in tracks}
@@ -915,7 +1186,7 @@ class Labeler:
                 del self.votes[tid]
             else:
                 self.votes[tid] = recent
-        taken = {t.label for t in tracks if t.label}
+        taken = self._in_use(tracks)
         for t in tracks:
             label = self._agreed(t)
             if t.label or label is None:
@@ -928,7 +1199,28 @@ class Labeler:
             if label not in inside:
                 self.face_named[label] = (who, now)
 
-    HANDBACK_S = 20.0                  # a lost named track's name waits this long at its place
+    def _drop_contradicted(self, tracks: list[Track]):
+        """A name only CARRIED OVER to this track - from the other camera (peer) or the desk - is dropped when this
+        camera's own face matches (FACE_VOTES agreeing) clearly say someone else, while the person touches nobody
+        (lab 2026-10-19 19:05: Nour's name, rightly handed to camera 2, stayed on that track through a crossing in
+        which it went onto Ali - the face said USER1 and the name stayed). The face then names the person by the
+        normal rule (_face). A door name is never dropped this way: its mismatch flag stays (card sharing?)."""
+        for t in tracks:
+            if not t.label or t.source not in ("peer", "desk") or t.crowded:
+                continue
+            face = self._agreed(t)
+            if face is not None and face != t.label:
+                self._note("NAME_DROPPED_FACE_DISAGREES", t.id, t.label,
+                           f"name carried over ({t.source}); this camera's face matches say {face}")
+                t.label = t.name = t.role = t.source = None
+                t.named_by, t.verified, t.entered = None, False, False
+
+    def _in_use(self, tracks: list[Track]) -> set:
+        """Names on a track in view, or on one the tracker still keeps for a moment (coasting)."""
+        return {t.label for t in tracks if t.label} | {t.label for t in getattr(self, "coasting", []) if t.label}
+
+    HANDBACK_S = 20.0                  # a lost named track's name waits this long (from when it was last seen)
+    WALK_PREDICT_S = 4.0               # a walking person's lost name is looked for this far along their path
 
     def _hand_back(self, tracks: list[Track], inside: dict, now: float):
         """Same place, moments later: a person sitting behind monitors keeps
@@ -939,14 +1231,22 @@ class Labeler:
             self.lost: dict[int, tuple] = {}         # track id -> (box, who, source, lost at)
             self.last_named: dict[int, tuple] = {}
         live = {t.id: t for t in tracks}
+        coast = {t.id for t in getattr(self, "coasting", [])}     # not seen a moment ago, but still tracked
+        if not hasattr(self, "last_seen_at"):
+            self.last_seen_at: dict[int, float] = {}  # track id -> when a named track was last seen
+        if not hasattr(self, "lost_vel"):
+            self.lost_vel: dict[int, tuple] = {}     # track id -> speed (px/s) when last seen
+            self.last_vel: dict[int, tuple] = {}
         if not hasattr(self, "lost_why"):
             self.lost_why: dict[int, str] = {}       # why the name is not handed back yet (log)
         for tid in [k for k in self.lost if k in live]:   # back under its own id (tracker kept it): not lost
             del self.lost[tid]
+            self.lost_vel.pop(tid, None)
             self.lost_why.pop(tid, None)
         for tid, rec in list(self.last_named.items()):
-            if tid not in live:
-                self.lost[tid] = (*rec, now)
+            if tid not in live and tid not in coast:          # the tracker let it go: really lost
+                self.lost[tid] = (*rec, self.last_seen_at.pop(tid, now))
+                self.lost_vel[tid] = self.last_vel.pop(tid, (0.0, 0.0))
                 del self.last_named[tid]
                 self._note("NAME_LOST", tid, rec[1]["auth_subject"],
                            f"track ended - waiting up to {self.HANDBACK_S:.0f} s to hand the name back")
@@ -954,17 +1254,37 @@ class Labeler:
             self._note("NAME_NOT_HANDED_BACK", tid, self.lost[tid][1]["auth_subject"],
                        f"{self.lost_why.pop(tid, 'no new person appeared there')} - the face must name them again")
             del self.lost[tid]
-        held = {t.label for t in tracks if t.label}
+            self.lost_vel.pop(tid, None)
+        held = self._in_use(tracks)
         claims: dict[int, list] = {}
         for tid, (box, who, source, at) in self.lost.items():
             label = who["auth_subject"]
             if label in held or (source == "door" and label not in inside):
                 continue
-            cx, cy = _center(box)
-            reach = 0.6 * max(box[2], box[3])
-            placed = [t for t in tracks if not t.label and t.first_seen >= at - 1.0
-                      and math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
-                      and 0.5 <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= 2.0]
+            vel = self.lost_vel.get(tid, (0.0, 0.0))
+            walking = math.hypot(*vel) > Tracker.STILL_SPEED * max(box[3], 1.0)
+
+            def fits(t, box=box, at=at, vel=vel, walking=walking):
+                # A walking person lost mid-stride reappears further along their path, not at the
+                # spot (lab 2026-10-19: Nour named by the door, track broke 2.4 s later, the new
+                # track started a step ahead -> "no new person at that place" -> Unknown). The look
+                # must still agree (below) - this only widens WHERE a candidate may start.
+                cx, cy = _center(box)
+                reach = 0.6 * max(box[2], box[3])
+                lo, hi = 0.5, 2.0
+                if walking:
+                    # anywhere along the path the walk would have taken them by now (they may have
+                    # stopped on the way): distance to that segment, not to the spot
+                    dt = min(max(now - at, 0.0), self.WALK_PREDICT_S)
+                    sx, sy = vel[0] * dt, vel[1] * dt
+                    qx, qy = t.center()
+                    u = max(0.0, min(1.0, ((qx - cx) * sx + (qy - cy) * sy) / max(sx * sx + sy * sy, 1e-9)))
+                    cx, cy = cx + u * sx, cy + u * sy
+                    reach += 0.25 * math.hypot(sx, sy)
+                    lo, hi = 0.33, 3.0                 # walking towards / away from the camera
+                return (math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
+                        and lo <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= hi)
+            placed = [t for t in tracks if not t.label and t.first_seen >= at - 1.0 and fits(t)]
             near = apart = [t for t in placed if not t.crowded]
             # Big enough to judge the look: the look must agree too (someone
             # else walking through that place is not them).
@@ -973,7 +1293,7 @@ class Labeler:
             # Too small to judge (a head behind a monitor): by place only within
             # HANDBACK_SMALL_S; anything bigger needs the look too.
             near = [t for t in near if
-                    (t.box[3] < self.MIN_LOOK_H and now - at <= self.HANDBACK_SMALL_S) or
+                    (self.HANDBACK_BY_PLACE and t.box[3] < self.MIN_LOOK_H and now - at <= self.HANDBACK_SMALL_S) or
                     ((d := self._distance(t, label)) is not None and d <= self.REACQUIRE_MAX)]
             # Sitting side by side touches the neighbour the whole time, so the person never
             # became "apart" and the name expired (lab 2026-10-14: Ali next to Nour). If the ONLY
@@ -997,12 +1317,19 @@ class Labeler:
             self._give(live[t_id], who, source, how="place")
             held.add(who["auth_subject"])
             del self.lost[tid]
+            self.lost_vel.pop(tid, None)
         for t in tracks:
             if t.label:
+                self.last_vel[t.id] = t.vel
+                self.last_seen_at[t.id] = t.last_seen
                 self.last_named[t.id] = (t.box, {"auth_subject": t.label, "name": t.name, "role": t.role},
                                          t.source)
             else:
                 self.last_named.pop(t.id, None)
+                self.last_seen_at.pop(t.id, None)
+
+    DESK_CHAIN_GAP_S = 120.0           # the desk may re-name its owner whose name was on a track this recently...
+    DESK_FRESH_S = 600.0               # ...or who entered / was recognised / was named by real evidence this recently
 
     def home_desk(self, tracks: list[Track], desks: dict, zones_px: dict, occupants: list[dict],
                   known: dict, now: float, standing_ratio: float = 2.2):
@@ -1010,7 +1337,7 @@ class Labeler:
         already knows they are in the lab (door entry, or their face recognised), and only if
         exactly one unnamed, seated person is at that desk. desks: {"USER5": ["PC-09", "PC-10"]};
         zones_px: zone name -> (x, y, w, h) in frame pixels."""
-        taken = {t.label for t in tracks if t.label}
+        taken = self._in_use(tracks)
         inside = {o["auth_subject"]: o for o in occupants}
         for label, names in desks.items():
             if label in taken:
@@ -1018,6 +1345,25 @@ class Labeler:
             who = inside.get(label) or (self.face_named.get(label) or (None,))[0]
             if who is None:
                 continue                                  # not known to be in the lab: no naming by desk
+            # The desk alone never names anyone (lab 2026-10-19: in 4 episodes - 16:14, 16:15, 17:02, 18:36 -
+            # whoever sat at PC-09/PC-10 got Hemaly's name from a door entry hours old, while camera 2's face
+            # match said USER1; CROSSCAM_CONFLICT x243, NAME_ON_TWO_PEOPLE x24). It only CONTINUES evidence:
+            #  * the name was on a track moments ago (DESK_CHAIN_GAP_S: a seated person's track breaks behind
+            #    the monitors and comes back as a new one), or
+            #  * the door, the face or another camera placed them in the lab within DESK_FRESH_S.
+            last_on = getattr(self, "label_seen", {}).get(label, -1e9)
+            anchor = max(float((inside.get(label) or {}).get("entered_at") or 0.0),
+                         (self.face_named.get(label) or (None, -1e9))[1],
+                         getattr(self, "label_anchor", {}).get(label, -1e9))
+            if now - last_on > self.DESK_CHAIN_GAP_S and now - anchor > self.DESK_FRESH_S:
+                noted = getattr(self, "_desk_unused_noted", {})
+                if now - noted.get(label, -1e9) > 300:
+                    self._desk_unused_noted = {**noted, label: now}
+                    via = "door" if label in inside else "face"
+                    ago = min(now - last_on, now - anchor) / 60
+                    self._note("DESK_NOT_USED", None, label,
+                               f"in the lab per the {via}, but last seen {ago:.0f} min ago - the desk alone names nobody")
+                continue
             rects = [zones_px[n] for n in names if n in zones_px]
             def at_desk(b, r):
                 # Not mere 2D overlap: a person in FRONT overlaps a desk further back (lab 2026-10-14:
@@ -1115,6 +1461,8 @@ class Labeler:
                 said = self._agreed(t)
                 if said is not None and said != label:
                     return None                  # their own face says someone else
+                if not upright(t.box):
+                    return None                  # crouching / lying: the look is not comparable
                 d = look_distance(t.look, self.identities[label].look)
                 if d is None:
                     return None
@@ -1131,11 +1479,18 @@ class Labeler:
                 best, best_cost = chosen, c
         if best is None:
             return
+        before = {t.id: t.label for t in group if t.label in labels}
         for t in group:
             if t.label in labels:
                 t.label = t.name = t.role = None
         for t, label in zip(best, labels):
             self._give(t, who[label], source="door" if label in inside else "face", how="crossing")
+        moved = any(before.get(t.id) != label for t, label in zip(best, labels))
+        detail = ("after people touched, the names went back to the looks they belong to: "
+                  + ", ".join(f"{label} -> track {t.id}" for t, label in zip(best, labels) if before.get(t.id) != label))
+        if moved:
+            self._note("NAMES_SWAPPED_AFTER_CROSSING", best[0].id, None, detail)
+            self._flag(best[0].id, None, detail + " (look evidence only - please check)")
 
     VETO_AT = 0.65                     # this unlike the locked look ...
     VETO_CHECKS = 12                   # ... this many checks in a row (~3 s) = not them: name dropped
@@ -1159,8 +1514,10 @@ class Labeler:
             keep = min(ts, key=rank)
             for t in ts:
                 if t is not keep:
-                    print(f"[identity] {t.name} was on two people - kept on track {keep.id}, "
-                          f"track {t.id} is Unknown")
+                    detail = (f"{t.name} was on two people at once - kept on track {keep.id} (closer to the "
+                              f"locked look / older), track {t.id} is Unknown")
+                    self._note("NAME_ON_TWO_PEOPLE", keep.id, label, detail)
+                    self._flag(keep.id, label, detail)
                     t.label = t.name = t.role = None
 
     def _veto(self, tracks: list[Track]):
@@ -1169,7 +1526,7 @@ class Labeler:
         if not hasattr(self, "_unlike"):
             self._unlike: dict[int, int] = {}
         for t in tracks:
-            if not t.label or t.crowded or t.look is None or t.box[3] < self.VETO_MIN_H:
+            if not t.label or t.crowded or t.look is None or t.box[3] < self.VETO_MIN_H or not upright(t.box):
                 continue
             d = self._distance(t, t.label)
             if d is None or d <= self.VETO_AT:
@@ -1185,8 +1542,8 @@ class Labeler:
 
     def _learn(self, tracks: list[Track]):
         for t in tracks:
-            if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H:
-                continue                   # a tiny / half-hidden view would blur the locked look
+            if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H or not upright(t.box):
+                continue                   # a tiny / half-hidden / crouching view would blur the locked look
             # Clearly alone (2026-10-12 root cause #7): nobody within a body width,
             # and not touching anyone in the last second.
             if t.last_seen - getattr(t, "crowded_at", -1e9) < 1.0 or any(
@@ -1354,7 +1711,7 @@ class ZoneWatcher:
             if patch is None:
                 continue
             if z.get("alert_on_motion", True) is False:
-                st.home, st.home_score = self.home_state(z, patch)
+                st.home, st.home_score = self.home_state(z, patch, covered_share(rect, person_rects_norm))
             if z.get("alert_on_motion", True) is False:   # a robot: its working area around it
                 g = self.ROBOT_WORK_AREA
                 area = (rect[0] - g * rect[2], rect[1] - g * rect[3], rect[2] * (1 + 2 * g), rect[3] * (1 + 2 * g))
@@ -1431,12 +1788,15 @@ class ZoneWatcher:
             out.append(st)
         return out
 
-    def save_home(self, zones: list[dict], gray: np.ndarray) -> list[str]:
-        """The robot boxes' look NOW becomes their HOME look (robots at HOME)."""
+    def save_home(self, zones: list[dict], gray: np.ndarray, only: Optional[str] = None) -> list[str]:
+        """The robot boxes' look NOW becomes their HOME look (robots at HOME). `only`: just the robot
+        box with that name (any case) - the others keep their saved HOME."""
         saved = []
         for z in zones:
             if z.get("alert_on_motion", True) is not False:
                 continue                       # PCs have no HOME
+            if only and z["name"].lower() != only.lower():
+                continue
             rect = (z["x"], z["y"], z["w"], z["h"])
             patch = self._patch(gray, rect)
             if patch is not None:
@@ -1444,7 +1804,9 @@ class ZoneWatcher:
                 saved.append(z["name"])
         return saved
 
-    def home_state(self, z: dict, patch) -> tuple[str, float]:
+    HOME_HIDDEN_SHARE = 0.15           # people cover this much of a robot box: the HOME look cannot be judged
+
+    def home_state(self, z: dict, patch, covered: float = 0.0) -> tuple[str, float]:
         got = self.home.get(z["id"])
         if got is None:
             return "NOT_SET", 0.0
@@ -1453,6 +1815,10 @@ class ZoneWatcher:
         if now_rect != rect or patch is None or ref.shape != patch.shape:
             return "RESAVE", 0.0               # the box moved or was redrawn: HOME must be saved again
         score = round(self._difference(ref, patch), 3)
+        # A person in front of the robot changes the box too (lab 2026-10-19: the owner standing behind the
+        # FANUC cell made camera 1 say "away from home"). Covered enough: neither AT_HOME nor AWAY is proven.
+        if covered >= self.HOME_HIDDEN_SHARE:
+            return "HIDDEN", score
         return ("AT_HOME" if score <= self.HOME_AT else "AWAY"), score
 
     def accept(self, zone_id: int):
@@ -1537,66 +1903,121 @@ class DoorWatcher:
         return self.is_open
 
 
+def zone_tags(zones: list[dict], states: dict, w: int, h: int, placed: list) -> list[dict]:
+    """Where each equipment box's label goes (lab 2026-10-19: eleven PC boxes side by side drew "PC-PC-10 ok").
+
+    A label sits just under its own box; when that spot is taken (another label, or a name tag already in
+    `placed`) it goes to the nearest free spot below, else above the box, inside the picture, and is marked
+    `moved` so a thin line can join it to its box. Problems (changed, in use, moving) are placed first, so
+    they keep the spot right under their box; a box that is simply OK shows only its name (the grey colour
+    says OK). Extends `placed`."""
+    order = {"OK": 2, "LEARNING": 1}
+    items = []
+    for z in zones:
+        st = states.get(z["id"])
+        status = st.status if st else "LEARNING"
+        text = z["name"] if status == "OK" else f'{z["name"]} {ZONE_WORDS.get(status, status.lower())}'
+        home = getattr(st, "home", None)
+        if home in ("AT_HOME", "AWAY", "HIDDEN") and status in ("OK", "MOTION"):
+            text += {"AT_HOME": " - home", "AWAY": " - away from home", "HIDDEN": " - home hidden by a person"}[home]
+        if z.get("robot_state") == "MOVING" and status != "IN_USE":
+            text, status = f'{z["name"]} moving (robot data)', "MOTION"   # the controller says so (portal config)
+        items.append((order.get(status, 0), z["x"], z, status, text))
+    out = []
+    for _, _, z, status, text in sorted(items, key=lambda it: (it[0], it[1])):
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        rw, rh = tw + 8, th + 6
+        bx, top, bottom = int(z["x"] * w), int(z["y"] * h), int((z["y"] + z["h"]) * h)
+        x = max(0, min(bx, w - rw))
+        free = lambda y0: y0 - rh >= 0 and y0 <= h and not any(
+            x < px + pw and px < x + rw and y0 - rh < py and py - ph < y0 for px, py, pw, ph in placed)
+        home_y = min(h, bottom + rh)
+        below = range(home_y, h + 1, rh + 2)
+        above = range(top - 2, rh - 1, -(rh + 2))
+        y0 = next((y for y in (*below, *above) if free(y)), home_y)
+        placed.append((x, y0, rw, rh))
+        out.append({"zone": z["id"], "text": text, "x": x, "y": y0, "w": rw, "h": rh,
+                    "color": ZONE_COLORS.get(status, (160, 160, 160)), "moved": y0 != home_y or x != bx,
+                    "anchor": (int((z["x"] + z["w"] / 2) * w), bottom if y0 > bottom else top)})
+    return out
+
+
 def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_norm=None,
          door_open: Optional[bool] = None):
     h, w = frame.shape[:2]
     for z in zones:
         st = states.get(z["id"])
-        status = st.status if st else "LEARNING"
-        c = ZONE_COLORS.get(status, (160, 160, 160))
-        x, y = int(z["x"] * w), int(z["y"] * h)
-        cv2.rectangle(frame, (x, y), (int((z["x"] + z["w"]) * w), int((z["y"] + z["h"]) * h)), c, 2)
-        # Box labels sit at the bottom so they never hide a person's name tag.
-        word = ZONE_WORDS.get(status, status.lower())
-        if st is not None and st.home in ("AT_HOME", "AWAY") and status in ("OK", "MOTION"):
-            word += " - home" if st.home == "AT_HOME" else " - away from home"
-        _tag(frame, f'{z["name"]} {word}', x,
-             int((z["y"] + z["h"]) * h) + 18, c)
+        c = ZONE_COLORS.get(st.status if st else "LEARNING", (160, 160, 160))
+        cv2.rectangle(frame, (int(z["x"] * w), int(z["y"] * h)),
+                      (int((z["x"] + z["w"]) * w), int((z["y"] + z["h"]) * h)), c, 2)
     if door_rect_norm:
         x, y = int(door_rect_norm[0] * w), int(door_rect_norm[1] * h)
         cv2.rectangle(frame, (x, y), (int((door_rect_norm[0] + door_rect_norm[2]) * w),
                                       int((door_rect_norm[1] + door_rect_norm[3]) * h)), (200, 200, 200), 1)
-        word = {True: "door OPEN", False: "door closed"}.get(door_open, "door")
-        _tag(frame, word, x, y, (0, 165, 255) if door_open else (200, 200, 200))
-    # Name tags never cover each other: people sitting side by side had the neighbour's
-    # "Unknown" drawn over a name (lab 2026-10-14). Named people are drawn last (on top) and
-    # each tag moves up (or below the box) until it is clear of the tags already placed.
+    # No tag covers another (lab 2026-10-14: a neighbour's "Unknown" over a name; 2026-10-19: PC labels over
+    # each other). People's name tags are placed first and drawn last (on top); the door and the equipment
+    # labels then take the free spots around them.
     placed: list[tuple] = []
+    people = []
     for t in sorted(tracks, key=lambda t: bool(t.label)):
         c = MISMATCH if t.mismatch else ON_HOLD if t.label and not t.entered \
             else COLORS.get(t.role if t.label else None, COLORS[None])
         x, y, bw, bh = (int(v) for v in t.box)
+        label = _person_label(t)
+        people.append((t, c, label, _place_clear(w, h, label, x, y, y + bh, placed)))
+    if door_rect_norm:
+        x, y = int(door_rect_norm[0] * w), int(door_rect_norm[1] * h)
+        word = {True: "door OPEN", False: "door closed"}.get(door_open, "door")
+        dx, dy = _place_clear(w, h, word, x, y, y + int(door_rect_norm[3] * h), placed)
+        _tag(frame, word, dx, dy, (0, 165, 255) if door_open else (200, 200, 200))
+    for tag in zone_tags(zones, states, w, h, placed):
+        if tag["moved"]:
+            cv2.line(frame, tag["anchor"], (tag["x"] + 4, tag["y"] - (tag["h"] if tag["y"] > tag["anchor"][1] else 0)),
+                     tag["color"], 1, cv2.LINE_AA)
+        _tag(frame, tag["text"], tag["x"], tag["y"], tag["color"])
+    for t, c, label, (tx, ty) in people:
+        x, y, bw, bh = (int(v) for v in t.box)
         cv2.rectangle(frame, (x, y), (x + bw, y + bh), c, 2)
-        if t.label:
-            role = ROLE_NAMES.get(t.role, "")
-            label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
-            if t.source == "desk":
-                # Owner 2026-10-14: a desk alone never confirms a name - shown as a guess until the
-                # face or a door entry confirms it.
-                label += " ? (desk)"
-            elif t.mismatch:
-                label += f" - face says {t.mismatch}"
-            elif not t.entered:
-                label += " - not entered"
-            elif t.verified:
-                label += " - verified"
-            # How sure (identity.py): shown, never hidden for a cleaner picture.
-            st = t.identity_state
-            if st == "IDENTITY_CONFLICT":
-                label += " - IDENTITY CONFLICT"
-            elif st == "IDENTITY_UNCERTAIN":
-                label += f" ? {t.identity_confidence:.0%}"
-            elif t.identity_confidence:
-                label += f" {t.identity_confidence:.0%}"
-        else:
-            label = "Unknown"
-        _tag_clear(frame, label, x, y, y + bh, MISMATCH if t.identity_state == "IDENTITY_CONFLICT" else c, placed)
+        _tag(frame, label, tx, ty, MISMATCH if t.identity_state == "IDENTITY_CONFLICT" else c)
     return frame
+
+
+def _person_label(t) -> str:
+    if not t.label:
+        return "Unknown"
+    role = ROLE_NAMES.get(t.role, "")
+    label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
+    if t.source == "desk":
+        # Owner 2026-10-14: a desk alone never confirms a name - shown as a guess until the
+        # face or a door entry confirms it.
+        label += " ? (desk)"
+    elif t.mismatch:
+        label += f" - face says {t.mismatch}"
+    elif not t.entered:
+        label += " - not entered"
+    elif t.verified:
+        label += " - verified"
+    # How sure (identity.py): shown, never hidden for a cleaner picture.
+    st = t.identity_state
+    if st == "IDENTITY_CONFLICT":
+        label += " - IDENTITY CONFLICT"
+    elif st == "IDENTITY_UNCERTAIN":
+        label += f" ? {t.identity_confidence:.0%}"
+    elif t.identity_confidence:
+        label += f" {t.identity_confidence:.0%}"
+    return label
 
 
 def _tag_clear(frame, text, x, y_top, y_bottom, color, placed: list) -> tuple:
     """A person's tag above the box, kept inside the picture and off the tags in `placed`."""
-    h, w = frame.shape[:2]
+    x, y0 = _place_clear(frame.shape[1], frame.shape[0], text, x, y_top, y_bottom, placed)
+    _tag(frame, text, x, y0, color)
+    return x, y0
+
+
+def _place_clear(w, h, text, x, y_top, y_bottom, placed: list) -> tuple:
+    """Where `_tag_clear` puts a tag (nothing drawn): above the box, moved up over the tags already in
+    `placed`, else under the box. Extends `placed`."""
     (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
     rw, rh = tw + 8, th + 6
     x = max(0, min(x, w - rw))                                     # long names stay in the picture
@@ -1608,7 +2029,6 @@ def _tag_clear(frame, text, x, y_top, y_bottom, color, placed: list) -> tuple:
         y0 = min(h, y_bottom + rh)
         while hit(y0) and y0 < h:
             y0 += rh + 2
-    _tag(frame, text, x, y0, color)
     placed.append((x, y0, rw, rh))
     return x, y0
 

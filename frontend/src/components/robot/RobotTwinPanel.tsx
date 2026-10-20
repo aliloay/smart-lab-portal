@@ -7,7 +7,9 @@
  *            study the arm. Nothing is ever sent to a robot - this is drawing only,
  *            and the panel says PREVIEW so it is never mistaken for the robot.
  */
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import Replay, { ReplayFrame } from './Replay'
+import RobotControlPanel from './RobotControlPanel'
+import { Suspense, lazy, useEffect, useMemo, useState, memo } from 'react'
 import WorkcellEditor from './WorkcellEditor'
 import { Workcell, collisions, defaultWorkcell, tableBox } from './workcell'
 import { Link } from 'react-router-dom'
@@ -18,9 +20,20 @@ import { relative } from '../../lib/time'
 import { Skeleton } from '../ui'
 import { MODELS, RobotModel } from './kinematics'
 import { effective, useRobots } from './robotLive'
-import { urdfFor } from './robotModels'
+import { FANUC_CELL, tipPosition, urdfFor } from './robotModels'
 
-const RobotTwin = lazy(() => import('./RobotTwin'))
+const loadTwin = () => import('./RobotTwin')
+const RobotTwin = lazy(loadTwin)
+
+/** The 3D code starts downloading as soon as this panel's code loads (it used to wait for the panel to
+ *  mount). Preloading the meshes as well was measured (2026-10-19) to add duplicate requests without
+ *  making the twins appear sooner - the cost is parsing ~12 MB of detailed meshes, not the download. */
+let warmed = false
+function warmTwins() {
+  if (warmed) return
+  warmed = true
+  loadTwin().catch(() => {})
+}
 const JOINTS = ['J1 Base', 'J2 Shoulder', 'J3 Elbow', 'J4 Wrist 1', 'J5 Wrist 2', 'J6 Wrist 3']
 const DEG = 180 / Math.PI
 
@@ -33,7 +46,7 @@ export default function RobotTwinPanels() {
   // One panel per physical robot model; its live record when one reports.
   const panels = (['UR5E', 'FANUC'] as const).map(key => {
     const model = MODELS[key]
-    const rs = (robots ?? []).filter(r => (r.model || '').toUpperCase().includes(key === 'UR5E' ? 'UR5' : 'FANUC'))
+    const rs = (robots ?? []).filter(r => `${r.model || ''} ${r.device_uid}`.toUpperCase().includes(key === 'UR5E' ? 'UR5' : 'FANUC'))
     const real = rs.find(r => !r.demo) ?? null
     return { key, model, real, sim: rs.find(r => r.demo) ?? null }
   })
@@ -64,7 +77,7 @@ function LabPcs() {
   const [cams, setCams] = useState<SecurityCamera[] | null>(null)
   useEffect(() => {
     const load = () => api.securityCameras().then(setCams).catch(() => setCams([]))
-    load(); const t = window.setInterval(load, 3000); return () => window.clearInterval(t)
+    load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
   }, [])
   const zones = (cams ?? []).flatMap(c => c.zones ?? [])
   const names = Array.from({ length: 11 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
@@ -99,18 +112,102 @@ function LabPcs() {
     </div>)
 }
 
-function Panel({ model, robot, onFull, big }: {
+/** Named UR5e poses from the robot team's ROS 2 files (2026-10-16) - REFERENCE ONLY: shown in the
+ *  twin, never sent. LAB_SEED = dynamic_scenario.py:261 (real lab runs since 2026-10-12), PLACE_SEED =
+ *  pick_place.py:48. Owner 2026-10-16: show only Home, confirmed correct. */
+/** Verified UR5e Home, read off the teach pendant (owner, 2026-10-17) - the same pose the backend homes to. */
+const UR_HOME_DEG = [-15.00, -126.00, 117.03, -80.00, 91.00, 95.27]
+const UR_POSES: { key: string; label: string; q: number[]; note: string }[] = [
+  { key: 'home', label: 'Home', q: UR_HOME_DEG.map(v => v * Math.PI / 180), note: 'verified Home from the teach pendant (2026-10-17): -15.00, -126.00, 117.03, -80.00, 91.00, 95.27 deg' },
+]
+
+/** Who is driving the UR5e, as the controller reports it (read-only; see tools/robot_monitor/control_source.py). */
+const SOURCE_LABEL: Record<string, [string, string]> = {
+  HAND_GUIDING: ['Hand guiding', 'text-amber-300 border-amber-400/50'],
+  PENDANT: ['Teach pendant', 'text-sky-300 border-sky-400/50'],
+  REMOTE_PROGRAM: ['Network - program', 'text-violet-300 border-violet-400/50'],
+  REMOTE_DIRECT: ['Network - direct commands', 'text-violet-300 border-violet-400/50'],
+  IDLE: ['Idle', 'text-slate-300 border-ink-600'],
+  UNKNOWN: ['Unknown', 'text-slate-400 border-ink-600'],
+}
+/** A security camera sees a person at this robot (its box on any camera is IN_USE) - polled every 5 s. */
+function usePersonAt(robotName: string): boolean {
+  const [at, setAt] = useState(false)
+  useEffect(() => {
+    const key = robotName.toLowerCase().startsWith('ur5') ? 'ur5' : robotName.toLowerCase().includes('fanuc') ? 'fanuc' : robotName.toLowerCase()
+    let alive = true
+    const load = () => api.securityCameras().then(cams => {
+      if (alive) setAt(cams.some(c => (c.zones ?? []).some(z => z.status === 'IN_USE' && String(z.name).toLowerCase().startsWith(key))))
+    }).catch(() => {})
+    load()
+    const t = window.setInterval(load, 5000)
+    return () => { alive = false; window.clearInterval(t) }
+  }, [robotName])
+  return at
+}
+
+/** Owner 2026-10-19: one line saying who moves the robot - the controller's own report (pendant / network) plus
+ *  the cameras (a person at the robot). Read-only. */
+function ActivityLine({ robot, code }: { robot: Robot & { stale: boolean }; code: string | null }) {
+  const person = usePersonAt(robot.model || robot.name)
+  const moving = !robot.stale && robot.state === 'MOVING'
+  const by = code === 'PENDANT' ? 'by teach pendant' : code === 'HAND_GUIDING' ? 'by hand guiding'
+    : code?.startsWith('REMOTE') ? 'by network command' : null
+  const [text, cls] = moving
+    ? [`Moving${by ? ` - ${by}` : ''}${person ? ' - person at the robot' : ''}`, 'text-amber-200 border-amber-400/60 bg-amber-500/10']
+    : person ? ['Still - person at the robot', 'text-sky-200 border-sky-400/50 bg-sky-500/10']
+      : [robot.stale ? 'No live data' : 'Still - nobody at the robot', 'text-slate-300 border-ink-600']
+  return <span className={`px-2 py-0.5 rounded-md border font-medium ${cls}`}>{text}</span>
+}
+
+function SourceLine({ robot }: { robot: Robot & { stale: boolean } }) {
+  const code = robot.stale ? null : String(robot.extra?.control_source ?? '') || null
+  const [label, cls] = code && SOURCE_LABEL[code] ? SOURCE_LABEL[code] : ['Not reported', 'text-slate-500 border-ink-600']
+  return <div className="px-4 pt-3 flex flex-wrap items-center gap-2 text-[12px]">
+    <ActivityLine robot={robot} code={code} />
+    <span className="text-slate-400">Driven from:</span>
+    <span className={`px-2 py-0.5 rounded-md border ${cls}`}>{label}</span>
+    {code && robot.extra?.control_detail && <span className="text-slate-500">{String(robot.extra.control_detail)}</span>}
+    {!code && <span className="text-slate-500">{robot.stale ? 'no live telemetry' : 'collector without Dashboard access'}</span>}
+  </div>
+}
+
+/** Re-render a twin panel only when what it shows changes - the page clock ticks every second and
+ *  re-rendering both 3D panels + their replay lists every tick made the tab sluggish. */
+const samePanel = (a: PanelProps, b: PanelProps) => a.model.key === b.model.key && a.big === b.big &&
+  a.robot?.state === b.robot?.state && a.robot?.stale === b.robot?.stale && a.robot?.device_id === b.robot?.device_id &&
+  (a.robot?.q ?? []).join() === (b.robot?.q ?? []).join() && a.robot?.last_seen_at === b.robot?.last_seen_at &&
+  JSON.stringify(a.robot?.extra ?? null) === JSON.stringify(b.robot?.extra ?? null)
+type PanelProps = { model: RobotModel; robot: (Robot & { stale: boolean }) | null; onFull?: () => void; big?: boolean }
+const Panel = memo(PanelInner, samePanel)
+function PanelInner({ model, robot, onFull, big }: {
   model: RobotModel; robot: (Robot & { stale: boolean }) | null; onFull?: () => void; big?: boolean
 }) {
   const [grip, setGrip] = useState(0)
+  // Starting a 3D view blocks the browser ~0.5 s. Opening the tab used to start both at once, before
+  // the page had even asked for its data (2026-10-19); now the page and data come first, then the
+  // 3D views one after another while the browser is idle. The full view starts at once.
+  const [mount3d, setMount3d] = useState(!!big)
+  useEffect(() => {
+    warmTwins()
+    if (mount3d) return
+    const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback
+    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 1500 }) : setMount3d(true),
+                                model.key === 'FANUC' ? 250 : 0)   // meshes now preloaded: shorter waits
+    return () => window.clearTimeout(t)
+  }, [mount3d, model.key])
   const live = !!robot && !robot.stale && !!robot.q && robot.q.length === 6
   // Each robot's own home pose: UR5e upright (J2, J4 at -90 deg); FANUC all joints 0 with the
   // wrist J5 at -90 deg (the usual FANUC home - the lab's taught HOME may differ slightly).
-  const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : [0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0]
+  const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : UR_HOME_DEG.map(v => v * Math.PI / 180)
   const [pose, setPose] = useState<number[]>(homePose)
-  const q = live ? robot!.q! : pose
+  const [ref, setRef] = useState<string | null>(null)
+  const refPose = model.key === 'UR5E' ? UR_POSES.find(p => p.key === ref) ?? null : null
+  // Recorded movements of this robot, replayed in the twin (its own joint values, 10/s).
+  const [replay, setReplay] = useState<ReplayFrame | null>(null)
+  const q = replay ? replay.q : live ? robot!.q! : pose
   const urdf = urdfFor(model.key)
-  const moving = live ? robot!.joints_moving ?? null : null
+  const moving = !replay && live ? robot!.joints_moving ?? null : null
   const limits = useMemo(() => model.limitsDeg, [model])
   const wkey = model.key === 'FANUC' ? 'FANUC' : 'UR5E'
   // Shared by the card and its full view (same robot), kept while the page is open.
@@ -124,25 +221,9 @@ function Panel({ model, robot, onFull, big }: {
   const shown = useMemo(() => wkey === 'FANUC' && cell.table?.present
     ? { ...cell, obstacles: [...cell.obstacles, tableBox(cell.table)] } : cell, [cell, wkey])
 
-  return (
-    <div className={`card overflow-hidden ${big ? 'lg:grid lg:grid-cols-[1fr_380px] lg:items-start [&>*:first-child]:col-span-full [&>*:nth-child(n+4)]:col-span-full' : ''}`}>
-      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-ink-700/60">
-        <Bot size={16} className="text-accent-300" />
-        <span className="font-semibold text-white">{model.key === 'UR5E' ? 'UR5e' : 'FANUC'}</span>
-        <span className="text-[12px] text-slate-400">{urdf.label}</span>
-        <span className={`ml-auto rounded-md px-2 py-0.5 text-[11.5px] font-semibold border ${live
-          ? 'border-ok/50 bg-ok/15 text-ok-soft' : 'border-violet-400/50 bg-violet-500/15 text-violet-200'}`}>
-          {live ? 'LIVE · physical robot' : 'PREVIEW · not the robot'}</span>
-      </div>
-      <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
-        <RobotTwin model={model} q={q} moving={moving} compact={!big} workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[82vh]' : 'h-72'} bg-ink-950/40`}
-                   gripper={live ? null : grip}
-                   onPose={live ? undefined : setPose}
-                   onJointDrag={live ? undefined : (j, d) => setPose(p => {
-                     const v = [...p], [lo, hi] = limits[j]
-                     v[j] = Math.max(lo / DEG, Math.min(hi / DEG, v[j] + d)); return v })} />
-      </Suspense>
-      <div className="p-4 space-y-2">
+  // Owner 2026-10-18: Full view at the top; joint bars right under the twin with just Home + STOP;
+  // in the full view the right-hand column holds Home, STOP and the joint bars.
+  const jointBars = <div className="space-y-2">
         {JOINTS.map((name, i) => {
           const [lo, hi] = limits[i]
           const deg = q[i] * DEG
@@ -170,6 +251,59 @@ function Panel({ model, robot, onFull, big }: {
                          className="accent-violet-400 w-full" onChange={e => setGrip(Number(e.target.value) / 100)} />}
           <span className="tnum text-right text-slate-200">{live ? '—' : `${Math.round(grip * 100)}% closed`}</span>
         </div>
+  </div>
+  const twinView = !mount3d ? <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} /> : (
+      <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
+        <RobotTwin model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
+                   gripper={live || replay ? null : grip}
+                   trail={replay ? replay.path.map(p => tipPosition(urdf, p)) : undefined} trailColor="#a78bfa"
+                   onPose={live || replay ? undefined : setPose}
+                   onJointDrag={live ? undefined : (j, d) => setPose(p => {
+                     const v = [...p], [lo, hi] = limits[j]
+                     v[j] = Math.max(lo / DEG, Math.min(hi / DEG, v[j] + d)); return v })} />
+      </Suspense>)
+  const control = robot ? <RobotControlPanel robotId={robot.device_id} robotName={robot.name} /> : null
+  return (
+    <div className="card overflow-hidden">
+      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-ink-700/60">
+        <Bot size={16} className="text-accent-300" />
+        <span className="font-semibold text-white">{model.key === 'UR5E' ? 'UR5e' : 'FANUC'}</span>
+        <span className="text-[12px] text-slate-400">{urdf.label}</span>
+        <span className={`ml-auto rounded-md px-2 py-0.5 text-[11.5px] font-semibold border ${live
+          ? 'border-ok/50 bg-ok/15 text-ok-soft' : 'border-violet-400/50 bg-violet-500/15 text-violet-200'}`}>
+          {replay ? 'REPLAY · recorded movement' : live ? 'LIVE · physical robot' : 'PREVIEW · not the robot'}</span>
+        {onFull && <button type="button" className="btn-primary btn-sm" onClick={onFull}><Maximize2 size={13} /> Full view</button>}
+      </div>
+      {big ? (
+        <div className="lg:grid lg:grid-cols-[1fr_380px] lg:items-start">
+          {twinView}
+          <div className="p-4 space-y-4 lg:border-l border-ink-700/60">
+            {control}
+            {jointBars}
+          </div>
+        </div>
+      ) : <>
+      {twinView}
+        {robot && <div className="px-4 pt-3 text-[13px]">
+          <ActivityLine robot={robot} code={robot.stale ? null : String(robot.extra?.control_source ?? '') || null} /></div>}
+        {model.key === 'FANUC' && <div className="px-4 pt-3 text-[12px] text-slate-400">
+          <span className="text-slate-200 font-medium">{FANUC_CELL.name}</span> · {FANUC_CELL.width_m * 1000} × {FANUC_CELL.depth_m * 1000} × {FANUC_CELL.height_m * 1000} mm (W × D × H) · {FANUC_CELL.weight_kg} kg
+          · robot {FANUC_CELL.robot} · controller {FANUC_CELL.controller}
+          <div className="text-slate-500">Dimensions: <a className="link" href={FANUC_CELL.sourceUrl} target="_blank" rel="noreferrer">{FANUC_CELL.source}</a>. The 3D arm is an LR Mate 200iD stand-in; the cell's inner layout is approximate.</div></div>}
+        <div className="p-4 pb-2">{jointBars}</div>
+        {control && <div className="px-4 pb-2">{control}</div>}
+      </>}
+      {model.key === 'UR5E' && <div className="px-4 pt-3 flex flex-wrap items-center gap-1.5 text-[12px]">
+        <span className="text-slate-400">Reference pose (not sent):</span>
+        {UR_POSES.map(p => <button key={p.key} type="button" title={`${p.note}
+${p.q.map(v => (v * 180 / Math.PI).toFixed(1) + '°').join(', ')}`}
+          onClick={() => { setRef(r => r === p.key ? null : p.key); if (!live && !replay) setPose(p.q) }}
+          className={`px-2 py-0.5 rounded-md border ${ref === p.key ? 'border-accent-400/70 bg-accent-500/15 text-white' : 'border-ink-600 text-slate-300'}`}>{p.label}</button>)}
+        {refPose && <span className="text-slate-500">{live ? 'shown as a ghost over the live pose' : 'shown in the preview'} · {refPose.note}</span>}
+      </div>}
+      {model.key === 'UR5E' && robot && <SourceLine robot={robot} />}
+      {robot && <div className="px-4 pt-3 border-b border-ink-700/60"><Replay robotId={robot.device_id} active onFrame={setReplay} /></div>}
+      <div className="p-4 space-y-2">
         <div className="pt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-400">
           {live ? <>
             <span className="flex items-center gap-1.5"><Radio size={13} />{robot!.rate_hz ? `${robot!.rate_hz} samples/s` : '—'}</span>
@@ -184,7 +318,6 @@ function Panel({ model, robot, onFull, big }: {
               <RotateCcw size={13} /> Reset</button>
           </>}
           <span className="ml-auto flex gap-2">
-            {onFull && <button type="button" className="btn-ghost btn-sm" onClick={onFull}><Maximize2 size={13} /> Full view</button>}
             {robot && <Link to={`/robots/${robot.device_id}`} className="btn-ghost btn-sm">History <ChevronRight size={13} /></Link>}
           </span>
         </div>

@@ -30,6 +30,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gpu_gate  # noqa: E402  (camera-first GPU admission)
 import graph  # noqa: E402
 import kb  # noqa: E402
 
@@ -37,7 +38,10 @@ LIMITS = {"steps": 6, "tool_output_chars": 4000, "files": 4, "seconds": 180, "gr
 NO_EVIDENCE = "I could not verify this from the available project sources."
 
 FAST = {  # measured 2026-10-13 (EVALUATION.md): prompt reading dominated latency on the CPU
-    "k": 4, "width": 480, "num_ctx": 2048, "num_predict": 180, "keep_alive": "2h",
+    # 2026-10-17 bench (13 questions, qwen2.5:1.5b on the i7-9750H CPU): k 4 -> 3 cut the prompt ~15 %,
+    # median first word 8.5 s -> 4.4 s, median total 12.9 s -> 7.5 s, and facts correct 9/12 -> 10/12
+    # (the 4th passage was mostly noise). width 340 was faster but lost a fact - kept 480.
+    "k": 3, "width": 480, "num_ctx": 2048, "num_predict": 180, "keep_alive": "24h",   # on the graphics card since 2026-10-19: a cold load took minutes
 }
 
 # Evidence labels shown with every citation (meaning documented in docs/knowledge-platform/AGENT.md).
@@ -92,7 +96,8 @@ def ollama_stream(cfg, prompt, on_token, model=None):
         raise SystemExit("refusing a non-local LLM endpoint (local-only policy)")
     body = {"model": model or cfg["model"], "prompt": prompt, "stream": True, "keep_alive": FAST["keep_alive"],
             "options": {"temperature": 0.1, "num_ctx": FAST["num_ctx"], "num_predict": FAST["num_predict"],
-                        **({"num_gpu": 0} if cfg.get("llm_on_cpu", True) else {})}}
+                        "num_thread": int(cfg.get("llm_threads", 4)),
+                        **({} if gpu_gate.use_gpu(cfg) else {"num_gpu": 0})}}   # camera-first: gpu_gate.py
     req = urllib.request.Request(url + "/api/generate", json.dumps(body).encode(), {"Content-Type": "application/json"})
     t0, first, text, stats = time.perf_counter(), None, [], {}
     with urllib.request.urlopen(req, timeout=cfg.get("llm_timeout_s", 240)) as r:

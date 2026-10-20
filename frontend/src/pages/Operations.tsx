@@ -306,7 +306,7 @@ export default function Operations() {
                     <div key={x.device_id} className="grid sm:grid-cols-[220px_1fr_150px] gap-2 sm:gap-4 items-center">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 text-[13px] text-slate-100 truncate">
-                          <Dot tone={x.state === 'ONLINE' ? 'ok' : x.state === 'OFFLINE' ? 'bad' : 'idle'}
+                          <Dot tone={x.state === 'ONLINE' ? 'ok' : x.state === 'OFFLINE' ? 'bad' : x.state === 'DEGRADED' ? 'warn' : 'idle'}
                                live={x.state === 'ONLINE'} />{x.name}
                         </div>
                         <div className="text-[11.5px] text-slate-500">{x.lab_code} · {x.type.replace('_', ' ').toLowerCase()}

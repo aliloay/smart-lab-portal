@@ -13,32 +13,39 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
 import MeshArm from './MeshArm'
-import { Vec3, solveToward, tipPosition, urdfFor } from './robotModels'
+import { FANUC_CELL, Vec3, mountRotation, solveToward, tipPosition, urdfFor } from './robotModels'
+import { FanucCell } from './FanucCell'
 import type { Hit, Table, Workcell } from './workcell'
+import { noShaderChecks } from './threeSetup'
 
 // Each twin keeps its OWN view controls (two twins on one page used to share one, so grabbing one
 // arm could leave the other's view stuck). Kept on the canvas element.
 type ViewName = 'front' | 'back' | 'right' | 'left' | 'top' | 'bottom' | 'iso'
 const orbitOf = (el: HTMLElement) => (el as HTMLElement & { __orbit?: OrbitControls }).__orbit ?? null
 
-function Controls({ resetKey, size, view, lookY }: { resetKey: number; size: number; view: { name: ViewName; n: number }; lookY?: number }) {
+function Controls({ resetKey, size, view, lookY, turned = false }: { resetKey: number; size: number; view: { name: ViewName; n: number }; lookY?: number; turned?: boolean }) {
   const { camera, gl, invalidate } = useThree()
+  const side = turned ? -1 : 1
   useEffect(() => {
     // View buttons: the camera jumps to that side of the robot, same distance, looking at it.
     const c = orbitOf(gl.domElement)
     if (!c || view.n === 0) return
     const k = size / 0.85, d = 2.4 * k, t = c.target
     const at: Record<ViewName, [number, number, number]> = {
-      front: [d, 0, 0], back: [-d, 0, 0], right: [0, 0, -d], left: [0, 0, d], top: [0.001, d, 0], bottom: [0.001, -d, 0],
-      iso: [1.55 * k, 1.05 * k - 0.38 * k, 1.65 * k] }
+      // turned (FANUC, owner 2026-10-15): its real front faces what the default view called "right".
+      ...(turned ? { front: [0, 0, -d], back: [0, 0, d], right: [-d, 0, 0], left: [d, 0, 0] }
+                 : { front: [d, 0, 0], back: [-d, 0, 0], right: [0, 0, -d], left: [0, 0, d] }) as Record<'front' | 'back' | 'right' | 'left', [number, number, number]>,
+      top: [0.001, d, 0], bottom: [0.001, -d, 0],
+      // 3D: from the front-right (turned: the FANUC cell's doors and controller face the viewer)
+      iso: [1.55 * k * side, 1.05 * k - 0.38 * k, 1.65 * k * side] }
     const [x, y, z] = at[view.name]
     camera.position.set(t.x + x, t.y + y, t.z + z)
     camera.lookAt(t); c.update(); invalidate()
-  }, [view, camera, gl, invalidate, size])
+  }, [view, camera, gl, invalidate, size, side])
   useEffect(() => {
     // Framed from the arm's own size: the whole robot in view, from front-right, slightly above.
     const k = size / 0.85
-    camera.position.set(1.55 * k, 1.05 * k, 1.65 * k)
+    camera.position.set(1.55 * k * side, 1.05 * k, 1.65 * k * side)
     const ty = lookY ?? 0.38 * k
     camera.position.y += ty - 0.38 * k
     camera.lookAt(0, ty, 0)
@@ -52,7 +59,7 @@ function Controls({ resetKey, size, view, lookY }: { resetKey: number; size: num
     c.update()
     invalidate()
     return () => c.dispose()
-  }, [camera, gl, invalidate, resetKey, size, lookY])
+  }, [camera, gl, invalidate, resetKey, size, lookY, side])
   return null
 }
 
@@ -140,7 +147,10 @@ function Box({ c, s, color, opacity = 1 }: { c: [number, number, number]; s: [nu
   return <mesh position={c}><boxGeometry args={s} />
     <meshStandardMaterial color={color} metalness={0.4} roughness={0.5} transparent={opacity < 1} opacity={opacity} /></mesh>
 }
-function UR5eCell({ table }: { table?: Table | null }) {
+// The FANUC Educational Cell is drawn in FanucCell.tsx (shared with the Welcome page).
+export { FanucCell }
+
+export function UR5eCell({ table }: { table?: Table | null }) {
   const fx = [-0.769, 0.731], fy = [-0.880, 1.135], H = 1.88
   const cx = (fx[0] + fx[1]) / 2, cy = (fy[0] + fy[1]) / 2, lx = fx[1] - fx[0], ly = fy[1] - fy[0]
   const t = table === undefined ? { present: true, x0: -0.514, x1: 0.186, y0: -0.630, y1: 0.770, height: 0.71 } : table
@@ -181,8 +191,8 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
   const urdf = urdfFor(props.model.key)
   return (
     <>
-      <Controls resetKey={props.resetKey} view={props.view} lookY={urdf.ceilingHeight ? urdf.ceilingHeight / 2 : undefined}
-                size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 2.1 : 1)} />
+      <Controls resetKey={props.resetKey} view={props.view} turned={props.model.key === 'FANUC'} lookY={urdf.ceilingHeight ? urdf.ceilingHeight / 2 : urdf.mountHeight ? FANUC_CELL.height_m / 2 : undefined}
+                size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 2.1 : urdf.mountHeight ? 1.9 : 1)} />
       <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
       <ambientLight intensity={0.35} />
       <directionalLight position={[2, 3, 2]} intensity={1.4} />
@@ -196,8 +206,9 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
        {props.model.key === 'UR5E' && urdf.ceilingHeight && <UR5eCell table={props.workcell ? props.workcell.table : undefined} />}
+       {props.model.key === 'FANUC' && urdf.mountHeight && <FanucCell />}
        {props.workcell && <Obstacles cell={props.workcell} hits={props.hits ?? []} selected={props.selectedObstacle} />}
-       <group ref={baseRef} position={[0, 0, urdf.ceilingHeight ?? 0]} rotation={[urdf.ceilingHeight ? Math.PI : 0, 0, 0]}>
+       <group ref={baseRef} position={[0, 0, urdf.ceilingHeight ?? urdf.mountHeight ?? 0]} rotation={mountRotation(urdf)}>
         {urdf.ceilingHeight && <mesh position={[0, 0, -0.012]}>
           <boxGeometry args={[0.5, 0.5, 0.02]} /><meshStandardMaterial color="#9ca3af" metalness={0.5} roughness={0.4} /></mesh>}
         {/* The manufacturer's meshes; the simple cylinder arm shows while they load. */}
@@ -278,6 +289,8 @@ export interface TwinProps {
   stale?: boolean
   /** Small card: a closer camera. */
   compact?: boolean
+  /** Show the Front / Back / Left ... view bar even when compact (the Lab Equipment robot cards). */
+  views?: boolean
   model: RobotModel
   q: number[] | null
   homeQ?: number[] | null
@@ -293,19 +306,20 @@ export default function RobotTwin(props: TwinProps & { resetKey?: number; classN
   return (
     <div className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
          aria-label={props.label ?? `${props.model.label} 3D view`} data-trail-points={props.trail?.length ?? 0}>
-      <Canvas frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
+      <Canvas onCreated={noShaderChecks} frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
               style={{ opacity: props.q ? (props.stale ? 0.55 : 1) : 0.45, filter: props.stale ? 'grayscale(0.7)' : undefined }}>
         <Scene {...props} resetKey={props.resetKey ?? 0} view={view} />
       </Canvas>
-      <div className="absolute bottom-2 right-2 flex flex-wrap gap-1 justify-end">
+      {/* Compact thumbnails (fleet cards) are too small for the view bar - it spilled over the card. */}
+      {(!props.compact || props.views) && <div className="absolute bottom-2 right-2 flex flex-wrap gap-1 justify-end">
         {VIEWS.map(([v, label]) => (
           <button key={v} type="button" onClick={() => setView(o => ({ name: v, n: o.n + 1 }))}
                   className={`px-2 py-0.5 rounded-md text-[11px] border ${view.name === v && view.n ? 'bg-accent-500/25 border-accent-400/60 text-white' : 'bg-ink-900/75 border-ink-600 text-slate-300 hover:text-white'}`}>
             {label}</button>))}
-      </div>
-      {!props.q && <div className="absolute inset-0 grid place-items-center pointer-events-none text-[12.5px] text-slate-400">
+      </div>}
+      {!props.q && !props.compact && <div className="absolute inset-0 grid place-items-center pointer-events-none text-[12.5px] text-slate-400">
         No telemetry - pose unknown</div>}
-      {props.q && props.stale && <div className="absolute top-2 left-2 pointer-events-none text-[11.5px] px-2 py-0.5 rounded-md bg-ink-900/80 text-warn-soft border border-warn/30">
+      {props.q && props.stale && !props.compact && <div className="absolute top-2 left-2 pointer-events-none text-[11.5px] px-2 py-0.5 rounded-md bg-ink-900/80 text-warn-soft border border-warn/30">
         Last known pose - no fresh telemetry</div>}
     </div>)
 }

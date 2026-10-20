@@ -15,9 +15,16 @@ import { Modal } from './ui'
 
 const FRAME_MS = 500
 
-export function PcScreenViewer({ deviceId, name, onClose }: {
-  deviceId: number; name: string; onClose: () => void
+type Monitor = { index: number; width: number; height: number; primary: boolean }
+const QUALITY: Record<string, { quality: number; fps: number }> = {
+  Low: { quality: 40, fps: 1 }, Standard: { quality: 60, fps: 2 }, High: { quality: 80, fps: 4 } }
+
+export function PcScreenViewer({ deviceId, name, onClose, monitors = [] }: {
+  deviceId: number; name: string; onClose: () => void; monitors?: Monitor[]
 }) {
+  const [monitor, setMonitor] = useState(monitors.length > 1 ? 1 : 0)
+  const [preset, setPreset] = useState('Standard')
+  const box = useRef<HTMLDivElement>(null)
   const [src, setSrc] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [updated, setUpdated] = useState<number | null>(null)
@@ -26,7 +33,8 @@ export function PcScreenViewer({ deviceId, name, onClose }: {
   useEffect(() => {
     let stop = false
     let timer = 0
-    api.pcScreenStart(deviceId).catch(e => setError(String(e.message ?? e)))
+    let got = false                       // until the first frame arrives, ask every 150 ms
+    api.pcScreenStart(deviceId, { monitor, ...QUALITY[preset] }).catch(e => setError(String(e.message ?? e)))
     async function tick() {
       try {
         const blob = await fetchBlob(`/equipment/${deviceId}/screen.jpg`)
@@ -37,11 +45,12 @@ export function PcScreenViewer({ deviceId, name, onClose }: {
           setSrc(url)
           setUpdated(Date.now())
           setError(null)
+          got = true
         }
       } catch (e) {
         if (!stop) setError(e instanceof Error ? e.message : String(e))
       }
-      if (!stop) timer = window.setTimeout(tick, FRAME_MS)
+      if (!stop) timer = window.setTimeout(tick, got ? Math.max(FRAME_MS / 2, 1000 / QUALITY[preset].fps) : 150)
     }
     tick()
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -53,7 +62,7 @@ export function PcScreenViewer({ deviceId, name, onClose }: {
       api.pcScreenStop(deviceId).catch(() => {})
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
     }
-  }, [deviceId, onClose])
+  }, [deviceId, onClose, monitor, preset])
 
   const stale = updated !== null && Date.now() - updated > 4000
   // Portal to <body>: an animated page wrapper (transform) would otherwise
@@ -65,9 +74,16 @@ export function PcScreenViewer({ deviceId, name, onClose }: {
         <div className="text-white font-semibold">{name}: screen</div>
         <span className="text-[12px] text-slate-400">
           View only. The person at the PC sees a notice; nothing is recorded.</span>
-        <button onClick={onClose} className="btn-ghost btn-sm ml-auto"><X size={14} /> Close</button>
+        <div className="ml-auto flex items-center gap-2">
+          {monitors.length > 1 && <select className="input !py-1 !text-[12px] w-auto" value={monitor} onChange={e => setMonitor(+e.target.value)} aria-label="Monitor">
+            <option value={0}>All screens</option>{monitors.map(m => <option key={m.index} value={m.index}>Monitor {m.index}{m.primary ? ' (main)' : ''} · {m.width}×{m.height}</option>)}</select>}
+          <select className="input !py-1 !text-[12px] w-auto" value={preset} onChange={e => setPreset(e.target.value)} aria-label="Quality">
+            {Object.keys(QUALITY).map(k => <option key={k} value={k}>{k} · {QUALITY[k].fps} fps</option>)}</select>
+          <button className="btn-ghost btn-sm" onClick={() => box.current?.requestFullscreen?.()}>Full screen</button>
+          <button onClick={onClose} className="btn-ghost btn-sm"><X size={14} /> Close</button>
+        </div>
       </div>
-      <div className="flex-1 grid place-items-center p-4 min-h-0">
+      <div ref={box} className="flex-1 grid place-items-center p-4 min-h-0 bg-ink-950">
         {src ? (
           <img src={src} alt={`Screen of ${name}`}
                className={`max-w-full max-h-full object-contain rounded-lg border border-ink-600 ${stale ? 'opacity-50' : ''}`} />

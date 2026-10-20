@@ -5,6 +5,9 @@ name: smart-lab-portal
 
 services:
   db:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: smartlab
@@ -76,6 +79,9 @@ services:
     restart: unless-stopped
 
   backend:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
     build: ./backend
     depends_on:
       db: { condition: service_healthy }
@@ -112,6 +118,10 @@ services:
       # Smaller student model, loaded next to the staff one (empty = share it).
       OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
       OLLAMA_CPU_ONLY: ${OLLAMA_CPU_ONLY:-false}
+      OLLAMA_GPU_POLICY: ${OLLAMA_GPU_POLICY:-gpu}
+      # CPU threads one AI answer may use (2026-10-18): Ollama runs above normal priority with every
+      # core by default - one answer took camera 2 from 7 to 1.7 analyses/s. 0 = Ollama's default.
+      OLLAMA_NUM_THREAD: ${OLLAMA_NUM_THREAD:-4}
       AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
       # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the
       # free model even when this key is present.
@@ -137,6 +147,9 @@ services:
     ports: ["8000:8000"]
 
   frontend:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
     build: ./frontend
     depends_on: [backend]
     # The portal for browsers and phones: http://<laptop LAN IP>/
@@ -154,6 +167,9 @@ services:
   # tunnel is needed. It is never on the door path: the ESP32 talks to the
   # backend only, and nothing in n8n can open or lock a door.
   n8n:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
     image: n8nio/n8n:latest
     profiles: ["automation"]
     depends_on: [backend]

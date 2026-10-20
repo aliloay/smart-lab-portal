@@ -9,6 +9,7 @@ Every endpoint answers even when AI is not configured: /status says so, the
 priority list is deterministic and needs no AI, and the AI calls return 503
 with a readable reason. Each question is recorded in the audit log.
 """
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 
@@ -96,11 +97,58 @@ def _instant(db: Session, user: User, question: str) -> Optional[dict]:
     return out
 
 
+# Project / technical questions (how the system is built) are answered from the project's own
+# documents and code: the knowledge service's "lookup" route returns cited passages in ~0.1-1.5 s
+# with no model. The general model has no project documents - it took ~100 s on the CPU and could
+# not answer them (measured 2026-10-17).
+_PROJECT_Q = re.compile(
+    r"\b(how (does|do|is|are)|why|where (is|are|do)|which (file|pin|gpio|port|ip)|what is the (ip|pin|port|home)|"
+    r"firmware|esp32|arduino|gpio|pin|ur5e|fanuc|rtde|urscript|teach pendant|digital twin|n8n|workflow|obsidian|"
+    r"docker|nginx|endpoint|api route|database schema|migration|yolo|homography|face server|door controller|"
+    r"maglock|relay|architecture|thesis|commissioning|calibrat\w*|home (position|pose))\b", re.I)
+
+
+# Questions about the lab's CURRENT state never go to the documents lookup, even with "why" / "how" in
+# them: "compare the robotics and PLC labs, which needs attention first and why" got an unrelated
+# chat-log quote (2026-10-19). They go to the model with the live lab data.
+_LIVE_Q = re.compile(
+    r"\b(now|today|tonight|currently|right now|at the moment|this (week|morning|afternoon)|need(s|ed)? attention|"
+    r"compare|which (lab|room|robot|pc|camera)s?\b|state of|status of|open (alerts?|incidents?|issues?)|"
+    r"who is|who was|how many)\b", re.I)
+
+
+def _knowledge_lookup(db: Session, user: User, question: str) -> Optional[dict]:
+    if not settings.KB_SERVICE_KEY or not _PROJECT_Q.search(question) or _LIVE_Q.search(question):
+        return None
+    import json as _json
+    import httpx
+    try:
+        r = httpx.post(settings.KB_SERVICE_URL.rstrip("/") + "/ask", headers={"X-KB-Key": settings.KB_SERVICE_KEY},
+                       json={"question": question[:600], "route": "lookup"}, timeout=httpx.Timeout(6.0, connect=1.0))
+        events = [_json.loads(x) for x in r.text.splitlines() if x.strip()]
+    except (httpx.HTTPError, ValueError):
+        return None                                          # service down: fall back to the model
+    sources = next((e.get("citations") for e in events if e.get("type") == "meta"), None) or []
+    if not sources:
+        return None
+    lines = []
+    for x in sources[:4]:
+        snip = " ".join(str(x.get("snippet", "")).split())[:260]
+        lines.append(f"- **{x.get('source')}** - {x.get('heading', '')} ({x.get('label', '')}):\n  {snip}...")
+    db.add(AuditLog(actor_user_id=user.id, action="AI_INSTANT", entity_type="ai", entity_id="knowledge_lookup",
+                    detail={"question": question[:500]}))
+    db.commit()
+    return {"answer": "**From the project's documents and code** (evidence only - the passages are quoted, "
+                      "not interpreted):\n" + "\n".join(lines) +
+                      "\n\nFor a written answer built from these sources, open the Project knowledge tab.",
+            "tools_used": ["instant:knowledge_lookup"], "model": "smartlab-knowledge-lookup", "instant": True}
+
+
 @router.post("/ask")
 def ask(req: AskRequest, db: Session = Depends(get_db),
         user: User = Depends(require_staff)):
-    return _instant(db, user, req.question) or _run(db, user, req.question,
-                                                    [t.model_dump() for t in req.history])
+    return (_instant(db, user, req.question) or _knowledge_lookup(db, user, req.question)
+            or _run(db, user, req.question, [t.model_dump() for t in req.history]))
 
 
 @router.get("/report")

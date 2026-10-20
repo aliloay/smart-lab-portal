@@ -488,11 +488,31 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     ("equipment", r"\b(robots?|pcs?|computers?|equipment|ur5e?|fanuc)\b.*\b(used|usage|use|hours|busiest|most)\b|"
                   r"\bmost used\b", True),
     ("inside", r"\b(who|how many)\b.*\b(inside|in the labs?|present|in lab)\b|\boccupancy\b", True),
+    # 2026-10-18: "What is the temperature?" got the data-source overview, and "How many resistors are in
+    # the bin?" went to the language model (213 s), which then said it could not answer.
+    ("environment_now", r"\b(temperature|humidity|smoke|gas|flame|fire|motion|warm|hot|cold)\b", True),
+    ("bins_stock", r"\bhow many\b.*\b(resistors?|parts?|pieces?|items?|components?|left|in (the|a) bins?)\b|"
+                   r"\b(bins?|consumables?|stock|inventory|resistors?)\b.*\b(count|left|level|stock|how many|status)\b", True),
+    ("system", r"\b(system|data sources?|subsystems?|integrations?)\b.*\b(status|health|fresh\w*|overview|summary|working)\b|"
+               r"\bhow is the (lab|system)\b", True),
     ("offline", r"\b(offline|disconnected|not (responding|connected))\b", True),
+    # 2026-10-18: status questions answered from the records in milliseconds - they used to go to the
+    # language model with the whole lab snapshot (48 s on the CPU, and it starved the camera analysis).
+    ("robots_status", r"\b(robots?|ur5e?|fanuc)\b.*\b(online|status|state|connected|running|working|ready|blocked|live)\b|"
+                      r"\b(online|status|state)\b.*\b(robots?|ur5e?|fanuc)\b", True),
+    ("cameras_status", r"\b(cameras?|cctv)\b.*\b(online|status|state|working|live|connected|running)\b|"
+                       r"\b(online|status|state)\b.*\b(cameras?|cctv)\b", True),
+    ("pcs_status", r"\b(pcs?|computers?)\b.*\b(online|status|state|connected|running)\b|"
+                   r"\b(online|status|state)\b.*\b(pcs?|computers?)\b", True),
+    ("alerts_open", r"\b(open|active|unresolved|current|pending)\b.*\b(alerts?|alarms?|incidents?)\b|"
+                    r"\b(alerts?|alarms?|incidents?)\b.*\b(open|active|unresolved|now|today)\b|"
+                    r"\bany (alerts?|alarms?|incidents?)\b", True),
     ("open_issues", r"\bopen (issues|tickets|reports)\b|\bmaintenance\b.*\b(open|pending|backlog)\b", True),
     ("next_booking", r"\b(my )?(next|upcoming)\b.*\bbook\w*|\bwhen is my\b", False),
     ("my_bookings", r"\bmy bookings?\b|\bmy reservations?\b", False),
-    ("free_labs", r"\b(free|available|empty|open)\b.*\blabs?\b|\blabs?\b.*\b(free|available|empty)\b", False),
+    # "what lab is ready now" went to the language model (212 s, 2026-10-19): ready / usable / bookable too.
+    ("free_labs", r"\b(free|available|empty|open|ready|usable|bookable)\b.*\blabs?\b|"
+                  r"\blabs?\b.*\b(free|available|empty|ready|usable|bookable)\b|\bwhich labs? can i (use|book)\b", False),
 ]
 
 
@@ -541,6 +561,28 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
         return _answer(plan_text(found, 30), intent,
                        {"label": "Open the monthly report (PDF)", "to": "/report?period=monthly"})
 
+    if intent == "system":
+        from app.services import system_analytics
+        d = system_analytics.system(db, 7, now)
+        names = {"environment": "Environment node", "door": "Door access", "robots": "Robots", "consumables": "Consumables scale",
+                 "inventory": "Inventory transactions", "cameras": "Security cameras", "pcs": "Lab PCs",
+                 "automation": "n8n automations", "alerts": "Alerts"}
+
+        def ago(sec):
+            if sec is None:
+                return "never"
+            return f"{round(sec / 60)} min ago" if sec < 7200 else f"{round(sec / 3600)} h ago" if sec < 172800 else f"{round(sec / 86400)} days ago"
+        lines = [f"{names[k]}: **{f['state']}** - last record {ago(f['age_s'])} ({f['records']:,} total, table `{f['source']}`)"
+                 for k, f in d["freshness"].items()]
+        env = [x for x in d["environment"]["series"] if "temperature_avg" in x]
+        last_env = (f"\nLatest daily environment average ({env[-1]['day']}): {env[-1]['temperature_avg']} °C, "
+                    f"{env[-1].get('humidity_avg', '-')} % humidity." if env else "\nNo environment readings in the last 7 days.")
+        t = d["totals"]
+        return _answer("**Smart Lab data sources** (live = recent for its normal rate, stale = within 7 days):\n" + _bullets(lines)
+                       + last_env + f"\nLast 7 days: {int(t['door_events'])} door events, {int(t['robot_events'])} robot events, "
+                       f"{int(t['camera_events'])} camera events, {t['pc_hours']} PC hours, {int(t['alerts'])} alerts.",
+                       intent, {"label": "Open System analytics", "to": "/admin/system"})
+
     if intent == "equipment":
         rows = equipment_usage(db, now - timedelta(days=7), now)
         if not rows:
@@ -570,6 +612,101 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
             return _answer("Every device that has reported is online.", intent)
         return _answer("**Offline now:**\n" + _bullets(
             [f"{d.name} ({d.device_uid}) - last seen {_when(d.last_seen_at)}" for d in off]), intent)
+
+    if intent == "environment_now":
+        from app.models import Lab as LabRow
+        from app.services import environment as env_svc
+        labs = db.scalars(select(LabRow).order_by(LabRow.code)).all()
+        names = {"temperature": "Temperature", "humidity": "Humidity", "smoke": "Smoke / gas",
+                 "flame": "Flame", "motion": "Motion", "water_leak": "Water leak", "emergency": "Emergency button"}
+        lines = []
+        for lab in labs:
+            v = env_svc.latest(db, lab, now)
+            if v["node"] is None:
+                continue
+            parts = []
+            for m, label in names.items():
+                r = v["metrics"].get(m) or {}
+                if r.get("value") is None:
+                    continue
+                val = (f"{r['value']:.1f} {r['unit'] or ''}".strip() if m in ("temperature", "humidity")
+                       else ("DETECTED" if r["value"] >= 0.5 else "none"))
+                q = "" if r["quality"] == "VALID" else f" ({r['quality'].lower().replace('_', ' ')})"
+                parts.append(f"{label}: **{val}**{q}")
+            age = _when(v["node"]["last_seen_at"]) if v["node"]["last_seen_at"] else "never"
+            lines.append(f"{lab.code} ({v['node']['device_uid']}, last report {age}): " + " · ".join(parts))
+        if not lines:
+            return _answer("No environment node has reported yet.", intent)
+        return _answer("**Environment now** (the node's latest readings):\n" + _bullets(lines), intent,
+                       {"label": "Open Lab Equipment", "to": "/admin/equipment?tab=environment"})
+
+    if intent == "bins_stock":
+        from app.models import InventoryBin
+        from app.services import inventory as inv
+        bins = db.scalars(select(InventoryBin).where(InventoryBin.is_active.is_(True)).order_by(InventoryBin.code)).all()
+        if not bins:
+            return _answer("No consumables bin is set up yet.", intent)
+        lines = []
+        for b in bins:
+            o = inv.bin_out(db, b, now)
+            qty = f"**{o['qty_est']}** pieces" if o["qty_est"] is not None else "not calibrated"
+            q = "" if o["quality"] == "VALID" else f" ({o['quality'].lower().replace('_', ' ')})"
+            low = " - LOW, reorder" if o["low"] else ""
+            when = _when(o["last_reading_at"]) if o.get("last_reading_at") else "never"
+            lines.append(f"{o['item_name']} ({o['code']}): {qty}{q}, last reading {when}{low}")
+        return _answer("**Consumables** (estimated from each bin's scale):\n" + _bullets(lines), intent,
+                       {"label": "Open Consumables", "to": "/admin/equipment?tab=consumables"})
+
+    if intent in ("robots_status", "cameras_status", "pcs_status"):
+        kind = {"robots_status": DeviceType.ROBOT, "cameras_status": DeviceType.SECURITY_CAMERA,
+                "pcs_status": DeviceType.PC}[intent]
+        devs = [d for d in refresh_liveness(db) if d.device_type == kind]
+        noun = {"robots_status": "robot", "cameras_status": "security camera", "pcs_status": "PC"}[intent]
+        if not devs:
+            return _answer(f"No {noun} has reported to the portal yet.", intent)
+        lines = []
+        from app.services.devices import device_out
+        word = {"ONLINE": "online", "DEGRADED": "partly working", "OFFLINE": "offline", "NO_DATA": "never reported"}
+        for d in sorted(devs, key=lambda d: d.device_uid):
+            cs = d.component_state or {}
+            o = device_out(d, now=now)                # the same state and name as System Devices
+            on = o.state == "ONLINE"
+            tags = []
+            if cs.get("source") == "SIMULATION":
+                tags.append("SIMULATION")
+            if intent == "robots_status":
+                q = cs.get("q")
+                tags.append("joint feedback" if q and len(q) == 6 else "no joint feedback")
+            if intent == "cameras_status" and o.state in ("ONLINE", "DEGRADED"):
+                tags.append("picture" if cs.get("source_ok") else "NO picture")
+                if cs.get("fps") is not None:
+                    tags.append(f"{cs.get('fps')} analyses/s")
+            if intent == "pcs_status" and on and cs.get("os_user"):
+                tags.append(f"signed in: {cs.get('os_user')}")
+            if o.state == "DEGRADED" and o.state_note:
+                tags.insert(0, o.state_note)
+            lines.append(f"{o.name} ({d.device_uid}): **{word.get(o.state, o.state.lower())}** - last report "
+                         f"{_when(d.last_seen_at) if d.last_seen_at else 'never'}" + (f" - {', '.join(tags)}" if tags else ""))
+        extra = ""
+        if intent == "robots_status":
+            from app.services import robot_control
+            extra = (f"\nRobot control mode: **{robot_control.MODE.upper()}**"
+                     + (" - nothing is sent to a robot." if robot_control.MODE == "dry_run" else "."))
+        to = {"robots_status": "/robots", "cameras_status": "/security", "pcs_status": "/admin/equipment"}[intent]
+        title = {"robots_status": "Robots", "cameras_status": "Security cameras", "pcs_status": "PCs"}[intent]
+        return _answer(f"**{title}** (from their own reports; partly working = it reports, but its camera / robot is missing):\n"
+                       + _bullets(lines) + extra, intent, {"label": "Open", "to": to})
+
+    if intent == "alerts_open":
+        rows = db.scalars(select(Alert).where(Alert.is_resolved.is_(False))
+                          .order_by(Alert.created_at.desc())).all()
+        if not rows:
+            return _answer("No open alert.", intent, {"label": "Open Incidents", "to": "/admin/incidents"})
+        sev = Counter(a.severity.value for a in rows)
+        return _answer(f"**{len(rows)} open alert(s)** (" + ", ".join(f"{n} {k.lower()}" for k, n in sev.most_common())
+                       + "). Newest:\n" + _bullets([f"{a.severity.value}: {a.title} - {_when(a.created_at)}"
+                                                    for a in rows[:5]]),
+                       intent, {"label": "Open Incidents", "to": "/admin/incidents"})
 
     if intent == "open_issues":
         issues = db.scalars(select(Issue).where(Issue.status.in_(ISSUE_ACTIVE))

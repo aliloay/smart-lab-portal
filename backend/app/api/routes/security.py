@@ -30,7 +30,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, require_admin, require_device, require_staff
@@ -64,7 +64,15 @@ KINDS = {
     # A face clearly says someone other than the name the camera holds: the
     # name is NOT switched (identity.py); staff check who it is.
     "PERSON_IDENTITY_CONFLICT": (AlertSeverity.WARNING, "Identity conflict - face does not match the name"),
+    # 2026-10-18: a decision staff should check - two people came in for one entry (nobody named),
+    # names re-dealt by look after people touched, or one name found on two people.
+    "PERSON_IDENTITY_REVIEW": (AlertSeverity.WARNING, "Identity needs review - ambiguous entry or names corrected"),
 }
+# Camera-wide change grouping (see report_event): this many different boxes of one camera, same kind,
+# within this many seconds.
+WIDE_KINDS = ("EQUIPMENT_MOTION", "EQUIPMENT_CHANGED")
+WIDE_MIN_ZONES = 3
+WIDE_WINDOW_S = 5
 MAX_SNAPSHOT = 2_000_000
 # One kept-alive connection pool for live frames: a new TCP connection per
 # frame (15 a second per viewer) added a handshake to every picture.
@@ -118,8 +126,22 @@ def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_lengt
     zones = db.scalars(select(SecurityZone).where(SecurityZone.device_id == d.id)
                        .order_by(SecurityZone.id)).all()
     db.commit()
+    # Owner 2026-10-19: when the robot's own telemetry says it is moving, the camera shows it too. Each robot
+    # box (no motion alert) gets the live state of the real robot of the same model in this lab.
+    from app.api.routes.robots import _effective_state
+    robots_now = [r for r in db.scalars(select(Device).where(Device.device_type == DeviceType.ROBOT,
+                                                             Device.lab_id == lab.id)).all()
+                  if "SIM" not in (r.device_uid or "").upper()]
+
+    def robot_state(z):
+        if z.alert_on_motion is not False:
+            return None
+        key = "UR5" if z.name.upper().startswith("UR5") else "FANUC" if "FANUC" in z.name.upper() else None
+        r = next((r for r in robots_now if key and key in f"{(r.component_state or {}).get('model', '')} {r.name} {r.device_uid}".upper()), None)
+        return _effective_state(r, now) if r is not None else None
+
     return {"device_id": d.id, "lab_code": lab.code, "lab_name": lab.name,
-            "zones": [_zone_out(z, db) for z in zones if z.kind == "EQUIPMENT"],
+            "zones": [{**_zone_out(z, db), "robot_state": robot_state(z)} for z in zones if z.kind == "EQUIPMENT"],
             "door": next((_zone_out(z, db) for z in zones if z.kind == "DOOR"), None),
             "occupants": occupants(db, lab.id), "server_time": now.timestamp(),
             # Who USERx is, so a face recognised before the door can be named
@@ -267,10 +289,38 @@ async def report_event(meta: str = Form(..., max_length=2000),
     db.flush()
     lab = db.get(Lab, d.lab_id)
     dedupe = f"sec:{d.id}:{kind}:{zone.id if zone else 0}"
-    if db.scalar(select(Alert).where(Alert.dedupe_key == dedupe, Alert.is_resolved.is_(False))) is None:
-        db.add(Alert(lab_id=d.lab_id, device_id=d.id, severity=severity,
-                     title=f"{lab.code if lab else ''}: {title}"[:128], detail=detail,
-                     dedupe_key=dedupe))
+    # Camera-wide change: several equipment boxes of ONE camera report the same kind within a few
+    # seconds (seen 2026-10-07 12:54:57: six PCs "moved" in the same second = lighting change or a
+    # bumped camera, not six thefts). Those join ONE camera-wide incident that lists the boxes.
+    # Every event is still stored above, so nothing is hidden.
+    if zone is not None and kind in WIDE_KINDS:
+        since = datetime.now(timezone.utc) - timedelta(seconds=WIDE_WINDOW_S)
+        zones_now = set(db.scalars(select(SecurityEvent.zone_id).where(
+            SecurityEvent.device_id == d.id, SecurityEvent.kind == kind, SecurityEvent.zone_id.is_not(None),
+            SecurityEvent.created_at >= since)).all())
+        if len(zones_now) >= WIDE_MIN_ZONES:
+            dedupe = f"sec:{d.id}:{kind}:wide"
+            wide = db.scalar(select(Alert).where(or_(Alert.fingerprint == dedupe, Alert.dedupe_key == dedupe),
+                                                 Alert.is_resolved.is_(False)))
+            if wide is not None:
+                if zone.name not in wide.detail:
+                    wide.detail = (wide.detail + f", {zone.name}")[:2000]
+                db.commit()
+                return {"id": ev.id, "grouped": "camera-wide"}
+            title = f"{KINDS[kind][1]} at {len(zones_now)}+ boxes at once - camera-wide change? (lighting / camera moved)"
+            names = ", ".join(sorted(z.name for z in db.scalars(select(SecurityZone).where(SecurityZone.id.in_(zones_now)))))
+            detail = f"Boxes: {names}. Check the camera view before treating each box as a separate event."
+    # One incident per (camera, kind, box) condition (alert_grouping): repeats while it is open are
+    # counted, a return within 30 min of resolution reopens it. Grouped by FINGERPRINT, not by the
+    # unique dedupe_key: that key was never freed on resolution, so the first event after staff
+    # resolved such an alert hit the unique constraint (HTTP 500, event lost) - fixed 2026-10-18.
+    from app.services.alert_grouping import raise_or_group
+    legacy = db.scalar(select(Alert).where(Alert.dedupe_key == dedupe, Alert.is_resolved.is_(False)))
+    if legacy is not None and legacy.fingerprint != dedupe:
+        legacy.fingerprint = dedupe                  # an open alert from before grouping joins it
+    _, outcome = raise_or_group(db, lab_id=d.lab_id, device_id=d.id, severity=severity,
+                                title=f"{lab.code if lab else ''}: {title}"[:128], detail=detail, fp=dedupe)
+    if outcome in ("created", "reopened"):
         notify(db, staff_ids(db), "SECURITY_CAMERA", f"{lab.code if lab else 'Lab'}: {title}",
                body=detail + " Check the snapshot; a camera can be wrong.",
                link="/admin/security", severity="critical" if severity == AlertSeverity.CRITICAL
@@ -557,9 +607,9 @@ def acknowledge(event_id: int, db: Session = Depends(get_db), staff: User = Depe
             SecurityEvent.zone_id.is_(None) if e.zone_id is None else SecurityEvent.zone_id == e.zone_id,
             SecurityEvent.acknowledged_at.is_(None), SecurityEvent.id != e.id).count()
         if not others:
-            for a in db.scalars(select(Alert).where(Alert.dedupe_key == dedupe,
+            for a in db.scalars(select(Alert).where(or_(Alert.fingerprint == dedupe, Alert.dedupe_key == dedupe),
                                                     Alert.is_resolved.is_(False))).all():
-                a.is_resolved, a.resolved_at = True, now
+                a.is_resolved, a.resolved_at, a.state = True, now, "RESOLVED"
         db.add(AuditLog(actor_user_id=staff.id, action="SECURITY_EVENT_ACKNOWLEDGED",
                         entity_type="security_event", entity_id=str(e.id), detail={"kind": e.kind}))
         db.commit()

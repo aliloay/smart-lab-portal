@@ -45,7 +45,7 @@ constexpr uint16_t BACKEND_PORT = 8000;
 const char *LAB_ID    = "LAB_01";      // Robotics Lab (was BENCH, which the portal does not have)
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
-const char *FIRMWARE  = "bin-0.2";
+const char *FIRMWARE  = "bin-0.3";
 const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -78,6 +78,22 @@ constexpr uint32_t BOOT_SETTLE_MS  = 4000;
 constexpr float    BOOT_ZERO_MAX_G = 2.0;
 constexpr float    ZERO_TRACK_BAND_G = 0.25;    // only this close to zero
 constexpr float    ZERO_TRACK_RATE = 0.02;      // fraction of the error corrected per sample
+// Loaded drift (bin-0.3, 2026-10-18). Measured: with the resistor cup on, the reading crept
+// 134.80 -> 134.50 g in 15 min after power-on (one resistor = 0.21 g, so 30 read as 29).
+// While the reading stays STABLE the zero follows that slow creep, at most DRIFT_RATE_G_PER_S.
+// Taking or adding parts always breaks stability (a 0.21 g step vs the 0.08 g band), and the
+// value it settles on afterwards is accepted as the new reference - never "corrected" back.
+// A restart keeps the last saved reading when the power-on reading is within RESTART_KEEP_MAX_G
+// of it (creep while off); a bigger difference is a real change and is kept as measured.
+// Trade-off (owner's choice): one part taken while the bin is OFF is not seen; the portal's
+// bin calibration (tare) re-anchors the count to a confirmed number.
+constexpr float    DRIFT_RATE_G_PER_S = 0.003;  // 0.18 g/min - 9x the measured creep
+constexpr float    DRIFT_FOLLOW_MAX_G = 0.30;   // farther than this = not drift: take it as is
+constexpr float    STEP_ACCEPT_G      = 0.12;   // settles this far from the reference = parts moved
+                                                // (one resistor 0.21 g; filtered noise ~0.015 g)
+constexpr float    RESTART_KEEP_MAX_G = 0.30;   // ~1.5 resistors
+constexpr uint32_t MASS_SAVE_MIN_MS   = 60000;  // flash write at most once a minute ...
+constexpr float    MASS_SAVE_DELTA_G  = 0.05;   // ... and only when the reading moved this much
 constexpr uint32_t KEEPALIVE_MS    = 1000;      // or every 1 s: the portal books a change once two readings agree
 constexpr uint32_t HEARTBEAT_MS    = 30000;
 constexpr uint32_t HTTP_TIMEOUT_MS = 2500;
@@ -101,6 +117,14 @@ uint32_t lastSentMs = 0, lastHeartbeatMs = 0;
 bool     netOk = false;
 bool     streaming = false;        // "stream": raw samples out, portal paused
 String   itemName = "";
+uint32_t lastSampleMs = 0;         // last HX711 sample (heartbeat "hx711": answering recently)
+float    anchorG = NAN;            // accepted loaded reading the zero is held to while stable
+bool     followStable = false;     // stable since anchorG was taken
+uint32_t lastFollowMs = 0;
+double   zeroTrimCounts = 0;       // fractional counts not yet moved into zeroOffset
+float    savedMassG = NAN;         // last reading saved in flash (restart reference)
+uint32_t lastMassSaveMs = 0;
+const char *bootAnchor = "none";   // what the power-on check did (heartbeat)
 long     qtyEst = -1, qtyErr = -1;
 
 // --- I2C: find the LCD instead of assuming its address --------------------------
@@ -147,6 +171,7 @@ void loadCalibration() {
   prefs.begin("bin", true);
   scaleFactor = prefs.getFloat("scale", 0);
   zeroOffset  = prefs.getLong("offset", 0);
+  savedMassG  = prefs.getFloat("mass", NAN);
   prefs.end();
   if (scaleFactor != 0) {
     scale.set_scale(scaleFactor);
@@ -171,6 +196,46 @@ static long medianRaw() {
   return t[medN / 2];
 }
 
+// Saved together: the zero as it is now (drift followed) and the reading it gives.
+void saveMassReference(float g) {
+  prefs.begin("bin", false);
+  prefs.putLong("offset", zeroOffset);
+  prefs.putFloat("mass", g);
+  prefs.end();
+  savedMassG = g;
+  lastMassSaveMs = millis();
+}
+
+// Called on every sample (see the constants above); acts only on a stable, loaded platform.
+void followLoadedDrift(uint32_t now) {
+  if (!stable || isnan(massG) || fabs(massG) < BOOT_ZERO_MAX_G) { followStable = false; return; }
+  // After a moment of instability only a real step moves the reference: a wobble that settles
+  // within STEP_ACCEPT_G of it keeps it (re-anchoring on every wobble let the creep through -
+  // measured on the bench 2026-10-18: +0.1 g in 4 min, then a false "2 taken").
+  bool settledAfterStep = !followStable && !isnan(anchorG) && fabs(massG - anchorG) >= STEP_ACCEPT_G;
+  if (!followStable && !settledAfterStep && !isnan(anchorG) && fabs(massG - anchorG) <= DRIFT_FOLLOW_MAX_G) {
+    followStable = true;                   // same load as before the wobble: keep following
+    lastFollowMs = now;
+    return;
+  }
+  if (settledAfterStep || isnan(anchorG) || fabs(massG - anchorG) > DRIFT_FOLLOW_MAX_G) {
+    anchorG = massG;                       // settled after a change: this is the new reference
+    followStable = true;
+    lastFollowMs = now;
+    Serial.printf("CSV,anchor,%lu,%.3f\n", (unsigned long)now, anchorG);
+    return;
+  }
+  double dt = (now - lastFollowMs) / 1000.0;
+  lastFollowMs = now;
+  double maxStep = DRIFT_RATE_G_PER_S * dt;
+  double corr = std::max(-maxStep, std::min(maxStep, (double)(massG - anchorG)));
+  zeroTrimCounts += corr * scaleFactor;     // reading too high -> zero up, and the reverse
+  long whole = (long)zeroTrimCounts;
+  if (whole) { zeroOffset += whole; zeroTrimCounts -= whole; scale.set_offset(zeroOffset); }
+  if ((isnan(savedMassG) || fabs(anchorG - savedMassG) >= MASS_SAVE_DELTA_G || whole) &&
+      now - lastMassSaveMs >= MASS_SAVE_MIN_MS) saveMassReference(anchorG);
+}
+
 void resetFilter() { medN = medI = avgN = avgI = 0; windowMin = windowMax = NAN; stable = false; }
 
 // One HX711 sample -> filtered grams. Non-blocking: returns at once when no
@@ -178,6 +243,7 @@ void resetFilter() { medN = medI = avgN = avgI = 0; windowMin = windowMax = NAN;
 void readScale() {
   if (!scale.is_ready()) return;
   long raw = scale.read();
+  lastSampleMs = millis();
   medBuf[medI] = raw; medI = (medI + 1) % MEDIAN_N; if (medN < MEDIAN_N) medN++;
   if (scaleFactor == 0) return;
   double g = (medianRaw() - (double)zeroOffset) / scaleFactor;
@@ -214,6 +280,7 @@ void readScale() {
     long shift = lround(massG * scaleFactor * ZERO_TRACK_RATE);
     if (shift) { zeroOffset += shift; scale.set_offset(zeroOffset); }
   }
+  followLoadedDrift(now);
   // Deadband: while moving, the shown value only follows a real change; once
   // stable it settles onto the reading (within STABLE_SNAP_G), so the screen is
   // calm AND exact (measured noise of the filtered value: about +-0.015 g).
@@ -239,9 +306,20 @@ void bootZero() {
     zeroOffset = lround(raw);
     scale.set_offset(zeroOffset);
     saveCalibration();
+    bootAnchor = "empty";
     Serial.printf("[ZERO] Platform empty: %.2f g of drift -> zero (saved)\n", g);
+  } else if (!isnan(savedMassG) && fabs(g - savedMassG) <= RESTART_KEEP_MAX_G) {
+    // Same load as before the restart, crept a little: keep the reading (and so the count).
+    zeroOffset += lround((g - savedMassG) * scaleFactor);
+    scale.set_offset(zeroOffset);
+    saveCalibration();
+    bootAnchor = "kept";
+    Serial.printf("[ZERO] %.2f g at power-on, %.2f g before the restart: %+.2f g of creep corrected "
+                  "(reading kept)\n", g, savedMassG, g - savedMassG);
   } else {
-    Serial.printf("[ZERO] %.2f g on the platform at power-on: items present - saved zero kept\n", g);
+    bootAnchor = isnan(savedMassG) ? "no_reference" : "changed";
+    Serial.printf("[ZERO] %.2f g on the platform at power-on: items present - saved zero kept%s\n", g,
+                  isnan(savedMassG) ? "" : " (differs from before the restart: kept as measured)");
   }
 }
 
@@ -279,6 +357,8 @@ void handleSerial() {
       if (scaleFactor != 0) scale.set_scale(scaleFactor);
       saveCalibration();
       resetFilter();
+      anchorG = NAN; followStable = false; zeroTrimCounts = 0;
+      saveMassReference(NAN);              // the old restart reference no longer applies
       Serial.printf("[CAL] Zero set (offset %ld)\n", zeroOffset);
     } else if (line.startsWith("cal ")) {
       float g = line.substring(4).toFloat();
@@ -292,6 +372,8 @@ void handleSerial() {
         scale.set_scale(scaleFactor);
         saveCalibration();
         resetFilter();
+        anchorG = NAN; followStable = false; zeroTrimCounts = 0;
+        saveMassReference(NAN);
         Serial.printf("[CAL] %.2f g -> scale %.3f counts/g (saved)\n", g, scaleFactor);
       }
     } else if (line == "show") {
@@ -375,7 +457,11 @@ void sendHeartbeat() {
   String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"lab_id\":\"" + LAB_ID +
                 "\",\"device_type\":\"SENSOR_NODE\",\"firmware_version\":\"" + FIRMWARE +
                 "\",\"ip_address\":\"" + WiFi.localIP().toString() + "\",\"components\":{" +
-                "\"hx711\":" + (scale.is_ready() ? "true" : "false") +
+                // answering recently - is_ready() alone is false most of the time, because every
+                // sample is read the moment it is ready (it reported false while weighing fine)
+                "\"hx711\":" + (lastSampleMs && millis() - lastSampleMs < 2000 ? "true" : "false") +
+                ",\"uptime_s\":" + String(millis() / 1000) +
+                ",\"boot_reading\":\"" + bootAnchor + "\"" +
                 ",\"calibrated\":" + (scaleFactor != 0 ? "true" : "false") +
                 ",\"lcd\":" + (lcd ? "true" : "false") + "}}";
   int code;
@@ -447,6 +533,7 @@ void loop() {
   if (streaming) {                 // measurement mode: raw samples only
     if (scale.is_ready()) {
       long raw = scale.read();
+      lastSampleMs = millis();
       float g = scaleFactor != 0 ? (raw - zeroOffset) / scaleFactor : NAN;
       Serial.printf("CSV,lc,%lu,%ld,%.3f\n", (unsigned long)millis(), raw, g);
     }

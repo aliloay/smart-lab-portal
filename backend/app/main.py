@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.routes import (access, admin, ai, analytics, auth, automation,
                             bookings, commands, emergency, enrollment, equipment,
                             experiments, face_submissions, inventory, issues, knowledge, labs, monitor, robots, workcell,
-                            notifications, reusable, security, system)
+                            incidents, notifications, reliability, reports_center, reusable, search, security, system)
 from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.schema_check import check_schema, is_alembic_managed
@@ -55,9 +55,23 @@ async def lifespan(_: FastAPI):
     # its failures stay in its own thread - see app/services/integration.py.
     integration.dispatcher = integration.Dispatcher(SessionLocal)
     integration.dispatcher.start()
+    # A robot STOP that was never recovered stays latched across this restart (2026-10-18).
+    try:
+        from app.api.routes.robots import restore_stop_latches
+        with SessionLocal() as db:
+            latched = restore_stop_latches(db)
+        if latched:
+            print(f"[robots] STOP still latched after restart for robot id(s) {latched} - admin recovery needed")
+    except Exception as e:                          # never block start-up; the robots stay in dry run anyway
+        print(f"[robots] could not restore STOP latches: {e.__class__.__name__}: {e}")
     # Optional local AI: load the model now so the first question is quick.
     from app.services import ai
     threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
+    # Service health checks run in the background; requests read the cache (never wait on a probe).
+    import os
+    if os.environ.get("DEVICE_PROBES", "1") != "0":
+        from app.services import health_monitor
+        health_monitor.start()
     log.info("Smart Lab Portal started (%s)", settings.ENVIRONMENT)
     yield
     integration.dispatcher.stop()
@@ -89,21 +103,27 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
+# Request timing per route (app/services/perfmon.py): pure ASGI, bounded in memory, no DB writes.
+from app.services.perfmon import TimingMiddleware  # noqa: E402
+app.add_middleware(TimingMiddleware)
 
 for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
           automation.router, analytics.router, ai.router, enrollment.router,
           monitor.router, commands.router, face_submissions.router,
           inventory.router, reusable.router, equipment.router, security.router,
-          emergency.router, experiments.router, robots.router, knowledge.router, workcell.router):
+          emergency.router, experiments.router, robots.router, knowledge.router, workcell.router, reliability.router, search.router,
+          reports_center.router, incidents.router):
     app.include_router(r, prefix=settings.API_V1)
 
 
 @app.get(f"{settings.API_V1}/health", tags=["system"])
 def health(db: Session = Depends(get_db)):
     """Unauthenticated liveness probe for Docker. Reveals nothing sensitive."""
+    db_time = None
     try:
-        db.execute(text("SELECT 1"))
+        # the database's own clock (clock check, tools/evidence/clock_check.py) - doubles as SELECT 1
+        db_time = float(db.execute(text("SELECT extract(epoch from clock_timestamp())")).scalar())
         db_ok = True
     except Exception:
         db_ok = False
@@ -111,7 +131,26 @@ def health(db: Session = Depends(get_db)):
         "status": "ok" if db_ok else "degraded",
         "database": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
+        "db_time": db_time,
+        "version": _build_info(),
     }
+
+
+_BUILD: Optional[dict] = None
+
+
+def _build_info() -> dict:
+    """The deployed version (tools/deploy/deploy.py stamps app/build_info.json)."""
+    global _BUILD
+    if _BUILD is None:
+        import json
+        import os
+        try:
+            with open(os.path.join(os.path.dirname(__file__), "build_info.json"), encoding="utf-8") as f:
+                _BUILD = json.load(f)
+        except (OSError, ValueError):
+            _BUILD = {"id": "unstamped", "note": "deployed without tools/deploy/deploy.py"}
+    return _BUILD
 
 
 @app.websocket("/ws/activity")

@@ -13,6 +13,8 @@ from app.models import AuditLog, Notification, Role, User
 from app.core.security import hash_password
 from tests.conftest import auth_headers
 
+_REAL_FACE_CLIENT = enrollment._face        # before any fixture replaces it
+
 
 class _Resp:
     def __init__(self, body=None, status=200, content=b""):
@@ -24,6 +26,25 @@ class _Resp:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise httpx.HTTPStatusError("bad", request=None, response=None)
+
+
+class _ViaModuleHttpx:
+    """The route keeps one pooled client for the face server (enrollment._face); in tests it
+    forwards to enrollment.httpx.get/post/request so the fakes below see every call, camera or
+    face server, exactly as before."""
+    def get(self, *a, **k): return enrollment.httpx.get(*a, **k)
+    def post(self, *a, **k): return enrollment.httpx.post(*a, **k)
+    def request(self, *a, **k): return enrollment.httpx.request(*a, **k)
+
+
+@pytest.fixture(autouse=True)
+def _face_client_through_fakes(monkeypatch):
+    monkeypatch.setattr(enrollment, "_face", _ViaModuleHttpx())
+
+
+def test_face_server_calls_share_one_kept_alive_client():
+    # Regression (2026-10-18): a new connection per preview/status call added ~30-40 ms to each.
+    assert isinstance(_REAL_FACE_CLIENT, httpx.Client) and not _REAL_FACE_CLIENT.is_closed
 
 
 @pytest.fixture

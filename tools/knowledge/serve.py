@@ -10,6 +10,7 @@ the LAN address. Every request needs the header X-KB-Key (tools/knowledge/config
 "service_key", created on first start; the backend reads KB_SERVICE_KEY from .env).
 
   GET  /status                     index, embeddings, model, last jobs
+  GET  /gpu-gate                   camera-first GPU decision for the assistants (gpu_gate.py)
   POST /ask   {"question", "route"?}  NDJSON stream: meta, step, sources, token, done
   POST /jobs/build | /jobs/health | /jobs/drift | /jobs/digest
                                    maintenance jobs; one at a time (409 while one runs)
@@ -32,11 +33,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import agent  # noqa: E402
+import gpu_gate  # noqa: E402
 import kb  # noqa: E402
 
 PORT = 5199
 JOB_LOCK = threading.Lock()
 LLM_LOCK = threading.Semaphore(2)          # at most 2 answers at once (CPU protection)
+ANSWER_CACHE: dict = {}                    # (question, route, index version) -> cited answer
+CACHE_S = 6 * 3600
 STATE = {"jobs": {}}
 
 
@@ -98,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._auth():
             return
+        if self.path == "/gpu-gate":       # the one camera-first GPU decision both assistants follow
+            return self._json(200, gpu_gate.current(os.path.abspath(os.path.join(HERE, "..", ".."))))
         if self.path != "/status":
             return self._json(404, {"error": "not found"})
         cfg = kb.load_config()
@@ -148,15 +154,36 @@ class Handler(BaseHTTPRequestHandler):
                 raise KeyboardInterrupt            # the browser closed the stream: stop generating
         cfg = kb.load_config()
         cfg["model"] = cfg.get("agent_model", "qwen2.5:1.5b")
+        # Answer cache: the same question against the same index gets the same cited answer at once.
+        idx = os.path.join(cfg["data"], "index.json")
+        version = os.path.getmtime(idx) if os.path.isfile(idx) else 0
+        key = (" ".join(q.lower().split()), forced, version)
+        hit = ANSWER_CACHE.get(key)
+        if hit and time.time() - hit["at"] < CACHE_S:
+            emit({"type": "meta", **hit["meta"], "cached": True})
+            if hit["done"].get("answer"):
+                emit({"type": "token", "text": hit["done"]["answer"]})
+            emit({**hit["done"], "cached": True, "total_ms": 0})
+            return
+        captured: dict = {}
+
+        def emit_and_keep(e):
+            if e.get("type") == "meta":
+                captured["meta"] = {k: v for k, v in e.items() if k != "type"}
+            emit(e)
         if not LLM_LOCK.acquire(timeout=60):
             emit({"type": "done", "status": "failed", "error": "busy - two answers already running"})
             return
         try:
             res = agent.run(cfg, q, forced, out=lambda s: emit({"type": "step", "text": s}) if s.startswith("step:") else None,
-                            on_token=lambda t: emit({"type": "token", "text": t}), emit=emit)
-            emit({"type": "done", **{k: res.get(k) for k in ("status", "route", "error", "note", "total_ms", "retrieval_ms",
-                                                              "citations_valid", "answer")},
-                  "llm": res.get("llm")})
+                            on_token=lambda t: emit({"type": "token", "text": t}), emit=emit_and_keep)
+            done = {"type": "done", **{k: res.get(k) for k in ("status", "route", "error", "note", "total_ms", "retrieval_ms",
+                                                                "citations_valid", "answer")}, "llm": res.get("llm")}
+            emit(done)
+            if res.get("status") == "completed" and "meta" in captured:     # never cache failures or cancellations
+                if len(ANSWER_CACHE) > 200:
+                    ANSWER_CACHE.clear()
+                ANSWER_CACHE[key] = {"at": time.time(), "meta": captured["meta"], "done": done}
         except KeyboardInterrupt:
             pass
         finally:

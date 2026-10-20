@@ -19,7 +19,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import (AccessSession, Alert, AlertSeverity, Device, InventoryBin,
@@ -243,11 +243,16 @@ def bin_out(db: Session, b: InventoryBin, now: Optional[datetime] = None) -> dic
     now = now or datetime.now(timezone.utc)
     lab = db.get(Lab, b.lab_id)
     dev = db.get(Device, b.device_id) if b.device_id else None
-    if b.last_measured_at is None:
+    # Fresh = a reading ARRIVED recently. last_measured_at only moves when a reading confirms the count;
+    # a reading resting between two counts (or a rise above stock_max) confirms nothing, so a bin that
+    # weighed every second was shown STALE for hours (2026-10-18).
+    last_reading = db.scalar(select(func.max(InventoryMeasurement.recorded_at))
+                             .where(InventoryMeasurement.bin_id == b.id)) or b.last_measured_at
+    if last_reading is None:
         quality = "MISSING"
     elif dev is not None and is_fresh(dev, now) is False:
         quality = "DEVICE_OFFLINE"
-    elif now - _utc(b.last_measured_at) > STALE_AFTER:
+    elif now - _utc(last_reading) > STALE_AFTER:
         quality = "STALE"
     else:
         quality = "VALID"
@@ -256,6 +261,7 @@ def bin_out(db: Session, b: InventoryBin, now: Optional[datetime] = None) -> dic
             "lab_id": b.lab_id, "lab_code": lab.code if lab else None,
             "device_uid": dev.device_uid if dev else None,
             "mass_g": b.last_mass_g, "measured_at": b.last_measured_at, "quality": quality,
+            "last_reading_at": last_reading,
             "calibrated": calibrated(b), "tare_g": b.tare_g, "unit_mass_g": b.unit_mass_g,
             "noise_g": b.noise_g, "calibrated_at": b.calibrated_at,
             "min_change_g": threshold_g(b), "qty_est": qty, "qty_err": qty_error(b),

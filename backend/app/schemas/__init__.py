@@ -162,7 +162,8 @@ class DeviceOut(ORM):
     lab_code: Optional[str] = None
     # Uses its own key (True) or the shared one (False).
     has_own_key: bool = False
-    # ONLINE / OFFLINE / NO_DATA - NO_DATA means it has never reported.
+    # ONLINE / DEGRADED / OFFLINE / NO_DATA - NO_DATA means it has never reported; DEGRADED = its
+    # reporter runs but the device itself is missing (camera without picture, robot not connected).
     state: str = "NO_DATA"
     seconds_since_seen: Optional[int] = None
     # Why the state is what it is when it is not the device's own heartbeat

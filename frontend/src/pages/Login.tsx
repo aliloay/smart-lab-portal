@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
+import './login.css'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Bot, Cpu, Eye, EyeOff, Lock, ShieldCheck, UserPlus } from 'lucide-react'
@@ -24,6 +25,22 @@ export default function Login() {
   const [department, setDepartment] = useState('')
   const [done, setDone] = useState('')
 
+  // Restrained parallax for the background layer (desktop, pointer only, never with reduced motion).
+  const stage = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = stage.current
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(pointer: fine)').matches) return
+    let raf = 0
+    const on = (e: PointerEvent) => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        el.style.setProperty('--lx', ((e.clientX / window.innerWidth) - 0.5).toFixed(3))
+        el.style.setProperty('--ly', ((e.clientY / window.innerHeight) - 0.5).toFixed(3))
+      })
+    }
+    window.addEventListener('pointermove', on, { passive: true })
+    return () => { window.removeEventListener('pointermove', on); cancelAnimationFrame(raf) }
+  }, [])
   useEffect(() => { api.signupConfig().then(setSignupCfg).catch(() => setSignupCfg(null)) }, [])
   const signingUp = mode === 'signup'
 
@@ -55,11 +72,13 @@ export default function Login() {
       await login(emailNow.trim().toLowerCase(), pwNow)
       const next = params.get('next')
       // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
-      // First sign-in on this browser: the /welcome story (stays until Skip / Enter Dashboard).
-      let first = false
-      try { first = !localStorage.getItem(`smartlab.welcomed.${emailNow.trim().toLowerCase()}`) } catch { /* ignore */ }
-      const home = ['8080', '8443'].includes(window.location.port) ? '/command' : first ? '/welcome' : '/'
-      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : home, { replace: true })
+      // After every sign-in: the /welcome story; it stays until Skip / Enter Dashboard, which go to
+      // "/" = this role's own dashboard. A deep link (?next=) still wins; the Command Center port too.
+      // Owner 2026-10-18: the welcome shows after EVERY sign-in, also when the sign-in came from an
+      // expired session or a link - its Enter button then continues to that page.
+      const ok = next && next.startsWith('/') && !next.startsWith('//')
+      nav(['8080', '8443'].includes(window.location.port) ? (ok ? next! : '/command')
+          : ok ? `/welcome?next=${encodeURIComponent(next!)}` : '/welcome', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
@@ -68,49 +87,62 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[1.15fr_1fr]">
-      {/* ------------------------------------------------------ identity */}
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden p-12 border-r border-ink-600/60 bg-ink-950">
-        {/* The lab's own robots (photos), cross-faded, under a navy gradient. Decorative only. */}
-        <img src="/equipment/our-ur5e.jpg" alt="" aria-hidden decoding="async"
-             className="absolute inset-y-0 left-0 w-[62%] h-full object-cover opacity-55 [mask-image:linear-gradient(90deg,#000_55%,transparent)]" />
-        <img src="/equipment/our-fanuc.jpg" alt="" aria-hidden decoding="async"
-             className="absolute inset-y-0 right-0 w-[58%] h-full object-cover opacity-45 [mask-image:linear-gradient(270deg,#000_50%,transparent)]" />
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/75 to-ink-950/40" />
-        <div aria-hidden className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_80%,rgba(34,211,238,.18),transparent_55%),radial-gradient(ellipse_at_85%_20%,rgba(251,191,36,.10),transparent_50%)]" />
-        <svg aria-hidden className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <path d="M-5 78 C 25 60, 45 72, 70 48 S 100 30, 108 22" fill="none" stroke="#22d3ee" strokeOpacity=".55" strokeWidth=".25" strokeDasharray="1 2.2" className="login-trail" />
-          <path d="M-5 92 C 30 80, 55 88, 80 66 S 100 55, 108 50" fill="none" stroke="#fbbf24" strokeOpacity=".4" strokeWidth=".2" strokeDasharray="1 2.6" className="login-trail login-trail-slow" />
-          {[[18, 70], [44, 64], [70, 48], [86, 35]].map(([x, y]) => <circle key={x} cx={x} cy={y} r=".55" fill="#67e8f9" className="login-node" />)}
+    <div ref={stage} className="login-stage relative min-h-screen overflow-x-hidden bg-ink-950 lg:grid lg:grid-cols-[1.15fr_1fr]">
+      {/* One environment behind both halves: grid, glows, and light paths that leave the robot
+          picture, cross the seam and fade out above / below the sign-in card. Decorative, CSS/SVG only. */}
+      <div aria-hidden className="login-env pointer-events-none absolute inset-0 hidden lg:block">
+        <div className="login-env-grid" />
+        <div className="login-env-glow" />
+        <svg className="login-env-paths" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            {/* both trails fade out well before the sign-in card */}
+            <linearGradient id="lp-c" x1="0" x2="1"><stop offset="0" stopColor="#22d3ee" stopOpacity=".05" /><stop offset=".45" stopColor="#22d3ee" stopOpacity=".7" /><stop offset=".75" stopColor="#22d3ee" stopOpacity=".3" /><stop offset="1" stopColor="#22d3ee" stopOpacity="0" /></linearGradient>
+            <linearGradient id="lp-a" x1="0" x2="1"><stop offset="0" stopColor="#fbbf24" stopOpacity="0" /><stop offset=".45" stopColor="#fbbf24" stopOpacity=".5" /><stop offset="1" stopColor="#fbbf24" stopOpacity="0" /></linearGradient>
+          </defs>
+          {/* amber trail stays on the left */}
+          <path d="M-2 84 C 20 80, 38 88, 52 90" stroke="url(#lp-a)" strokeWidth=".16" fill="none" className="login-path login-path-slow" />
         </svg>
+      </div>
+      {/* ------------------------------------------------------ identity */}
+      <aside className="relative z-[1] hidden lg:flex flex-col justify-between overflow-hidden p-12">
+        {/* The seam between the two halves: two light rays (cyan, amber) running along it. CSS only. */}
+        <div aria-hidden className="absolute top-0 right-0 h-full w-px bg-gradient-to-b from-transparent via-cyan-400/30 to-transparent z-10">
+          <span className="seam-ray" /><span className="seam-ray seam-ray-amber" />
+        </div>
+        {/* The lab's own UR5e (left) and FANUC (right): /assets/labs/login-robots.jpg, a crop of our two
+            photos so the robots, not the frame, fill the picture. Decorative only. */}
+        <img src="/assets/labs/login-robots.jpg" alt="" aria-hidden decoding="async"
+             className="absolute top-0 inset-x-0 w-full h-[64%] object-cover object-center opacity-85" />
+        {/* Both robots stay visible across the top; the picture fades into navy under the headline. */}
+        <div aria-hidden className="absolute top-0 inset-x-0 h-[64%] bg-gradient-to-b from-ink-950/65 via-ink-950/10 to-ink-950" />
+        <div aria-hidden className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_80%,rgba(34,211,238,.18),transparent_55%),radial-gradient(ellipse_at_85%_20%,rgba(251,191,36,.10),transparent_50%)]" />
         <style>{`.login-trail{animation:lt 6s linear infinite}.login-trail-slow{animation-duration:9s}
           .login-node{animation:ln 3.2s ease-in-out infinite}@keyframes lt{to{stroke-dashoffset:-32}}
-          @keyframes ln{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.login-trail,.login-node{animation:none}}`}</style>
+          @keyframes ln{50%{opacity:.25}}.seam-ray{position:absolute;left:-1px;width:3px;height:22%;border-radius:2px;background:linear-gradient(transparent,#22d3ee,transparent);box-shadow:0 0 12px 2px rgba(34,211,238,.55);animation:sr 5s linear infinite}.seam-ray-amber{background:linear-gradient(transparent,#67e8f9,transparent);box-shadow:0 0 12px 2px rgba(103,232,249,.5);animation-duration:7s;animation-direction:reverse;animation-delay:-2s}@keyframes sr{from{top:-25%}to{top:105%}}@media (prefers-reduced-motion:reduce){.login-trail,.login-node,.seam-ray{animation:none}.seam-ray{display:none}}`}</style>
 
         <div className="relative flex items-center justify-between">
           <div className="flex items-center gap-4"><SmartLabMark size={60} animated /><Wordmark /></div>
-          <span className="rounded-xl bg-white/90 px-3 py-1.5 shadow-lg shadow-black/30"><InstitutionLogo className="!h-10 xl:!h-11" /></span>
+          <InstitutionLogo className="!h-9 xl:!h-10 ml-auto -mr-9 drop-shadow-[0_2px_8px_rgba(0,0,0,.6)]" />
         </div>
 
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }}
                     className="relative max-w-xl">
-          <div className="eyebrow">GERMAN INTERNATIONAL UNIVERSITY · CAIRO</div>
-          <h1 className="mt-4 font-display text-[50px] xl:text-[58px] leading-[1.02] font-semibold tracking-tight text-white">
-            One lab.<span className="block bg-gradient-to-r from-accent-200 via-cyan-300 to-amber-200 bg-clip-text text-transparent">
-              Every system connected.</span></h1>
+          <h1 className="font-display text-[50px] xl:text-[58px] leading-[1.02] font-semibold tracking-tight text-white">
+            Multiple labs.<span className="block bg-gradient-to-r from-accent-200 via-cyan-300 to-amber-200 bg-clip-text text-transparent">
+              One connected system.</span></h1>
           <p className="mt-5 text-[16.5px] text-slate-300 leading-relaxed max-w-md">
             Where robotics, intelligent automation, and connected research work together.</p>
-          <ul className="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-[11.5px] font-semibold tracking-[.14em] text-slate-200">
+          <ul className="mt-9 flex flex-wrap xl:flex-nowrap items-center gap-x-5 gap-y-2.5 text-[11px] font-semibold tracking-[.1em] text-slate-100">
             {[[<Bot size={15} />, 'ROBOTICS & DIGITAL TWINS'], [<Cpu size={15} />, 'INTELLIGENT AUTOMATION'],
               [<ShieldCheck size={15} />, 'SECURE LAB ACCESS']].map(([icon, t]) => (
-              <li key={t as string} className="flex items-center gap-2"><span className="text-cyan-300">{icon}</span>{t}</li>))}
+              <li key={t as string} className="flex items-center gap-1.5 whitespace-nowrap"><span className="text-cyan-300 shrink-0">{icon}</span>{t}</li>))}
           </ul>
         </motion.div>
         <div />
       </aside>
 
       {/* ------------------------------------------------------- sign in */}
-      <main className="relative flex items-center justify-center px-5 py-12">
+      <main className="relative z-[3] flex items-center justify-center px-5 py-12">
         <GridField className="lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: .35 }} className="relative w-full max-w-[400px]">
@@ -119,7 +151,8 @@ export default function Login() {
             <div className="flex items-center gap-2.5"><SmartLabMark size={34} animated /><Wordmark /></div>
           </div>
 
-          <div className="card p-7 sm:p-8">
+          <div aria-hidden className="login-card-glow" />
+          <div className="card login-glass relative p-7 sm:p-8">
             <div className="flex items-center gap-2.5">
               <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-500/15
                                border border-accent-500/30 text-accent-300">

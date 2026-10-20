@@ -2,6 +2,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Fingerprint, KeyRound, Pencil, Search, ShieldCheck, UserPlus, Users as UsersIcon } from 'lucide-react'
 import { Role, User, api } from '../lib/api'
 import FaceEnrollment from '../components/FaceEnrollment'
+import { FaceReviewQueue } from '../components/FaceSubmission'
+import { useSearchParams } from 'react-router-dom'
 import FingerprintEnrollment from '../components/FingerprintEnrollment'
 import CardEnrollment from '../components/CardEnrollment'
 import { roleLabel, useAuth } from '../lib/auth'
@@ -28,6 +30,16 @@ export default function Users() {
   const load = useCallback(() => api.users().then(setRows)
     .catch(e => { setError(e.message); setRows([]) }), [])
   useEffect(() => { load() }, [load])
+  // ?face=<user id> (the "Face photos to review" notification) opens that person's enrollment
+  const [params, setParams] = useSearchParams()
+  const faceFor = Number(params.get('face')) || 0
+  const [queueKey, setQueueKey] = useState(0)
+  useEffect(() => {
+    if (!faceFor || !rows) return
+    const u = rows.find(x => x.id === faceFor)
+    if (u) setEnrolling(u)
+    setParams(p => { p.delete('face'); return p }, { replace: true })
+  }, [faceFor, rows, setParams])
 
   const [showRemoved, setShowRemoved] = useState(false)
   const list = useMemo(() => (rows ?? []).filter(u => (showRemoved || u.is_active) && (!role || u.role === role) &&
@@ -65,6 +77,8 @@ export default function Users() {
         place the finger twice, or use <b>Edit → Fingerprint</b>, and enroll the face under <b>Edit → Face ID</b>.
         Their booking QR then works with their own fingerprint or face.
       </Notice></div>
+
+      <FaceReviewQueue key={queueKey} onReview={id => { const u = rows?.find(x => x.id === id); if (u) setEnrolling(u) }} />
 
       <div className="card p-4 mb-4 grid sm:grid-cols-3 gap-3">
         <div className="relative sm:col-span-2">
@@ -119,7 +133,7 @@ export default function Users() {
           )}
       </div>
 
-      <Drawer open={!!enrolling} onClose={() => { setEnrolling(null); load() }}
+      <Drawer open={!!enrolling} onClose={() => { setEnrolling(null); load(); setQueueKey(k => k + 1) }}
               title={`Door enrollment - ${enrolling?.full_name ?? ''}`}
               subtitle={enrolling?.auth_subject ? `${enrolling.auth_subject}: fingerprint slot ${enrolling.auth_subject.replace(/^USER/, '')} and face label ${enrolling.auth_subject}` : undefined}>
         {enrolling && (

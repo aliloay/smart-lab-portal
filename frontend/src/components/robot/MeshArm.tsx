@@ -11,22 +11,33 @@
 import { ThreeEvent, useLoader } from '@react-three/fiber'
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import { LinkVisual, UrdfModel, Vec3 } from './robotModels'
+import { ArmDecal, LinkVisual, UrdfModel, Vec3 } from './robotModels'
+import { decorTexture, facingQuaternion } from './robotDecor'
 
 const euler = (rpy: Vec3) => new THREE.Euler(rpy[0], rpy[1], rpy[2], 'ZYX')   // URDF fixed-axis roll-pitch-yaw
 
 type Look = { ghost: boolean; tint: string | null }
 
 function useMeshObject(model: UrdfModel, v: LinkVisual, look: Look): THREE.Object3D {
-  const loaded = useLoader((model.format === 'dae' ? ColladaLoader : STLLoader) as never, v.mesh) as unknown
+  // Collada meshes are served as compact binary .glb in the same raw frame (scripts/dae_to_glb.mjs, then
+  // scripts/compact_glb.mjs) - parsing ~12 MB of Collada XML froze the page ~1.4 s (2026-10-18). STL meshes go
+  // the same way only where a converted .glb exists (model.stlAsGlb: the FANUC, scripts/stl_to_glb.mjs - welded,
+  // no normals, drawn flat as STLLoader drew it); every other STL (the Welcome finale robots) loads as STL.
+  const gltf = model.format === 'dae' || !!model.stlAsGlb
+  const url = model.format === 'dae' ? v.mesh.replace(/\.dae$/i, '.glb') : model.stlAsGlb ? v.mesh.replace(/\.stl$/i, '.glb') : v.mesh
+  const loaded = useLoader((gltf ? GLTFLoader : STLLoader) as never, url) as unknown
   return useMemo(() => {
     let obj: THREE.Object3D
-    if (model.format === 'dae') {
+    if (gltf) {
       obj = (loaded as { scene: THREE.Object3D }).scene.clone(true)
-      // The loader rotates Z-up assets to Y-up; URDF meshes are placed in their raw frame.
+      // Raw URDF frame (the converter removed Collada's Z-up -> Y-up rotation).
       obj.rotation.set(0, 0, 0)
+      if (model.format === 'stl') obj.traverse(o => {           // geometry only: the link's own colour
+        const m = o as THREE.Mesh
+        if (m.isMesh) m.material = new THREE.MeshStandardMaterial({ color: v.color ?? '#cccccc', metalness: 0.2, roughness: 0.55, flatShading: true })
+      })
     } else {
       obj = new THREE.Mesh(loaded as THREE.BufferGeometry,
                            new THREE.MeshStandardMaterial({ color: v.color ?? '#cccccc', metalness: 0.2, roughness: 0.55 }))
@@ -46,7 +57,15 @@ function useMeshObject(model: UrdfModel, v: LinkVisual, look: Look): THREE.Objec
       m.material = Array.isArray(m.material) ? mats : mats[0]
     })
     return obj
-  }, [loaded, model.format, v.color, look.ghost, look.tint])
+  }, [loaded, gltf, model.format, v.color, look.ghost, look.tint])
+}
+
+/** Lettering printed on a link (just off its surface; not on the translucent HOME ghost). */
+function Decal({ d }: { d: ArmDecal }) {
+  const q = useMemo(() => facingQuaternion(d.facing), [d.facing])
+  return <mesh position={d.xyz} quaternion={q}><planeGeometry args={d.size} />
+    <meshStandardMaterial map={decorTexture(d.tex)} transparent alphaTest={0.05} roughness={0.5}
+                          polygonOffset polygonOffsetFactor={-2} /></mesh>
 }
 
 function Visual({ model, v, look, onClick, onGrab, shift }: {
@@ -80,6 +99,7 @@ export default function MeshArm({ model, q, ghost = false, selected, moving, acc
       <group quaternion={new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...j.axis), q[i] ?? 0)}>
         <Visual model={model} v={model.links[i]} look={look(i)} onClick={onSelect ? () => onSelect(i) : undefined}
                 onGrab={onGrab && !ghost ? (x, y) => onGrab(i, x, y) : undefined} />
+        {!ghost && model.decals?.filter(d => d.link === i).map((d, k) => <Decal key={`dc${k}`} d={d} />)}
         {i === model.joints.length - 1 && model.tool?.map(t => {
           // Fingers slide in as the preview gripper closes (approximate, preview only).
           const side = /left_(finger|inner)/.test(t.mesh) ? -1 : /right_(finger|inner)/.test(t.mesh) ? 1 : 0

@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import UsageSummary from '../components/UsageSummary'
 import { Link, useParams } from 'react-router-dom'
 import {
   Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, CalendarRange, Camera,
@@ -15,6 +16,20 @@ import {
   Skeleton, StateDot,
 } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
+import RoboticsHero from '../components/RoboticsHero'
+
+/** Detail-page hero illustrations (generated, not photographs of the room), by lab code. */
+const HERO_IMAGE: Record<string, { src: string; alt: string; pos?: string }> = {
+  LAB_02: { src: '/assets/labs/plc-lab-hero.webp', alt: 'Illustration of a PLC training lab: rows of PLC stations, workstations and overview screens' },
+  LAB_03: { src: '/assets/labs/production_lab_hero.webp', alt: 'Illustration of a production lab: CNC machines, drilling and milling stations, workbenches and a robot cell' },
+  LAB_04: { src: '/assets/labs/materials_lab_hero.webp', alt: 'Illustration of a materials lab: microscopes, sample benches and a universal testing machine' },
+  LAB_05: { src: '/assets/labs/automotive-lab-hero.webp', alt: 'Illustration of an automotive lab: a BMW i3 beside a bench of drivetrain and steering parts', pos: '70% center' },
+  LAB_06: { src: '/assets/labs/02-pcb-lab-hero.webp', alt: 'Illustration of a PCB lab: prototyping machine, workstations and soldering benches' },
+  LAB_07: { src: '/assets/labs/02-microcontroller-lab-hero.webp', alt: 'Illustration of a microcontrollers lab bench: schematic on screen, oscilloscopes, boards and a breadboard' },
+  LAB_08: { src: '/assets/labs/02-power-lab-hero.webp', alt: 'Illustration of a power and process lab: control cabinets with HMIs, a motor test bench and a water-tank rig' },
+  LAB_09: { src: '/assets/labs/design_lab_hero.webp', alt: 'Illustration of a design and fabrication lab: laser cutter, saw table and a jewellery bench' },
+  LAB_11: { src: '/assets/labs/fashion_lab_hero.webp', alt: 'Illustration of a fashion studio: pattern table, sewing machines and dress forms' },
+}
 import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
 import SafetyStates from '../components/SafetyStates'
@@ -91,12 +106,15 @@ export default function LabDetail() {
                                   hover:text-white"><ArrowLeft size={14} />Laboratories</Link>
 
       {/* ---------------------------------------------------------- hero */}
-      <section className="relative card overflow-hidden">
-        <div className="absolute inset-y-0 right-0 w-full md:w-[62%]">
-          <LabArt category={lab.category} className="w-full h-full" />
+      <section className={`relative card overflow-hidden ${lab.code === 'LAB_01' ? 'ray-border' : ''}`}>
+        {lab.code === 'LAB_01' ? <RoboticsHero /> : <div className="absolute inset-y-0 right-0 w-full md:w-[62%]">
+          {HERO_IMAGE[lab.code]
+            ? <img src={HERO_IMAGE[lab.code].src} alt={HERO_IMAGE[lab.code].alt} width={1600} height={600} decoding="async"
+                   className="w-full h-full object-cover object-center" style={HERO_IMAGE[lab.code].pos ? { objectPosition: HERO_IMAGE[lab.code].pos } : undefined} />
+            : <LabArt category={lab.category} className="w-full h-full" />}
           <div className="absolute inset-0 bg-gradient-to-r from-ink-800 via-ink-800/80 to-ink-800/10" />
           <div className="absolute inset-0 bg-gradient-to-t from-ink-800/90 to-transparent md:hidden" />
-        </div>
+        </div>}
         <div className="relative p-6 sm:p-8 max-w-2xl">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="mono text-accent-200 text-[13px]">{lab.code}</span>
@@ -245,15 +263,11 @@ export default function LabDetail() {
           {/* ------------------------------------------------ usage pattern */}
           <section>
             <SectionTitle icon={<CalendarRange size={15} />}
-              sub={twin ? `Typical week over the last ${twin.days} days (${twin.timezone}) and the three weeks around today.`
+              sub={twin ? `How busy this lab is - from its bookings (last ${twin.days} days, ${twin.timezone}).`
                 : undefined}>Usage pattern</SectionTitle>
             <div className="card p-5 space-y-5">
               {!twin ? <Skeleton className="h-40" /> : <>
-                <DayStrip days={twin.days_strip} openHours={twin.open_hours_per_day} />
-                <div>
-                  <div className="text-[11.5px] text-slate-300 mb-1">Typical week: average hours booked in each hour (last {twin.days} days)</div>
-                  <Heatmap data={twin.heatmap} unit="avg h booked" tone="violet" xTitle={`Hour of day (${twin.timezone}) - each square = one hour, starting at that time`} />
-                </div>
+                <UsageSummary heatmap={twin.heatmap} daysStrip={twin.days_strip} days={twin.days} />
               </>}
             </div>
           </section>

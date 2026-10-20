@@ -305,76 +305,103 @@ export function LabNetworkMap({ nodes, className = '' }: {
 export type Tri = boolean | null | undefined
 
 /**
- * The door as a schematic: reader, camera, controller, lock, door sensor,
- * each with a light driven by what the devices last reported. Grey means
- * "no data", not "fine".
+ * The lab door as a scene - red door with its maglock, the MC210 camera above, the NFC/QR tablet
+ * and fingerprint reader, the Master ESP32 and the PC running the face server. Everything that
+ * moves or lights up follows what the devices LAST REPORTED: the door leaf swings open only when
+ * the door sensor reports open; a device's light is green / red / grey (grey = no data, never
+ * assumed "fine"); the data lines flow only while both ends are online. Nothing is simulated.
  */
 export function DoorSchematic({ controller, camera, face, doorClosed, className = '' }: {
   controller: Tri; camera: Tri; face: Tri; doorClosed: Tri; className?: string
 }) {
-  const col = (s: Tri) => s === true ? '#10b981' : s === false ? '#ef4444' : '#64748b'
-  const door = doorClosed === true ? '#10b981' : doorClosed === false ? '#f59e0b' : '#64748b'
+  const col = (s: Tri) => s === true ? '#22c55e' : s === false ? '#ef4444' : '#64748b'
+  const open = doorClosed === false
+  const lock = doorClosed === true ? '#22c55e' : doorClosed === false ? '#f59e0b' : '#64748b'
+  const Lamp = ({ x, y, s }: { x: number; y: number; s: Tri }) =>
+    <g><circle cx={x} cy={y} r="5" fill={col(s)} />{s === true && <circle cx={x} cy={y} r="9" fill={col(s)} opacity=".25" className="ds-pulse" />}</g>
   return (
-    <svg viewBox="0 0 520 220" className={className} role="img"
-         aria-label="Door access hardware schematic">
-      {/* wall and door frame */}
-      <path d="M20 200h480" stroke="#41618f" strokeWidth="2" />
-      <rect x="210" y="40" width="100" height="160" fill="#172841" stroke="#5776a3"
-            strokeWidth="2" rx="3" />
-      <rect x="222" y="52" width="76" height="136" fill="none" stroke="#33507a" />
-      <circle cx="288" cy="124" r="4" fill="#94b8e2" />
-      {/* lock + reed sensor */}
-      <rect x="302" y="104" width="14" height="40" rx="3" fill="#1b2e4b"
-            stroke={door} strokeWidth="2" />
-      <circle cx="309" cy="98" r="3.5" fill={door} />
-
-      {/* reader panel */}
-      <rect x="140" y="92" width="44" height="64" rx="6" fill="#1b2e4b"
-            stroke="#5776a3" strokeWidth="1.5" />
-      <rect x="148" y="100" width="28" height="18" rx="2" fill="#12213a" stroke="#41618f" />
-      <circle cx="162" cy="134" r="8" fill="none" stroke="#7dd3fc" strokeOpacity=".7" />
-      <circle cx="162" cy="134" r="4" fill="none" stroke="#7dd3fc" strokeOpacity=".5" />
-      <circle cx="176" cy="148" r="3" fill={col(controller)} />
-
-      {/* camera */}
-      <rect x="146" y="46" width="32" height="20" rx="4" fill="#1b2e4b"
-            stroke="#5776a3" strokeWidth="1.5" />
-      <circle cx="162" cy="56" r="5" fill="#12213a" stroke="#7dd3fc" />
-      <circle cx="176" cy="48" r="3" fill={col(camera)} />
-      <path d="M162 66 L132 118 M162 66 L192 118" stroke="#38bdf8" strokeOpacity=".18" />
-
-      {/* controller box */}
-      <rect x="360" y="70" width="92" height="56" rx="6" fill="#1b2e4b"
-            stroke="#5776a3" strokeWidth="1.5" />
-      <text x="406" y="94" textAnchor="middle" fontSize="9" fill="#cbd5e1"
-            fontFamily="JetBrains Mono, monospace">ESP32</text>
-      <text x="406" y="108" textAnchor="middle" fontSize="7.5" fill="#94a3b8"
-            fontFamily="JetBrains Mono, monospace">MASTER</text>
-      <circle cx="444" cy="78" r="3" fill={col(controller)} />
-
-      {/* face server */}
-      <rect x="40" y="70" width="70" height="46" rx="6" fill="#1b2e4b"
-            stroke="#5776a3" strokeWidth="1.5" />
-      <text x="75" y="92" textAnchor="middle" fontSize="8" fill="#cbd5e1"
-            fontFamily="JetBrains Mono, monospace">FACE</text>
-      <text x="75" y="104" textAnchor="middle" fontSize="7.5" fill="#94a3b8"
-            fontFamily="JetBrains Mono, monospace">SERVER</text>
-      <circle cx="104" cy="76" r="3" fill={col(face)} />
-
-      {/* wiring / network */}
-      <path d="M184 124 H 210" stroke="#41618f" strokeWidth="1.5" />
-      <path d="M316 124 H 340 V 100 H 360" stroke="#41618f" strokeWidth="1.5" fill="none" />
-      <path d="M178 56 H 340 V 84 H 360" stroke="#41618f" strokeWidth="1.2"
-            strokeDasharray="3 5" fill="none" />
-      <path d="M110 92 H 146" stroke="#41618f" strokeWidth="1.2" strokeDasharray="3 5" />
-      {controller && (
-        <path d="M316 124 H 340 V 100 H 360" stroke="#2dd4bf" strokeWidth="1.6"
-              fill="none" className="art-flow" />
-      )}
-      {camera && (
-        <path d="M178 56 H 340 V 84 H 360" stroke="#2dd4bf" strokeWidth="1.4"
-              fill="none" className="art-flow-slow" />
-      )}
+    <svg viewBox="0 0 760 440" className={className} role="img"
+         aria-label={`Lab door scene: door ${doorClosed === true ? 'closed' : open ? 'open' : 'not reported'}, controller ${controller === true ? 'online' : controller === false ? 'offline' : 'unknown'}`}>
+      <defs>
+        <linearGradient id="ds-red" x1="0" x2="1"><stop offset="0" stopColor="#9f1d22" /><stop offset=".5" stopColor="#c62a2f" /><stop offset="1" stopColor="#8c181d" /></linearGradient>
+        <linearGradient id="ds-wall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#10243f" /><stop offset="1" stopColor="#0a1a2f" /></linearGradient>
+        <radialGradient id="ds-cam" cx=".4" cy=".35"><stop offset="0" stopColor="#ffffff" /><stop offset="1" stopColor="#c9d3df" /></radialGradient>
+        <linearGradient id="ds-scr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#0b2a47" /><stop offset="1" stopColor="#071426" /></linearGradient>
+        <linearGradient id="ds-room" x1="0" x2="1"><stop offset="0" stopColor="#1e3a5f" /><stop offset="1" stopColor="#0b1d36" /></linearGradient>
+      </defs>
+      <style>{`.ds-pulse{animation:dsPulse 2s ease-in-out infinite}@keyframes dsPulse{50%{opacity:.05}}
+        .ds-leaf{transform-box:view-box;transform-origin:138px 250px;transition:transform 1.2s cubic-bezier(.4,0,.2,1)}
+        .ds-flow{stroke-dasharray:6 8;animation:dsFlow 1.2s linear infinite}@keyframes dsFlow{to{stroke-dashoffset:-28}}
+        @media (prefers-reduced-motion:reduce){.ds-pulse,.ds-flow{animation:none}.ds-leaf{transition:none}}`}</style>
+      <rect width="760" height="440" rx="14" fill="url(#ds-wall)" />
+      <rect y="392" width="760" height="48" fill="#081627" /><path d="M0 392H760" stroke="#1f3a60" />
+      {/* door frame, the room behind it, and the leaf (opens only when reported open) */}
+      <rect x="128" y="96" width="176" height="296" rx="3" fill="#1d2f4a" />
+      <rect x="138" y="104" width="156" height="288" fill="url(#ds-room)" />
+      <g className="ds-leaf" style={{ transform: open ? 'scaleX(0.16)' : 'scaleX(1)' }}>
+        <rect x="138" y="104" width="156" height="288" rx="2" fill="url(#ds-red)" />
+        <rect x="160" y="128" width="112" height="70" rx="3" fill="#0d1f36" stroke="#5e1014" strokeWidth="3" opacity=".9" />
+        <rect x="190" y="214" width="52" height="16" rx="3" fill="#e5e7eb" />
+        <text x="216" y="226" textAnchor="middle" fontSize="10" fontWeight="700" fill="#111827" fontFamily="monospace">LAB_01</text>
+        <rect x="270" y="252" width="10" height="44" rx="5" fill="#d1d5db" /><rect x="262" y="270" width="24" height="7" rx="3" fill="#e5e7eb" />
+      </g>
+      {/* maglock on the frame: green locked+closed, amber open, grey unknown */}
+      <rect x="186" y="98" width="60" height="10" rx="2" fill="#9ca3af" />
+      <circle cx="252" cy="103" r="5" fill={lock} />
+      <text x="216" y="90" textAnchor="middle" fontSize="10" fill="#94a3b8" fontFamily="monospace">
+        {doorClosed === true ? 'CLOSED · LOCKED' : open ? 'OPEN' : 'NOT REPORTED'}</text>
+      {/* MC210 camera above the door */}
+      <g transform="translate(340 66)">
+        <rect x="-20" y="-6" width="40" height="8" rx="3" fill="#94a3b8" />
+        <rect x="-16" y="2" width="32" height="20" rx="8" fill="url(#ds-cam)" />
+        <circle cy="40" r="25" fill="url(#ds-cam)" stroke="#aab6c5" />
+        <rect x="-21" y="31" width="42" height="18" rx="9" fill="#111827" />
+        <circle cx="-4" cy="40" r="7" fill="#0b1220" stroke="#24d4f2" strokeWidth="1.5" />
+        <Lamp x={30} y={10} s={camera} />
+        <text y="82" textAnchor="middle" fontSize="10" fill="#cbd5e1" fontFamily="monospace">ENTRY CAMERA</text>
+        {camera === true && <path d="M-10 64 L-150 330 M10 64 L40 330" stroke="#24d4f2" strokeOpacity=".2" />}
+      </g>
+      {/* tablet (QR / NFC) and fingerprint reader */}
+      <g transform="translate(30 168)">
+        <rect width="78" height="108" rx="9" fill="#0b1220" stroke="#475569" />
+        <rect x="6" y="8" width="66" height="90" rx="4" fill="url(#ds-scr)" />
+        <g stroke="#24d4f2" fill="none" strokeWidth="2" strokeLinecap="round" opacity={controller === true ? 1 : .35}>
+          <path d="M33 42a8 8 0 0 1 0 12" /><path d="M38 37a15 15 0 0 1 0 22" /><path d="M43 32a22 22 0 0 1 0 32" /></g>
+        <rect x="22" y="42" width="9" height="12" rx="2" fill="#24d4f2" opacity={controller === true ? 1 : .35} />
+        <text x="39" y="80" textAnchor="middle" fontSize="8" fill="#cbd5e1">Tap card / QR</text>
+        <rect x="19" y="124" width="40" height="52" rx="8" fill="#1f2937" stroke="#475569" />
+        <ellipse cx="39" cy="148" rx="11" ry="14" fill="#0b1220" stroke="#24d4f2" strokeOpacity=".7" />
+        <Lamp x={70} y={130} s={controller} />
+        <text x="39" y="198" textAnchor="middle" fontSize="9" fill="#cbd5e1" fontFamily="monospace">NFC · QR · FINGER</text>
+      </g>
+      {/* Master ESP32 */}
+      <g transform="translate(400 250)">
+        <rect width="128" height="78" rx="6" fill="#1e293b" stroke="#ffb547" />
+        <rect x="10" y="10" width="62" height="40" rx="3" fill="#0f172a" stroke="#334155" />
+        <rect x="20" y="16" width="42" height="28" rx="2" fill="#94a3b8" />
+        <text x="41" y="34" textAnchor="middle" fontSize="7" fill="#0f172a" fontFamily="monospace" fontWeight="700">ESP32</text>
+        <rect x="84" y="12" width="32" height="24" rx="2" fill="#2563eb" />
+        <text x="100" y="28" textAnchor="middle" fontSize="6.5" fill="#fff" fontFamily="monospace">RELAY</text>
+        <Lamp x={100} y={50} s={controller} />
+        <text x="64" y="96" textAnchor="middle" fontSize="10.5" fill="#ffd08a" fontFamily="monospace" fontWeight="700">MASTER ESP32</text>
+      </g>
+      {/* PC running the face server */}
+      <g transform="translate(570 120)">
+        <rect width="170" height="112" rx="8" fill="#0b1220" stroke="#475569" />
+        <rect x="7" y="7" width="156" height="90" rx="3" fill="url(#ds-scr)" />
+        <text x="85" y="46" textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff">FACE SERVER</text>
+        <text x="85" y="66" textAnchor="middle" fontSize="9" fill="#94a3b8">{face === true ? 'online' : face === false ? 'offline' : 'not reported'}</text>
+        <Lamp x={152} y={18} s={face} />
+        <rect x="74" y="112" width="22" height="22" fill="#334155" /><rect x="50" y="132" width="70" height="7" rx="3" fill="#475569" />
+        <text x="85" y="160" textAnchor="middle" fontSize="10" fill="#cbd5e1" fontFamily="monospace">LAB PC · 5000</text>
+      </g>
+      {/* links: drawn grey; they flow only while both ends report online */}
+      {[['M108 230 C 180 300, 330 300, 400 290', controller], ['M464 250 C 464 200, 300 140, 252 108', controller],
+        ['M528 290 C 600 290, 650 260, 655 236', controller === true && face === true], ['M368 112 C 440 112, 520 140, 570 160', camera === true && face === true]]
+        .map(([d, on], i) => <g key={i}>
+          <path d={d as string} stroke="#33507a" strokeWidth="1.6" fill="none" />
+          {on === true && <path d={d as string} stroke="#24d4f2" strokeWidth="2" fill="none" className="ds-flow" />}
+        </g>)}
     </svg>
   )
 }

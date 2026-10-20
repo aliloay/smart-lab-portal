@@ -29,17 +29,29 @@ TITLE = "Database backup failing"
 DEDUPE = "backup:failing"
 
 
+_status_cache: dict = {"key": None, "data": None}
+
+
 def read_status() -> dict:
     path = settings.BACKUP_STATUS_PATH
     if not path:
         return {"state": "NOT_CONFIGURED"}
     p = Path(path)
-    if not p.is_file():
-        return {"state": "MISSING", "detail": "The backup service has not reported yet (is it running?)."}
     try:
-        s = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"state": "FAILED", "detail": "The backup status file cannot be read."}
+        st = p.stat()
+    except OSError:
+        return {"state": "MISSING", "detail": "The backup service has not reported yet (is it running?)."}
+    # The file sits on a Windows bind mount (slow to read) and changes only every few hours:
+    # re-read it only when its modification time or size changes.
+    key = (str(p), st.st_mtime_ns, st.st_size)
+    if _status_cache["key"] == key:
+        s = _status_cache["data"]
+    else:
+        try:
+            s = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"state": "FAILED", "detail": "The backup status file cannot be read."}
+        _status_cache.update(key=key, data=s)
     every = float(s.get("every_hours") or 6)
     last_ok = s.get("last_success")
     out = {"last_attempt": s.get("last_attempt"), "last_success": last_ok, "file": s.get("file"),

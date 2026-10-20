@@ -34,6 +34,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
+import threading
+
 import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -116,8 +118,19 @@ def health() -> dict:
            "reachable": p == "anthropic", "missing_models": []}
     if p != "ollama":
         return out
-    if time.monotonic() - _health["at"] < 20 and _health["value"] is not None:
+    # Answer from the cache at once; refresh it in the background when older than 20 s. Every page calls
+    # /ai/status, and on expiry each concurrent request used to call Ollama itself (72 ms each in an
+    # 18-request page burst, 2026-10-19). Only the very first call (no value yet) waits for the check.
+    if _health["value"] is not None:
+        if time.monotonic() - _health["at"] >= 20 and not _health.get("busy"):
+            _health["busy"] = True
+            import threading
+            threading.Thread(target=_refresh_health, daemon=True, name="ai-health").start()
         return {**out, **_health["value"]}
+    return {**out, **_refresh_health()}
+
+
+def _refresh_health() -> dict:
     extra: dict[str, Any]
     try:
         r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=2.5)
@@ -129,8 +142,8 @@ def health() -> dict:
         extra = {"reachable": True, "missing_models": sorted(missing)}
     except (httpx.HTTPError, ValueError):
         extra = {"reachable": False, "missing_models": []}
-    _health.update(at=time.monotonic(), value=extra)
-    return {**out, **extra}
+    _health.update(at=time.monotonic(), value=extra, busy=False)
+    return extra
 
 
 def _client():
@@ -401,9 +414,40 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 OLLAMA_RESULT_CHARS = 6_000
 # Retry size when the engine crashes: 4k tokens fits any GPU.
 OLLAMA_FALLBACK_CTX = 4096
-OLLAMA_KEEP_ALIVE = "2h"
+OLLAMA_KEEP_ALIVE = "24h"   # on the graphics card since 2026-10-19: a cold load took minutes
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
+_gate_cache: dict[str, Any] = {"at": 0.0, "cpu": True, "reason": "not asked yet"}
+
+
+def gpu_gate() -> dict:
+    """The camera-first decision both assistants follow (tools/knowledge/gpu_gate.py, served by the
+    knowledge service at /gpu-gate). Asked at most every 5 s; anything wrong -> CPU (cameras first)."""
+    now = time.monotonic()
+    if now - _gate_cache["at"] < 5.0:
+        return _gate_cache
+    cpu, reason = True, "knowledge service not reachable - CPU"
+    if settings.KB_SERVICE_KEY:
+        try:
+            r = httpx.get(settings.KB_SERVICE_URL.rstrip("/") + "/gpu-gate",
+                          headers={"X-KB-Key": settings.KB_SERVICE_KEY}, timeout=httpx.Timeout(6.0, connect=1.0))
+            r.raise_for_status()
+            body = r.json()
+            cpu, reason = body.get("device") != "gpu", str(body.get("reason", ""))[:200]
+        except (httpx.HTTPError, ValueError):
+            pass
+    _gate_cache.update(at=now, cpu=cpu, reason=reason)
+    return _gate_cache
+
+
+def cpu_now() -> bool:
+    """Run the next answer on the processor? OLLAMA_CPU_ONLY wins; OLLAMA_GPU_POLICY=auto asks the
+    camera-first gate; otherwise the GPU (as before), unless Ollama's GPU engine failed here once."""
+    if settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]:
+        return True
+    if settings.OLLAMA_GPU_POLICY == "auto":
+        return gpu_gate()["cpu"]
+    return False
 OLLAMA_EXTRA = """
 - Only call the tools listed. Call a tool before answering any question
   about numbers, labs, issues or devices.
@@ -429,8 +473,32 @@ def _ctx_for(model: str) -> int:
     return settings.OLLAMA_STUDENT_NUM_CTX
 
 
+_gen_slots: Optional[threading.BoundedSemaphore] = None
+
+
+def _slots() -> threading.BoundedSemaphore:
+    global _gen_slots
+    if _gen_slots is None:
+        _gen_slots = threading.BoundedSemaphore(max(1, settings.OLLAMA_MAX_CONCURRENT))
+    return _gen_slots
+
+
 def _ollama_chat(model: str, messages: list[dict],
                  tools: Optional[list[dict]] = None) -> dict:
+    """Bounded: at most OLLAMA_MAX_CONCURRENT generations at once (2026-10-18 - one answer took camera
+    analysis from 7 to 1.7 frames/s; two in parallel would take twice the cores)."""
+    slots = _slots()
+    if not slots.acquire(timeout=settings.OLLAMA_QUEUE_WAIT_S):
+        raise AIUnavailable("The local AI is answering another question right now - please ask again in a "
+                            "moment (one answer at a time keeps the cameras and the portal fast).")
+    try:
+        return _ollama_chat_unbounded(model, messages, tools)
+    finally:
+        slots.release()
+
+
+def _ollama_chat_unbounded(model: str, messages: list[dict],
+                           tools: Optional[list[dict]] = None) -> dict:
     """
     One /api/chat call. If Ollama's engine crashes (seen on Windows with
     small or unsupported GPUs: "llama-server process has terminated"),
@@ -440,7 +508,7 @@ def _ollama_chat(model: str, messages: list[dict],
     # (context size, run on the processor?) - tried in order until one works.
     # A GPU whose driver cannot run Ollama's CUDA code ("device kernel image
     # is invalid") still answers on the processor, just more slowly.
-    cpu_only = settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]
+    cpu_only = cpu_now()
     attempts = [(_ctx_for(model), cpu_only)]
     if not cpu_only:
         attempts += [(OLLAMA_FALLBACK_CTX, False), (OLLAMA_FALLBACK_CTX, True)]
@@ -450,6 +518,8 @@ def _ollama_chat(model: str, messages: list[dict],
         options: dict[str, Any] = {"temperature": 0.2, "num_ctx": num_ctx}
         if cpu:
             options["num_gpu"] = 0          # no layers on the graphics card
+        if settings.OLLAMA_NUM_THREAD > 0:
+            options["num_thread"] = settings.OLLAMA_NUM_THREAD      # leave cores for the cameras
         body: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
             "options": options,
@@ -508,8 +578,10 @@ def warm_up() -> None:
         return
     for model in dict.fromkeys([settings.OLLAMA_MODEL, settings.ollama_student_model]):
         options: dict[str, Any] = {"num_ctx": _ctx_for(model)}
-        if settings.OLLAMA_CPU_ONLY:
+        if cpu_now():
             options["num_gpu"] = 0
+        if settings.OLLAMA_NUM_THREAD > 0:          # same options as the answers: no reload later
+            options["num_thread"] = settings.OLLAMA_NUM_THREAD
         try:
             httpx.post(settings.OLLAMA_URL.rstrip("/") + "/api/generate",
                        json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE,

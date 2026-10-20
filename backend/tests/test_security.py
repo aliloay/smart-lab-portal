@@ -76,8 +76,8 @@ def test_event_snapshot_alert_once_and_ack(client, db, lab, staff, device_header
                     json={"name": "UR5e", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3}).json()
     assert _event(client, device_headers, zone_id=z["id"]).status_code == 201
     assert _event(client, device_headers, zone_id=z["id"]).status_code == 201
-    alerts = db.query(Alert).filter(Alert.dedupe_key.like("sec:%")).all()
-    assert len(alerts) == 1 and "UR5e" in alerts[0].title
+    alerts = db.query(Alert).filter(Alert.fingerprint.like("sec:%")).all()      # grouped by fingerprint (2026-10-18)
+    assert len(alerts) == 1 and "UR5e" in alerts[0].title and alerts[0].occurrences == 2
     assert db.query(Notification).filter_by(user_id=staff.id, kind="SECURITY_CAMERA").count() == 1
     evs = client.get("/api/security/events", headers=h).json()
     assert len(evs) == 2 and evs[0]["zone_name"] == "UR5e" and evs[0]["has_snapshot"]
@@ -365,3 +365,39 @@ def test_recording_delete_admin_only_moves_it_and_is_audited(client, db, lab, ad
     assert log.actor_user_id == admin.id and log.detail["file"] == name
     assert client.post(f"/api/security/cameras/{cid}/recordings/..%2Fx.mp4/delete",
                        headers=auth_headers(client, admin.email)).status_code == 404
+
+
+def test_many_boxes_at_once_become_one_camera_wide_incident(client, db, lab, staff, device_headers):
+    """2026-10-07 12:54:57: six PCs 'moved' in the same second. 3+ boxes of one camera within 5 s
+    join ONE camera-wide incident; every event is still stored; a single box still alerts alone."""
+    cid = _register(client, device_headers, lab)["device_id"]
+    h = auth_headers(client, staff.email)
+    zones = [client.post(f"/api/security/cameras/{cid}/zones", headers=h,
+                         json={"name": f"PC-0{i}", "x": 0.05 + i * 0.15, "y": 0.2, "w": 0.1, "h": 0.1}).json()["id"]
+             for i in range(1, 5)]
+    for z in zones:
+        assert _event(client, device_headers, kind="EQUIPMENT_MOTION", zone_id=z).status_code == 201
+    alerts = db.query(Alert).filter(Alert.fingerprint.like("sec:%:EQUIPMENT_MOTION:%")).all()
+    wide = [a for a in alerts if a.fingerprint.endswith(":wide")]
+    assert len(wide) == 1 and "camera-wide" in wide[0].title
+    assert "PC-03" in wide[0].detail and "PC-04" in wide[0].detail      # the 4th box joined the same incident
+    assert len(alerts) == 3                                              # PC-01, PC-02 alone + 1 camera-wide
+    assert db.query(SecurityEvent).filter_by(kind="EQUIPMENT_MOTION").count() == 4   # nothing hidden
+
+
+def test_many_boxes_at_once_become_one_camera_wide_incident(client, db, lab, staff, device_headers):
+    """2026-10-17: six PCs 'moved' in the same second on 7 Oct = lighting / camera change, not six thefts.
+    The first two boxes keep their own incident; from the third box within 5 s one camera-wide incident
+    lists the boxes. Every event is still stored."""
+    from app.models import SecurityZone
+    cid = _register(client, device_headers, lab)["device_id"]
+    h = auth_headers(client, staff.email)
+    zones = [client.post(f"/api/security/cameras/{cid}/zones", headers=h,
+                         json={"name": f"PC-0{i}", "x": 0.1 * i, "y": 0.1, "w": 0.05, "h": 0.05}).json()["id"] for i in range(1, 6)]
+    for z in zones:
+        assert _event(client, device_headers, "EQUIPMENT_MOTION", zone_id=z, snapshot=False).status_code == 201
+    alerts = db.query(Alert).filter(Alert.fingerprint.like(f"sec:{cid}:EQUIPMENT_MOTION:%")).all()
+    wide = [a for a in alerts if a.fingerprint.endswith(":wide")]
+    assert len(alerts) == 3 and len(wide) == 1                          # 2 per-box + 1 camera-wide
+    assert "camera-wide" in wide[0].title and "PC-05" in wide[0].detail and "PC-03" in wide[0].detail
+    assert db.query(SecurityEvent).filter_by(kind="EQUIPMENT_MOTION").count() == 5   # nothing hidden

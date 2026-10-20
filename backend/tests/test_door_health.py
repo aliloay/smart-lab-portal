@@ -6,6 +6,17 @@ door left open, and a reader or sensor that stopped answering - each as an
 alert and a notification, and each cleared when it is no longer true.
 """
 from app.models import AccessEvent, Alert, AlertSeverity, EventType, Notification
+import pytest
+
+from app.services import devices as _devices
+
+
+@pytest.fixture(autouse=True)
+def _no_confirmation_wait(monkeypatch):
+    # These tests cover the alert lifecycle; the 45 s confirmation of a component fault (one missed
+    # self-test reply is not a fault, 2026-10-18) is covered in test_component_health.py.
+    monkeypatch.setattr(_devices, "COMPONENT_FAULT_AFTER_S", 0)
+    _devices._component_bad_since.clear()
 
 
 def _heartbeat(client, headers, lab, **components):

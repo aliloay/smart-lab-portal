@@ -18,7 +18,10 @@ try {
   await page.fill('#password', process.env.E2E_PASSWORD || 'Admin#2026')
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 })
-  await page.click('aside nav a[href="/admin/experiments"]')
+  // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.
+  await page.goto(`${BASE}/labs`)
+  await page.waitForSelector('aside nav a[href^="/"]', { timeout: 20000 })
+  await page.goto(`${BASE}/admin/experiments`)            // no sidebar link (reached from the data-mode pages)
   await page.getByText('New records are stamped').waitFor({ timeout: 15000 })
   await page.waitForTimeout(800)
   const mode = (await page.getByTestId('data-mode').textContent())?.trim()

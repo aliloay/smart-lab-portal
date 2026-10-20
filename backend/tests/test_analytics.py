@@ -77,3 +77,13 @@ def test_my_stats_are_mine_only(client, db, alice, bob, lab, now):
     assert r["sessions_finished"] == 1 and r["attendance_rate"] == 1.0
     r = client.get("/api/analytics/me", headers=auth_headers(client, bob.email)).json()
     assert r["attendance_rate"] == 0.0
+
+
+def test_environment_chart_leaves_out_pc_agent_metrics(client, db, staff, lab):
+    # 2026-10-18: the PC agent's pc_cpu_pct / pc_ram_pct ... (same table) were drawn as the lab's
+    # "environment" on the Operations Center - and were all of its 24 h of data.
+    db.add_all([SensorReading(lab_id=lab.id, metric="pc_cpu_pct", value=40.0, unit="%"),
+                SensorReading(lab_id=lab.id, metric="humidity", value=48.0, unit="%")])
+    db.commit()
+    env = client.get("/api/analytics/operations", headers=auth_headers(client, staff.email)).json()["environment"]
+    assert [s["metric"] for s in env["series"]] == ["humidity"]

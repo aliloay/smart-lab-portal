@@ -43,9 +43,12 @@ function axisAngle([x, y, z]: Vec3, t: number): M4 {
 }
 const apply = (m: M4, [x, y, z]: Vec3): Vec3 => [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]
 
-/** Robot base -> world: the UR5e hangs from the frame top (rotated 180 deg about x). */
+/** Robot base -> world: the UR5e hangs from the frame top (rotated 180 deg about x), turned by `mountYaw`
+ *  about the vertical (2026-10-19: 180 deg - its gripper faces the table). Same as mountRotation(). */
 export function baseToWorld(model: UrdfModel): M4 {
-  return model.ceilingHeight ? mul(T(0, 0, model.ceilingHeight), axisAngle([1, 0, 0], Math.PI)) : I()
+  return model.ceilingHeight
+    ? mul(T(0, 0, model.ceilingHeight), mul(axisAngle([0, 0, 1], model.mountYaw ?? 0), axisAngle([1, 0, 0], Math.PI)))
+    : I()
 }
 
 /** World positions of every joint origin, the flange, and the tool tip (`toolLength` along flange z). */

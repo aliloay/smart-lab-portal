@@ -156,14 +156,20 @@ def test_active_hazards_needs_a_login(client):
     assert client.get("/api/labs/hazards/active").status_code == 401
 
 
-def test_same_hazard_can_happen_again_after_it_cleared(client, db, lab, env_node, device_headers):
+def test_same_hazard_can_happen_again_after_it_cleared(client, db, lab, env_node, device_headers, staff):
     """Regression (bench 2026-10-05): the second flame in a lab collided with the
     resolved first alert's dedupe key -> HTTP 500 for every post afterwards."""
     for _ in range(3):
         assert _post(client, device_headers, lab, flame=1).status_code == 200
         assert _post(client, device_headers, lab, flame=0).status_code == 200
     alerts = db.query(Alert).filter(Alert.lab_id == lab.id).all()
-    assert len(alerts) == 3 and all(a.is_resolved for a in alerts)
+    # 2026-10-18 alert grouping: three episodes within 30 min are ONE incident that came back twice -
+    # every episode is still recorded as an ALARM event and notified (safety alarms are never muted).
+    assert len(alerts) == 1 and alerts[0].is_resolved
+    assert alerts[0].occurrences == 3 and alerts[0].reopened_count == 2
+    from app.models import AccessEvent, EventType, Notification
+    assert db.query(AccessEvent).filter_by(lab_id=lab.id, event_type=EventType.ALARM).count() == 3
+    assert db.query(Notification).filter_by(user_id=staff.id, kind="ENVIRONMENT_HAZARD").count() == 3
     assert _post(client, device_headers, lab, flame=1, temperature=24.0).status_code == 200
 
 

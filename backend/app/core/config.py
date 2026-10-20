@@ -214,6 +214,23 @@ class Settings(BaseSettings):
     # true = never use the graphics card (slower, but works when the GPU
     # driver cannot run Ollama's CUDA code).
     OLLAMA_CPU_ONLY: bool = False
+    # "auto" (2026-10-20): the GPU only while no security camera is analysing, decided once for both
+    # assistants by the knowledge service (tools/knowledge/gpu_gate.py); "gpu": as before. Ignored while
+    # OLLAMA_CPU_ONLY is true.
+    OLLAMA_GPU_POLICY: str = "gpu"
+    # CPU threads per AI answer (of 12 on the laptop). Ollama's runner is above-normal priority and
+    # takes every core by default, starving the camera analysis (measured 2026-10-18). 0 = default.
+    OLLAMA_NUM_THREAD: int = 4
+    # Answers generated at the same time (each takes OLLAMA_NUM_THREAD cores); others wait up to
+    # OLLAMA_QUEUE_WAIT_S, then get a clear "busy" message - never an unbounded pile-up on the CPU.
+    OLLAMA_MAX_CONCURRENT: int = 1
+    OLLAMA_QUEUE_WAIT_S: float = 45.0
+    # Incident escalation (2026-10-18): open + not acknowledged for longer than these, or a condition
+    # that keeps repeating / coming back. Every value configurable, none hides an alert.
+    INCIDENT_ESCALATE_CRITICAL_MIN: int = 15
+    INCIDENT_ESCALATE_WARNING_MIN: int = 240
+    INCIDENT_ESCALATE_OCCURRENCES: int = 20
+    INCIDENT_ESCALATE_REOPENS: int = 3
     ANTHROPIC_API_KEY: str = ""
     AI_MODEL: str = "claude-opus-5"
     AI_STUDENT_MODEL: str = "claude-haiku-4-5"

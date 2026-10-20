@@ -70,7 +70,8 @@ def test_a_newer_door_entry_takes_the_name_from_the_desk_sitter():
     lab = Labeler()
     sitter = _desk_named(lab)
     walker = Track(7, (115, 200, 70, 180), 201.0, 202.0)                  # new person at the door
-    lab.assign([sitter, walker], [dict(HEMALY, entered_at=200.0)], DOOR, now=202.0)
+    # named once it has been in view ENTRY_SETTLE_S (2026-10-18: anyone right behind is seen first)
+    lab.assign([sitter, walker], [dict(HEMALY, entered_at=200.0)], DOOR, now=201.0 + Labeler.ENTRY_SETTLE_S)
     assert walker.label == "USER5" and walker.named_by == "door"
     assert sitter.label is None
 
@@ -121,10 +122,10 @@ def test_a_desk_name_is_drawn_as_a_guess():
     lab.home_desk([t], DESKS, ZONES, [HEMALY], {}, now=100.0)
     import vision
     seen = []
-    orig = vision._tag_clear
-    vision._tag_clear = lambda frame, text, *a, **k: (seen.append(text), orig(frame, text, *a, **k))[1]
+    orig = vision._tag                    # every tag in the picture is drawn by _tag (2026-10-19)
+    vision._tag = lambda frame, text, *a, **k: (seen.append(text), orig(frame, text, *a, **k))[1]
     try:
         draw(np.zeros((540, 960, 3), np.uint8), [t], [], {})
     finally:
-        vision._tag_clear = orig
+        vision._tag = orig
     assert any("? (desk)" in s for s in seen)

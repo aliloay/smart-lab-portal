@@ -1,0 +1,66 @@
+[
+ {
+  "file": "DoorEnclosure_Body.STL",
+  "triangles": 4612,
+  "size_mm": [
+   170.0,
+   210.0,
+   90.0
+  ],
+  "volume_cm3": 320.67,
+  "volume_sign": "+",
+  "open_edges": 0,
+  "nonmanifold_edges": 0,
+  "inconsistent_edges": 0,
+  "degenerate": 0,
+  "ok": true
+ },
+ {
+  "file": "DoorEnclosure_ElectronicsPlate.STL",
+  "triangles": 20664,
+  "size_mm": [
+   142.0,
+   156.0,
+   4.0
+  ],
+  "volume_cm3": 74.57,
+  "volume_sign": "+",
+  "open_edges": 0,
+  "nonmanifold_edges": 0,
+  "inconsistent_edges": 0,
+  "degenerate": 0,
+  "ok": true
+ },
+ {
+  "file": "DoorEnclosure_FitCoupon.STL",
+  "triangles": 43504,
+  "size_mm": [
+   180.0,
+   150.0,
+   16.8
+  ],
+  "volume_cm3": 97.32,
+  "volume_sign": "+",
+  "open_edges": 0,
+  "nonmanifold_edges": 0,
+  "inconsistent_edges": 0,
+  "degenerate": 0,
+  "ok": true
+ },
+ {
+  "file": "DoorEnclosure_FrontPanel.STL",
+  "triangles": 12868,
+  "size_mm": [
+   170.0,
+   210.0,
+   16.0
+  ],
+  "volume_cm3": 134.35,
+  "volume_sign": "+",
+  "open_edges": 0,
+  "nonmanifold_edges": 0,
+  "inconsistent_edges": 0,
+  "degenerate": 0,
+  "ok": true
+ }
+]

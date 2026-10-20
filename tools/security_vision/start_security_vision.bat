@@ -10,6 +10,7 @@ set "CAMFILE=%~1"
 if "%CAMFILE%"=="" set "CAMFILE=camera.env"
 set "VIRTUAL_ENV="
 set "PORT="
+set "PEER_PORT="
 if not exist "%CAMFILE%" (
   echo No %CAMFILE% here yet: copy camera.env.example to %CAMFILE% and fill it in.
   pause & exit /b 1

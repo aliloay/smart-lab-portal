@@ -8,7 +8,9 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, future=True)
+# A dashboard opens ~20 requests at once; the default pool (5+10) made them queue.
+engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, future=True,
+                       pool_size=20, max_overflow=20, pool_timeout=10)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False,
                             future=True)
 

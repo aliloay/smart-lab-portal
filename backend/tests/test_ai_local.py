@@ -16,6 +16,17 @@ from app.services import ai
 from tests.conftest import auth_headers
 
 
+@pytest.fixture(autouse=True)
+def _pinned_models(monkeypatch):
+    """These tests describe behaviour, not the lab's configuration: they must not follow the live .env
+    (2026-10-19 the lab moved both assistants to qwen2.5:1.5b on the GPU and these tests broke)."""
+    monkeypatch.setattr(settings, "OLLAMA_MODEL", "qwen2.5:3b")
+    monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "qwen2.5:1.5b")
+    monkeypatch.setattr(settings, "OLLAMA_CPU_ONLY", False)
+    monkeypatch.setattr(settings, "OLLAMA_GPU_POLICY", "gpu")
+    ai._gate_cache.update(at=0.0)
+
+
 class FakeOllama:
     def __init__(self, replies, models=("qwen2.5:3b", "qwen2.5:1.5b")):
         self.replies = list(replies)
@@ -274,3 +285,94 @@ def test_guide_has_no_secrets():
     for bad in ("api_key", "password", "token=", "http://", "https://", "192.168.", "secret"):
         assert bad not in text
     assert "enroll" not in text or "fingerprint" in text
+
+
+
+def test_an_answer_uses_a_bounded_number_of_cpu_threads(db, lab, ollama, monkeypatch):
+    """2026-10-18: Ollama's runner is above-normal priority and takes every core by default - one answer
+    took camera 2 from 7 to 1.7 analyses/s. Answers carry num_thread (0 = Ollama's default)."""
+    monkeypatch.setattr(settings, "OLLAMA_NUM_THREAD", 4)
+    fake = ollama([{"role": "assistant", "content": "ok"}])
+    ai.ask(db, "How busy was it this week?")
+    assert fake.bodies[0]["options"]["num_thread"] == 4
+    monkeypatch.setattr(settings, "OLLAMA_NUM_THREAD", 0)
+    fake = ollama([{"role": "assistant", "content": "ok"}])
+    ai.ask(db, "How busy was it this week?")
+    assert "num_thread" not in fake.bodies[0]["options"]
+
+
+
+def test_only_one_answer_is_generated_at_a_time(db, lab, ollama, monkeypatch):
+    """2026-10-18: generations are bounded (OLLAMA_MAX_CONCURRENT); a second one waits, then says busy."""
+    import threading as _th
+    monkeypatch.setattr(settings, "OLLAMA_QUEUE_WAIT_S", 0.05)
+    monkeypatch.setattr(ai, "_gen_slots", _th.BoundedSemaphore(1))
+    ollama([{"role": "assistant", "content": "ok"}])
+    ai._gen_slots.acquire()                                   # another answer is being generated
+    try:
+        import pytest
+        with pytest.raises(ai.AIUnavailable) as e:
+            ai.ask(db, "How busy was it this week?")
+        assert "another question" in str(e.value)
+    finally:
+        ai._gen_slots.release()
+    assert ai.ask(db, "How busy was it this week?")["answer"] == "ok"   # free again: answered
+
+
+# ----------------------------------------------- camera-first GPU gate (2026-10-20) ---
+def _gate(monkeypatch, reply):
+    """The knowledge service's /gpu-gate answer (or an exception) for ai.gpu_gate()."""
+    calls = []
+
+    def get(url, headers=None, timeout=None):
+        calls.append(url)
+        if isinstance(reply, Exception):
+            raise reply
+        return httpx.Response(200, json=reply, request=httpx.Request("GET", url))
+    monkeypatch.setattr(ai.httpx, "get", get)
+    monkeypatch.setattr(settings, "KB_SERVICE_KEY", "k")
+    monkeypatch.setattr(settings, "OLLAMA_GPU_POLICY", "auto")
+    ai._gate_cache.update(at=0.0)
+    return calls
+
+
+def test_auto_policy_follows_the_camera_gate(monkeypatch):
+    _gate(monkeypatch, {"device": "gpu", "reason": "cameras idle for 130 s"})
+    assert ai.cpu_now() is False
+    _gate(monkeypatch, {"device": "cpu", "reason": "camera 5100 live - cameras first"})
+    assert ai.cpu_now() is True
+
+
+def test_auto_policy_unreachable_gate_means_cpu(monkeypatch):
+    _gate(monkeypatch, httpx.ConnectError("down"))
+    assert ai.cpu_now() is True
+    assert "not reachable" in ai.gpu_gate()["reason"]
+
+
+def test_gate_is_asked_at_most_every_five_seconds(monkeypatch):
+    calls = _gate(monkeypatch, {"device": "gpu"})
+    for _ in range(5):
+        ai.cpu_now()
+    assert len(calls) == 1
+
+
+def test_cpu_only_still_wins_over_the_gate(monkeypatch):
+    calls = _gate(monkeypatch, {"device": "gpu"})
+    monkeypatch.setattr(settings, "OLLAMA_CPU_ONLY", True)
+    assert ai.cpu_now() is True and calls == []
+
+
+def test_answer_options_follow_the_gate(db, monkeypatch, ollama):
+    fake = ollama([{"role": "assistant", "content": "a"}, {"role": "assistant", "content": "b"}])
+    _gate(monkeypatch, {"device": "cpu"})
+    monkeypatch.setattr(ai.httpx, "get", lambda url, headers=None, timeout=None: httpx.Response(
+        200, json={"device": "cpu"} if url.endswith("/gpu-gate") else {"models": [{"name": "qwen2.5:3b"}, {"name": "qwen2.5:1.5b"}]},
+        request=httpx.Request("GET", url)))
+    ai.ask(db, "q")
+    assert fake.bodies[-1]["options"].get("num_gpu") == 0          # cameras busy: processor
+    ai._gate_cache.update(at=0.0)
+    monkeypatch.setattr(ai.httpx, "get", lambda url, headers=None, timeout=None: httpx.Response(
+        200, json={"device": "gpu"} if url.endswith("/gpu-gate") else {"models": [{"name": "qwen2.5:3b"}, {"name": "qwen2.5:1.5b"}]},
+        request=httpx.Request("GET", url)))
+    ai.ask(db, "q")
+    assert "num_gpu" not in fake.bodies[-1]["options"]            # cameras idle: graphics card

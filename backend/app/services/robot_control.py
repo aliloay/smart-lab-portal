@@ -65,6 +65,21 @@ import os
 MODE = os.environ.get("ROBOT_CONTROL", "dry_run").lower()
 UR_HOME_PROGRAM = os.environ.get("UR5E_HOME_PROGRAM", "home.urp")     # the program on the pendant
 UR_HOST = os.environ.get("UR5E_IP", "192.168.1.102")
+# Verified Home pose read off the teach pendant (owner's photo, 2026-10-17), degrees J1..J6.
+UR_HOME_Q_DEG = [-15.00, -126.00, 117.03, -80.00, 91.00, 95.27]
+HOME_TOL_DEG = 0.5                  # every joint within this of Home = reached (from feedback)
+HOME_TIMEOUT_S = 60.0               # not at Home by then = FAILED (reported, never retried)
+# How HOME is carried out in live mode (2026-10-17):
+#   "program" (default) - load + play the Home program the operator validated ON THE PENDANT
+#                         (its own waypoints, speed and collision checks = the controller's validated
+#                         Home behaviour). UR5E_HOME_PROGRAM must name that program exactly.
+#   "movej"             - one direct joint move to UR_HOME_Q_DEG. NOT equivalent to the pendant's Home
+#                         routine (path, speed, blending can differ): use only if the operator approves.
+UR_HOME_METHOD = os.environ.get("UR5E_HOME_METHOD", "program").lower()
+# RTDE codes (Universal Robots RTDE guide): safety mode 1 NORMAL, 2 REDUCED; robot mode 7 RUNNING.
+UR_SAFETY_OK = {1: "NORMAL", 2: "REDUCED"}
+UR_SAFETY_NAMES = {3: "PROTECTIVE STOP", 4: "RECOVERY", 5: "SAFEGUARD STOP", 6: "SYSTEM EMERGENCY STOP",
+                   7: "ROBOT EMERGENCY STOP", 8: "VIOLATION", 9: "FAULT"}
 
 
 class URAdapter(Adapter):
@@ -79,7 +94,7 @@ class URAdapter(Adapter):
     def capabilities(self) -> dict:
         on = MODE in ("dry_run", "live")
         return {"home": on, "routines": [], "stop": on, "interface": self.interface,
-                "home_program": UR_HOME_PROGRAM,
+                "home_program": UR_HOME_PROGRAM, "home_method": UR_HOME_METHOD,
                 "unavailable_reason": None if on else self.blocker}
 
     def controller_mode(self) -> str:
@@ -91,24 +106,62 @@ class URAdapter(Adapter):
         return "UNKNOWN"
 
     def execute(self, action: str, routine: Optional[str]) -> Result:
-        steps = [f"load {UR_HOME_PROGRAM}", "play"] if action == "home" else ["stop"]
+        from app.services import ur_script
+        q = ", ".join(f"{v:.2f}" for v in UR_HOME_Q_DEG)
+        if action == "home":
+            what = (f"Dashboard 'load {UR_HOME_PROGRAM}' + 'play' (the pendant's validated Home program; "
+                    f"target [{q}] deg confirmed from joint feedback)" if UR_HOME_METHOD == "program"
+                    else f"URScript movej to Home [{q}] deg (secondary client interface)")
+        else:
+            what = "Dashboard 'stop' + URScript stopj (secondary client interface)"
         if MODE == "dry_run":
-            return Result("DRY_RUN", "checks passed - would send: " + " ; ".join(steps) + " (nothing sent)")
+            return Result("DRY_RUN", "checks passed - would send: " + what + " (nothing sent)")
         if MODE != "live":
             return Result("UNAVAILABLE", self.blocker)
         from app.services.ur_dashboard import Dashboard
-        d = Dashboard(UR_HOST)
         try:
-            replies = [d.ask(c) for c in steps]
+            if action == "home" and UR_HOME_METHOD == "program":
+                d = Dashboard(UR_HOST)
+                loaded = d.ask(f"load {UR_HOME_PROGRAM}")
+                if not loaded.lower().startswith("loading program"):
+                    return Result("REJECTED", f"controller refused to load {UR_HOME_PROGRAM}: {loaded} - nothing started")
+                played = d.ask("play")
+                if not played.lower().startswith("starting program"):
+                    return Result("REJECTED", f"controller refused to play: {played}")
+                return Result("REQUESTED", f"{loaded} | {played} - Home is confirmed only from joint feedback")
+            if action == "home":
+                ur_script.send(UR_HOST, ur_script.home_script(UR_HOME_Q_DEG))
+                return Result("REQUESTED", "Home move sent - Home is confirmed only from joint feedback")
+            replies = []
+            try:
+                replies.append(Dashboard(UR_HOST).ask("stop"))
+            finally:
+                ur_script.send(UR_HOST, ur_script.STOP_SCRIPT)
+            return Result("REQUESTED", "stop sent (" + " | ".join(replies) + ") - stopped state confirmed from feedback")
         except (OSError, ValueError) as e:
             return Result("FAILED", f"controller did not answer ({e.__class__.__name__}) - state unknown, not retried")
-        ok = all(not r.lower().startswith(("error", "failed", "file not found")) for r in replies)
-        return Result("REQUESTED" if ok else "REJECTED", " | ".join(replies) +
-                      " - watch the twin: only telemetry shows whether it moved")
 
 
 class FanucAdapter(Adapter):
     name = "FANUC"
+    # Verified from the controller's own summary page (/MD/SUMMARY.DG, read-only GET on 2026-10-14 18:21,
+    # parsed by tools/robot_monitor/fanuc_summary.py). Its DEMO option list is empty: these are installed
+    # options, not time-limited trials. Installed is not configured - nothing below is set up for remote use.
+    identity = "LR HandlingTool V9.30P/12 (root V9.30107), ER-4iA, Mate controller, DCS V4.2.14"
+    installed_interfaces = ("User Socket Msg R648, Socket Messaging R636, PC Interface R641, KAREL R632, "
+                            "HMI Device (SNPX) R553, Prog Num Selection J515, Robot Service Request, OPC-UA, "
+                            "Ethernet/IP I/O Adp. R538")
+    # What must still exist before any FANUC command can be designed (2026-10-18).
+    dependencies = [
+        "Choose ONE installed interface with the qualified operator (e.g. a HOME TP program started through "
+        "Robot Service Request / Prog Num Selection J515 signals, or a KAREL socket server on User Socket Msg R648) "
+        "and configure it on the controller - nothing is configured for remote use yet",
+        "Controller AUTO mode with remote start enabled, and the permissions agreed with the qualified operator",
+        "A HOME TP program written and validated on the pendant at reduced speed, with its joint values recorded",
+        "The strongest supported normal stop for that interface (e.g. UOP *HOLD / cycle stop or a program abort) "
+        "identified and tested under supervision",
+        "A portal adapter for that one interface, tested in dry run and signed off - none exists, on purpose",
+    ]
     interface = "HTTP GET /MD/CURPOS.DG (monitoring)"
     blocker = ("FANUC: the portal only reads the position page. Commands need a controller-supported "
                "remote interface (e.g. robot-side TP programs started via a licensed option) set up "
@@ -135,6 +188,8 @@ class Owner:
 class _State:
     owners: dict = field(default_factory=dict)        # device_id -> Owner
     commands: dict = field(default_factory=dict)      # command_id -> Result
+    stops: dict = field(default_factory=dict)         # device_id -> latched STOP (blocks all motion)
+    homing: dict = field(default_factory=dict)        # device_id -> Home being tracked from feedback
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -143,7 +198,7 @@ _state = _State()
 
 def reset() -> None:                                   # tests
     with _state.lock:
-        _state.owners.clear(); _state.commands.clear()
+        _state.owners.clear(); _state.commands.clear(); _state.stops.clear(); _state.homing.clear()
 
 
 def owner(device_id: int, now: Optional[float] = None) -> Optional[Owner]:
@@ -180,10 +235,122 @@ def submit(device_id: int, model: Optional[str], user_id: int, action: str, rout
         if command_id in _state.commands:
             r = _state.commands[command_id]
             return Result("DUPLICATE", f"command already handled: {r.status}", command_id, r.action)
-        r = _check(device_id, model, user_id, action, routine, telemetry_age_s)
+        if action != "stop" and device_id in _state.stops:
+            r = Result("REJECTED", "STOP is latched - an administrator must run the recovery first")
+        else:
+            r = _check(device_id, model, user_id, action, routine, telemetry_age_s)
         r.command_id, r.action = command_id, action
         _state.commands[command_id] = r
+        if action == "home" and r.status in ("REQUESTED", "DRY_RUN"):
+            _state.homing[device_id] = {"t": time.time(), "command_id": command_id,
+                                        "dry_run": r.status == "DRY_RUN"}
         return r
+
+
+def global_stop(device_id: int, model: Optional[str], name: str, command_id: str) -> Result:
+    """Any staff member, whoever owns or drives the robot. STOP takes priority: the latch is set
+    FIRST under the lock (no Home can start after this), Home tracking is cancelled, then the stop
+    is sent. Nothing restarts by itself; recover() is the deliberate way back."""
+    with _state.lock:
+        if command_id in _state.commands:
+            r = _state.commands[command_id]
+            return Result("DUPLICATE", f"command already handled: {r.status}", command_id, r.action)
+        _state.stops[device_id] = {"t": time.time(), "by": name}
+        _state.homing.pop(device_id, None)
+        ad = adapter_for(model)
+        caps = ad.capabilities()
+        r = ad.execute("stop", None) if caps.get("stop") else Result("UNAVAILABLE", caps["unavailable_reason"])
+        r.command_id, r.action = command_id, "stop"
+        _state.stops[device_id]["result"] = r.status
+        _state.commands[command_id] = r
+        return r
+
+
+def restore_latches(events: list[dict]) -> list[int]:
+    """A latched STOP survives a backend restart (2026-10-18). The latch lives in memory, so a restart
+    used to clear it - an implicit recovery nobody approved. At start-up the audit rows
+    ROBOT_GLOBAL_STOP / ROBOT_STOP_RECOVERY (in time order) are replayed: a robot whose last word is a
+    STOP (no successful recovery after it) is latched again. Only the latch - nothing is sent to any
+    robot, and Home tracking is never resumed."""
+    last: dict[int, dict] = {}
+    for e in events:
+        if e["action"] == "ROBOT_GLOBAL_STOP":
+            last[e["device_id"]] = e
+        elif e["action"] == "ROBOT_STOP_RECOVERY" and e.get("cleared"):
+            last.pop(e["device_id"], None)
+    with _state.lock:
+        for did, e in last.items():
+            _state.stops[did] = {"t": e["t"], "by": e.get("by") or "?", "result": e.get("result"),
+                                 "restored": True}
+    return sorted(last)
+
+
+def recover(device_id: int, moving: bool) -> tuple[bool, str]:
+    """Clear a latched STOP - only while the arm is reported still. Restarts nothing."""
+    with _state.lock:
+        if device_id not in _state.stops:
+            return False, "no STOP is latched"
+        if moving:
+            return False, "the arm is still reported moving - recovery refused"
+        _state.stops.pop(device_id, None)
+        return True, "STOP cleared - motion commands are allowed again (nothing was restarted)"
+
+
+def master_state(device_id: int, q_deg: Optional[list], moving: bool, fresh: bool,
+                 extra: Optional[dict] = None, simulated: bool = False) -> dict:
+    """READY / HOMING / HOME_REACHED / BLOCKED / FAILED - from joint FEEDBACK, never a command reply."""
+    home = UR_HOME_Q_DEG
+    err = (max(abs(a - b) for a, b in zip(q_deg, home))
+           if q_deg and len(q_deg) == 6 else None)
+    at_home = err is not None and err <= HOME_TOL_DEG
+    with _state.lock:
+        stop = _state.stops.get(device_id)
+        h = _state.homing.get(device_id)
+        if stop:
+            # STOPPED only when the feedback shows the arm still (and no program playing).
+            playing = "PLAYING" in str((extra or {}).get("program_state") or "").upper()
+            if fresh and err is not None and not moving and not playing:
+                phase, detail = "STOPPED", f"STOP latched by {stop['by']}; feedback: arm still - recovery needed"
+            else:
+                phase, detail = "STOP_REQUESTED", (f"STOP latched by {stop['by']}; waiting for feedback that the arm "
+                                                    "has stopped" + ("" if fresh else " (no fresh telemetry)"))
+        elif h and h.get("dry_run"):
+            phase = "HOME_REACHED" if at_home else "READY"
+            detail = "dry run - nothing was sent, the arm did not move"
+            _state.homing.pop(device_id, None)
+        elif h:
+            if not fresh:
+                phase, detail = "FAILED", "telemetry lost during homing - state unknown"
+                _state.homing.pop(device_id, None)
+            elif at_home and not moving:
+                phase, detail = "HOME_REACHED", f"every joint within {HOME_TOL_DEG} deg of Home (feedback)"
+                _state.homing.pop(device_id, None)
+            elif time.time() - h["t"] > HOME_TIMEOUT_S:
+                phase = "FAILED"
+                detail = (f"not at Home after {HOME_TIMEOUT_S:.0f} s" +
+                          (f" (max error {err:.1f} deg)" if err is not None else ""))
+                _state.homing.pop(device_id, None)
+            else:
+                phase = "HOMING"
+                detail = "moving to Home" + (f" - max error {err:.1f} deg" if err is not None else "")
+        elif not fresh:
+            phase, detail = "BLOCKED", "no fresh telemetry - robot state unknown"
+        elif err is None:               # the collector reports, but the controller gives no joints
+            phase, detail = "BLOCKED", "no joint feedback from the controller - robot state unknown"
+        else:
+            phase, detail = ("HOME_REACHED", "at Home (feedback)") if at_home else ("READY", "")
+    checks = ur_checks(q_deg, fresh, extra or {}, stop is not None, simulated)
+    pre = all(c["ok"] for c in checks if c["key"] != "signoff")
+    readiness = ("READY" if pre and MODE == "live" else "READY_FOR_PHYSICAL_TEST" if pre and MODE == "dry_run"
+                 else "BLOCKED")
+    return {"phase": phase, "detail": detail, "readiness": readiness, "checks": checks,
+            "home_method": UR_HOME_METHOD, "home_program": UR_HOME_PROGRAM,
+            "home_q_deg": home, "tolerance_deg": HOME_TOL_DEG,
+            "max_error_deg": None if err is None else round(err, 2), "stop_latched": stop is not None,
+            "stop": None if not stop else {"by": stop["by"], "at": stop["t"], "result": stop.get("result"),
+                                           "restored": bool(stop.get("restored"))},   # latched before a restart
+            "estop_note": "Software stop only (stopj / Dashboard stop). It is NOT a safety-rated emergency "
+                          "stop - use the red E-stop on the teach pendant or the cell's hardware E-stop."}
 
 
 def _check(device_id, model, user_id, action, routine, age) -> Result:
@@ -198,9 +365,61 @@ def _check(device_id, model, user_id, action, routine, age) -> Result:
         return Result("REJECTED", "you do not have control of this robot")
     if age is None or age > FRESH_S:
         return Result("REJECTED", "telemetry is not fresh - the robot's state is unknown")
+    h = _state.homing.get(device_id)                 # conflicting request: one Home at a time
+    if action == "home" and h and not h.get("dry_run") and time.time() - h["t"] < HOME_TIMEOUT_S:
+        return Result("REJECTED", "Home is already in progress - wait for Home reached / failed, or press STOP")
     mode = ad.controller_mode()
     if mode == "DRY_RUN_SIMULATED" and MODE == "dry_run":
         return ad.execute(action, routine)          # answers DRY_RUN; sends nothing
     if mode != "REMOTE_READY":
         return Result("UNAVAILABLE", caps["unavailable_reason"] or f"controller not ready ({mode})")
     return ad.execute(action, routine)
+
+
+def ur_checks(q_deg: Optional[list], fresh: bool, extra: dict, latched: bool, simulated: bool = False) -> list[dict]:
+    """The pre-conditions for a supervised physical HOME / STOP test, from what the controller itself
+    reports through the read-only collector (RTDE + Dashboard queries). Unknown = not ok."""
+    sm, rm = extra.get("safety_mode"), extra.get("robot_mode")
+    remote, pstate = extra.get("remote_control"), str(extra.get("program_state") or "")
+    def c(key, name, ok, detail):
+        return {"key": key, "name": name, "ok": bool(ok), "detail": detail}
+    return [
+        c("source", "A real robot (not the simulator)", not simulated,
+          "SIMULATION record - never physical evidence" if simulated else "real robot record"),
+        c("telemetry", "Live telemetry", fresh, "fresh" if fresh else "no fresh telemetry from the collector"),
+        c("joints", "Joint feedback", bool(q_deg) and len(q_deg) == 6,
+          "6 joints, degrees, J1..J6 (base..wrist 3)" if q_deg else "no joint values from the controller"),
+        c("safety", "Controller safety mode", isinstance(sm, int) and sm in UR_SAFETY_OK,
+          UR_SAFETY_OK.get(sm) or (UR_SAFETY_NAMES.get(sm, f"code {sm}") if sm is not None else "not reported")),
+        c("power", "Robot powered and running", rm == 7, "RUNNING" if rm == 7 else f"robot mode {rm!r}"),
+        c("remote", "Remote control enabled on the pendant", remote is True,
+          "remote" if remote is True else "local (pendant)" if remote is False else "not reported (Dashboard not read)"),
+        c("program", "No other program playing", "PLAYING" not in pstate.upper(),
+          pstate or "no program state reported"),
+        c("stop", "STOP not latched", not latched, "clear" if not latched else "latched - admin recovery needed"),
+        c("signoff", "Live control signed off (ROBOT_CONTROL=live)", MODE == "live",
+          "live" if MODE == "live" else f"{MODE} - nothing is sent until the owner signs off"),
+    ]
+
+
+def fanuc_readiness(fresh: bool, has_joints: bool, simulated: bool = False) -> dict:
+    """FANUC: monitoring only. Motion stays disabled until every dependency is established.
+    The identity/options evidence belongs to the real controller, never to the simulator."""
+    sim = "SIMULATION record - the evidence belongs to the real controller only"
+    checks = [
+        {"key": "source", "name": "A real robot (not the simulator)", "ok": not simulated,
+         "detail": "SIMULATION record - never physical evidence" if simulated else "real robot record"},
+        {"key": "telemetry", "name": "Live telemetry", "ok": fresh, "detail": "fresh" if fresh else "no fresh telemetry"},
+        {"key": "joints", "name": "Joint feedback", "ok": has_joints,
+         "detail": "joint values present" if has_joints else "no joint values from the controller"},
+        {"key": "identity", "name": "Controller identity", "ok": not simulated,
+         "detail": sim if simulated else f"{FanucAdapter.identity} (SUMMARY.DG, 2026-10-14)"},
+        {"key": "options", "name": "Remote-interface options installed", "ok": not simulated,
+         "detail": sim if simulated else "R648, R636, R641, KAREL R632, SNPX R553, PNS J515, RSR (DEMO list empty)"},
+        {"key": "interface", "name": "Remote command interface configured", "ok": False,
+         "detail": "none chosen or configured - motion commands disabled"},
+        {"key": "home_program", "name": "Validated HOME TP program", "ok": False,
+         "detail": "not written / validated on the pendant yet"},
+        {"key": "stop", "name": "Tested normal stop for that interface", "ok": False, "detail": "not identified / tested"},
+    ]
+    return {"readiness": "BLOCKED", "checks": checks, "dependencies": FanucAdapter.dependencies}

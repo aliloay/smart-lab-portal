@@ -36,6 +36,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Names given back by look, place, a crossing re-deal or the other camera: weaker evidence than the
+# door or the face that named the person in the first place (2026-10-18: a crossing re-deal used to
+# start at the door's 0.90 - as if the door had just named them).
+REACQUIRE_HOW = ("look", "place", "crossing", "other camera")
+
 STATES = ("UNKNOWN", "TENTATIVE", "FACE_CONFIRMED", "DOOR_CONFIRMED", "FUSED_CONFIRMED",
           "REID_CONFIRMED", "OCCLUDED", "IDENTITY_UNCERTAIN", "IDENTITY_CONFLICT")
 
@@ -134,14 +139,14 @@ class IdentityLedger:
             if rec.label != t.label:                       # newly named (by door, face, look or place)
                 rec.label, rec.source, rec.named_at = t.label, t.source, now
                 how = getattr(t, "named_by", None) or t.source or "?"
-                strength = c.reacquire_strength if how in ("look", "place") else (
+                strength = c.reacquire_strength if how in REACQUIRE_HOW else (
                     c.fused_strength if t.verified else
                     c.door_strength if t.source == "door" else c.face_strength)
                 rec.confidence = strength
                 rec.last_evidence_at = now
                 rec.conflict_with = None
                 rec.add(Evidence(now, how, f"named {t.label} ({how})", strength))
-                events.append(IdentityEvent("PERSON_TRACK_REACQUIRED" if how in ("look", "place")
+                events.append(IdentityEvent("PERSON_TRACK_REACQUIRED" if how in REACQUIRE_HOW
                                             else "PERSON_IDENTITY_CONFIRMED", t.id, t.label,
                                             f"{t.label} by {how}"))
             # Decay, then fresh evidence tops up.

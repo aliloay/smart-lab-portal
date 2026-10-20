@@ -18,6 +18,9 @@ try {
   await page.fill('#password', 'Admin#2026')
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 })
+  // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.
+  await page.goto(`${BASE}/labs`)
+  await page.waitForSelector('aside nav a[href^="/"]', { timeout: 20000 })
   if (await page.$('[role=alertdialog]')) await page.getByRole('button', { name: 'CLEAR ALL' }).click()
   const t0 = Date.now()
   await page.click('aside nav a[href="/notifications"]')

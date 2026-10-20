@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, require_staff
 from app.db.session import get_db
 from app.models import Lab, User
-from app.services import analytics
+from app.services import analytics, system_analytics
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -21,6 +21,19 @@ def operations(days: int = Query(30, ge=1, le=365),
                lab_id: Optional[int] = None,
                db: Session = Depends(get_db), _: User = Depends(require_staff)):
     return analytics.operations(db, days, lab_id)
+
+
+@router.get("/system")
+def system(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Every subsystem (door, environment, robots, consumables, cameras, PCs, automation, alerts):
+    daily series, totals and the freshness of each data source. Real tables only."""
+    return system_analytics.system(db, days)
+
+
+@router.get("/kpis")
+def kpis(_: User = Depends(require_staff)):
+    """The shared KPI catalogue: id, definition, unit, source table, kind."""
+    return system_analytics.KPIS
 
 
 @router.get("/labs/{lab_id}")
@@ -61,3 +74,34 @@ def export_csv(kind: Literal["bookings", "sessions", "events", "weekly"] = "book
         iter([buf.getvalue()]), media_type="text/csv",
         headers={"Content-Disposition":
                  f'attachment; filename="smartlab-{kind}-{days}d-{stamp}.csv"'})
+
+
+# ------------------------------------------------------------- anomalies ---
+@router.get("/anomalies")
+def anomalies(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Rules, sensor-fault checks and statistical baselines on the real measurements (no ML - see ml_status).
+    Cached 60 s: the scan reads ~25k readings (~0.9 s) and sensors report at most once a minute."""
+    import time as _t
+    from app.services import anomalies as an
+    if _anom_cache["body"] is None or _t.monotonic() - _anom_cache["at"] > 60:
+        _anom_cache.update(at=_t.monotonic(), body=an.scan(db))
+    return _anom_cache["body"]
+
+
+_anom_cache: dict = {"at": 0.0, "body": None}
+
+
+@router.post("/anomalies/raise")
+def raise_anomaly(index: int, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """Raise finding #index of the current scan as an incident (once per day per device/metric/kind)."""
+    from fastapi import HTTPException
+    from app.models import AuditLog
+    from app.services import anomalies as an
+    found = (_anom_cache["body"] or an.scan(db))["findings"]      # the same list the page showed
+    if not 0 <= index < len(found):
+        raise HTTPException(404, "No such finding (the scan changed - reload)")
+    created, alert_id = an.raise_alert(db, found[index])
+    db.add(AuditLog(actor_user_id=user.id, action="ANOMALY_RAISED", entity_type="alert", entity_id=str(alert_id),
+                    detail={"created": created, "kind": found[index]["kind"], "metric": found[index]["metric"]}))
+    db.commit()
+    return {"created": created, "incident_id": alert_id}

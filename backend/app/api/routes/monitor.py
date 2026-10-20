@@ -28,7 +28,7 @@ from app.models import (AccessEvent, AccessSession, Alert, AlertSeverity,
                         Booking, BookingStatus, Device, DeviceType, EventType,
                         Lab, User)
 from app.services import environment
-from app.services.devices import is_fresh, refresh_liveness
+from app.services.devices import effective_components, is_fresh, refresh_liveness
 from app.services.sessions import close_expired
 
 router = APIRouter(prefix="/monitor", tags=["monitor"])
@@ -116,7 +116,7 @@ def _tile(db: Session, lab: Lab, now: datetime, pre: Optional[dict] = None) -> d
                        if d.device_type == DeviceType.MASTER_CONTROLLER), None)
     camera = next((d for d in devices if d.device_type == DeviceType.CAMERA), None)
     security_cam = next((d for d in devices if d.device_type == DeviceType.SECURITY_CAMERA), None)
-    comp = (controller.component_state or {}) if controller else {}
+    comp = (effective_components(controller, now) or {}) if controller else {}   # a single missed self-test is not a fault
     controller_online = is_fresh(controller, now) if controller else None
 
     inside = pre["inside"].get(lab.id, [])

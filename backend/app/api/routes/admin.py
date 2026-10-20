@@ -737,12 +737,16 @@ def list_alerts(open_only: bool = False, db: Session = Depends(get_db),
 
 @router.post("/alerts/{alert_id}/resolve", response_model=AlertOut)
 def resolve_alert(alert_id: int, db: Session = Depends(get_db),
-                  _: User = Depends(require_staff)):
+                  user: User = Depends(require_staff)):
     a = db.get(Alert, alert_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert not found")
     a.is_resolved = True
     a.resolved_at = datetime.now(timezone.utc)
+    a.state, a.resolved_by_id = "RESOLVED", user.id
+    a.resolution = a.resolution or "Marked resolved from the alerts list"
+    db.add(AuditLog(actor_user_id=user.id, action="INCIDENT_RESOLVE", entity_type="alert", entity_id=str(a.id),
+                    detail={"via": "alerts list"}))
     db.commit()
     db.refresh(a)
     labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}

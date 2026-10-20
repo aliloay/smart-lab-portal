@@ -1,10 +1,13 @@
 import { lazy, ReactNode, Suspense } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import EmergencyMessage from './components/EmergencyMessage'
+import HazardAlarm from './components/HazardAlarm'
 import WelcomeIntro from './components/WelcomeIntro'
 import { Spinner } from './components/ui'
 import { firstName, isAdmin, isStaff, useAuth } from './lib/auth'
 import { LiveProvider } from './lib/live'
+import { watchDeployments } from './lib/version'
 
 import Login from './pages/Login'
 import StudentDashboard from './pages/dashboards/StudentDashboard'
@@ -13,7 +16,7 @@ import AdminDashboard from './pages/dashboards/AdminDashboard'
 // Every page is its own small file, loaded when first opened - and all of
 // them are fetched quietly in the background right after sign-in
 // (prefetchPages), so later clicks are instant without a big first load.
-const Welcome = lazy(() => import('./pages/Welcome'))
+import Welcome from './pages/Welcome'   // eager: sign-in fades straight into it, no dashboard flash
 const loadLabs = () => import('./pages/Labs')
 const Labs = lazy(loadLabs)
 const loadLabDetail = () => import('./pages/LabDetail')
@@ -44,6 +47,8 @@ const loadSecurity = () => import('./pages/Security')
 const Security = lazy(loadSecurity)
 const loadAssetDetail = () => import('./pages/AssetDetail')
 const AssetDetail = lazy(loadAssetDetail)
+const Incidents = lazy(() => import('./pages/Incidents'))
+const Reliability = lazy(() => import('./pages/Reliability'))
 const loadAlerts = () => import('./pages/Alerts')
 const Alerts = lazy(loadAlerts)
 const loadUsers = () => import('./pages/Users')
@@ -58,13 +63,17 @@ const loadIssueList = () => import('./pages/issues/IssueList')
 const IssueList = lazy(loadIssueList)
 const loadIssueDetail = () => import('./pages/issues/IssueDetail')
 const IssueDetail = lazy(loadIssueDetail)
+const Share = lazy(() => import('./pages/Share'))
 const loadNotifications = () => import('./pages/Notifications')
 const Notifications = lazy(loadNotifications)
 const loadProfile = () => import('./pages/Profile')
 const Profile = lazy(loadProfile)
 const PREFETCH = [loadLabs, loadLabDetail, loadBook, loadMyBookings, loadReservations, loadBookingDetail, loadBookingQr, loadSessionDetail, loadSimulation, loadExperiments, loadAccessMonitor, loadDevices, loadEquipment, loadSecurity, loadAssetDetail, loadAlerts, loadUsers, loadSettings, loadEmergency, loadReportIssue, loadIssueList, loadIssueDetail, loadNotifications, loadProfile,
   () => import('./pages/Reports'), () => import('./pages/Operations'), () => import('./pages/CommandCenter'),
-  () => import('./pages/Robots')]
+  () => import('./pages/Robots'),
+  // 2026-10-19: these were missing, so their first click waited ~1 s for the download.
+  () => import('./pages/Incidents'), () => import('./pages/Reliability'), () => import('./pages/SystemAnalytics'),
+  () => import('./pages/Monitor'), () => import('./pages/RobotDetail')]
 let prefetched = false
 function prefetchPages() {
   if (prefetched) return
@@ -80,6 +89,7 @@ function prefetchPages() {
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))
 const Operations = lazy(() => import('./pages/Operations'))
+const SystemAnalytics = lazy(() => import('./pages/SystemAnalytics'))
 // Command Center and robot pages carry three.js: loaded only when opened.
 const CommandCenter = lazy(() => import('./pages/CommandCenter'))
 const Robots = lazy(() => import('./pages/Robots'))
@@ -120,19 +130,24 @@ export default function App() {
 
   const home = admin ? <AdminDashboard /> : staff ? <StaffDashboard /> : <StudentDashboard />
   prefetchPages()
+  watchDeployments()
 
   // The wall screen: full screen, outside the portal frame (no sidebar).
   if (staff && loc.pathname === '/monitor') {
-    return <LiveProvider><Chunk><Monitor /></Chunk></LiveProvider>
+    return <LiveProvider><Chunk><Monitor /></Chunk><SafetyLayer /></LiveProvider>
   }
   // The Command Center on a wall screen: no sidebar, full screen.
   if (staff && loc.pathname === '/wall') {
-    return <LiveProvider><Chunk><CommandCenter wall /></Chunk></LiveProvider>
+    return <LiveProvider><Chunk><CommandCenter wall /></Chunk><SafetyLayer /></LiveProvider>
   }
   // The printable weekly / monthly report: its own page, white, for "Save as PDF".
   if (staff && loc.pathname === '/report') {
-    return <Chunk><ReportPrint /></Chunk>
+    return <><Chunk><ReportPrint /></Chunk><SafetyLayer /></>
   }
+
+  // Sign-in lands here: straight from the login screen into the full-screen welcome, never via the dashboard frame.
+  if (loc.pathname === '/login') return <AfterSignIn />
+  if (loc.pathname === '/welcome') return <LiveProvider><Welcome /><SafetyLayer /></LiveProvider>
 
   return (
     <LiveProvider>
@@ -155,6 +170,7 @@ export default function App() {
           <Route path="/issues/new" element={<ReportIssue />} />
           <Route path="/issues/:id" element={<IssueDetail />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/share" element={<Share />} />
           <Route path="/profile" element={<Profile />} />
 
           <Route path="/admin/bookings" element={staffOnly(<Reservations />)} />
@@ -167,8 +183,11 @@ export default function App() {
           <Route path="/robots/:id" element={staffOnly(<Chunk><RobotDetail /></Chunk>)} />
           <Route path="/inventory" element={<Navigate to="/admin/equipment?tab=consumables" replace />} />
           <Route path="/admin/alerts" element={staffOnly(<Alerts />)} />
+          <Route path="/admin/incidents" element={staffOnly(<Incidents />)} />
+          <Route path="/admin/reliability" element={staffOnly(<Chunk><Reliability /></Chunk>)} />
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
+          <Route path="/admin/system" element={staffOnly(<Chunk><SystemAnalytics /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/admin/users" element={staffOnly(<Users />)} />
           <Route path="/admin/experiments" element={staffOnly(<Experiments />)} />
@@ -180,11 +199,27 @@ export default function App() {
           <Route path="/me" element={<Navigate to="/" replace />} />
           <Route path="/admin/access-events" element={<Navigate to="/admin/access" replace />} />
           <Route path="/admin/assets" element={<Navigate to="/admin/equipment" replace />} />
-          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/login" element={<AfterSignIn />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
       </Layout>
     </LiveProvider>
   )
+}
+
+/** Right after sign-in the signed-in routes render while the URL is still /login: go to the ?next=
+ *  deep link, the Command Center on its own port, or else the /welcome story. */
+function AfterSignIn() {
+  const next = new URLSearchParams(useLocation().search).get('next')
+  const home = ['8080', '8443'].includes(window.location.port) ? '/command' : '/welcome'
+  const ok = next && next.startsWith('/') && !next.startsWith('//')
+  return <Navigate to={home === '/welcome' && ok ? `/welcome?next=${encodeURIComponent(next!)}` : ok ? next! : home} replace />
+}
+
+/** The evacuation alarm and the administrator's emergency message belong on EVERY signed-in screen, also the
+ *  full-screen ones outside the portal frame (2026-10-20: /welcome - where every sign-in lands - /monitor, /wall and
+ *  /report showed neither; e2e/emergency_message.mjs timed out). After the page in the DOM: on top at equal z-index. */
+function SafetyLayer() {
+  return <><HazardAlarm /><EmergencyMessage /></>
 }

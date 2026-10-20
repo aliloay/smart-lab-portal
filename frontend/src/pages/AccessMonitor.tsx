@@ -70,6 +70,8 @@ function Events() {
     finally { setLookingUp(false); setSelected(null) }
   }
   const [rows, setRows] = useState<AccessEvent[] | null>(null)
+  // Drawing all 400 rows froze the page ~0.5 s on open (2026-10-19); the newest 80 come first.
+  const [shown, setShown] = useState(80)
   const [labs, setLabs] = useState<Lab[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [outcome, setOutcome] = useState('all')
@@ -174,7 +176,7 @@ function Events() {
                   <th className="th">Detail</th><th className="th"></th>
                 </tr></thead>
                 <tbody>
-                  {rows.map(e => (
+                  {rows.slice(0, shown).map(e => (
                     <tr key={e.id} className="tr cursor-pointer" onClick={() => setSelected(e)}>
                       <td className="td whitespace-nowrap text-slate-300 tnum">
                         <div>{fmtTimeSec(e.created_at)}</div>
@@ -194,6 +196,11 @@ function Events() {
                   ))}
                 </tbody>
               </table>
+              {rows.length > shown && (
+                <div className="p-3 text-center">
+                  <button className="btn-ghost btn-sm" onClick={() => setShown(s => s + 200)}>
+                    Show more ({rows.length - shown} older)</button>
+                </div>)}
             </div>
           )}
       </div>

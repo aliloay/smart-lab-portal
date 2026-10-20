@@ -216,7 +216,7 @@ export default function LabDetails({ t, pill, badges, onClose }: {
                 {status.devices.map(d => (
                   <li key={d.id} className="flex items-center gap-2 min-w-0">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${d.state === 'ONLINE' ? 'bg-ok'
-                      : d.state === 'OFFLINE' ? 'bg-bad' : 'bg-slate-500'}`} />
+                      : d.state === 'OFFLINE' ? 'bg-bad' : d.state === 'DEGRADED' ? 'bg-warn' : 'bg-slate-500'}`} />
                     <span className="truncate text-slate-200">{d.name}</span>
                     <span className="truncate text-[11.5px] text-slate-500">{DEVICE[d.device_type] ?? d.device_type}</span>
                     <span className="ml-auto shrink-0 text-[12px] text-slate-500">

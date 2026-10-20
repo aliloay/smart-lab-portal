@@ -222,10 +222,13 @@ def record_hazards(db: Session, lab: Lab, device: Optional[Device],
         title, detail = HAZARDS[metric]
         title = title.format(lab=lab.code)
         if active and open_alert is None:
-            alert = Alert(lab_id=lab.id, device_id=device.id if device else None,
-                          severity=AlertSeverity.CRITICAL, title=title,
-                          detail=detail, dedupe_key=_key(lab, metric))
-            db.add(alert)
+            # A new episode: a new incident, or the recent one REOPENED if the hazard returns within
+            # 30 min of clearing (alert_grouping) - every episode is still logged as an ALARM event
+            # and notified below, exactly as before.
+            from app.services.alert_grouping import raise_or_group
+            alert, _ = raise_or_group(db, lab_id=lab.id, device_id=device.id if device else None,
+                                      severity=AlertSeverity.CRITICAL, title=title, detail=detail, now=now,
+                                      fp=f"hazard:{lab.id}:{metric}", fields={"dedupe_key": _key(lab, metric)})
             db.flush()
             messages.append(_hazard_message(lab, metric, "raised", alert, title, detail))
             log_event(db, EventType.ALARM, lab_id=lab.id,
@@ -249,14 +252,24 @@ def record_hazards(db: Session, lab: Lab, device: Optional[Device],
 
 
 def node(db: Session, lab: Lab) -> Optional[Device]:
-    return db.scalar(select(Device).where(
+    """The lab's environment node (not a bin: bins are sensor nodes too - see latest_many)."""
+    rows = db.scalars(select(Device).where(
         Device.lab_id == lab.id, Device.device_type == DeviceType.SENSOR_NODE)
-        .order_by(desc(Device.last_seen_at)))
+        .order_by(desc(Device.last_seen_at))).all()
+    return next((d for d in rows if _is_env_node(d)), rows[0] if rows else None)
 
 
 def _utc(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None \
         else dt.astimezone(timezone.utc)
+
+
+ENV_COMPONENTS = {"dht22", "pir_1", "pir_2", "mq_1", "flame"}
+
+
+def _is_env_node(d: Device) -> bool:
+    comps = d.component_state if isinstance(d.component_state, dict) else {}
+    return (d.device_uid or "").upper().startswith("ENV") or bool(ENV_COMPONENTS & set(comps))
 
 
 def latest(db: Session, lab: Lab, now: Optional[datetime] = None) -> dict:
@@ -270,19 +283,26 @@ def latest_many(db: Session, labs: list[Lab], now: Optional[datetime] = None) ->
     now = now or datetime.now(timezone.utc)
     ids = [lab.id for lab in labs]
     nodes: dict[int, Device] = {}
-    for d in db.scalars(select(Device).where(
-            Device.lab_id.in_(ids), Device.device_type == DeviceType.SENSOR_NODE)
-            .order_by(Device.lab_id, desc(Device.last_seen_at))).all():
-        nodes.setdefault(d.lab_id, d)                 # the most recently seen node per lab
-    # Newest reading per (lab, metric) through the (lab_id, metric, recorded_at) index: one
-    # backward index step each. DISTINCT ON sorted the whole table every call (21,892 rows,
-    # 72 ms on 2026-10-14, growing with every reading) - the wall screen's slowest part.
-    newest_ids = db.execute(text(
-        "SELECT r.id FROM unnest(CAST(:labs AS integer[])) AS l(id) "
-        "CROSS JOIN unnest(CAST(:metrics AS varchar[])) AS m(metric) "
-        "CROSS JOIN LATERAL (SELECT s.id FROM sensor_readings s WHERE s.lab_id = l.id "
-        "AND s.metric = m.metric ORDER BY s.recorded_at DESC LIMIT 1) r"),
-        {"labs": ids, "metrics": list(METRICS)}).scalars().all()
+    # The lab's ENVIRONMENT node: the bins are sensor nodes too, and "most recently seen" picked a bin
+    # (seen every second) - its freshness then decided whether the environment readings counted
+    # (2026-10-18). A node reporting environment sensors (or named ENV_*) comes first.
+    rows = db.scalars(select(Device).where(
+        Device.lab_id.in_(ids), Device.device_type == DeviceType.SENSOR_NODE)
+        .order_by(Device.lab_id, desc(Device.last_seen_at))).all()
+    for d in sorted(rows, key=lambda d: not _is_env_node(d)):          # stable: env nodes first, newest first
+        nodes.setdefault(d.lab_id, d)
+    # Newest reading per (lab, metric): one small query each, with its own values, so the planner
+    # sees that most labs have no readings and uses the right index. DISTINCT ON sorted the whole
+    # table (72 ms, 2026-10-14); the LATERAL join over unnest() that replaced it got a generic plan
+    # that walked the whole recorded_at index backwards for every empty (lab, metric) - 55-77 full
+    # scans, 1.2-1.6 s per call on 34,112 readings (2026-10-18, /monitor 1.9 s). This: ~60 ms.
+    metrics = list(METRICS)
+    parts = [f"(SELECT s.id FROM sensor_readings s WHERE s.lab_id = :l{i} AND s.metric = :m{j} "
+             f"ORDER BY s.recorded_at DESC LIMIT 1)"
+             for i in range(len(ids)) for j in range(len(metrics))]
+    params = {**{f"l{i}": lab_id for i, lab_id in enumerate(ids)},
+              **{f"m{j}": m for j, m in enumerate(metrics)}}
+    newest_ids = db.execute(text(" UNION ALL ".join(parts)), params).scalars().all() if parts else []
     newest: dict[tuple[int, str], SensorReading] = {
         (r.lab_id, r.metric): r for r in db.scalars(
             select(SensorReading).where(SensorReading.id.in_(newest_ids))).all()} if newest_ids else {}

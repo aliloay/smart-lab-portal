@@ -322,7 +322,9 @@ def test_run_is_recorded(client, db):
         "summary": "sent"}).json()["recorded"]
 
 
-def test_component_fault_is_not_a_door_alarm(client, db, lab, device_headers):
+def test_component_fault_is_not_a_door_alarm(client, db, lab, device_headers, monkeypatch):
+    from app.services import devices as _devices
+    monkeypatch.setattr(_devices, "COMPONENT_FAULT_AFTER_S", 0)     # confirmation wait: test_component_health.py
     client.post("/api/access/heartbeat", headers=device_headers, json={
         "device_uid": "MASTER_LAB01", "lab_id": lab.code, "door_closed": True,
         "components": {"rfid": False, "fingerprint": True, "camera": True}})

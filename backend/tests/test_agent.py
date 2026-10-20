@@ -144,3 +144,70 @@ def test_improvement_plan_is_actionable_and_honest_about_evidence(db, lab):
     assert "Likely cause:" in text and "Done when:" in text and "1. " in text
     assert "Evidence quality" in text                     # the suite's rows are SOFTWARE_TEST
     assert "**Next single action:** Open the door fully" in text
+
+
+
+def test_status_questions_are_answered_from_the_records_not_the_model(client, db, staff, lab, monkeypatch):
+    """2026-10-18: 'which robots are online?' went to the language model with the whole snapshot - 48 s on
+    the CPU while the camera analysis dropped to 1.7/s. Now an exact answer from the device records."""
+    _no_ai(monkeypatch)
+    assert agent.detect("Which robots are online?", staff=True) == "robots_status"
+    assert agent.detect("are the cameras working?", staff=True) == "cameras_status"
+    assert agent.detect("which PCs are online", staff=True) == "pcs_status"
+    assert agent.detect("Are there open security alerts?", staff=True) == "alerts_open"
+    assert agent.detect("which robot was used most?", staff=True) == "equipment"     # usage stays usage
+    assert agent.detect("Which robots are online?", staff=False) is None              # staff only
+    now = datetime.now(timezone.utc)
+    db.add(Device(device_uid="UR5E_X", name="UR5e", device_type=DeviceType.ROBOT, lab_id=lab.id,
+                  last_seen_at=now, component_state={"q": [0.0] * 6}))
+    db.add(Device(device_uid="FANUC_SIM_X", name="FANUC sim", device_type=DeviceType.ROBOT, lab_id=lab.id,
+                  last_seen_at=now - timedelta(days=3), component_state={"source": "SIMULATION"}))
+    db.add(Alert(lab_id=lab.id, severity=AlertSeverity.CRITICAL, title="Camera offline", detail=""))
+    db.commit()
+    h = auth_headers(client, staff.email)
+    r = client.post("/api/ai/ask", headers=h, json={"question": "Which robots are online?"}).json()
+    assert r["instant"] and r["tools_used"] == ["instant:robots_status"]
+    assert "UR5E_X): **online**" in r["answer"] and "FANUC_SIM_X): **offline**" in r["answer"]
+    assert "SIMULATION" in r["answer"] and "DRY_RUN" in r["answer"]
+    r = client.post("/api/ai/ask", headers=h, json={"question": "any alerts right now?"}).json()
+    assert r["tools_used"] == ["instant:alerts_open"] and "1 open alert" in r["answer"] and "Camera offline" in r["answer"]
+
+
+def test_status_answers_match_the_device_pages_and_environment_and_stock_are_instant(client, db, staff, lab):
+    # 2026-10-18 live findings: a robot whose collector runs without the robot was called "online"; a
+    # temperature question got the data-source overview; "how many resistors" went to the model (213 s).
+    from app.models import InventoryBin, SensorReading
+    now = datetime.now(timezone.utc)
+    db.add(Device(device_uid="UR5E_Y", name="UR5e (physical)", device_type=DeviceType.ROBOT, lab_id=lab.id,
+                  last_seen_at=now, is_online=True, component_state={"state": "IDLE"}))
+    db.add(Device(device_uid="ENV_Y", name="Environment node", device_type=DeviceType.SENSOR_NODE, lab_id=lab.id,
+                  last_seen_at=now, is_online=True))
+    db.add(SensorReading(lab_id=lab.id, metric="temperature", value=26.6, unit="C", recorded_at=now))
+    db.add(SensorReading(lab_id=lab.id, metric="smoke", value=0.0, unit="", recorded_at=now))
+    db.add(InventoryBin(code="BIN-T", lab_id=lab.id, item_name="10 kOhm resistors", tare_g=100.0,
+                        unit_mass_g=0.2, last_mass_g=106.0, last_measured_at=now))
+    db.commit()
+    h = auth_headers(client, staff.email)
+    ask = lambda q: client.post("/api/ai/ask", headers=h, json={"question": q}).json()
+    r = ask("Which robots are online?")
+    assert "UR5E_Y): **partly working**" in r["answer"] and "not connected" in r["answer"]
+    r = ask("What is the temperature in the lab?")
+    assert r["tools_used"] == ["instant:environment_now"] and "26.6" in r["answer"] and "Smoke / gas: **none**" in r["answer"]
+    r = ask("How many resistors are in the bin?")
+    assert r["tools_used"] == ["instant:bins_stock"] and "**30** pieces" in r["answer"]
+
+
+def test_lab_ready_questions_get_the_instant_free_labs_answer():
+    # 2026-10-19: "what lab is ready now" missed the free-labs pattern and waited 212 s for the model.
+    for q in ("what lab is ready now", "which lab is free?", "which lab can I use now", "is any lab available"):
+        assert agent.detect(q, staff=True) == "free_labs", q
+        assert agent.detect(q, staff=False) == "free_labs", q
+
+
+def test_live_state_questions_do_not_go_to_the_documents_lookup():
+    # 2026-10-19: "...which one needs attention first and why" matched "why" and got an unrelated document quote.
+    from app.api.routes.ai import _LIVE_Q, _PROJECT_Q
+    live = "Compare the robotics lab and the PLC lab and tell me which one needs attention first and why"
+    assert _PROJECT_Q.search(live) and _LIVE_Q.search(live)
+    doc = "why do we use a relay for the door lock?"
+    assert _PROJECT_Q.search(doc) and not _LIVE_Q.search(doc)

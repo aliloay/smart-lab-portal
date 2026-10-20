@@ -76,7 +76,9 @@ export default function Security() {
             {tab !== 'boxes' && tab !== 'recordings' && <span className="ml-auto"><BoxesToggle /></span>}
           </div>
           {tab === 'wall' && <Wall cams={cams} labs={labs} onPick={(id, t) => { setCamId(id); setTab(t) }} />}
-          {cam && tab === 'live' && <Live cam={cam} onChange={load} />}
+          {cam && tab === 'live' && <Live cam={cam} onChange={load}
+            siblings={cams.filter(c => c.lab_id === cam.lab_id).sort((a, b) => a.device_uid.localeCompare(b.device_uid))}
+            onSelect={setCamId} />}
           {cam && tab === 'boxes' && <Boxes cam={cam} />}
           {cam && tab === 'events' && <Events cam={cam} onChange={load} />}
           {cam && tab === 'recordings' && admin && <RecordingsPanel deviceId={cam.device_id} />}
@@ -94,16 +96,19 @@ function Wall({ cams, labs, onPick }: {
 }) {
   const [bigId, setBigId] = useState<number | null>(null)
   const big = cams.find(c => c.device_id === bigId) ?? null        // its numbers stay live
-  const frames: { key: string; lab: Lab | null; cam: SecurityCamera | null }[] = labs
-    ? labs.map(l => ({ key: `lab-${l.id}`, lab: l, cam: cams.find(c => c.lab_id === l.id) ?? null }))
-    : cams.map(c => ({ key: `cam-${c.device_id}`, lab: null, cam: c }))
+  // One frame per lab with ALL its cameras (camera 1, 2 ... by device code), side by side.
+  const ofLab = (labId: number) => cams.filter(c => c.lab_id === labId).sort((a, b) => a.device_uid.localeCompare(b.device_uid))
+  const frames: { key: string; lab: Lab | null; cams: SecurityCamera[] }[] = labs
+    ? labs.map(l => ({ key: `lab-${l.id}`, lab: l, cams: ofLab(l.id) }))
+    : cams.map(c => ({ key: `cam-${c.device_id}`, lab: null, cams: [c] }))
+  const camLabel = (c: SecurityCamera) => { const same = ofLab(c.lab_id); return same.length > 1 ? `Camera ${same.indexOf(c) + 1}` : 'Camera' }
   const n = frames.length
   const cols = n <= 4 ? 2 : n <= 9 ? 3 : 4
   const go = (t: Tab) => { if (big) { setBigId(null); onPick(big.device_id, t) } }
   return (
     <div className="space-y-3">
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-        {frames.map(({ key, lab, cam: c }) => !c ? (
+        {frames.map(({ key, lab, cams: lc }) => !lc.length ? (
           <div key={key} className="relative aspect-video rounded-2xl border border-dashed border-ink-500/70 bg-ink-900/60
                                     grid place-items-center text-center p-3">
             <span className="absolute left-3 top-2.5 text-[16px] font-extrabold text-slate-300">{lab?.code}</span>
@@ -112,13 +117,20 @@ function Wall({ cams, labs, onPick }: {
               <VideoOff size={20} /> Camera to be installed</span>
           </div>
         ) : (
-          <div key={key} role="button" tabIndex={0} title="Click to enlarge"
+          <div key={key} style={lc.length > 1 ? { gridColumn: `span ${Math.min(2, cols)}` } : undefined}
+               className={lc.length > 1 ? 'rounded-2xl border border-cyan-500/40 bg-ink-900/60 p-1.5' : ''}>
+            {lc.length > 1 && <div className="flex items-center gap-2 px-1.5 pb-1.5">
+              <span className="text-white font-extrabold text-[17px]">{lc[0].lab_code}</span>
+              <span className="text-slate-400 text-[12px]">{lc.length} cameras · click one to enlarge, then switch or show both</span></div>}
+            <div className={lc.length > 1 ? 'grid grid-cols-2 gap-1.5' : ''}>
+            {lc.map(c => (
+          <div key={c.device_id} role="button" tabIndex={0} title="Click to enlarge"
                onClick={() => setBigId(c.device_id)} onKeyDown={e => { if (e.key === 'Enter') setBigId(c.device_id) }}
                className="group relative aspect-video rounded-2xl overflow-hidden border border-ink-600/70 bg-black cursor-zoom-in">
             <LiveCameraFeed deviceId={c.device_id} intervalMs={cams.length > 4 ? 400 : 200} className="!absolute inset-0" />
             <div className="absolute inset-x-0 top-0 p-2.5 flex items-center gap-2 bg-gradient-to-b from-black/75 to-transparent">
               <span className="text-white font-extrabold text-[17px] leading-none">{c.lab_code}</span>
-              <span className="text-slate-300 text-[12px] truncate">{c.name}</span>
+              <span className="text-slate-300 text-[12px] truncate">{lc.length > 1 ? camLabel(c) : c.name}</span>
               <span className="ml-auto"><CamState c={c} /></span>
             </div>
             <div className="absolute inset-x-0 bottom-0 p-2.5 flex flex-wrap items-center gap-1.5 text-[12px] font-semibold
@@ -128,9 +140,12 @@ function Wall({ cams, labs, onPick }: {
                 <Maximize2 size={13} /> Enlarge</span>
             </div>
           </div>))}
+            </div>
+          </div>))}
       </div>
       {big && (
         <CameraFullScreen deviceId={big.device_id} title={big.lab_code ?? big.name} sub={big.name}
+          cameras={ofLab(big.lab_id).map(c => ({ id: c.device_id, label: camLabel(c) }))}
           badges={<div className="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold"><CamFacts c={big} /></div>}
           actions={<>
             <RecordButton deviceId={big.device_id} />
@@ -171,7 +186,10 @@ function CamFacts({ c }: { c: SecurityCamera }) {
   </>
 }
 
-function Live({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) {
+function Live({ cam, onChange, siblings = [], onSelect }: {
+  cam: SecurityCamera; onChange: () => void; siblings?: SecurityCamera[]; onSelect?: (id: number) => void
+}) {
+  const [split, setSplit] = useState(true)
   const live = cam.online === true && cam.source_ok !== false
   const extra = live && (cam.people ?? 0) > cam.inside
   async function accept(zoneId: number) {
@@ -179,10 +197,31 @@ function Live({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) 
     onChange()
   }
   return (
-    <div className="grid xl:grid-cols-[1fr_340px] gap-4">
+    <div className="space-y-4">
+    {siblings.length > 1 && <div className="flex items-center gap-2 text-[12.5px]">
+      <label className="flex items-center gap-1.5 text-slate-300"><input type="checkbox" checked={split} onChange={e => setSplit(e.target.checked)} />
+        Show all {siblings.length} cameras of {cam.lab_code} side by side</label>
+      {split && <span className="text-slate-500">· click a picture to show its details on the right</span>}</div>}
+    {siblings.length > 1 && split && (
+      <div className="grid md:grid-cols-2 gap-3">
+        {siblings.map(c => {
+          const ok = c.online === true && c.source_ok !== false
+          return (
+            <button key={c.device_id} type="button" onClick={() => onSelect?.(c.device_id)}
+                    className={`relative text-left rounded-2xl overflow-hidden border-2 ${c.device_id === cam.device_id ? 'border-accent-400/80' : 'border-ink-600/70'}`}>
+              <LiveCameraFeed deviceId={c.device_id} intervalMs={LIVE_MS} fit="contain" className="aspect-video" />
+              <div className="absolute top-2 left-2 right-2 flex items-center gap-2 pointer-events-none">
+                <span className="px-2 py-0.5 rounded-md bg-ink-950/80 text-[12px] text-white font-semibold">{c.name} <span className="mono text-slate-400">{c.device_uid}</span></span>
+                <Chip tone={ok ? 'ok' : 'bad'} dot className="ml-auto">{ok ? 'live' : c.online ? 'no picture' : 'offline'}</Chip>
+              </div>
+            </button>)
+        })}
+      </div>)}
+    <div className={siblings.length > 1 && split ? '' : 'grid xl:grid-cols-[1fr_340px] gap-4'}>
+      {!(siblings.length > 1 && split) &&
       <LiveCameraFeed deviceId={cam.device_id} intervalMs={LIVE_MS} fit="contain"
-                      className="rounded-2xl border border-ink-600/70 aspect-video" />
-      <div className="space-y-3">
+                      className="rounded-2xl border border-ink-600/70 aspect-video" />}
+      <div className={siblings.length > 1 && split ? 'grid md:grid-cols-2 xl:grid-cols-3 gap-3 items-start' : 'space-y-3'}>
         <div className="card p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Camera size={15} className="text-accent-300" />
@@ -243,6 +282,7 @@ function Live({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) 
             </ul>)}
         </div>
       </div>
+    </div>
     </div>
   )
 }
@@ -453,20 +493,31 @@ function Snapshot({ id }: { id: number }) {
 
 function Events({ cam, onChange }: { cam: SecurityCamera; onChange: () => void }) {
   const [events, setEvents] = useState<SecurityEvent[] | null>(null)
+  // Checked events leave the list (owner, 2026-10-18); they are kept - "Show checked" lists them.
+  const [showChecked, setShowChecked] = useState(false)
   const load = useCallback(() => {
-    api.securityEvents({ lab_id: cam.lab_id, limit: 60 }).then(setEvents).catch(() => setEvents([]))
-  }, [cam.lab_id])
+    api.securityEvents({ lab_id: cam.lab_id, limit: 60, open_only: !showChecked })
+      .then(setEvents).catch(() => setEvents([]))
+  }, [cam.lab_id, showChecked])
   useEffect(load, [load])
   useLiveMessages(m => { if (m.type === 'staff' && m.kind === 'security_event') load() })
   async function ack(id: number) {
+    if (!showChecked) setEvents(es => es && es.filter(e => e.id !== id))   // gone at once
     await api.ackSecurityEvent(id).catch(() => {})
     load(); onChange()
   }
+  const toggle = (
+    <div className="flex justify-end">
+      <button type="button" className="btn-ghost btn-sm" onClick={() => setShowChecked(v => !v)}>
+        {showChecked ? 'Hide checked events' : 'Show checked events'}</button>
+    </div>)
   if (!events) return <Spinner label="Loading events" />
-  if (!events.length) return <EmptyState compact icon={<ShieldAlert size={18} />} title="Nothing flagged"
-    detail="Events appear here with a snapshot: more people than entered, a person when nobody entered, equipment moved, movement at equipment with nobody there." />
+  if (!events.length) return <div className="space-y-3">{toggle}
+    <EmptyState compact icon={<ShieldAlert size={18} />} title={showChecked ? 'Nothing flagged' : 'Nothing left to check'}
+      detail="Events appear here with a snapshot: more people than entered, a person when nobody entered, equipment moved, movement at equipment with nobody there." /></div>
   return (
     <ul className="space-y-3">
+      <li>{toggle}</li>
       {events.map(e => (
         <li key={e.id} className={`card p-3 flex gap-3 ${e.acknowledged_at ? 'opacity-60' : ''}`}>
           {e.has_snapshot ? <Snapshot id={e.id} /> : <div className="w-44 aspect-video rounded-lg bg-ink-900 grid place-items-center text-[11px] text-slate-500">no snapshot</div>}

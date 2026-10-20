@@ -15,6 +15,7 @@
  */
 import { Component, ErrorInfo, ReactNode } from 'react'
 import { RefreshCw, TriangleAlert } from 'lucide-react'
+import { deployedVersion, reloadOnceFor } from '../lib/version'
 
 interface Props { children: ReactNode; resetKey?: string }
 interface State { error: Error | null }
@@ -25,13 +26,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   static getDerivedStateFromError(error: Error): State {
     // After a deploy, an open tab still asks for the old page files ("Failed to fetch dynamically
     // imported module"): load the new version once instead of showing an error.
+    // One reload per deployed version (lib/version.ts), not one per page per session: a second deploy in
+    // the same session used to leave the tab on the error screen.
     if (/dynamically imported module|Importing a module script failed|ChunkLoadError/i.test(String(error?.message))) {
-      try {
-        if (sessionStorage.getItem('slp.reloadedForUpdate') !== location.pathname) {
-          sessionStorage.setItem('slp.reloadedForUpdate', location.pathname)
-          location.reload()
-        }
-      } catch { /* storage blocked: show the error as before */ }
+      deployedVersion().then(v => { if (v) reloadOnceFor(v) })
     }
     return { error }
   }

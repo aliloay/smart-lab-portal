@@ -354,7 +354,7 @@ def robot_events(device_id: int, limit: int = Query(100, ge=1, le=500), kind: Op
 
 
 @router.get("/{device_id}/movements")
-def movements(device_id: int, limit: int = Query(30, ge=1, le=200), db: Session = Depends(get_db),
+def movements(device_id: int, limit: int = Query(30, ge=1, le=1000), db: Session = Depends(get_db),
               _: User = Depends(require_staff)):
     """Recent completed movements that carry their recorded path (3D replay)."""
     d = _robot(db, device_id)
@@ -414,11 +414,50 @@ def _age_s(d: Device, now: datetime) -> Optional[float]:
     return None if seen is None else (now - seen).total_seconds()
 
 
+def _fmt_age(s: float) -> str:
+    """'2.3 s', '14 min', '5 h', '9 days' - a readable age for the readiness list."""
+    return (f"{s:.1f} s" if s < 120 else f"{s / 60:.0f} min" if s < 7200 else
+            f"{s / 3600:.0f} h" if s < 172800 else f"{s / 86400:.0f} days")
+
+
+def _ctl_model(d: Device) -> Optional[str]:
+    """Picks the controller adapter. UR5E_01 reports no model, so its uid decides (UR5E_* -> UR)."""
+    m = (d.component_state or {}).get("model")
+    if m:
+        return m
+    uid = (d.device_uid or "").upper()
+    return "UR5e" if uid.startswith("UR") else "FANUC" if uid.startswith("FANUC") else None
+
+
+def _moving(cs: dict) -> bool:
+    m = cs.get("joints_moving")
+    return any(m) if isinstance(m, list) else bool(m)
+
+
 def _control_out(d: Device, now: datetime) -> dict:
-    model = (d.component_state or {}).get("model")
+    model = _ctl_model(d)
     ad = rctl.adapter_for(model)
     o = rctl.owner(d.id)
+    cs = d.component_state or {}
+    age = _age_s(d, now)
+    master = None
+    fresh = age is not None and age <= rctl.FRESH_S
+    q = cs.get("q")
+    sim = cs.get("source") == "SIMULATION"           # a simulator record is never physical evidence
+    readiness = None
+    if ad.name == "UR5e":                          # the UR5e master controls; FANUC has its own adapter
+        q_deg = [v * 180 / math.pi for v in q] if q and len(q) == 6 else None
+        master = rctl.master_state(d.id, q_deg, _moving(cs), fresh, cs.get("extra") or {}, sim)
+        readiness = {"readiness": master["readiness"], "checks": master["checks"], "dependencies": []}
+    elif ad.name == "FANUC":
+        readiness = rctl.fanuc_readiness(fresh, bool(q) and len(q) == 6, sim)
+    if readiness and age is not None:              # say how old, not just "not fresh"
+        for c in readiness["checks"]:
+            if c["key"] == "telemetry":
+                c["detail"] = f"{_fmt_age(age)} old" + ("" if fresh else f" - commands need < {rctl.FRESH_S:g} s")
     return {"device_id": d.id, "model": model, "adapter": ad.name, "controller_mode": ad.controller_mode(),
+            "simulated": sim,
+            "master": master, "control_mode": rctl.MODE, "readiness": readiness,
             "capabilities": ad.capabilities(), "telemetry_age_s": _age_s(d, now),
             "owner": None if o is None else {"user_id": o.user_id, "name": o.name,
                                              "expires_in_s": round(o.until - time.time())}}
@@ -468,10 +507,51 @@ def control_command(device_id: int, req: CommandIn, db: Session = Depends(get_db
     if req.action in ("home", "routine") and not req.confirmed:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A movement needs explicit confirmation")
     now = datetime.now(timezone.utc)
-    r = rctl.submit(d.id, (d.component_state or {}).get("model"), user.id, req.action, req.routine,
+    r = rctl.submit(d.id, _ctl_model(d), user.id, req.action, req.routine,
                     req.command_id, _age_s(d, now))
     db.add(AuditLog(actor_user_id=user.id, action="ROBOT_COMMAND", entity_type="robot", entity_id=str(d.id),
                     detail={"command_id": req.command_id, "action": req.action, "routine": req.routine,
                             "result": r.status, "reason": r.reason}))
     db.commit()
     return r.out()
+
+
+class StopIn(BaseModel):
+    command_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+
+
+@router.post("/{device_id}/control/stop")
+def control_global_stop(device_id: int, req: StopIn, db: Session = Depends(get_db),
+                        user: User = Depends(require_staff)):
+    """Global STOP: any staff member, no ownership needed, whoever started the motion. Latches
+    until an administrator runs the recovery. A software stop - not a safety-rated E-stop."""
+    d = _robot(db, device_id)
+    r = rctl.global_stop(d.id, _ctl_model(d), user.full_name, req.command_id)
+    db.add(AuditLog(actor_user_id=user.id, action="ROBOT_GLOBAL_STOP", entity_type="robot", entity_id=str(d.id),
+                    detail={"command_id": req.command_id, "result": r.status, "reason": r.reason}))
+    db.commit()
+    return {**r.out(), **_control_out(d, datetime.now(timezone.utc))}
+
+
+def restore_stop_latches(db: Session) -> list[int]:
+    """Called once at start-up (main.lifespan): re-latch every STOP that was never recovered."""
+    rows = db.execute(select(AuditLog, User.full_name).outerjoin(User, User.id == AuditLog.actor_user_id)
+                      .where(AuditLog.action.in_(("ROBOT_GLOBAL_STOP", "ROBOT_STOP_RECOVERY")))
+                      .order_by(AuditLog.created_at, AuditLog.id)).all()
+    events = [{"action": a.action, "device_id": int(a.entity_id), "t": _utc(a.created_at).timestamp(),
+               "by": name, "result": (a.detail or {}).get("result"), "cleared": (a.detail or {}).get("cleared")}
+              for a, name in rows if a.entity_id and str(a.entity_id).isdigit()]
+    return rctl.restore_latches(events)
+
+
+@router.post("/{device_id}/control/recover")
+def control_recover(device_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Deliberate recovery after STOP (administrator, arm reported still). Restarts nothing."""
+    d = _robot(db, device_id)
+    ok, why = rctl.recover(d.id, _moving(d.component_state or {}))
+    db.add(AuditLog(actor_user_id=admin.id, action="ROBOT_STOP_RECOVERY", entity_type="robot", entity_id=str(d.id),
+                    detail={"cleared": ok, "reason": why}))
+    db.commit()
+    if not ok:
+        raise HTTPException(status.HTTP_409_CONFLICT, why)
+    return {"message": why, **_control_out(d, datetime.now(timezone.utc))}

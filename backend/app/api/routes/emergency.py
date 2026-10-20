@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, get_current_user, require_admin, require_device
 from app.db.session import get_db
-from app.models import AuditLog, Device, DeviceCommand, DeviceType, Lab, User
+from app.models import AuditLog, Device, DeviceCommand, DeviceType, Lab, LabEmergency, User
 from app.services import commands as cmds
 from app.services import emergency as em
 from app.services.access import get_device
@@ -147,6 +147,9 @@ def active_broadcasts(db: Session = Depends(get_db), _: User = Depends(get_curre
     alarm right now - what a page opened after it was set shows and reads aloud."""
     now = datetime.now(timezone.utc)
     out = []
+    # Every lab's state in ONE query (kept referenced, so em.state()'s db.get() finds it without a query):
+    # 11 separate lookups made this the slowest call of every page (78 ms in a page burst, 2026-10-19).
+    _states = db.scalars(select(LabEmergency)).all()  # noqa: F841 - holds the identity map
     for lab in db.scalars(select(Lab).order_by(Lab.code)).all():
         e = em.state(db, lab.id, now)
         if e.message or e.alarm:

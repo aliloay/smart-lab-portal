@@ -8,10 +8,11 @@ import {
   Sparkles, UserRound, Users, Wrench, X,
   Cctv, Siren,
   FlaskConical,
-  Bot,
+  Bot, Search,
 } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
+import CommandPalette, { openPalette } from './CommandPalette'
 import { AccessSetupBanner } from './AccessSetup'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
@@ -61,51 +62,71 @@ const STUDENT_NAV: Section[] = [
 ]
 
 const STAFF_NAV: Section[] = [
-  { title: 'Operations', items: [
+  { title: 'Overview', items: [
     { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
-    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
+  ]},
+  { title: 'Live lab', items: [
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
   ]},
-  { title: 'Facility', items: [
-    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
+  { title: 'Safety & access', items: [
+    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
+  ]},
+  { title: 'Equipment', items: [
     { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
+    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
+  ]},
+  { title: 'Incidents & alerts', items: [
+    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
+  ]},
+  { title: 'Insight', items: [
+    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
+    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
     { to: '/admin/users', label: 'Users', icon: <Users size={17} /> },
   ]},
 ]
 
 const ADMIN_NAV: Section[] = [
-  { title: 'Operations', items: [
+  { title: 'Overview', items: [
     { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
   ]},
-  { title: 'Access & audit', items: [
-    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
-    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
+  { title: 'Live lab', items: [
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
-    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
   ]},
-  { title: 'Facility', items: [
-    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
+  { title: 'Safety & access', items: [
+    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
+    { to: '/admin/emergency', label: 'Emergency', icon: <Siren size={17} /> },
+  ]},
+  { title: 'Equipment', items: [
     { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
+    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
+  ]},
+  { title: 'Incidents & alerts', items: [
+    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
+  ]},
+  { title: 'Insight & reports', items: [
+    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
+    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
   ]},
   { title: 'Administration', items: [
     { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
     { to: '/admin/settings', label: 'Settings', icon: <Settings size={17} /> },
-    { to: '/admin/emergency', label: 'Emergency', icon: <Siren size={17} /> },
   ]},
 ]
 
@@ -287,6 +308,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           room, and simply follows the menu on short screens - it never takes
           space from a navigation item. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        <button type="button" onClick={openPalette}
+          className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 hover:border-ink-500">
+          <Search size={14} /> Search <kbd className="ml-auto text-[10px] border border-ink-600 rounded px-1">Ctrl K</kbd></button>
         <nav className="px-3 pb-3" aria-label="Main">
           {navFor(user?.role).map((section, i) => (
             <div key={section.title}>
@@ -412,6 +436,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         </main>
         <ChatBubble />
       </div>
+      <CommandPalette staff={staff} pages={navFor(user?.role).flatMap(s => s.items.map(i => ({ to: i.to, label: i.label, section: s.title })))} />
       <HazardAlarm />
       <EmergencyMessage />
       <NotificationToasts />

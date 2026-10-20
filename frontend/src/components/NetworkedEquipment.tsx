@@ -15,12 +15,14 @@
  * staff see it, but not its controls, and "Lock all" leaves it alone.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Bot, Crown, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
+import { Bot, Crown, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
 import { api, type PcMode } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
 import { PcMessageModal, PcScreenViewer } from './PcControls'
+import PcActions from './PcActions'
+import { ScreenWall, SharePanel } from './ScreenShare'
 import { Chip, SectionTitle } from './ui'
 
 type Equip = Awaited<ReturnType<typeof api.equipment>>[number]
@@ -36,6 +38,8 @@ export default function NetworkedEquipment() {
   const [viewing, setViewing] = useState<Equip | null>(null)
   const [messaging, setMessaging] = useState<Equip | null>(null)
   const [busy, setBusy] = useState(false)
+  const [wall, setWall] = useState(false)
+  const closeWall = useCallback(() => setWall(false), [])
   const admin = isAdmin(useAuth().user)
   const closeViewer = useCallback(() => setViewing(null), [])
   const load = useCallback(() => {
@@ -50,7 +54,8 @@ export default function NetworkedEquipment() {
   }, [load])
   useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
 
-  if (!items || !items.length) return null          // no PC agent yet: the Lab PCs card says so
+  // No PC agent yet: the Lab PCs card says so; the admin can still share their screen.
+  if (!items || !items.length) return admin ? <section className="mb-6"><SharePanel hasMasterPc={false} /></section> : null
   async function setMode(id: number, mode: PcMode) {
     await api.setEquipmentMode(id, mode).catch(() => {})
     load()
@@ -80,12 +85,14 @@ export default function NetworkedEquipment() {
     <section className="mb-6">
       <SectionTitle icon={<Bot size={15} />}
         sub="Robots read-only over the lab LAN; PCs through the lab agent."
-        action={pcs.length > 0 ? (
+        action={(pcs.length > 0 || (admin && items.some(e => e.kind === 'PC'))) ? (
           <div className="flex gap-2">
+            <button className="btn-ghost btn-sm" onClick={() => setWall(true)}><LayoutGrid size={13} /> View all screens</button>
+            {pcs.length > 0 && <>
             <button className="btn-ghost btn-sm" disabled={busy} onClick={() => setAll('LOCKED')}>
               <Lock size={13} /> Lock all PCs</button>
             <button className="btn-ghost btn-sm" disabled={busy || !pcs.some(e => e.mode === 'LOCKED')}
-                    onClick={() => setAll('NORMAL')}><Unlock size={13} /> Unlock all</button>
+                    onClick={() => setAll('NORMAL')}><Unlock size={13} /> Unlock all</button></>}
           </div>) : undefined}>Networked equipment</SectionTitle>
       {!items.length ? (
         <div className="card p-4 text-[13px] text-slate-400">
@@ -113,6 +120,13 @@ export default function NetworkedEquipment() {
                 <div className="text-[12.5px] text-slate-300 space-y-0.5">
                   {e.user_name && <div>Booking: <b className="text-white">{e.user_name}</b></div>}
                   {e.kind === 'PC' && e.detail?.os_user ? <div>Signed in: <span className="mono">{String(e.detail.os_user)}</span></div> : null}
+                  {e.kind === 'PC' && e.detail?.foreground_app ? <div>Using: <b className="text-white">{String(e.detail.foreground_app).replace(/\.exe$/i, '')}</b></div> : null}
+                  {e.kind === 'PC' && (e.detail?.hostname || e.detail?.ips) ? <div className="text-slate-400">
+                    <span className="mono">{String(e.detail?.hostname ?? '')}</span>
+                    {Array.isArray(e.detail?.ips) && (e.detail.ips as string[]).length > 0 && <span className="mono"> · {(e.detail.ips as string[]).join(', ')}</span>}
+                    {e.detail?.agent_version ? <span> · agent {String(e.detail.agent_version)}</span> : null}</div> : null}
+                  {e.kind === 'PC' && typeof e.detail?.clock_offset_s === 'number' && Math.abs(e.detail.clock_offset_s as number) >= 2
+                    ? <div className="text-warn-soft">Clock {(e.detail.clock_offset_s as number) > 0 ? 'behind' : 'ahead of'} the server by {Math.abs(e.detail.clock_offset_s as number).toFixed(0)} s</div> : null}
                   <div>Running today: {hours(e.running_today_s)}</div>
                   {e.since && e.online !== false && <div className="text-slate-500">In this state since {relative(e.since)}</div>}
                   <div className="text-slate-500">Last report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>
@@ -147,6 +161,8 @@ export default function NetworkedEquipment() {
                     {admin && <button className="btn-ghost btn-sm" onClick={() => setMaster(e)}>
                       <Crown size={13} /> {e.is_master_pc ? 'Not master PC' : 'Make master PC'}</button>}
                   </div>)}
+                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
+                  <PcActions deviceId={e.device_id} name={e.name} admin={admin} online={e.online !== false} />)}
               </div>)
           })}
         </div>
@@ -166,7 +182,11 @@ export default function NetworkedEquipment() {
           <p className="mt-2 text-[11px] text-slate-500">A report is what the agent saw running; staff decide what it means.</p>
         </div>
       )}
-      {viewing && <PcScreenViewer deviceId={viewing.device_id} name={viewing.name} onClose={closeViewer} />}
+      {admin && <div className="mt-4"><SharePanel hasMasterPc={items.some(e => e.kind === 'PC' && e.is_master_pc)}
+        pcs={pcs.map(e => ({ id: e.device_id, name: e.name, online: e.online !== false }))} /></div>}
+      {wall && <ScreenWall pcs={admin ? items.filter(e => e.kind === 'PC') : pcs} onClose={closeWall} />}
+      {viewing && <PcScreenViewer deviceId={viewing.device_id} name={viewing.name} onClose={closeViewer}
+        monitors={Array.isArray(viewing.detail?.monitors) ? viewing.detail!.monitors as { index: number; width: number; height: number; primary: boolean }[] : []} />}
       <PcMessageModal deviceId={messaging?.device_id ?? 0} name={messaging?.name ?? ''}
                       open={messaging !== null} onClose={() => setMessaging(null)} />
     </section>

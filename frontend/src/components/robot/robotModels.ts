@@ -7,12 +7,16 @@
  *   UR5e   Universal_Robots_ROS2_Description: urdf/ur_macro.xacro,
  *          config/ur5e/default_kinematics.yaml, config/ur5e/visual_parameters.yaml
  *   FANUC  ros-industrial/fanuc: fanuc_lrmate200id_support/urdf/lrmate200id_macro.xacro
- *          (the lab arm's exact model is NOT confirmed yet - shown as LR Mate 200iD)
+ *          (the lab arm is an ER-4iA - lettering on the arm, owner's photos 2026-10-19 - drawn with the
+ *          LR Mate 200iD meshes and chain as a stand-in: not its exact link lengths)
  *
  * Meshes: public/models (licences and sources in public/models/README.md).
  */
 import * as THREE from 'three'
+import type { DecorKey, Facing } from './robotDecor'
 export type Vec3 = [number, number, number]
+/** Lettering / labels printed on a link (robotDecor textures), in that link's frame. Drawing only. */
+export interface ArmDecal { link: number; tex: DecorKey; xyz: Vec3; facing: Facing; size: [number, number] }
 export interface LinkVisual { mesh: string; xyz: Vec3; rpy: Vec3; color?: string }
 export interface UrdfJoint { xyz: Vec3; rpy: Vec3; axis: Vec3 }
 export interface UrdfModel {
@@ -24,14 +28,27 @@ export interface UrdfModel {
   joints: UrdfJoint[]                 // J1..J6
   links: LinkVisual[]                 // the link each joint moves, J1..J6
   format: 'dae' | 'stl'
+  /** STL meshes served as converted .glb next to them (scripts/stl_to_glb.mjs) - only where that was run. */
+  stlAsGlb?: boolean
   /** End effector: fixed (COLLADA) visuals in the last link's frame. */
   tool?: LinkVisual[]
   /** Simple boxes for a tool with no mesh (size, centre in the flange frame, m). */
   toolBoxes?: { size: Vec3; xyz: Vec3; color: string }[]
   /** Mounted upside down under a gantry at this height (m): the lab's UR5e. */
   ceilingHeight?: number
+  /** How the mounted base is turned about the vertical in the cell (rad, world z). */
+  mountYaw?: number
+  /** Standing robot mounted on a work surface this high (m): the FANUC inside its Educational Cell. */
+  mountHeight?: number
   toolLabel?: string
+  decals?: ArmDecal[]
   note: string
+}
+
+/** Robot base -> world rotation for the 3D views: hanging robots are flipped about x, then turned by
+ *  `mountYaw` about the vertical (three.js 'ZYX' = Rz * Ry * Rx, the same as workcell.baseToWorld). */
+export function mountRotation(model: UrdfModel): THREE.Euler {
+  return new THREE.Euler(model.ceilingHeight ? Math.PI : 0, 0, model.mountYaw ?? 0, 'ZYX')
 }
 
 const PI = Math.PI
@@ -41,6 +58,9 @@ export const UR5E: UrdfModel = {
   key: 'UR5E', label: 'Universal Robots UR5e', format: 'dae',
   // In the lab the UR5e hangs from the gantry frame (photos 2026-10-08); height approximate.
   ceilingHeight: 1.88,   // hangs from the top of the frame (measured 2026-10-07)
+  // Turned 180 deg in the cell (owner, lab 2026-10-19, live robot): the real gripper faces the table,
+  // the twin's faced the empty floor side - the joint angles were right, the mounting was not.
+  mountYaw: PI,
   // The lab arm carries a Robotiq 2F-85 (photos 2026-10-08): UR-to-Robotiq adapter on the tool flange.
   toolLabel: 'Robotiq 2F-85 gripper',
   tool: [
@@ -79,9 +99,35 @@ export const UR5E: UrdfModel = {
 // fanuc_resources/urdf/common_materials.xacro colours
 const YELLOW = '#f5c21f', GRAY = '#474747', BLACK = '#262626'
 
+/** The complete FANUC ER-4iA Educational Cell (the one canonical copy - Lab Equipment and Welcome read it).
+ *  Overall size and weight: FANUC Educational Cell manual (standard), manufacturer REFERENCE values, not measured
+ *  on the lab's unit: https://www.fanuc.eu/~/media/files/pdf/products/robots/educational%20cell/fanuc-educational-cell-manual-standard.pdf
+ *  Work-surface height and inner layout are APPROXIMATE (owner's photos 2026-10-19). */
+export const FANUC_CELL_WORK_SURFACE_M = 0.80
+export const FANUC_CELL = {
+  name: 'FANUC ER-4iA Educational Cell',
+  width_m: 1.30, depth_m: 0.70, height_m: 1.80, weight_kg: 170,
+  robot: 'ER-4iA, 6 axes, 4 kg payload, 550 mm reach', controller: 'R-30iB Mate Plus with touchscreen teach pendant',
+  source: 'FANUC Educational Cell manual (manufacturer reference values, not measured on this unit)',
+  sourceUrl: 'https://www.fanuc.eu/~/media/files/pdf/products/robots/educational%20cell/fanuc-educational-cell-manual-standard.pdf',
+  /** Robot base in the cell (m, from the cell centre; x to the right as seen from the cell's front): right of the
+   *  parts plate, APPROXIMATE from the owner's photos 2026-10-19 (the twins draw the cell around the robot). The
+   *  cell's front faces the robot's +y - its real front (owner 2026-10-15) - so at J1 = 0 the arm points left,
+   *  over the parts plate, as in the photos. */
+  robotAt: [0.22, 0.0] as [number, number],
+}
+
 export const FANUC_LRMATE200ID: UrdfModel = {
-  key: 'FANUC', label: 'FANUC ER-4iA · R-30iB Mate Plus (3D: LR Mate 200iD stand-in)', format: 'stl',
-  note: 'ROS-Industrial fanuc_lrmate200id_support meshes and kinematics (BSD). The lab arm\'s exact model is not confirmed yet.',
+  key: 'FANUC', label: 'FANUC ER-4iA · R-30iB Mate Plus (3D: LR Mate 200iD stand-in)', format: 'stl', stlAsGlb: true,
+  mountHeight: FANUC_CELL_WORK_SURFACE_M,   // on the cell's work surface (approximate, from the lab photos)
+  note: 'ROS-Industrial fanuc_lrmate200id_support meshes and kinematics (BSD) as a stand-in: the lab arm is an ER-4iA (lettering on the arm).',
+  // "FANUC Robot ER-4iA" along both sides of the forearm and the white label on the J2 arm (owner's photos).
+  decals: [
+    { link: 3, tex: 'arm-label', xyz: [0.235, 0.0515, 0.008], facing: '+y', size: [0.21, 0.041] },
+    { link: 3, tex: 'arm-label', xyz: [0.235, -0.0515, 0.008], facing: '-y', size: [0.21, 0.041] },
+    { link: 1, tex: 'arm-warning', xyz: [0.004, 0.1145, 0.215], facing: '+y', size: [0.045, 0.09] },
+    { link: 1, tex: 'arm-warning', xyz: [0.004, -0.1145, 0.215], facing: '-y', size: [0.045, 0.09] },
+  ],
   baseRpy: [0, 0, 0],
   base: { mesh: '/models/fanuc_lrmate200id/base_link.stl', xyz: [0, 0, 0], rpy: [0, 0, 0], color: GRAY },
   joints: [

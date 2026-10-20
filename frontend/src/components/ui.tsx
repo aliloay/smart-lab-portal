@@ -7,6 +7,7 @@
  * than one that admits what it does not know.
  */
 import { ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { AnimatePresence, motion, useInView } from 'framer-motion'
 import { AlertTriangle, Inbox, Info, X } from 'lucide-react'
@@ -390,10 +391,13 @@ export function Modal({ open, onClose, title, children, footer }: {
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
   }, [open, onClose])
-  return (
+  // Rendered on <body>: inside a transformed / animated page container "fixed" is relative to that
+  // container, so the dialog landed off-screen under a dimmed page - it looked frozen
+  // ("Add equipment", 2026-10-18). On body it is always centred on the screen.
+  return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4">
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 overflow-y-auto">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             exit={{ opacity: 0 }} onClick={onClose}
             className="absolute inset-0 bg-ink-950/75 backdrop-blur-sm" />
@@ -417,8 +421,8 @@ export function Modal({ open, onClose, title, children, footer }: {
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
-  )
+    </AnimatePresence>,
+    document.body)
 }
 
 // --- forms -------------------------------------------------------------------

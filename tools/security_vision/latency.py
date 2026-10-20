@@ -127,13 +127,93 @@ class PipelineMetrics:
         }
 
 
-def process_load() -> Optional[dict]:
-    """CPU % (all cores = 100 x cores) and memory of this process, if psutil is installed."""
-    try:
+class _LoadSampler:
+    """CPU, memory and graphics-card load, sampled in the background every PERIOD_S.
+
+    Fixed 2026-10-18: process_load() made a NEW psutil.Process on every call, and cpu_percent() of a
+    new object is always 0.0 - /metrics said 0 % CPU for weeks. One object, sampled on a fixed period,
+    gives real numbers that do not depend on how often /metrics is asked. private_mb (private bytes)
+    is what memory growth is judged by: the working set (rss_mb) can be trimmed by Windows.
+    GPU: nvidia-smi (whole card - the detector, the re-ID model and anything else on it)."""
+    PERIOD_S = 5.0
+    GPU_EVERY = 2                      # nvidia-smi every 2nd sample (10 s): it costs ~60 ms of CPU
+
+    def __init__(self):
+        self.snapshot: Optional[dict] = None
+        self.gpu: Optional[dict] = None
+        self._started = False
+        self._lock = threading.Lock()
+
+    def start(self) -> bool:
+        with self._lock:
+            if self._started:
+                return True
+            try:
+                import psutil
+            except ImportError:
+                return False
+            self._proc = psutil.Process()
+            self._proc.cpu_percent(None)                 # prime both counters (first reading is 0)
+            psutil.cpu_percent(None)
+            self._started = True
+        threading.Thread(target=self._loop, daemon=True, name="load-sampler").start()
+        return True
+
+    def _loop(self):
+        n = 0
+        while True:
+            time.sleep(self.PERIOD_S)
+            self.sample(gpu=n % self.GPU_EVERY == 0)
+            n += 1
+
+    def sample(self, gpu: bool = False):
+        """One reading (CPU since the previous reading of this same object)."""
         import psutil
-    except ImportError:
+        with self._lock:
+            try:
+                mi = self._proc.memory_info()
+                self.snapshot = {
+                    "cpu_percent": round(self._proc.cpu_percent(None), 1),
+                    "rss_mb": round(mi.rss / 1e6),
+                    "private_mb": round(getattr(mi, "private", mi.vms) / 1e6),
+                    "threads": self._proc.num_threads(),
+                    "system_cpu_percent": round(psutil.cpu_percent(None), 1),
+                    "system_mem_percent": round(psutil.virtual_memory().percent, 1),
+                    "cores": psutil.cpu_count(), "sampled_at": round(time.time(), 1)}
+            except Exception:
+                pass
+        if gpu:
+            self.gpu = nvidia_smi()
+        return self.snapshot
+
+
+def nvidia_smi() -> Optional[dict]:
+    """Whole-card load from nvidia-smi, or None (not an NVIDIA card / tool missing / timeout)."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,pstate",
+             "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip().splitlines()
+        name, util, used, total, temp, pstate = [x.strip() for x in out[0].split(",")]
+        return {"name": name, "util_percent": float(util), "mem_used_mb": float(used),
+                "mem_total_mb": float(total), "temp_c": float(temp), "pstate": pstate,
+                "sampled_at": round(time.time(), 1)}
+    except Exception:
         return None
-    p = psutil.Process()
-    return {"cpu_percent": p.cpu_percent(interval=None), "rss_mb": round(p.memory_info().rss / 1e6),
-            "threads": p.num_threads(), "system_cpu_percent": psutil.cpu_percent(interval=None),
-            "cores": psutil.cpu_count()}
+
+
+_SAMPLER = _LoadSampler()
+
+
+def process_load() -> Optional[dict]:
+    """CPU % (all cores = 100 x cores) and memory of this process (sampled every 5 s), if psutil
+    is installed. None until the first sample is taken."""
+    if not _SAMPLER.start():
+        return None
+    return _SAMPLER.snapshot
+
+
+def gpu_load() -> Optional[dict]:
+    _SAMPLER.start()
+    return _SAMPLER.gpu

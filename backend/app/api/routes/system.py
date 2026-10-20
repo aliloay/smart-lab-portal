@@ -6,6 +6,7 @@ answers, how many live sockets it holds, and what the devices last said. It
 does not claim a device is healthy that has never reported.
 """
 import socket
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -35,19 +36,25 @@ _INTERNET_TTL = 60.0
 _internet = {"ok": None, "at": 0.0}
 
 
+def _probe_internet() -> None:
+    ok = False
+    for host in ("1.1.1.1", "8.8.8.8"):
+        try:
+            with socket.create_connection((host, 53), timeout=1.0):
+                ok = True
+                break
+        except OSError:
+            continue
+    _internet["ok"] = ok
+
+
 def internet_reachable() -> Optional[bool]:
+    """Never waits: the probe runs in a background thread (it used to hold a status request - and
+    its database connection - for up to 2 s every minute on the offline lab router)."""
     now = time.monotonic()
     if now - _internet["at"] >= _INTERNET_TTL:
         _internet["at"] = now
-        ok = False
-        for host in ("1.1.1.1", "8.8.8.8"):
-            try:
-                with socket.create_connection((host, 53), timeout=1.0):
-                    ok = True
-                    break
-            except OSError:
-                continue
-        _internet["ok"] = ok
+        threading.Thread(target=_probe_internet, daemon=True, name="internet-probe").start()
     return _internet["ok"]
 
 
@@ -135,32 +142,56 @@ def set_data_mode(req: DataModeIn, db: Session = Depends(get_db), admin: User = 
 
 
 # ------------------------------------------------------------- services ---
-# One answer to "is every part of the lab system up?" for the Command
-# Center. Each entry is checked for real (an HTTP probe with a short timeout,
-# or the device's last heartbeat) - never assumed green. Cached a few seconds
-# so many open dashboards do not multiply the probes.
-_SVC_TTL = 5.0
-_svc_cache: dict = {"at": 0.0, "body": None}
+# One answer to "is every part of the lab system up?" (Command Center, System Health page).
+# Each entry is checked for real - a background HTTP probe (health_monitor) or the device's last
+# heartbeat - never assumed green.
+STALE_S = 3600          # a device silent for less than this is STALE; longer = OFFLINE; never = UNKNOWN
 
 
-def _probe(url: str, timeout: float = 1.2) -> tuple[str, Optional[float], str]:
-    import httpx
-    t0 = time.perf_counter()
-    try:
-        r = httpx.get(url, timeout=timeout)
-        ms = round((time.perf_counter() - t0) * 1000, 1)
-        return ("ONLINE" if r.status_code < 500 else "DEGRADED"), ms, f"HTTP {r.status_code}"
-    except Exception as e:                                  # unreachable / timeout: OFFLINE, with the reason
-        return "OFFLINE", None, e.__class__.__name__
+def _device_health(db: Session, now: datetime) -> list[dict]:
+    from sqlalchemy import func, select
+    from app.models import Alert, Device
+    from app.services.health_monitor import GUIDANCE
+    groups = {DeviceType.MASTER_CONTROLLER: "door", DeviceType.CAMERA: "entry_camera",
+              DeviceType.SENSOR_NODE: "environment", DeviceType.SECURITY_CAMERA: "security_camera",
+              DeviceType.ROBOT: "robot", DeviceType.PC: "pc"}
+    open_alerts = dict(db.execute(select(Alert.device_id, func.count()).where(
+        Alert.is_resolved.is_(False), Alert.device_id.is_not(None)).group_by(Alert.device_id)).all())
+    out = []
+    for d in db.scalars(select(Device).order_by(Device.device_type, Device.name)).all():
+        if d.device_type not in groups:
+            continue
+        fresh = is_fresh(d, now)
+        cs = d.component_state or {}
+        last = d.last_seen_at
+        age = None if last is None else (now - (last if last.tzinfo else last.replace(tzinfo=timezone.utc))).total_seconds()
+        state = ("UNKNOWN" if last is None else "ONLINE" if fresh else "STALE" if age is not None and age < STALE_S
+                 else "OFFLINE")
+        note = None
+        if d.device_type == DeviceType.SECURITY_CAMERA and fresh and cs.get("source_ok") is False:
+            state, note = "DEGRADED", "camera service running, but no picture from the camera"
+        if d.device_type == DeviceType.ROBOT and fresh and not cs.get("q"):
+            state, note = "DEGRADED", "collector running, but no joint data from the controller"
+        sim = cs.get("source") == "SIMULATION" or d.device_uid.upper().endswith("_SIM")
+        if sim:
+            if not fresh:
+                continue                                # a stopped simulation is not a system fault
+            state = "SIMULATION"
+        g = groups[d.device_type]
+        out.append({"key": f"{g}:{d.id}", "group": g, "name": d.name, "device_id": d.id, "device_uid": d.device_uid,
+                    "state": state, "latency_ms": None, "last_seen": last.isoformat() if last else None,
+                    "age_s": round(age) if age is not None else None,
+                    "detail": note or (f"last report {last.isoformat()}" if last else "has never reported"),
+                    "open_alerts": int(open_alerts.get(d.id, 0)),
+                    "guidance": GUIDANCE.get(g) if state in ("OFFLINE", "STALE", "DEGRADED") else None})
+    return out
 
 
 @router.get("/services")
 def services(db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    now_m = time.monotonic()
-    if _svc_cache["body"] is not None and now_m - _svc_cache["at"] < _SVC_TTL:
-        return _svc_cache["body"]
-    from sqlalchemy import select
-    from app.models import Device
+    """Every part of the lab system. Network services come from the background monitor's cache
+    (app/services/health_monitor.py) - this request never waits on a probe."""
+    from app.services import health_monitor
     now = datetime.now(timezone.utc)
     out = []
     try:
@@ -170,41 +201,32 @@ def services(db: Session = Depends(get_db), _: User = Depends(require_staff)):
                     "latency_ms": round((time.perf_counter() - t0) * 1000, 1), "detail": "query answered"})
     except Exception:
         out.append({"key": "database", "name": "PostgreSQL", "state": "OFFLINE", "latency_ms": None,
-                    "detail": "no answer"})
+                    "detail": "no answer", "guidance": health_monitor.GUIDANCE["database"]})
     out.append({"key": "backend", "name": "Backend API", "state": "ONLINE", "latency_ms": None,
                 "detail": "answering this request"})
     out.append({"key": "websocket", "name": "Live stream", "state": "ONLINE" if manager.count else "UNKNOWN",
                 "latency_ms": None, "detail": f"{manager.count} browser(s) connected"})
-    face = settings.FACE_SERVER_URL.rstrip("/")
-    st, ms, why = _probe(face + "/health")
-    out.append({"key": "face", "name": "Face server", "state": st, "latency_ms": ms, "detail": why})
-    if settings.OLLAMA_URL:
-        st, ms, why = _probe(settings.OLLAMA_URL.rstrip("/") + "/api/tags")
-        out.append({"key": "ai", "name": "AI (local model)", "state": st, "latency_ms": ms, "detail": why})
-    else:
-        out.append({"key": "ai", "name": "AI (local model)", "state": "UNKNOWN", "latency_ms": None,
-                    "detail": "not configured"})
-    st, ms, why = _probe("http://n8n:5678/healthz")
-    out.append({"key": "n8n", "name": "Automation (n8n)", "state": st, "latency_ms": ms, "detail": why})
-    groups = {DeviceType.MASTER_CONTROLLER: "door", DeviceType.CAMERA: "entry_camera",
-              DeviceType.SENSOR_NODE: "environment", DeviceType.SECURITY_CAMERA: "security_camera",
-              DeviceType.ROBOT: "robot", DeviceType.PC: "pc"}
-    for d in db.scalars(select(Device).order_by(Device.device_type, Device.name)).all():
-        if d.device_type not in groups:
-            continue
-        fresh = is_fresh(d, now)
-        state = "UNKNOWN" if fresh is None else "ONLINE" if fresh else "OFFLINE"
-        cs = d.component_state or {}
-        if d.device_type == DeviceType.SECURITY_CAMERA and fresh and cs.get("source_ok") is False:
-            state = "DEGRADED"                              # service up, camera picture lost
-        if d.device_type == DeviceType.ROBOT and cs.get("source") == "SIMULATION":
-            if not fresh:
-                continue                                # a stopped simulation is not a system fault
-            state = "SIMULATION"
-        last = d.last_seen_at
-        out.append({"key": f"{groups[d.device_type]}:{d.id}", "group": groups[d.device_type],
-                    "name": d.name, "device_id": d.id, "state": state, "latency_ms": None,
-                    "detail": f"last report {last.isoformat() if last else 'never'}"})
-    body = {"checked_at": now, "services": out}
-    _svc_cache.update(at=now_m, body=body)
-    return body
+    for s in health_monitor.snapshot():
+        out.append({**s, "last_check": s["last_check"].isoformat() if s["last_check"] else None,
+                    "last_ok": s["last_ok"].isoformat() if s["last_ok"] else None,
+                    "failing_since": s["failing_since"].isoformat() if s["failing_since"] else None})
+    try:
+        out.extend(_device_health(db, now))
+    except Exception as e:                              # monitoring must never break the page
+        out.append({"key": "devices", "name": "Device states", "state": "UNKNOWN", "latency_ms": None,
+                    "detail": f"could not read device states ({e.__class__.__name__})"})
+    return {"checked_at": now, "services": out}
+
+
+@router.get("/health")
+def system_health(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """The System Health page: services + devices, data-source freshness, backups, a summary."""
+    from app.services.system_analytics import freshness
+    body = services(db, _)
+    states = [s["state"] for s in body["services"]]
+    summary = {k: states.count(k) for k in ("ONLINE", "DEGRADED", "STALE", "OFFLINE", "UNKNOWN", "SIMULATION")}
+    try:
+        fresh = freshness(db, body["checked_at"])
+    except Exception:
+        fresh = {}
+    return {**body, "summary": summary, "data_sources": fresh, "backup": read_backup_status()}

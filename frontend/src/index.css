@@ -256,3 +256,16 @@ body {
   .reveal { opacity: 1; transform: none; }
   .scroll-cue { animation: none; }
 }
+
+/* Robotics Lab: a light travelling around a rounded border (cyan with an amber tail). Decorative. */
+@property --rb-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.ray-border { position: relative; isolation: isolate; }
+.ray-border::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; z-index: 2;
+  background: conic-gradient(from var(--rb-angle), transparent 0deg 250deg, rgba(251,191,36,.7) 285deg, #22d3ee 330deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: rb-spin 8s linear infinite;
+}
+@keyframes rb-spin { to { --rb-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .ray-border::before { animation: none; } }

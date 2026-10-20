@@ -4,6 +4,7 @@ import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucid
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import NetworkedEquipment from '../components/NetworkedEquipment'
+import AddEquipment from '../components/AddEquipment'
 import RobotTwinPanels from '../components/robot/RobotTwinPanel'
 import EnvironmentOverview from '../components/EnvironmentOverview'
 import { ConsumableBins, ReusableItems } from './Inventory'
@@ -131,7 +132,7 @@ function EquipmentRegister() {
             </div>
           )}
       </div>
-      {adding && <AddAsset labs={labs} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />}
+      {adding && <AddEquipment onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />}
     </div>
   )
 }
@@ -199,16 +200,23 @@ const TABS: { key: Tab; label: string }[] = [
 export default function Equipment() {
   const [params, setParams] = useSearchParams()
   const tab = (TABS.some(t => t.key === params.get('tab')) ? params.get('tab') : 'environment') as Tab
+  const [adding, setAdding] = useState(false)
+  const [version, setVersion] = useState(0)        // remounts the shown system after an addition
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Robotics Lab" title="Equipment"
-        sub="The lab's four systems: environment, robots & PCs, consumables and reusables." />
+        sub="The lab's four systems: environment, robots & PCs, consumables and reusables."
+        actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>} />
+      {adding && <AddEquipment onClose={() => setAdding(false)}
+        onSaved={t => { setAdding(false); setParams({ tab: t }, { replace: true }); setVersion(v => v + 1) }} />}
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
+      <div key={version} className="contents">
       {tab === 'environment' && <EnvironmentOverview />}
       {tab === 'noncons' && <div className="space-y-5"><RobotTwinPanels /><NetworkedEquipment /></div>}
       {tab === 'consumables' && <ConsumableBins />}
       {tab === 'reusables' && <ReusableItems />}
       {tab === 'register' && <EquipmentRegister />}
+      </div>
     </div>
   )
 }

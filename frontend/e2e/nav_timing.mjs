@@ -22,6 +22,9 @@ try {
   await page.fill('#password', process.env.E2E_PASSWORD || 'Admin#2026')
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 })
+  // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.
+  await page.goto(`${BASE}/labs`)
+  await page.waitForSelector('aside nav a[href^="/"]', { timeout: 20000 })
   await page.waitForTimeout(1500)
   // An alarm still on covers the page: CLEAR ALL must put this screen back to normal.
   if (await page.$('[role=alertdialog]')) {

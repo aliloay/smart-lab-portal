@@ -14,6 +14,7 @@ import { IssueSummary, ReportsOverview, api } from '../lib/api'
 import { denialShort } from '../lib/labels'
 import { ErrorBanner, MetricCard, PageHeader, SectionTitle, Skeleton } from '../components/ui'
 import { C, ChartCard, PALETTE, axisProps, tooltipProps, xTitle, yTitle } from '../components/charts'
+import ReportsCenter from '../components/ReportsCenter'
 
 const PERIODS = [7, 30, 90, 365]
 const DELAY_LABEL: Record<string, string> = {
@@ -62,6 +63,7 @@ export default function Reports() {
                 : 'text-slate-400 hover:text-white'}`}>{p === 365 ? '1 year' : `${p} days`}</button>
           ))}
         </div></>} />
+      <ReportsCenter />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
 
       {!r ? <Skeleton className="h-96" /> : (

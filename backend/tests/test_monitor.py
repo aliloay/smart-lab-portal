@@ -59,7 +59,10 @@ def test_critical_alert_puts_the_lab_in_alert_state(client, db, staff, lab):
     assert t["alert_count"] == 3
 
 
-def test_faulty_component_is_a_warning(client, db, staff, lab):
+def test_faulty_component_is_a_warning(client, db, staff, lab, monkeypatch):
+    from app.services import devices as _devices
+    monkeypatch.setattr(_devices, "COMPONENT_FAULT_AFTER_S", 0)   # confirmation wait: test_component_health.py
+    monkeypatch.setattr(_devices, "_component_bad_since", {})
     _master(db, lab, rfid=False)
     t = _tile(client, auth_headers(client, staff.email), lab)
     assert t["state"] == "WARN" and t["faults"] == ["RFID reader"]
@@ -82,6 +85,11 @@ def test_internet_is_reported_apart_and_never_degrades_status(client, alice, mon
     monkeypatch.setattr(system.socket, "create_connection", no_uplink)
     monkeypatch.setitem(system._internet, "at", 0.0)
     monkeypatch.setattr(system.time, "monotonic", lambda: 10_000.0)
+
+    class Inline:                     # run the background probe inline so the test is deterministic
+        def __init__(self, target, **k): self.target = target
+        def start(self): self.target()
+    monkeypatch.setattr(system.threading, "Thread", Inline)
     s = client.get("/api/system/status", headers=auth_headers(client, alice.email)).json()
     assert s["internet"] is False
     assert s["status"] == "HEALTHY" and s["database"] is True

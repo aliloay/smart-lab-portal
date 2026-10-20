@@ -4,14 +4,15 @@
  * twin - not a reconstruction. Play / pause, speed, scrub; the tool path of
  * the whole movement is drawn.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, memo } from 'react'
 import { History, Pause, Play, X } from 'lucide-react'
 import { RobotEventRow, api } from '../../lib/api'
 import { relative } from '../../lib/time'
 
 export interface ReplayFrame { q: number[]; t: number; duration: number; path: number[][] }
 
-export default function Replay({ robotId, onFrame, active }: {
+export default memo(Replay)
+function Replay({ robotId, onFrame, active }: {
   robotId: number
   /** Called with the pose to show, or null when the replay ends (back to live). */
   onFrame: (f: ReplayFrame | null) => void
@@ -24,7 +25,7 @@ export default function Replay({ robotId, onFrame, active }: {
   const [speed, setSpeed] = useState(1)
   const raf = useRef(0)
 
-  useEffect(() => { api.robotMovements(robotId, 20).then(setMoves).catch(() => setMoves([])) }, [robotId])
+  useEffect(() => { api.robotMovements(robotId, 1000).then(setMoves).catch(() => setMoves([])) }, [robotId])
   useEffect(() => { if (!active) { setTr(null); setPlaying(false) } }, [active])
 
   const duration = tr ? tr.t[tr.t.length - 1] ?? 0 : 0
@@ -87,17 +88,27 @@ export default function Replay({ robotId, onFrame, active }: {
       ) : moves === null ? <p className="text-[12.5px] text-slate-500">Loading…</p> : !moves.length ? (
         <p className="text-[12.5px] text-slate-500">No recorded movement yet - every movement is kept with its path once it ends.</p>
       ) : (
-        <ul className="space-y-1 max-h-44 overflow-auto text-[12.5px]">
-          {moves.map(m => (
-            <li key={m.id}>
-              <button className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-ink-700/40 text-left" onClick={() => open(m)}>
-                <Play size={12} className="text-accent-300" />
-                <span className="text-slate-200">{new Date(m.occurred_at).toLocaleTimeString()}</span>
-                <span className="text-slate-500">{relative(m.occurred_at)}</span>
-                <span className="ml-auto mono text-slate-400">{Number((m.detail as { duration_s?: number } | null)?.duration_s ?? 0).toFixed(1)} s</span>
-                {m.provenance === 'DEMO_DATA' && <span className="text-violet-300 text-[11px]">demo</span>}
-              </button>
-            </li>))}
-        </ul>)}
+        <div className="max-h-72 overflow-auto text-[12.5px] space-y-2">
+          <div className="text-[11.5px] text-slate-400">{moves.length} recorded movement{moves.length === 1 ? '' : 's'} with their full joint paths, newest first</div>
+          {Object.entries(moves.reduce<Record<string, RobotEventRow[]>>((g, m) => {
+            const d = new Date(m.occurred_at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+            ;(g[d] ??= []).push(m); return g
+          }, {})).map(([day, list]) => (
+            <div key={day}>
+              <div className="sticky top-0 bg-ink-800/95 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-300">{day} · {list.length}</div>
+              <ul className="space-y-0.5">
+                {list.map(m => (
+                  <li key={m.id}>
+                    <button className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-ink-700/40 text-left" onClick={() => open(m)}>
+                      <Play size={12} className="text-accent-300" />
+                      <span className="text-slate-200 tnum">{new Date(m.occurred_at).toLocaleTimeString()}</span>
+                      <span className="text-slate-500">{relative(m.occurred_at)}</span>
+                      <span className="ml-auto mono text-slate-400">{Number((m.detail as { duration_s?: number } | null)?.duration_s ?? 0).toFixed(1)} s</span>
+                      {m.provenance === 'DEMO_DATA' && <span className="text-violet-300 text-[11px]">demo</span>}
+                    </button>
+                  </li>))}
+              </ul>
+            </div>))}
+        </div>)}
     </div>)
 }

@@ -43,7 +43,7 @@ export const MODELS: Record<string, RobotModel> = {
   },
   FANUC: {
     key: 'FANUC', label: 'FANUC ER-4iA (3D: LR Mate 200iD stand-in)', exact: false,
-    note: "ROS-Industrial LR Mate 200iD meshes and kinematics. The lab arm's exact model is not confirmed yet.",
+    note: "The lab arm is an ER-4iA (lettering on the arm, owner's photos 2026-10-19); drawn with the ROS-Industrial LR Mate 200iD meshes and kinematics as a stand-in.",
     dh: [
       { a: 0.05, d: 0.33, alpha: -PI / 2 },
       { a: 0.33, d: 0, alpha: 0, offset: -PI / 2 },

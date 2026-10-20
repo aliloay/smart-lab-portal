@@ -34,6 +34,9 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gpu_gate  # noqa: E402  (camera-first GPU admission for the answer model)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_ALLOW = [
@@ -502,7 +505,7 @@ def embed(cfg: dict, texts: list, prefix: str):
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", url):
         raise RuntimeError("non-local embedding endpoint refused")
     body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
-            "keep_alive": "15m", "options": {"num_gpu": 0}}
+            "keep_alive": "2h", "options": {"num_gpu": 0}}     # was 15m: 2.5 s reload after a pause
     req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=cfg.get("embed_timeout_s", 120)) as r:
         v = np.asarray(json.loads(r.read())["embeddings"], dtype=np.float32)
@@ -638,7 +641,8 @@ def ask(cfg: dict, question: str, k: int = 5, use_llm: bool = True) -> dict:
         return res
     ev = "\n\n".join(f"[{i + 1}] ({h['source']} - {h['heading']})\n{h['text'][:1100]}" for i, h in enumerate(hits))
     body = {"model": cfg["model"], "prompt": PROMPT.format(evidence=ev, question=question), "stream": False,
-            "options": {"temperature": 0.1, "num_ctx": 4096, **({"num_gpu": 0} if cfg["llm_on_cpu"] else {})}}
+            "options": {"temperature": 0.1, "num_ctx": 4096, "num_thread": int(cfg.get("llm_threads", 4)),
+                        **({} if gpu_gate.use_gpu(cfg) else {"num_gpu": 0})}}   # camera-first: gpu_gate.py
     req = urllib.request.Request(cfg["ollama"].rstrip("/") + "/api/generate", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", cfg["ollama"].rstrip("/")):
@@ -668,6 +672,28 @@ def fm(**kw) -> str:
 
 def note_name(rel: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", rel)
+
+
+KIND_LABEL = {"imports": "imports", "tests": "tests", "calls": "workflow calls", "mentions": "mentioned by docs",
+              "changed": "changed together"}
+
+
+def related_links(cfg: dict, rel: str, present: set) -> str:
+    """Real relationships from graph.py (imports, tests, workflow -> endpoint, doc mentions, git
+    co-change) as [[links]], so the vault graph shows how the code actually connects."""
+    try:
+        import graph
+        es = graph.related(cfg, rel, limit=20)
+    except Exception:
+        return ""
+    seen, lines = set(), []
+    for e in es:
+        other = e["dst"] if e["src"] == rel else e["src"]
+        if other == rel or other not in present or other in seen:
+            continue
+        seen.add(other)
+        lines.append(f"- [[{note_name(other)}]] - {KIND_LABEL.get(e['kind'], e['kind'])}")
+    return ("## Related" + chr(10) + chr(10).join(lines) + chr(10) * 2) if lines else ""
 
 
 def build_vault(cfg: dict, reg: dict) -> dict:
@@ -725,6 +751,7 @@ def build_vault(cfg: dict, reg: dict) -> dict:
                           generated=True, updated=built, redactions=s.get("redactions") or None)
                        + f"> Read-only mirror of `{rel}` - edit the original in the repository, not this note.\n\n"
                        + "Systems: " + (", ".join(sorted({f"[[{n}]]" for n, _ in systems_for(rel)})) or "none") + "\n\n"
+                       + related_links(cfg, rel, present)
                        + (link_markdown(text, rel, present) if rel.endswith(".md")
                           else f"```{os.path.splitext(rel)[1][1:]}\n{text}\n```") + "\n", v)
         written.append(rel)
