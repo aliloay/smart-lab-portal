@@ -27,6 +27,22 @@ import time
 import requests
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+FRESH_S = 15.0          # --watch-face: only a recognition this recent means someone is at the door now
+# 2026-10-21 lab: with only Ali at the door, the face server answered USER5, USER1 and USER3 within 25 s and
+# each single answer became an entry - camera 1 then named Ali "USER3 by door". The real door needs two
+# factors; this test stand-in now needs the face to AGREE: the same name at least AGREE_N times within
+# AGREE_S, and no other name within CLEAN_S.
+AGREE_N, AGREE_S, CLEAN_S = 2, 5.0, 10.0
+
+
+def stable_name(recent: list, now: float):
+    """recent: [(name, at)] of door recognitions. The name the door camera agrees on now, or None."""
+    if not recent:
+        return None
+    who = recent[-1][0]
+    same = [at for n, at in recent if n == who and now - at <= AGREE_S]
+    other = [n for n, at in recent if n != who and now - at <= CLEAN_S]
+    return who if len(same) >= AGREE_N and not other else None
 
 
 def device_key() -> str:
@@ -65,6 +81,7 @@ def watch_face(a, every_s: float = 10.0):
     url, key = a.face.rstrip("/") + "/door/last-face", device_key()
     last: dict[str, float] = {}
     seen_at = 0.0
+    recent: list = []                            # (name, at) of the door camera's recent recognitions
     print(f"watching the door camera's recognitions ({url}) - a recognised face = TEST entry. Ctrl+C stops.")
     while True:
         try:
@@ -76,9 +93,19 @@ def watch_face(a, every_s: float = 10.0):
         who, at = f.get("name"), float(f.get("at") or 0)
         if who and at > seen_at:
             seen_at = at
-            if time.time() - last.get(who, 0) >= every_s and grant(a, who):
-                last[who] = time.time()
-                print(f"{time.strftime('%H:%M:%S')} {who} recognised at the door -> TEST entry recorded; "
+            if time.time() - at > FRESH_S:      # an old recognition (e.g. from before this tool started):
+                continue                         # nobody is at the door now - no entry (2026-10-21)
+            now = time.time()
+            recent = [r for r in recent if now - r[1] <= CLEAN_S] + [(who, at)]
+            agreed = stable_name(recent, now)
+            if agreed is None:
+                names = sorted({n for n, _ in recent})
+                print(f"{time.strftime('%H:%M:%S')} door camera says {who}"
+                      + (f" - but also {', '.join(n for n in names if n != who)} just now: no entry" if len(names) > 1
+                         else " - waiting for it to agree"))
+            elif now - last.get(agreed, 0) >= every_s and grant(a, agreed):
+                last[agreed] = now
+                print(f"{time.strftime('%H:%M:%S')} {agreed} recognised at the door (agreed) -> TEST entry recorded; "
                       f"the camera names them as they walk in (25 s)")
         time.sleep(0.3)
 
