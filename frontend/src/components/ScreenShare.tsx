@@ -101,7 +101,7 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
     go(() => api.shareDecide(r.id, accept, audience)).then(loadAsks)
   const pending = pendingPreview()
   useEffect(() => { if (preview.current) preview.current.srcObject = pending }, [pending])
-  const { src } = useLiveJpeg(st?.active ? '/equipment/broadcast/frame.jpg' : null, 1000)
+  const { src } = useLiveJpeg(st?.active ? `/equipment/broadcast/frame.jpg?s=${st.since ?? 0}` : null, 1000)
   const targets = all ? null : chosen
   const go = async (fn: () => Promise<unknown>) => {
     if (busy) return                                   // no double starts

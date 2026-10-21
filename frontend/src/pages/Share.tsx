@@ -32,7 +32,7 @@ export default function Share() {
   const myReq = mine?.request
   // the frame stream itself says when the share ended (410): the picture goes within ~0.5 s
   const ended = useCallback(() => { setSt(s => (s ? { ...s, active: false } : s)); load() }, [load])
-  const { src, stale } = useLiveJpeg(st?.active ? '/equipment/broadcast/frame.jpg' : null, 500, ended)
+  const { src, stale } = useLiveJpeg(st?.active ? `/equipment/broadcast/frame.jpg?s=${st.since ?? 0}` : null, 500, ended)
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">

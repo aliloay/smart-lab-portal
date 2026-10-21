@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
+import { useNewVersion } from '../lib/freshness'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
@@ -263,6 +264,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { unread } = useLive()
   const loc = useLocation()
   const staff = isStaff(user)
+  const outdated = useNewVersion(loc.pathname)
 
   // A permanent column on a desktop, an off-canvas drawer on a phone - a fixed
   // sidebar on a 390px screen would squeeze the entry QR to an unscannable
@@ -417,6 +419,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <main className="flex-1">
+          {outdated && (
+            <div className="sticky top-0 z-30 flex items-center gap-3 bg-accent-500/15 border-b border-accent-400/40 px-4 py-1.5 text-[12.5px] text-slate-200">
+              A new version of the portal is ready - it loads on your next page change.
+              <button type="button" className="btn-primary btn-sm ml-auto" onClick={() => window.location.reload()}>Reload now</button>
+            </div>)}
           {/* Bottom padding on phones keeps the last content clear of the
               floating Report button. */}
           <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 lg:py-8">
