@@ -86,6 +86,14 @@ def test_zone_learns_then_flags_a_moved_item():
     assert zw.update(ZONE, _scene(shift=70), [], 7.0)[0].status == "OK"
 
 
+def test_a_box_smaller_than_8_px_still_learns():
+    """2026-10-21: Security_Camera_2 on camera 1 was 6.8 x 8 px and stayed 'learning' for ever."""
+    zw = ZoneWatcher()
+    tiny = [{"id": 2, "name": "Security_Camera_2", "x": 157 / 640, "y": 147 / 360, "w": 5 / 640, "h": 6 / 360}]
+    assert zw.update(tiny, _scene(), [], 0.0)[0].status == "OK"
+    assert zw.update(tiny, _scene(), [], 1.0)[0].status == "OK"
+
+
 def test_person_at_the_item_means_in_use():
     zw = ZoneWatcher()
     zw.update(ZONE, _scene(), [], 0.0)

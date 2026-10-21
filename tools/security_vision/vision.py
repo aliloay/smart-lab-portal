@@ -1582,6 +1582,9 @@ class ZoneState:
     home_score: float = 0.0            # 0 = exactly the HOME look, 1 = completely different
 
 
+MIN_PATCH = 8                          # px: the smallest area a box's look is compared over
+
+
 class ZoneWatcher:
     """
     One box per fixed item (PC, robot...). The first clear view (nobody in
@@ -1650,8 +1653,18 @@ class ZoneWatcher:
         h, w = gray.shape[:2]
         x, y = int(rect[0] * w), int(rect[1] * h)
         x2, y2 = int((rect[0] + rect[2]) * w), int((rect[1] + rect[3]) * h)
-        if x2 - x < 8 or y2 - y < 8:
-            return None
+        # A box smaller than MIN_PATCH px (the portal allows 0.5 % of the picture since 2026-10-21, ~5 px:
+        # far monitors, a camera on the wall) is compared over a MIN_PATCH area around its centre -
+        # before, it stayed "learning" for ever.
+        for a, b, size in ((x, x2, w), (y, y2, h)):
+            if b - a < MIN_PATCH and size < MIN_PATCH:
+                return None
+        if x2 - x < MIN_PATCH:
+            cx = (x + x2) // 2
+            x = min(max(0, cx - MIN_PATCH // 2), w - MIN_PATCH); x2 = x + MIN_PATCH
+        if y2 - y < MIN_PATCH:
+            cy = (y + y2) // 2
+            y = min(max(0, cy - MIN_PATCH // 2), h - MIN_PATCH); y2 = y + MIN_PATCH
         return cv2.GaussianBlur(gray[y:y2, x:x2], (5, 5), 0)
 
     @staticmethod
