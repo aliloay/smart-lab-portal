@@ -104,6 +104,20 @@ def test_person_at_the_item_means_in_use():
     assert st.status == "IN_USE"                              # stayed: using it
 
 
+def test_in_use_ends_when_the_person_stands_up_and_stays_next_to_it():
+    """2026-10-21: PC-16 stayed 'in use' while the owner STOOD next to it after someone had sat there."""
+    zw = ZoneWatcher()
+    zw.update(ZONE, _scene(), [], 0.0)
+    seated = [(0.2, 0.25, 0.2, 0.3)]                          # 108 x 115 px: sitting
+    zw.update(ZONE, _scene(shift=70), seated, 1.0)
+    assert zw.update(ZONE, _scene(shift=70), seated, 1.0 + ZoneWatcher.IN_USE_AFTER_S)[0].status == "IN_USE"
+    standing = [(0.33, 0.1, 0.06, 0.6)]                       # right beside the box, 38 x 216 px: standing
+    t = 7.0
+    zw.update(ZONE, _scene(shift=70), standing, t)
+    st = zw.update(ZONE, _scene(shift=70), standing, t + ZoneWatcher.NEAR_GRACE_S + 0.5)[0]
+    assert st.status != "IN_USE"
+
+
 def test_walking_past_is_neither_use_nor_movement():
     zw = ZoneWatcher()
     zw.update(ZONE, _scene(), [], 0.0)

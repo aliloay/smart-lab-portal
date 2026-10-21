@@ -270,6 +270,18 @@ def _home_desks() -> dict:
 HOME_DESKS = _home_desks()
 
 
+def _role_desks() -> dict:
+    """home_desks.json "_role_desks": {"TA": ["PC-16"]} - desks shown as a role guess only (2026-10-21)."""
+    try:
+        d = json.load(open(os.path.join(HERE, "home_desks.json"), encoding="utf-8")).get("_role_desks") or {}
+        return {str(k): list(v) for k, v in d.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+ROLE_DESKS = _role_desks()
+
+
 # --------------------------------------------------------------- service ---
 class Service:
     STATE_PERIOD_S = 2.0
@@ -524,11 +536,16 @@ class Service:
                     coasting = [t for t in self.tracker.tracks if t.id not in seen_ids]
                     self.labeler.assign(tracks, occupants, door_px, t0, known=self.cfg.get("known"),
                                         coasting=coasting)
-                    if HOME_DESKS:
+                    if HOME_DESKS or ROLE_DESKS:
                         zpx = {z["name"]: (z["x"] * w, z["y"] * h, z["w"] * w, z["h"] * h)
                                for z in self.cfg.get("zones", [])}
-                        self.labeler.home_desk(tracks, HOME_DESKS, zpx, occupants,
-                                               {k["auth_subject"]: k for k in (self.cfg.get("known") or [])}, t0)
+                        known = {k["auth_subject"]: k for k in (self.cfg.get("known") or [])}
+                        if HOME_DESKS:
+                            self.labeler.home_desk(tracks, HOME_DESKS, zpx, occupants, known, t0)
+                        # Unnamed at a known desk: a shown guess only ("Eng. Hemaly?", "TA?").
+                        hints = {f"{(known.get(lab) or {}).get('name') or lab}?": desks for lab, desks in HOME_DESKS.items()}
+                        hints.update({f"{role}?": desks for role, desks in ROLE_DESKS.items()})
+                        self.labeler.desk_hints(tracks, hints, zpx)
                     self.crosscam.desks = self.linked_desks()
                     notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
                     self.frame_wh = (w, h)

@@ -546,6 +546,16 @@ def assign_max(score: list) -> list[tuple[int, int]]:
     return out
 
 
+def at_desk(b, r) -> bool:
+    """A person box b sits at the desk box r (both pixels). Not mere 2D overlap: a person in FRONT overlaps a
+    desk further back (lab 2026-10-14: the man at PC-08 took Hemaly's name). The centre must be at the desk
+    (2 desk-widths sideways - Hemaly sits beside his monitor box, 35 px off its centre, box 33 px wide - and
+    1.5 desk-heights up/down) and the person no bigger than someone sitting at that distance."""
+    cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
+    near = abs(cx - (r[0] + r[2] / 2)) <= 2 * r[2] and abs(cy - (r[1] + r[3] / 2)) <= 1.5 * r[3]
+    return near and b[2] * b[3] <= 6 * r[2] * r[3]
+
+
 @dataclass
 class Track:
     id: int
@@ -561,6 +571,7 @@ class Track:
     entered: bool = False              # named AND inside per the door (else: on hold)
     verified: bool = False             # entered, and the face confirms the name
     mismatch: Optional[str] = None     # the face clearly says someone else (card sharing?)
+    hint: Optional[str] = None         # unnamed, seated at a known desk: a GUESS shown only (desk_hints)
     look: Optional[Look] = None        # this frame's look
     vel: tuple = (0.0, 0.0)            # centre speed, px/s
     crowded: bool = False              # touching someone else right now
@@ -1365,15 +1376,6 @@ class Labeler:
                                f"in the lab per the {via}, but last seen {ago:.0f} min ago - the desk alone names nobody")
                 continue
             rects = [zones_px[n] for n in names if n in zones_px]
-            def at_desk(b, r):
-                # Not mere 2D overlap: a person in FRONT overlaps a desk further back (lab 2026-10-14:
-                # the man at PC-08 took Hemaly's name). The centre must be at the desk (within one
-                # desk size) and the person no bigger than someone sitting at that distance.
-                cx, cy = b[0] + b[2] / 2, b[1] + b[3] / 2
-                # 2 desk-widths sideways: Hemaly sits beside his monitor box (35 px off its centre,
-                # box 33 px wide, live 2026-10-14). The size check below is what stops the front row.
-                near = abs(cx - (r[0] + r[2] / 2)) <= 2 * r[2] and abs(cy - (r[1] + r[3] / 2)) <= 1.5 * r[3]
-                return near and b[2] * b[3] <= 6 * r[2] * r[3]
             at = [t for t in tracks if not t.label and t.box[2] > 0
                   and t.box[3] / t.box[2] <= standing_ratio                      # seated
                   and any(at_desk(t.box, r) for r in rects)]
@@ -1402,6 +1404,20 @@ class Labeler:
                 taken.add(label)
                 self._note("NAMED_BY_DESK", at[0].id, label, f"seated at {', '.join(names)}; in the lab per "
                            + ("the door" if label in inside else "the face"))
+
+    def desk_hints(self, tracks: list[Track], hints: dict, zones_px: dict, standing_ratio: float = 2.2):
+        """Owner 2026-10-21: an UNNAMED person seated at a known desk is shown as a guess - "Eng. Hemaly?" at
+        his desk, "TA?" at the TA's desk - instead of plain "Unknown". hints: {"Eng. Hemaly?": ["PC-04",
+        "PC-01"], "TA?": ["PC-16"]}. Only t.hint is set: no name, no identity state, not counted, not
+        shared with the other camera (crosscam reads t.label), and gone as soon as a real name arrives."""
+        for t in tracks:
+            t.hint = None
+        for text, names in hints.items():
+            rects = [zones_px[n] for n in names if n in zones_px]
+            for t in tracks:
+                if (not t.label and t.box[2] > 0 and t.box[3] / t.box[2] <= standing_ratio
+                        and any(at_desk(t.box, r) for r in rects)):
+                    t.hint = text
 
     def _note(self, kind: str, track_id, label, detail: str):
         """A decision worth reading later: printed, and kept for /identity (service drains notes)."""
@@ -1636,6 +1652,7 @@ class ZoneWatcher:
         self._prev_at: dict[int, float] = {}
         self._occupied_since: dict[int, float] = {}
         self._near_at: dict[int, float] = {}
+        self._seated_near_at: dict[int, float] = {}   # last time a SEATED person was near (keeps IN_USE)
         self.states: dict[int, ZoneState] = {}
         self._pending: dict[int, tuple[str, float]] = {}
         self._moving: dict[int, tuple[int, float]] = {}    # consecutive moving frames, last moving time
@@ -1749,6 +1766,12 @@ class ZoneWatcher:
             near = self._near(rect, person_rects_norm)
             if near:
                 self._near_at[zid] = now
+            # Owner 2026-10-21: PC-16 (behind the UR5e) stayed "in use" while he STOOD next to it - the
+            # hold below kept IN_USE for anyone near. Only a seated person near keeps a PC in use.
+            fh, fw = gray.shape[:2]
+            if z.get("alert_on_motion", True) is False or self._near(
+                    rect, [p for p in person_rects_norm if not self._standing(p, fw, fh)]):
+                self._seated_near_at[zid] = now
             if occupied and now - self._occupied_since[zid] >= self.IN_USE_AFTER_S:
                 self._set(st, "IN_USE", now)
                 self._pending.pop(zid, None)
@@ -1756,8 +1779,9 @@ class ZoneWatcher:
                 continue
             if near or now - self._near_at.get(zid, -1e9) < self.NEAR_GRACE_S:
                 # Passing by: no motion / change judged; a box already IN_USE stays so
-                # until the person has really gone, anything else shows OK.
-                if st.status not in ("IN_USE", "OK"):
+                # until the person has really gone (or only people standing are left), anything else shows OK.
+                held = st.status == "IN_USE" and now - self._seated_near_at.get(zid, -1e9) < self.NEAR_GRACE_S
+                if st.status != "OK" and not held:
                     self._set(st, "OK", now)
                 self._pending.pop(zid, None)
                 self._moving[zid] = (0, self._moving.get(zid, (0, -1e9))[1])
@@ -1870,6 +1894,7 @@ COLORS = {"ADMIN": (246, 92, 139), "LAB_STAFF": (250, 165, 96), "STUDENT": (129,
 ROLE_NAMES = {"ADMIN": "Admin", "LAB_STAFF": "Staff", "STUDENT": "Student"}
 ON_HOLD = (0, 140, 255)                                  # BGR orange: named by face, not entered yet
 MISMATCH = (60, 60, 240)                                 # BGR red: the face contradicts the door's name
+HINT = (250, 165, 96)                                    # BGR blue (as staff): a desk GUESS, not a name
 ZONE_COLORS = {"OK": (160, 160, 160), "IN_USE": (250, 165, 96), "CHANGED": (60, 60, 240),
                "MOTION": (0, 165, 255), "LEARNING": (160, 160, 160)}
 ZONE_WORDS = {"MOTION": "moving", "IN_USE": "in use"}
@@ -1974,7 +1999,7 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
     people = []
     for t in sorted(tracks, key=lambda t: bool(t.label)):
         c = MISMATCH if t.mismatch else ON_HOLD if t.label and not t.entered \
-            else COLORS.get(t.role if t.label else None, COLORS[None])
+            else HINT if not t.label and getattr(t, "hint", None) else COLORS.get(t.role if t.label else None, COLORS[None])
         x, y, bw, bh = (int(v) for v in t.box)
         label = _person_label(t)
         people.append((t, c, label, _place_clear(w, h, label, x, y, y + bh, placed)))
@@ -1997,7 +2022,7 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
 
 def _person_label(t) -> str:
     if not t.label:
-        return "Unknown"
+        return f"{t.hint} (desk)" if getattr(t, "hint", None) else "Unknown"
     role = ROLE_NAMES.get(t.role, "")
     label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
     if t.source == "desk":

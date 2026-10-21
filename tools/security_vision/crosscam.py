@@ -54,6 +54,13 @@ ROOM_M = (-1.0, 8.0, -1.0, 13.5)              # x0, x1, y0, y1: the lab floor (~
 #   and clearly different looks veto a pairing even on the same spot. Never by clothes alone: the floor
 #   must still roughly agree. APPEAR_* are NOT measured yet - do not set CROSSCAM_APPEARANCE=on before.
 APPEARANCE = os.environ.get("CROSSCAM_APPEARANCE", "observe").lower()      # off / observe / on
+# 2026-10-21, MEASURED from that log (396 observations, named on both cameras, <= 1.5 m, not touching):
+# same person median 0.31 (5-95 % 0.14-0.73), different people median 0.79 (0.67-0.83). Good enough to break a
+# near-TIE between floor pairings - Ali and Nour 0.6 m apart at the UR5e scored exactly equal both ways, so
+# nobody got Nour's name - not to veto or to pair on its own (the ranges overlap). TIE_W x (0.5 - distance)
+# is added to an in-gate floor score: +-0.15 at most, so a clearly closer floor match still wins.
+TIE_BREAK = os.environ.get("CROSSCAM_TIE_BREAK", "on").lower() == "on"
+TIE_W = 0.3
 GATE_WIDE_M = 1.3
 APPEAR_MAX, APPEAR_MARGIN, APPEAR_VETO = 0.25, 0.10, 0.45
 OBS_EVERY = 7                                 # log observations about once a second
@@ -285,7 +292,10 @@ class CrossCam:
         if APPEARANCE == "on" and a is not None and a > APPEAR_VETO:
             return None                            # clearly different people, whatever the floor says
         if d <= GATE_M:
-            return 1.0 - d / GATE_M
+            s = 1.0 - d / GATE_M
+            if TIE_BREAK and a is not None:
+                s = max(0.01, s + TIE_W * (0.5 - a))      # looks alike: a little more likely the same person
+            return s
         if APPEARANCE == "on" and d <= GATE_WIDE_M and a is not None and a <= APPEAR_MAX:
             rivals = [x for k, x in enumerate(ads) if k != j and x is not None]
             if not rivals or min(rivals) - a >= APPEAR_MARGIN:

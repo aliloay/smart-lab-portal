@@ -1,5 +1,7 @@
 {
   "_about": "Desk owners: a person's own desk names them, but only after the door or the face placed them in the lab, and only if exactly one unnamed seated person is there. Zone names as in the portal (Equipment & door boxes).",
   "_renamed": "2026-10-21: camera 1's boxes were renamed by the real lab numbers - Hemaly's two monitors (old PC-09, PC-10) are now PC-04 and PC-01 (same boxes, matched by position).",
-  "USER5": ["PC-04", "PC-01"]
+  "USER5": ["PC-04", "PC-01"],
+  "_role_desks_about": "2026-10-21 (owner): desks of a role, not a person. Whoever sits there unnamed is shown as a guess only (blue, '<role>? (desk)'): never a name, never shared, never counted. Owners' desks above are shown the same way ('Eng. Hemaly? (desk)') while the desk may not name them.",
+  "_role_desks": {"TA": ["PC-16"]}
 }
