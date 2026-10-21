@@ -474,8 +474,8 @@ class ZoneIn(BaseModel):
     asset_id: Optional[int] = None
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
-    w: float = Field(gt=0.01, le=1)
-    h: float = Field(gt=0.01, le=1)
+    w: float = Field(gt=0.005, le=1)   # far monitors on camera 1 are ~1 % wide (2026-10-21)
+    h: float = Field(gt=0.005, le=1)
     alert_on_motion: bool = True
 
 

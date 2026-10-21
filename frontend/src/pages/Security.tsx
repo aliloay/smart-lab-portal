@@ -368,7 +368,9 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
 
   const pct = (v: number) => `${v * 100}%`
   const shown = draft ?? (editing ? { x: editing.x, y: editing.y, w: editing.w, h: editing.h } : null)
-  const canSave = !!shown && shown.w > 0.02 && shown.h > 0.02 && form.name.trim().length > 0
+  // Far monitors on camera 1 are ~1 % of the picture wide: 0.5 % is the smallest box (as the API).
+  const bigEnough = !!shown && shown.w > 0.005 && shown.h > 0.005
+  const canSave = bigEnough && form.name.trim().length > 0
 
   return (
     <div className="grid xl:grid-cols-[1fr_340px] gap-4">
@@ -438,6 +440,8 @@ function Boxes({ cam }: { cam: SecurityCamera }) {
         <div className="card p-4 space-y-3">
           <div className="label">{editing ? `Edit "${editing.name}"` : 'New box'}</div>
           {!shown && <p className="text-[12.5px] text-slate-400">Draw a box on the picture first.</p>}
+          {shown && !bigEnough && <p className="text-[12.5px] text-amber-300">That box is too small - drag a little wider.</p>}
+          {bigEnough && !form.name.trim() && <p className="text-[12.5px] text-slate-400">Type a name to add the box.</p>}
           <input className="input w-full" placeholder="Name, e.g. PC-01 or UR5e" maxLength={64}
                  value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           <div className="flex gap-2">
