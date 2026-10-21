@@ -53,7 +53,7 @@ ROOM_M = (-1.0, 8.0, -1.0, 13.5)              # x0, x1, y0, y1: the lab floor (~
 #   then a pairing up to GATE_WIDE_M is allowed when the looks agree and nobody else in view comes close,
 #   and clearly different looks veto a pairing even on the same spot. Never by clothes alone: the floor
 #   must still roughly agree. APPEAR_* are NOT measured yet - do not set CROSSCAM_APPEARANCE=on before.
-APPEARANCE = os.environ.get("CROSSCAM_APPEARANCE", "observe").lower()      # off / observe / on
+APPEARANCE = os.environ.get("CROSSCAM_APPEARANCE", "on").lower()      # off / observe / on (on since 2026-10-21)
 # 2026-10-21, MEASURED from that log (396 observations, named on both cameras, <= 1.5 m, not touching):
 # same person median 0.31 (5-95 % 0.14-0.73), different people median 0.79 (0.67-0.83). Good enough to break a
 # near-TIE between floor pairings - Ali and Nour 0.6 m apart at the UR5e scored exactly equal both ways, so
@@ -61,8 +61,15 @@ APPEARANCE = os.environ.get("CROSSCAM_APPEARANCE", "observe").lower()      # off
 # is added to an in-gate floor score: +-0.15 at most, so a clearly closer floor match still wins.
 TIE_BREAK = os.environ.get("CROSSCAM_TIE_BREAK", "on").lower() == "on"
 TIE_W = 0.3
-GATE_WIDE_M = 1.3
-APPEAR_MAX, APPEAR_MARGIN, APPEAR_VETO = 0.25, 0.10, 0.45
+# ON (2026-10-21 lab, Ali seated at the UR5e table next to Nour): camera 1 cannot see feet behind that table -
+# its floor put NOUR 0.59 m from camera 2's "USER1" (look 0.69 = a different person) and ALI 1.50 m away (look
+# 0.30 = the same person). From the measured distances: a look above APPEAR_VETO (different-people 5 % = 0.67)
+# vetoes a pairing even on the same spot; a look at or below APPEAR_MAX that beats every other candidate on
+# both sides by APPEAR_MARGIN may pair up to GATE_WIDE_M; such a clear look also lets a name cross while the
+# person touches a neighbour (SHARE_TOUCHING_IF_CLEAR) - the neighbour must look clearly different.
+GATE_WIDE_M = 2.0
+APPEAR_MAX, APPEAR_MARGIN, APPEAR_VETO = 0.40, 0.20, 0.65
+SHARE_TOUCHING_IF_CLEAR = True
 OBS_EVERY = 7                                 # log observations about once a second
 # 2026-10-21: SAME DESK. Seated at a desk the feet are hidden (no floor position), so the floor never
 # paired people there. anchors/desk_map.json (deskmap.py, owner-verified: PC boxes named by the real lab
@@ -226,11 +233,12 @@ class CrossCam:
         their_desk = [self.desk_link.get(p.get("desk") or "") if desk_ok else None for p in theirs]
         alone = {d for d in set(my_desk) if d and my_desk.count(d) == 1 and their_desk.count(d) == 1}
         self.by_desk = set()
+        clear = [[self._clear(ad, i, j) for j in range(len(theirs))] for i in range(len(mine))]
         score = []
         for i in range(len(mine)):
             row = []
             for j in range(len(theirs)):
-                s = self._score(dist[i][j], ad[i], j)
+                s = self._score(dist[i][j], ad[i], j, clear[i][j])
                 if (my_desk[i] in alone and their_desk[j] == my_desk[i]
                         and not (dist[i][j] is not None and dist[i][j] > DESK_VETO_M)
                         and not (APPEARANCE == "on" and ad[i][j] is not None and ad[i][j] > APPEAR_VETO)
@@ -269,8 +277,8 @@ class CrossCam:
                 continue
             if p.get("state") not in SHARE_STATES or p.get("source") not in SHARE_SOURCES:
                 continue                           # only a confirmed door / face name travels
-            if t.crowded or p.get("crowded"):
-                continue                           # touching someone in either view: not now
+            if (t.crowded or p.get("crowded")) and not (SHARE_TOUCHING_IF_CLEAR and clear[i][j]):
+                continue                           # touching someone in either view: not now (unless the look is clear)
             if p["label"] in held:
                 continue                           # that name is on someone else here
             said = labeler._agreed(t)
@@ -284,7 +292,17 @@ class CrossCam:
             self._note("CROSSCAM_NAME", t.id, p["label"], f"{how} {p['id']}) for {STABLE_PASSES}+ passes")
         return self.notes
 
-    def _score(self, d, ads: list, j: int):
+    @staticmethod
+    def _clear(ad: list, i: int, j: int) -> bool:
+        """My track i and their track j look clearly alike: at most APPEAR_MAX, and every other candidate on
+        BOTH sides (my other tracks vs j, their other tracks vs i) at least APPEAR_MARGIN further."""
+        a = ad[i][j]
+        if APPEARANCE != "on" or a is None or a > APPEAR_MAX:
+            return False
+        rivals = [x for k, x in enumerate(ad[i]) if k != j] + [ad[l][j] for l in range(len(ad)) if l != i]
+        return all(x is None or x - a >= APPEAR_MARGIN for x in rivals)
+
+    def _score(self, d, ads: list, j: int, clear: bool = False):
         """Pairing score of my track with the other camera's track j; None = cannot be the same person."""
         if d is None:
             return None                            # feet not seen: no position, no pairing
@@ -296,10 +314,8 @@ class CrossCam:
             if TIE_BREAK and a is not None:
                 s = max(0.01, s + TIE_W * (0.5 - a))      # looks alike: a little more likely the same person
             return s
-        if APPEARANCE == "on" and d <= GATE_WIDE_M and a is not None and a <= APPEAR_MAX:
-            rivals = [x for k, x in enumerate(ads) if k != j and x is not None]
-            if not rivals or min(rivals) - a >= APPEAR_MARGIN:
-                return 0.05 * (1.0 - a)            # below every in-gate pairing: never steals one
+        if clear and d <= GATE_WIDE_M:
+            return 0.05 * (1.0 - a)                # below every in-gate pairing: never steals one
         return None
 
     def _observe(self, mine, theirs, dist, ad, now: float):

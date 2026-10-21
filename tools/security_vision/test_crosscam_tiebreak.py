@@ -48,6 +48,7 @@ def test_the_look_breaks_a_floor_tie_the_right_way():
 
 def test_without_the_tie_break_the_same_scene_names_the_wrong_way_or_nobody(monkeypatch):
     monkeypatch.setattr(crosscam, "TIE_BREAK", False)
+    monkeypatch.setattr(crosscam, "APPEARANCE", "observe")      # the floor alone
     ali, nour = track(1, 3.95, 3.95, GREEN), track(2, 4.62, 4.09, BLACK)
     pf = lambda now: peer(now, (7, 3.75, 4.31, "USER1", GREEN), (8, 4.11, 3.99, "USER6", BLACK))
     cc, lab = CrossCam(None, "k", FLOOR), Labeler()
@@ -55,8 +56,18 @@ def test_without_the_tie_break_the_same_scene_names_the_wrong_way_or_nobody(monk
     assert (ali.label, nour.label) != ("USER1", "USER6")
 
 
-def test_the_look_never_pairs_beyond_the_floor_gate():
+def test_a_clear_look_pairs_up_to_the_wide_gate_only():
     t = track(1, 3.0, 4.0, GREEN)
     cc, lab = CrossCam(None, "k", FLOOR), Labeler()
-    run(cc, [t], lab, lambda now: peer(now, (7, 3.9, 4.0, "USER1", GREEN)))     # 0.9 m: outside 0.7 m
-    assert t.label is None
+    run(cc, [t], lab, lambda now: peer(now, (7, 3.0 + crosscam.GATE_WIDE_M + 0.3, 4.0, "USER1", GREEN)))
+    assert t.label is None                                   # beyond 2 m: never, however alike
+    t2 = track(2, 3.0, 4.0, GREEN)
+    run(cc, [t2], lab, lambda now: peer(now, (8, 4.2, 4.0, "USER1", GREEN)))   # 1.2 m, same look: paired
+    assert t2.label == "USER1"
+
+
+def test_two_people_who_look_alike_are_not_paired_by_look():
+    a, b = track(1, 3.0, 4.0, GREEN), track(2, 3.3, 5.0, GREEN)              # twins in green
+    cc, lab = CrossCam(None, "k", FLOOR), Labeler()
+    run(cc, [a, b], lab, lambda now: peer(now, (7, 4.4, 4.5, "USER1", GREEN)))  # both > 0.7 m away
+    assert a.label is None and b.label is None
