@@ -1127,7 +1127,7 @@ def make_app(svc: Service) -> Flask:
                                    for t in svc.tracks],
                         "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score,
                                    "home": s.home, "home_score": s.home_score}
-                                  for s in svc.zones.states.values()]})
+                                  for s in svc.zone_states]})    # current boxes only, not deleted ones
 
     @app.post("/home/save")
     def home_save():
