@@ -14,7 +14,7 @@
  * The lab engineer's master PC is controlled by an administrator only: lab
  * staff see it, but not its controls, and "Lock all" leaves it alone.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bot, Crown, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
 import { api, type PcMode } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
@@ -53,12 +53,29 @@ export default function NetworkedEquipment() {
     const t = window.setInterval(load, 10000)
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
+  const soon = useRef(0)
+  useLiveMessages(m => {
+    if (m.type === 'access_event' || m.type === 'staff') load()
+    if (m.type === 'pc_state') { window.clearTimeout(soon.current); soon.current = window.setTimeout(load, 150) }
+  })
 
   // No PC agent yet: the Lab PCs card says so; the admin can still share their screen.
   if (!items || !items.length) return admin ? <section className="mb-6"><SharePanel hasMasterPc={false} /></section> : null
   async function setMode(id: number, mode: PcMode) {
-    await api.setEquipmentMode(id, mode).catch(() => {})
+    let url: string | undefined
+    if (mode === 'EXAM') {
+      // Exam lockdown (2026-10-21): the PC closes other programs and shows only this page in a kiosk
+      // Chrome window; anything else opened is closed and reported at once. Empty = report-only exam mode.
+      let last = ''
+      try { last = localStorage.getItem('smartlab.examUrl') ?? '' } catch { /* ignore */ }
+      const answer = window.prompt('Exam page for the lockdown (the PC closes other programs and opens only this page). '
+        + 'Leave empty for exam mode without lockdown.', last)
+      if (answer === null) return
+      url = answer.trim() || undefined
+      if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url
+      try { if (url) localStorage.setItem('smartlab.examUrl', url) } catch { /* ignore */ }
+    }
+    await api.setEquipmentMode(id, mode, url).catch(err => window.alert(err.message))
     load()
   }
   async function setMaster(e: Equip) {

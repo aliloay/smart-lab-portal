@@ -14,6 +14,8 @@ lan_presence.json by its MAC address and posts the result to the portal:
     so a stale one is resolved within seconds (absent within ~15-50 s, Windows' ARP timing);
   * the PC's address is found from its MAC (a new DHCP address is followed): every SWEEP_S a UDP
     datagram to every address of the /24 refreshes the table.
+  * which PCs: lan_presence.json, PLUS every PC whose agent has reported its own MAC to the portal
+    (fetched every TARGETS_S) - a new lab PC with the agent needs no MAC typed anywhere.
 
 Read-only towards the PCs: echo requests, UDP to the discard port, ARP. Python 3.12 stdlib only.
     py tools/lan_presence/lan_presence.py               (portal http://127.0.0.1:8000/api)
@@ -38,6 +40,7 @@ CYCLE_S = 2.0
 PING_TIMEOUT_MS = 500
 MISSES_OFF = 3
 SWEEP_S = 30.0
+TARGETS_S = 60.0
 
 REACHABLE_STATES = {5, 6}          # NlnsReachable, NlnsPermanent
 GONE_STATES = {0, 1}               # NlnsUnreachable, NlnsIncomplete
@@ -99,7 +102,8 @@ class _Win:
 class Pc:
     def __init__(self, cfg: dict):
         self.uid, self.tag = cfg["device_uid"], cfg.get("asset_tag")
-        self.mac = norm_mac(cfg["mac"])
+        self.macs = {norm_mac(m) for m in (cfg.get("macs") or [cfg["mac"]])}
+        self.mac = sorted(self.macs)[0]
         self.ip: str | None = cfg.get("ip")
         self.present = False
         self.via = "none"
@@ -166,6 +170,37 @@ def post(portal: str, key: str, lab: str, pcs: list[Pc]) -> str:
         return f"portal unreachable ({e.__class__.__name__})"
 
 
+def portal_targets(portal: str, key: str) -> list[dict]:
+    """PCs whose agent reported its MAC(s) to the portal; [] if the portal cannot be asked."""
+    rq = urllib.request.Request(portal.rstrip("/") + "/equipment/pc/lan-targets", headers={"X-Device-Key": key})
+    try:
+        with urllib.request.urlopen(rq, timeout=5) as r:
+            return json.loads(r.read())
+    except (OSError, ValueError):
+        return []
+
+
+def merge_targets(pcs: list[Pc], targets: list[dict]) -> list[str]:
+    """Add the portal's PCs not configured yet (or new MACs of known ones). Returns what was added."""
+    added = []
+    by_uid = {p.uid: p for p in pcs}
+    for t in targets:
+        macs = {norm_mac(m) for m in t.get("macs") or []}
+        if not macs:
+            continue
+        p = by_uid.get(t["device_uid"])
+        if p is None:
+            p = Pc({"device_uid": t["device_uid"], "asset_tag": t.get("asset_tag"), "macs": sorted(macs),
+                    "ip": (t.get("ips") or [None])[0]})
+            pcs.append(p)
+            by_uid[p.uid] = p
+            added.append(p.tag or p.uid)
+        elif not macs <= p.macs:
+            p.macs |= macs
+            added.append(f"{p.tag or p.uid} (+MAC)")
+    return added
+
+
 def main() -> None:
     cfg = json.loads((HERE / "lan_presence.json").read_text(encoding="utf-8"))
     src, lab = cfg["source_ip"], cfg.get("lab", "LAB_01")
@@ -174,9 +209,13 @@ def main() -> None:
     key, win = read_key(), _Win()
     log = (HERE / "presence_log.jsonl").open("a", encoding="utf-8")
     print(f"LAN presence: {len(pcs)} PC(s), from {src}, every {CYCLE_S:g} s -> {portal}")
-    last_sweep, last_post = 0.0, ""
+    last_sweep, last_post, last_targets = 0.0, "", -TARGETS_S
     while True:
         t0 = time.monotonic()
+        if t0 - last_targets >= TARGETS_S:
+            last_targets = t0
+            for name in merge_targets(pcs, portal_targets(portal, key)):
+                print(f"{datetime.now():%H:%M:%S}  now checking {name} (MAC reported by its agent)")
         if t0 - last_sweep > SWEEP_S or any(p.ip is None for p in pcs) and t0 - last_sweep > 5:
             sweep(src)
             last_sweep = t0
@@ -184,7 +223,7 @@ def main() -> None:
         pinged = {p.uid: bool(p.ip) and win.ping(src, p.ip, PING_TIMEOUT_MS) for p in pcs}
         table = win.neighbours()
         for p in pcs:
-            rows = [r for r in table if r[1] == p.mac]
+            rows = [r for r in table if r[1] in p.macs]
             best = max(rows, key=lambda r: r[2] in REACHABLE_STATES) if rows else None
             if best and best[0] != p.ip:
                 p.ip = best[0]                               # followed a new address (DHCP)

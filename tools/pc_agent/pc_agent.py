@@ -48,26 +48,32 @@ FRAME_S = 0.5           # screen view: about two frames a second
 FRAME_WIDTH = 1280      # downscaled: enough to read a screen, small to send
 
 WINDOWS = sys.platform == "win32"
-AGENT_VERSION = "0.8"
+AGENT_VERSION = "0.9"
+AGENT_STARTED = round(time.time(), 3)   # this run; a new value without a reboot = the agent was stopped
 
 
 def identity_info() -> dict:
     """What the admin's fleet view shows (2026-10-18): host name, this PC's own IPv4 addresses (from its
     network adapters - never inferred from the router), agent version, boot time, and the agent's
-    clock, so the portal can see a PC whose clock has drifted."""
+    clock, so the portal can see a PC whose clock has drifted. Also the MAC of each adapter that has
+    a LAN address (2026-10-21): the lab laptop's LAN check then finds this PC by itself - no MAC list."""
     import socket
-    ips = []
+    ips, macs = [], []
     try:
         for name, addrs in psutil.net_if_addrs().items():
             if any(v in name.lower() for v in ("vethernet", "vmware", "virtualbox", "hyper-v", "loopback", "bluetooth")):
                 continue                        # virtual adapters (WSL / VMs) are not how the lab reaches this PC
-            for a in addrs:
-                if a.family == socket.AF_INET and not a.address.startswith(("127.", "169.254.")):
-                    ips.append(a.address)
+            lan = [a.address for a in addrs if a.family == socket.AF_INET and not a.address.startswith(("127.", "169.254."))]
+            ips += lan
+            if lan:
+                macs += [a.address.lower().replace(":", "-") for a in addrs
+                         if a.family == psutil.AF_LINK and len(a.address) == 17]
     except Exception:
         pass
-    return {"hostname": socket.gethostname(), "ips": sorted(set(ips))[:4], "agent_version": AGENT_VERSION,
-            "boot_time": int(psutil.boot_time()), "agent_time": round(time.time(), 3)}
+    return {"hostname": socket.gethostname(), "ips": sorted(set(ips))[:4], "macs": sorted(set(macs))[:4],
+            "agent_version": AGENT_VERSION,
+            "boot_time": int(psutil.boot_time()), "agent_time": round(time.time(), 3),
+            "agent_started": AGENT_STARTED}
 if WINDOWS:
     # Real pixels: without this, a 125 % display reports 1536x864 instead of 1920x1080 and the
     # monitor rectangles do not match what is captured.
@@ -93,7 +99,19 @@ def lock_pc() -> bool:
     return bool(ctypes.windll.user32.LockWorkStation())
 
 
-def popup(title: str, text: str) -> None:
+def popup(title: str, text: str, kind: str = "info", sender: str | None = None, countdown: int = 0) -> None:
+    """A coloured card on this PC (notice.py); a plain message box if the card cannot be drawn."""
+    if WINDOWS:
+        try:
+            from notice import notice
+            notice(kind, text, title=title if title != "Smart Lab" else "", sender=sender, countdown=countdown)
+            return
+        except Exception:
+            pass
+    _plain_popup(title, text)
+
+
+def _plain_popup(title: str, text: str) -> None:
     """A topmost information box that does not block the agent."""
     print(f"[{title}] {text}")
     if not WINDOWS:
@@ -124,6 +142,31 @@ def open_share_page(url: str) -> None:
         webbrowser.open(url, new=1)
     except Exception as e:
         print(f"[share] could not open the browser: {e}")
+
+
+def open_portal_once_per_logon(url: str, marker_dir: str | None = None) -> bool:
+    """Lab PCs (2026-10-21): when someone signs in to Windows, the portal's sign-in page opens. The agent
+    is re-started every minute by its scheduled task, so a marker (the user + their Windows logon time)
+    makes it happen once per sign-in, never on a restart. Returns True when it opened the page."""
+    user = os.environ.get("USERNAME") or ""
+    started = next((u.started for u in psutil.users() if u.name.lower() == user.lower()), None)
+    if started is None:
+        return False                                  # nobody signed in (or not this user's session)
+    folder = marker_dir or os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SmartLab")
+    marker = os.path.join(folder, "portal_opened.txt")
+    stamp = f"{user}:{int(started)}"
+    try:
+        if open(marker, encoding="utf-8").read().strip() == stamp:
+            return False
+    except OSError:
+        pass
+    open_share_page(url)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        open(marker, "w", encoding="utf-8").write(stamp)
+    except OSError:
+        pass
+    return True
 
 
 def monitors() -> list[dict]:
@@ -268,6 +311,44 @@ def load_apps() -> dict:
     return DEFAULT_APPS
 
 
+def countdown_window(seconds: int, word: str) -> None:
+    """A topmost window on the PC counting 60, 59, ... 1 (owner 2026-10-21: the student sees exactly how long
+    is left to save). Display only: Windows' own shutdown timer, started at the same moment, is what acts at
+    0 - even if this window or the agent is closed. Falls back to a message box without tkinter."""
+    if WINDOWS:
+        popup(f"This PC will {word}", "Lab staff: save your work now - this PC will "
+              f"{word} when the counter reaches 0.", kind="warn", countdown=seconds)
+        return
+
+    def run():
+        try:
+            import tkinter as tk
+        except ImportError:
+            print(f"[countdown] {word} in {seconds} s")
+            return
+        root = tk.Tk()
+        root.title("Smart Lab")
+        root.attributes("-topmost", True)
+        root.resizable(False, False)
+        root.protocol("WM_DELETE_WINDOW", lambda: None)          # stays until the PC goes down
+        tk.Label(root, text=f"Lab staff: this PC will {word} in", font=("Segoe UI", 13), padx=30, pady=(12)).pack()
+        n = tk.Label(root, text=str(seconds), font=("Segoe UI", 54, "bold"), fg="#c0392b")
+        n.pack()
+        tk.Label(root, text="seconds. Save your work now.", font=("Segoe UI", 13), padx=30, pady=12).pack()
+        end = time.monotonic() + seconds
+
+        def tick():
+            left = max(0, int(round(end - time.monotonic())))
+            n.config(text=str(left))
+            root.after(250, tick)
+        tick()
+        root.update_idletasks()
+        w, h = root.winfo_width(), root.winfo_height()
+        root.geometry(f"+{(root.winfo_screenwidth() - w) // 2}+{(root.winfo_screenheight() - h) // 3}")
+        root.mainloop()
+    threading.Thread(target=run, daemon=True).start()
+
+
 def run_action(a: dict) -> tuple[bool, str]:
     """Carry out one staff action; the returned text is reported to the portal as-is."""
     if not WINDOWS:
@@ -287,14 +368,19 @@ def run_action(a: dict) -> tuple[bool, str]:
         return r.returncode == 0, (r.stdout or r.stderr).strip()[:180] or "close requested"
     msg = "Lab staff: this PC will {} in 1 minute. Save your work now."
     if act == "logoff":
-        popup("Smart Lab", "Lab staff are signing this session out. Save your work.")
+        popup("Signing out", "Lab staff are signing this session out in 10 seconds. Save your work now.", kind="warn")
         time.sleep(10)
         r = subprocess.run(["shutdown", "/l"], capture_output=True, text=True)
         return r.returncode == 0, "signing out" if r.returncode == 0 else r.stderr.strip()[:180]
     if act in ("restart", "shutdown"):
         flag, word = ("/r", "restart") if act == "restart" else ("/s", "shut down")
-        r = subprocess.run(["shutdown", flag, "/t", str(WARN_S), "/c", msg.format(word)], capture_output=True, text=True)
-        return r.returncode == 0, (f"{word} in {WARN_S} s (warning shown)" if r.returncode == 0 else r.stderr.strip()[:180])
+        # /f: after the 60 s on-screen warning, programs that do not close by themselves (an open dialog,
+        # Internet Download Manager...) are closed - without it Windows 7 only closed the windows and
+        # then waited on "programs still running", never restarting (seen on PC-01, 2026-10-21).
+        r = subprocess.run(["shutdown", flag, "/f", "/t", str(WARN_S), "/c", msg.format(word)], capture_output=True, text=True)
+        if r.returncode == 0:
+            countdown_window(WARN_S, word)
+        return r.returncode == 0, (f"{word} in {WARN_S} s (countdown shown)" if r.returncode == 0 else r.stderr.strip()[:180])
     return False, f"unknown action {act!r}"
 
 
@@ -370,6 +456,70 @@ def idle_wait(http, args, mode: str, last_report: float) -> None:
         time.sleep(POLL_S)
 
 
+# ------------------------------------------- "which PC is this?" for the admin's sign-in ---
+WHOAMI_PORT = 47123
+
+
+def whoami_proof(device_key: str, nonce: str) -> str:
+    """HMAC-SHA256 of the portal's one-time nonce, keyed with the SHA-256 of this PC's device key
+    (the portal stores only that hash, so it can check the proof; the key itself never leaves)."""
+    import hashlib
+    import hmac
+    return hmac.new(hashlib.sha256(device_key.encode()).hexdigest().encode(), nonce.encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def serve_whoami(device_uid: str, device_key: str, port: int = WHOAMI_PORT):
+    """127.0.0.1 only: the portal page in THIS PC's browser asks which PC it runs on when an admin
+    signs in (the admin who signs in is the master; the PC they sit at becomes the master PC).
+    Answers only GET /whoami?nonce=<hex>; reachable from this PC alone, never from the LAN."""
+    import re
+    import threading as _t
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlparse
+
+    class H(BaseHTTPRequestHandler):
+        def _cors(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET")
+            self.send_header("Access-Control-Allow-Private-Network", "true")   # Chrome: page -> 127.0.0.1
+
+        def do_OPTIONS(self):
+            self.send_response(204); self._cors(); self.end_headers()
+
+        def do_GET(self):
+            u = urlparse(self.path)
+            nonce = (parse_qs(u.query).get("nonce") or [""])[0]
+            if u.path != "/whoami" or not re.fullmatch(r"[0-9a-f]{16,64}", nonce):
+                self.send_response(404); self._cors(); self.end_headers(); return
+            body = json.dumps({"device_uid": device_uid, "proof": whoami_proof(device_key, nonce)}).encode()
+            self.send_response(200); self._cors()
+            self.send_header("Content-Type", "application/json"); self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    class Exclusive(ThreadingHTTPServer):
+        # HTTPServer sets SO_REUSEADDR, which on Windows lets a SECOND process bind the same port:
+        # no single-instance guard, and another program could answer for this PC. Claim it exclusively.
+        allow_reuse_address = False
+
+        def server_bind(self):
+            import socket as _s
+            if hasattr(_s, "SO_EXCLUSIVEADDRUSE"):
+                self.socket.setsockopt(_s.SOL_SOCKET, _s.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
+    try:
+        srv = Exclusive(("127.0.0.1", port), H)
+    except OSError as e:
+        print(f"[master] port {port} busy - this PC cannot be recognised at an admin sign-in ({e})")
+        return None
+    _t.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
 def main():
     ap = argparse.ArgumentParser(description="Smart Lab PC agent")
     ap.add_argument("--device", required=True, help="device id in the portal, e.g. PC_01")
@@ -378,16 +528,38 @@ def main():
     ap.add_argument("--portal", default="http://192.168.1.200:8000/api")
     ap.add_argument("--period", type=float, default=30.0, help="usage report period (s)")
     ap.add_argument("--web", default=None, help="portal web address for the share page (default: from --portal)")
+    ap.add_argument("--open-portal", action="store_true", help="lab PCs: open the portal sign-in page once per Windows sign-in")
     args = ap.parse_args()
     http = requests.Session()
     http.headers["X-Device-Key"] = DEVICE_KEY
     rep = Reporter(args, http)
+    if serve_whoami(args.device, DEVICE_KEY) is None:
+        # Port taken = this agent already runs (the lab PCs' scheduled task re-starts it every minute,
+        # so a second copy must quietly leave).
+        print("Another Smart Lab agent is already running on this PC - exiting.")
+        return
     print(f"Smart Lab PC agent for {args.device}. Reports usage; follows the portal's "
           f"lock / screen view / messages; in exam mode reports prohibited programs. Ctrl+C stops.")
 
     web = (args.web or args.portal.replace(":8000/api", "").replace("/api", "")).rstrip("/")
+    if args.open_portal and open_portal_once_per_logon(web + "/login"):
+        print("[portal] sign-in page opened for this Windows sign-in")
     mode, mirroring, last_report, last_lock = "NORMAL", False, 0.0, 0.0
     watching_share = False
+    presenting = False
+    maintenance_on = False
+
+    def report_violation(kind: str, detail: str) -> None:
+        print(f"[exam] {kind}: {detail}")
+        try:
+            http.post(args.portal + "/equipment/violations", timeout=5,
+                      json={"device_uid": args.device, "kind": kind, "detail": detail[:250], "os_user": logged_in_user()})
+        except requests.RequestException:
+            pass
+    lockdown = None
+    if WINDOWS:
+        from exam_lockdown import Lockdown
+        lockdown = Lockdown(report_violation)
     while True:
         now = time.monotonic()
         try:
@@ -401,17 +573,43 @@ def main():
             time.sleep(POLL_S)
             continue
 
+        exam = p.get("exam") or {}
+        if lockdown is not None:
+            if exam.get("lockdown") and exam.get("url"):
+                if not lockdown.active:
+                    popup("Exam mode enabled", "All programs are being closed. Only the exam page opens now - "
+                          "other programs, windows and tabs are closed and reported to lab staff.", kind="exam")
+                lockdown.enter(exam["url"])
+                lockdown.check()
+            elif lockdown.active:
+                lockdown.leave()
+                popup("Exam mode ended", "You can use this PC normally again.", kind="ok")
+        maint = p.get("mode") == "MAINTENANCE"
+        if WINDOWS and maint != maintenance_on:
+            maintenance_on = maint
+            try:
+                from notice import cover
+                cover(maint)
+            except Exception as e:
+                print(f"[maintenance] cover failed: {e}")
+        if WINDOWS and maint:
+            for proc in psutil.process_iter(["name"]):           # no Task Manager behind the cover
+                if (proc.info.get("name") or "").lower() == "taskmgr.exe":
+                    try:
+                        proc.kill()
+                    except psutil.Error:
+                        pass
         new_mode = p.get("mode", "NORMAL")
         if new_mode != mode:
             print(f"[mode] {mode} -> {new_mode}")
             if mode == "LOCKED":
-                popup("Smart Lab", "Lab staff gave this PC access again.")
+                popup("Access given", "Lab staff gave this PC access again. Welcome back!", kind="ok")
             mode = new_mode
         if mode == "LOCKED" and now - last_lock >= POLL_S:
             last_lock = now
             lock_pc()                    # access removed by staff: locked again if unlocked
         if p.get("message"):
-            popup("Message from lab staff", p["message"]["text"])
+            popup("Message from lab staff", p["message"]["text"], kind="message", sender=p["message"].get("from"))
         if p.get("action"):
             a = p["action"]
             print(f"[action] {a}")
@@ -427,13 +625,18 @@ def main():
 
         b = p.get("broadcast") or {}
         if b.get("active") and not watching_share:
-            popup("Smart Lab", f"{b.get('by') or 'Lab staff'} is sharing their screen" +
-                  (f": {b['title']}" if b.get("title") else "") + ". It opens in your browser.")
+            popup(f"{b.get('by') or 'Lab staff'} is sharing their screen",
+                  (f"\u201c{b['title']}\u201d - " if b.get("title") else "") + "it opens in your browser now.",
+                  kind="share", sender=b.get("by"))
             open_share_page(web + "/share")
         elif watching_share and not b.get("active"):
             print("[share] presentation ended")
         watching_share = bool(b.get("active"))
-        if p.get("broadcast_capture"):           # this is the admin's master PC and it is presenting
+        if bool(p.get("broadcast_capture")) != presenting:
+            presenting = bool(p.get("broadcast_capture"))
+            if presenting:
+                popup("You are presenting", "Your screen is now being shared from this PC (approved by lab staff).", kind="share")
+        if p.get("broadcast_capture"):           # this PC presents: the master PC, or a student's accepted share
             until = time.monotonic() + POLL_S
             while time.monotonic() < until:
                 t = time.monotonic()
@@ -451,12 +654,14 @@ def main():
 
         watched = bool(p.get("mirror"))
         if watched and not mirroring:
-            popup("Smart Lab", "Lab staff are viewing this screen from the Smart Lab portal.")
+            popup("Your screen is being viewed", "Lab staff are viewing this screen from the Smart Lab portal.", kind="view")
         elif mirroring and not watched:
             print("[screen] viewing stopped")
         mirroring = watched
         if not mirroring:
-            idle_wait(http, args, mode, last_report)
+            # exam lockdown: the 1 s loop (as LOCKED), so another program is closed within ~1 s
+            idle_wait(http, args, "LOCKED" if (lockdown is not None and lockdown.active) or maintenance_on else mode,
+                      last_report)
             continue
         # Viewing: send frames for one poll period, then ask again (the viewer's monitor / quality / fps).
         o = p.get("mirror_opts") or {}

@@ -18,6 +18,8 @@ export type LiveMessage =
   | { type: 'notification'; user_id: number; notification: Notification }
   /** A lab camera's people / names / box states changed (staff). */
   | { type: 'security_state'; device_id: number; lab_id: number }
+  | { type: 'pc_state'; device_id: number | null }            // a lab PC changed: refetch /equipment (staff)
+  | { type: 'share_state' }                                    // screen sharing started / stopped
   | { type: 'staff'; kind: string; issue_id?: number; event?: string
       command_id?: number; status?: string; step?: string | null }
   /** The administrator's emergency message / alarm for one lab (everyone). */

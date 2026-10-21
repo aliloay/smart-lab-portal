@@ -1015,7 +1015,15 @@ async function fetchRetrying(url: string, init: RequestInit): Promise<Response> 
 // 1 s of opening an issue stayed invisible - the reload got the pre-upload answer; e2e/workflows.mjs).
 const SHARE_MS = 1000
 const shared = new Map<string, { at: number; p: Promise<unknown>; ttl?: number }>()
+/** A private copy of a shared response. structuredClone is missing in Chrome < 98 (lab PCs on Windows 7
+ *  run old Chrome - sign-in failed there, 2026-10-21); API responses are plain JSON, so a JSON copy is exact. */
+function cloneData<T>(v: T): T {
+  if (v === undefined || v === null || typeof v !== 'object') return v
+  return typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)) as T
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (init.cache === 'no-store') return send<T>(path, init)       // live state: never a shared / cached answer
   const read = (!init.method || init.method === 'GET') && !init.signal && !init.body
   if (!read) {
     shared.clear()
@@ -1023,12 +1031,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const key = `${getToken() ?? ''} ${path}`
   const hit = shared.get(key)
-  if (hit && Date.now() - hit.at < (hit.ttl ?? SHARE_MS)) return hit.p.then(v => structuredClone(v) as T)
+  if (hit && Date.now() - hit.at < (hit.ttl ?? SHARE_MS)) return hit.p.then(v => cloneData(v as T))
   const p = send<T>(path, init)
   shared.set(key, { at: Date.now(), p })
   p.catch(() => shared.delete(key))
   if (shared.size > 200) for (const [k, v] of shared) if (Date.now() - v.at > (v.ttl ?? SHARE_MS)) shared.delete(k)
-  return p.then(v => structuredClone(v) as T)
+  return p.then(v => cloneData(v as T))
 }
 
 /** Start a page's first reads before it opens (sidebar hover / focus / touch; owner 2026-10-20: "I need
@@ -1155,6 +1163,13 @@ export interface PerfReport {
 export type PcLan = { present: boolean; ip: string | null; mac: string | null; via: 'ping' | 'arp' | 'none'
   since: string; checked_at: string }
 
+/** The master = the admin who signed in last (any device); pc = the lab PC they sit at, if its agent proved it. */
+export type MasterNow = { user_name: string | null; device: string | null; pc: string | null; pc_name: string | null
+  since: string | null }
+
+export type ShareRequest = { id: number; user_id: number; name: string; device_id: number | null; pc_name: string | null
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'; at: number }
+
 export const api = {
   login: (email: string, password: string) =>
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
@@ -1237,6 +1252,10 @@ export const api = {
   emergencyPassword: (token: string, new_password: string) =>
     request<{ ok: boolean }>('/emergency/password', { method: 'PUT', body: JSON.stringify({ new_password }),
       headers: { 'X-Emergency-Token': token } }),
+  masterNonce: () => request<{ nonce: string }>('/equipment/master/nonce'),
+  masterClaim: (b: { device_label: string; device_uid?: string; nonce?: string; proof?: string }) =>
+    post<MasterNow>('/equipment/master/claim', b),
+  master: () => request<MasterNow>('/equipment/master'),
   setMasterPc: (id: number, is_master: boolean) =>
     request<{ device_id: number; is_master_pc: boolean }>(`/equipment/${id}/master`,
       { method: 'PUT', body: JSON.stringify({ is_master }) }),
@@ -1312,8 +1331,17 @@ export const api = {
     lan: PcLan | null }[]>('/equipment'),
   equipmentViolations: () => request<{ id: number; device_uid: string; kind: string; detail: string
     os_user: string | null; reviewed: boolean; created_at: string }[]>('/equipment/violations'),
-  setEquipmentMode: (id: number, mode: PcMode) =>
-    request<{ device_id: number; mode: string }>(`/equipment/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+  setEquipmentMode: (id: number, mode: PcMode, exam_url?: string) =>
+    request<{ device_id: number; mode: string; exam_url?: string | null }>(`/equipment/${id}/mode`,
+      { method: 'PUT', body: JSON.stringify({ mode, ...(exam_url ? { exam_url } : {}) }) }),
+  // A student asks to share their lab PC's screen; an admin accepts (to everyone / staff only) or rejects.
+  shareNonce: () => request<{ nonce: string }>('/equipment/share-requests/nonce'),
+  shareAsk: (b: { device_uid?: string; nonce?: string; proof?: string }) => post<ShareRequest>('/equipment/share-requests', b),
+  shareMine: () => request<{ request: ShareRequest | null; presenting: boolean }>('/equipment/share-requests/mine', { cache: 'no-store' }),
+  shareStopMine: () => post<BroadcastState>('/equipment/share-requests/mine/stop', {}),
+  shareRequests: () => request<ShareRequest[]>('/equipment/share-requests', { cache: 'no-store' }),
+  shareDecide: (id: number, accept: boolean, audience: 'all' | 'staff' = 'all') =>
+    post<{ request: ShareRequest }>(`/equipment/share-requests/${id}`, { accept, audience }),
   // Admin master PC (System 1): screen view while staff watch, and messages.
   pcScreenStart: (id: number, opts?: { monitor: number; quality: number; fps: number }) =>
     post<{ watching: boolean }>(`/equipment/${id}/screen/start`, opts),
@@ -1323,7 +1351,7 @@ export const api = {
   broadcastStart: (source: 'browser' | 'master_pc', title = '', targets: number[] | null = null) =>
     post<BroadcastState>('/equipment/broadcast/start', { source, title, targets }),
   broadcastStop: () => post<BroadcastState>('/equipment/broadcast/stop'),
-  broadcastStatus: () => request<BroadcastState>('/equipment/broadcast/status'),
+  broadcastStatus: () => request<BroadcastState>('/equipment/broadcast/status', { cache: 'no-store' }),
   reportCatalogue: () => request<{ kind: string; title: string; description: string; source: string }[]>('/reports-center'),
   reportCenter: (kind: string, start: string, end: string) => request<{
     kind: string; title: string; description: string; source: string; start: string; end: string; generated_at: string

@@ -7,15 +7,19 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Cast, LayoutGrid, MonitorPlay, MonitorUp, Square, X } from 'lucide-react'
-import { BroadcastState, api, fetchBlob } from '../lib/api'
+import { Cast, Crown, LayoutGrid, MonitorPlay, MonitorUp, Square, X } from 'lucide-react'
+import { BroadcastState, MasterNow, ShareRequest, api, fetchBlob } from '../lib/api'
+import { relative } from '../lib/time'
 import { cancelPreview, canCaptureHere, goLive, isCapturing, onShareChange, pendingPreview, pickScreen, stopShare } from '../lib/screenShare'
 import { PcScreenViewer } from './PcControls'
+import { useLiveMessages } from '../lib/live'
 import { Chip } from './ui'
 
 /** Live JPEG from an endpoint, refreshed every `ms` (object URLs revoked). */
-export function useLiveJpeg(path: string | null, ms: number) {
+export function useLiveJpeg(path: string | null, ms: number, onGone?: () => void) {
   const [src, setSrc] = useState<string | null>(null)
+  const gone = useRef(onGone)
+  gone.current = onGone
   const [at, setAt] = useState<number | null>(null)
   const url = useRef<string | null>(null)
   useEffect(() => {
@@ -34,7 +38,15 @@ export function useLiveJpeg(path: string | null, ms: number) {
           setAt(Date.now())
           got = true
         }
-      } catch { /* shown as stale */ }
+      } catch (e) {
+        // 410: the share has ended - drop the last picture now, not at the next status check
+        if ((e as { status?: number }).status === 410) {
+          if (url.current) URL.revokeObjectURL(url.current)
+          url.current = null
+          setSrc(null)
+          gone.current?.()                          // keep asking: the next share must show up again
+        }
+      }
       if (!stop) t = window.setTimeout(tick, got ? ms : Math.min(ms, 200))
     }
     void tick()
@@ -46,6 +58,23 @@ export function useLiveJpeg(path: string | null, ms: number) {
     }
   }, [path, ms])
   return { src, stale: at === null || Date.now() - at > 5000 }
+}
+
+/** Who the master is: the admin who signed in last, on whatever device (owner 2026-10-21). */
+export function MasterLine() {
+  const [m, setM] = useState<MasterNow | null>(null)
+  useEffect(() => {
+    const load = () => api.master().then(setM).catch(() => {})
+    load(); const t = window.setInterval(load, 10000); return () => window.clearInterval(t)
+  }, [])
+  if (!m?.user_name) return null
+  return (
+    <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+      <Crown size={13} className="text-violet-300" />
+      <span>Master: <b className="text-white">{m.user_name}</b> · {m.device}
+        {m.pc_name ? <> · at <b className="text-white">{m.pc_name}</b></> : ' · not at a lab PC'}
+        {m.since ? <span className="text-slate-500"> · since {relative(m.since)}</span> : null}</span>
+    </div>)
 }
 
 export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pcs?: { id: number; name: string; online: boolean }[] }) {
@@ -64,6 +93,12 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
     const off = onShareChange(() => { force(n => n + 1); load() })
     return () => { window.clearInterval(t); off() }
   }, [load])
+  const [asks, setAsks] = useState<ShareRequest[]>([])
+  const loadAsks = useCallback(() => { api.shareRequests().then(setAsks).catch(() => setAsks([])) }, [])
+  useEffect(() => { loadAsks(); const t = window.setInterval(loadAsks, 5000); return () => window.clearInterval(t) }, [loadAsks])
+  useLiveMessages(m => { if (m.type === 'share_state') { load(); loadAsks() } })
+  const decide = (r: ShareRequest, accept: boolean, audience: 'all' | 'staff' = 'all') =>
+    go(() => api.shareDecide(r.id, accept, audience)).then(loadAsks)
   const pending = pendingPreview()
   useEffect(() => { if (preview.current) preview.current.srcObject = pending }, [pending])
   const { src } = useLiveJpeg(st?.active ? '/equipment/broadcast/frame.jpg' : null, 1000)
@@ -86,6 +121,17 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
           ? <Chip tone="ok" dot className="ml-auto">presenting · {st.by} · {st.source === 'browser' ? 'browser' : 'master PC'} · {st.targets ? `${st.targets.length} PC(s)` : 'all lab PCs'}</Chip>
           : <Chip tone="idle" className="ml-auto">not sharing</Chip>}
       </div>
+      <MasterLine />
+      {asks.map(r => (
+        <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-400/50 bg-violet-500/10 px-3 py-2 text-[13px]">
+          <MonitorUp size={15} className="text-violet-300" />
+          <span><b className="text-white">{r.name}</b> asks to share <b className="text-white">{r.pc_name ?? 'their PC'}</b>'s screen</span>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            <button className="btn-primary btn-sm" disabled={busy} onClick={() => decide(r, true, 'all')}>Accept - show everyone</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => decide(r, true, 'staff')}>Accept - only me</button>
+            <button className="btn-ghost btn-sm text-bad-soft" disabled={busy} onClick={() => decide(r, false)}>Reject</button>
+          </span>
+        </div>))}
       {!st?.active && <>
         <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
           <span className="text-slate-400">Send to:</span>
@@ -105,7 +151,7 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
               <MonitorUp size={14} /> Choose screen or window…</button>
             <button className="btn-ghost btn-sm" disabled={busy || !hasMasterPc || noTargets}
                     onClick={() => go(() => api.broadcastStart('master_pc', title, targets))}
-                    title={hasMasterPc ? '' : 'Mark the admin PC as master PC first'}><MonitorPlay size={14} /> Share from master PC</button>
+                    title={hasMasterPc ? '' : 'An admin signing in on a lab PC that runs the agent makes it the master PC'}><MonitorPlay size={14} /> Share from master PC</button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -122,7 +168,7 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
       </>}
       {st?.active && (
         <div className="flex flex-wrap items-center gap-2">
-          <button className="btn-ghost btn-sm text-bad-soft border border-bad/40" disabled={busy} onClick={() => go(stopShare)}>
+          <button className="btn-ghost btn-sm text-bad-soft border border-bad/40" disabled={busy} onClick={() => go(() => stopShare(true))}>
             <Square size={13} /> Stop sharing</button>
           <a className="btn-ghost btn-sm" href="/share" target="_blank" rel="noreferrer">Open the students' view</a>
           {st.source === 'browser' && !isCapturing() &&

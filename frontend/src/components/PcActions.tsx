@@ -33,6 +33,16 @@ export default function PcActions({ deviceId, name, admin, online }: { deviceId:
   }
   const off = pending || !!active || !online
   const last = rows[0]
+  // Restart / shut down: the PC confirmed and shows a 60 s countdown; the card counts down in step.
+  const doneAt = last && ['restart', 'shutdown'].includes(last.action) && last.status === 'COMPLETED' && last.completed_at
+    ? new Date(last.completed_at).getTime() : 0
+  const [, tickNow] = useState(0)
+  const left = doneAt ? Math.max(0, Math.round(60 - (Date.now() - doneAt) / 1000)) : 0
+  useEffect(() => {
+    if (!left) return
+    const t = window.setInterval(() => tickNow(n => n + 1), 500)
+    return () => window.clearInterval(t)
+  }, [left > 0])                                              // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="pt-2 border-t border-ink-700/60 space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -51,6 +61,8 @@ export default function PcActions({ deviceId, name, admin, online }: { deviceId:
       {last && <div className="text-[11.5px] text-slate-400 flex flex-wrap items-center gap-1.5">
         Last: {LABEL[last.action] ?? last.action}{last.app ? ` ${last.app}` : ''} <Chip tone={TONE[last.status] ?? 'idle'}>{last.status.toLowerCase()}</Chip>
         <span className="text-slate-500">{last.message} · {relative(last.created_at)}</span></div>}
+      {left > 0 && <div className="text-[12.5px] text-warn-soft font-medium">
+        {last.action === 'restart' ? 'Restarting' : 'Shutting down'} in {left} s - the user sees the same countdown</div>}
       {error && <p className="text-[11.5px] text-bad-soft">{error}</p>}
     </div>
   )

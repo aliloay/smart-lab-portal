@@ -8,7 +8,7 @@
  * on "Stop sharing" in the browser bar, or when the tab closes.
  * Screen capture needs a secure page (https://...); on plain http the master-PC source is used.
  */
-import { api, uploadBroadcastFrame } from './api'
+import { api, getToken, uploadBroadcastFrame } from './api'
 
 const FRAME_MS = 500
 const MAX_W = 1280
@@ -73,9 +73,24 @@ function stopTracks() {
 
 export function cancelPreview() { stopTracks(); notify() }
 
-export async function stopShare(): Promise<void> {
+// Closing / reloading the presenting tab: stop the capture and end the share in the portal right away
+// (keepalive lets the request finish while the page unloads), instead of viewers seeing a frozen picture.
+window.addEventListener('pagehide', () => {
+  if (!live) return
+  stopTracks()
+  const token = getToken()
+  try {
+    void fetch('/api/equipment/broadcast/stop', { method: 'POST', keepalive: true,
+      headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  } catch { /* the portal also ends a silent share by itself */ }
+})
+
+/** force: the admin pressed Stop - end the share in the portal even when THIS tab is not the one
+ *  capturing (another tab / device, or the master PC). Without it Stop did nothing there (2026-10-21).
+ *  The capturing tab learns it on its next frame (409) and releases the screen. */
+export async function stopShare(force = false): Promise<void> {
   const wasLive = live
   stopTracks()
-  if (wasLive) await api.broadcastStop().catch(() => {})
+  if (wasLive || force) await api.broadcastStop().catch(() => {})
   notify()
 }

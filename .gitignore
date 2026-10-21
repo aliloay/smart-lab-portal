@@ -78,3 +78,9 @@ tools/pc_agent/win7_usb/ucrt/
 tools/pc_agent/win7_usb/agent/agent.env
 tools/lan_presence/presence_log.jsonl
 tools/pc_agent/SmartLab_PC_agent_Win7_USB.zip
+tools/pc_agent/SmartLab_PC_agent_UPDATE.zip
+# generated copies for the USB package (originals in tools/pc_agent/)
+tools/pc_agent/win7_usb/agent/pc_agent.py
+tools/pc_agent/win7_usb/agent/exam_lockdown.py
+tools/pc_agent/win7_usb/agent/notice.py
+tools/pc_agent/win7_usb/agent/start_pc_agent.bat

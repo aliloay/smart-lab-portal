@@ -114,6 +114,22 @@ if exist "%~dp0tools\knowledge\config.json" (
   )
 )
 
+rem ---- This laptop's own PC agent (ADMIN-LAPTOP in the portal: online, screen view, the admin's
+rem master PC at sign-in). Starts once tools\pc_agent\agent.env exists (it holds this PC's key).
+if exist "%~dp0tools\pc_agent\agent.env" (
+  tasklist /v /fi "WINDOWTITLE eq Smart Lab - PC agent*" | findstr /i "agent" >nul || (
+    start "Smart Lab - PC agent" /min cmd /c call "%~dp0tools\pc_agent\start_pc_agent.bat"
+  )
+)
+
+rem ---- Lab PCs on / off over the lab cable, by MAC - nothing installed on the PCs
+rem (tools\lan_presence\lan_presence.json lists them).
+if exist "%~dp0tools\lan_presence\lan_presence.json" (
+  tasklist /v /fi "WINDOWTITLE eq Smart Lab - LAN presence*" | findstr /i "presence" >nul || (
+    start "Smart Lab - LAN presence" /min cmd /c call "%~dp0tools\lan_presence\start_lan_presence.bat"
+  )
+)
+
 rem ---- The friendly name https://smartlab.local for every device on the Smart_Lab network (mDNS).
 tasklist /v /fi "WINDOWTITLE eq Smart Lab - Name*" | findstr /i "Name" >nul || (
   start "Smart Lab - Name smartlab.local" /min cmd /k py "%~dp0tools\mdns\announce.py"

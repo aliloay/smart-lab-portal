@@ -75,3 +75,33 @@ def test_absent_unknown_pc_creates_nothing(client, db, lab, device_headers):
 
 def test_students_cannot_read_lan_state(client, alice):
     assert client.get("/api/equipment", headers=auth_headers(client, alice.email)).status_code == 403
+
+
+def _agent(client, headers, lab, started, boot=1000, user="student1"):
+    return client.post("/api/equipment/state", headers=headers, json={
+        "device_uid": "PC_05", "lab_id": lab.code, "kind": "PC", "state": "RUNNING",
+        "detail": {"agent_started": started, "boot_time": boot, "os_user": user}})
+
+
+def test_agent_killed_without_reboot_alerts_staff(client, db, staff, lab, device_headers):
+    """Invisible agent (2026-10-21): a new agent run on the same Windows boot = it was stopped."""
+    from app.models import Alert
+    _agent(client, device_headers, lab, 111.0)
+    _agent(client, device_headers, lab, 111.0)                      # same run: nothing
+    assert db.query(AuditLog).filter_by(action="PC_AGENT_RESTARTED").count() == 0
+    _agent(client, device_headers, lab, 222.0)                      # killed, restarted by the task
+    assert db.query(AuditLog).filter_by(action="PC_AGENT_RESTARTED").count() == 1
+    a = db.query(Alert).filter(Alert.title.like("%agent was stopped%")).one()
+    assert "student1" in a.title
+    _agent(client, device_headers, lab, 333.0, boot=2000)           # PC rebooted: normal, no alert
+    assert db.query(AuditLog).filter_by(action="PC_AGENT_RESTARTED").count() == 1
+
+
+def test_lan_targets_come_from_the_agents_own_macs(client, db, lab, device_headers):
+    """A PC with the agent is checked on the LAN without anyone typing its MAC (2026-10-21)."""
+    client.post("/api/equipment/state", headers=device_headers, json={
+        "device_uid": "PC_07", "lab_id": lab.code, "kind": "PC", "asset_tag": "PC-07", "state": "IDLE",
+        "detail": {"macs": ["aa-bb-cc-dd-ee-07"], "ips": ["192.168.1.107"]}})
+    rows = client.get("/api/equipment/pc/lan-targets", headers=device_headers).json()
+    assert {"device_uid": "PC_07", "asset_tag": "PC-07", "macs": ["aa-bb-cc-dd-ee-07"], "ips": ["192.168.1.107"]} in rows
+    assert client.get("/api/equipment/pc/lan-targets").status_code == 401

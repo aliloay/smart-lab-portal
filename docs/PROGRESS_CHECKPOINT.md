@@ -1,5 +1,24 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## Checkpoint 2026-10-21 ~04:45 (home, Smart_Lab router on LAN3 with the owner's old HP laptop = PC-01) - committed, NOT pushed, deployed
+| Done | Evidence |
+|---|---|
+| Lab PCs on/off over the LAN by MAC with nothing installed (tools/lan_presence: ping from 192.168.1.200 + Windows neighbour table; MACs learned from the agents) | live: PC-01 ON via ping (4 ms); cable/shutdown transitions in presence_log.jsonl and the audit log |
+| PC agent on Windows 7 (Python 3.8 fix, offline USB installer, invisible via scheduled task every minute + single instance, kill alert, portal opens at sign-in, MAC report) | PC-01 reports agent 0.9 live; agent tests 14 |
+| Admin who signs in = master (agent HMAC proof on 127.0.0.1:47123; Docker hides client IPs) | live: MASTER_CLAIMED pc=PC_ADMIN_LAPTOP 00:22:34Z; tests/test_master_signin.py |
+| Screen sharing: Stop ends it from any tab; 410 "ended" + share_state push; presenter-gone auto end (90 s); viewer cache bypass | live E2E 5 rounds: stop -> viewer cleared 52-144 ms; under load 24-337 ms, late frames 409 |
+| Live pushes pc_state / share_state (WS) | ws_clients: +0.2 msg/s per client |
+| Students share their PC screen after admin approval (everyone / staff only), Exam lockdown (kiosk Chrome --app, closes other windows, reports), Maintenance full-screen cover, coloured notice cards, 60 s restart/shut-down countdown + /f | backend tests/test_share_requests_exam.py; agent test_exam_lockdown.py; cards and cover rendered (screenshots) |
+| Robots & PCs: picture-first robot views (no WebGL context until live / pointed at), wheel scrolls the page (Ctrl+wheel zooms) | robots shown 2.9-3.3 s -> 0.53-0.60 s; longest task 0.88-1.6 s -> 0.11-0.16 s; wheel over twin scrolled 720 px |
+| Old Chrome support (structuredClone fallback) | e2e/old_browser_compat.test.mjs |
+| Load (isolated, simulated, docs/perf/runs_2026-10-21): robots + 2 cameras + env + 11 PCs + share + 11 viewers + WS | 0 errors; /monitor p95 364 ms (10-14: 0.25-1.0 s); cameras 6.6-6.8 fps, pass p95 120-133 ms; RSS flat |
+| Door box: 0.3 mm fit rule (Neptune 4), STL zip, renders | commit 66fa726 |
+| Tests: backend 581 passed; agent 14; lan_presence 5; robot_monitor 41; knowledge 49; frontend tsc + build + node tests | this session |
+
+**Physical / pending:** on PC-01 install the 04:26 update and verify: invisible start, portal at sign-in, Restart countdown,
+Maintenance cover, Exam lockdown closing real programs, student share; PC-01 clock is 2010 (CMOS battery);
+print the FitCoupon before the box; camera walk tests; usernames.
+
 ## Checkpoint 2026-10-20 ~21:30 (home, cameras OFFLINE) - committed, NOT pushed, nothing deployed
 | Done | Evidence |
 |---|---|

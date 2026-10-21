@@ -1,0 +1,10 @@
+== 3 WebSocket clients, 110 s (SIMULATED workload): opened 3, unexpected closes 0
+   8.7 msgs/s per client, 1.9 KB/s per client
+   robot_state        6.74/s per client, avg 261 B
+   robot_status       1.03/s per client, avg 106 B
+   env_update         0.37/s per client, avg 32 B
+   env_warning        0.18/s per client, avg 238 B
+   security_state     0.16/s per client, avg 50 B
+   pc_state           0.11/s per client, avg 34 B
+   share_state        0.10/s per client, avg 22 B
+   staff              0.04/s per client, avg 65 B

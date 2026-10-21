@@ -87,6 +87,13 @@ class ConnectionManager:
         if kind == "inventory_update":
             # "A bin was weighed - refetch": staff pages (GET /inventory/bins is staff-only).
             return client.is_staff
+        if kind == "pc_state":
+            # "A lab PC changed (agent on/off, cable, user, mode, action) - refetch /equipment":
+            # staff pages only (GET /equipment is staff-only).
+            return client.is_staff
+        if kind == "share_state":
+            # Screen sharing started / stopped: everyone signed in may watch /share.
+            return True
         if kind == "door_state":
             # Door open/closed and lock state: the same facts GET /labs/{id}
             # already shows any signed-in user. Only a "refetch" hint.

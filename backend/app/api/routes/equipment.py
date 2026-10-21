@@ -38,6 +38,23 @@ from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingS
                         PolicyViolation, Role, SensorReading, User)
 from app.services import commands as cmds
 from app.services import lan_presence
+
+
+def _pc_changed(device_id: Optional[int] = None) -> None:
+    """Live hint to staff pages: a lab PC changed - they refetch at once instead of on a 10 s timer."""
+    try:
+        from app.ws.manager import manager
+        manager.publish({"type": "pc_state", "device_id": device_id})
+    except Exception:
+        pass
+
+
+def _share_changed() -> None:
+    try:
+        from app.ws.manager import manager
+        manager.publish({"type": "share_state"})
+    except Exception:
+        pass
 from app.services import pc_control
 from app.services.access import get_device, get_lab_by_code
 from app.services.devices import is_fresh, refresh_liveness
@@ -88,6 +105,28 @@ class StateReport(BaseModel):
     firmware_version: Optional[str] = Field(default=None, max_length=64)
 
 
+def _agent_stopped_check(db: Session, d: Device, lab: Lab, prev: dict, now_detail: dict) -> None:
+    """Lab PCs run the agent invisibly, re-started every minute by a scheduled task (2026-10-21), so a
+    student who kills it gets it back - and staff are told: a new agent run (agent_started changed)
+    on the SAME Windows boot (boot_time unchanged) means the agent was stopped, not the PC restarted."""
+    a0, a1 = prev.get("agent_started"), now_detail.get("agent_started")
+    b0, b1 = prev.get("boot_time"), now_detail.get("boot_time")
+    if d.device_type != DeviceType.PC or not a0 or not a1 or a0 == a1 or b0 is None or b0 != b1:
+        return
+    who = prev.get("os_user") or "nobody"
+    lan = lan_presence.get(d.device_uid)
+    title = f"{d.name}: PC agent was stopped and restarted while {who} was signed in"
+    detail = {"device": d.device_uid, "os_user": prev.get("os_user"), "previous_run": a0, "new_run": a1,
+              "on_lan": lan["present"] if lan else None}
+    db.add(Alert(lab_id=lab.id, device_id=d.id, severity=AlertSeverity.WARNING, title=title,
+                 detail=str(detail)[:500]))
+    db.add(AuditLog(actor_user_id=None, action="PC_AGENT_RESTARTED", entity_type="device",
+                    entity_id=str(d.id), detail=detail))
+    notify(db, staff_ids(db), "PC_AGENT_STOPPED", title,
+           body="The agent is back (it restarts by itself within a minute). Someone may have ended it in Task Manager.",
+           link="/admin/equipment", severity="warning")
+
+
 @router.post("/state", tags=["devices"])
 def report_state(req: StateReport, db: Session = Depends(get_db),
                  identity: str = Depends(require_device)):
@@ -107,9 +146,12 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
         a = db.scalar(select(Asset).where(Asset.asset_tag == req.asset_tag))
         if a is not None:
             d.asset_id = a.id
+    prev = d.component_state or {}
+    was_fresh = is_fresh(d, now)
     d.last_seen_at, d.is_online = now, True
     d.firmware_version = req.firmware_version or d.firmware_version
     d.component_state = {"state": req.state, **req.detail}
+    _agent_stopped_check(db, d, lab, prev, req.detail)
     # The agent's own clock vs this server's at arrival (2026-10-18 clock check): the difference
     # includes the network delay (milliseconds here), so only seconds matter.
     at = req.detail.get("agent_time")
@@ -136,6 +178,10 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
         db.add(SensorReading(lab_id=lab.id, device_id=d.id, metric=m.metric,
                              value=m.value, unit=m.unit, recorded_at=now))
     db.commit()
+    if d.device_type == DeviceType.PC and (not was_fresh or prev.get("state") != req.state
+                                            or prev.get("os_user") != req.detail.get("os_user")
+                                            or prev.get("ips") != req.detail.get("ips")):
+        _pc_changed(d.id)
     mode = d.mode or "NORMAL"
     return {"mode": mode,
             "prohibited": settings.exam_prohibited if mode == "EXAM" else []}
@@ -236,6 +282,9 @@ def list_violations(db: Session = Depends(get_db), _: User = Depends(require_sta
 class ModeRequest(BaseModel):
     # LOCKED = access removed: the agent keeps the PC locked until NORMAL.
     mode: Literal["NORMAL", "EXAM", "MAINTENANCE", "LOCKED"]
+    # EXAM with an exam page = lockdown: the agent closes other programs and opens only this page in a
+    # kiosk Chrome window (2026-10-21). Without it EXAM only reports prohibited programs (as before).
+    exam_url: Optional[str] = Field(default=None, max_length=300, pattern=r"^https?://\S+$")
 
 
 @router.put("/{device_id}/mode")
@@ -246,12 +295,29 @@ def set_mode(device_id: int, req: ModeRequest, db: Session = Depends(get_db),
     d.mode = req.mode
     action = ("PC_ACCESS_REMOVED" if req.mode == "LOCKED" else
               "PC_ACCESS_GIVEN" if old == "LOCKED" else "PC_MODE_SET")
+    url = req.exam_url if req.mode == "EXAM" else None
+    pc_control.exam_url_set(d.id, url)
     db.add(AuditLog(actor_user_id=staff.id, action=action, entity_type="device",
                     entity_id=str(d.id), detail={"from": old, "to": req.mode,
-                                                 "device": d.device_uid}))
+                                                 "device": d.device_uid, "exam_url": url}))
     db.commit()
     pc_control.signal(d.id)                        # the agent's long-poll wakes and applies it
-    return {"device_id": d.id, "mode": d.mode}
+    _pc_changed(d.id)
+    return {"device_id": d.id, "mode": d.mode, "exam_url": url}
+
+
+def _exam_url_for(db: Session, d: Device) -> Optional[str]:
+    """The exam page while the PC is in EXAM (memory; after a portal restart: the last mode change)."""
+    if (d.mode or "NORMAL") != "EXAM":
+        return None
+    u = pc_control.exam_url(d.id)
+    if u is None:
+        a = db.scalar(select(AuditLog).where(AuditLog.entity_type == "device", AuditLog.entity_id == str(d.id),
+                                             AuditLog.action == "PC_MODE_SET").order_by(desc(AuditLog.id)).limit(1))
+        u = (a.detail or {}).get("exam_url") if a else None
+        if u:
+            pc_control.exam_url_set(d.id, u)
+    return u
 
 
 def _pc(db: Session, device_id: int, user: Optional[User] = None) -> Device:
@@ -264,6 +330,91 @@ def _pc(db: Session, device_id: int, user: Optional[User] = None) -> Device:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "This is the lab engineer's master PC - administrators only.")
     return d
+
+
+# ---------------------------------------------- the admin who signs in IS the master (2026-10-21) ---
+# Owner: "whenever an admin signs in, whatever the device, the place, the type of connection - he IS
+# the master". The master is the admin, not a fixed PC: from any browser they share their screen and
+# view / control every lab PC. If that browser runs on a lab PC with the agent, the agent proves which
+# PC it is (HMAC of a one-time nonce with its key's hash - the portal keeps only that hash), and that
+# PC becomes the master PC (protected from staff control; "Share from master PC"); the previous master
+# PC is released. On a device without the agent (own laptop, phone, Wi-Fi) no lab PC is master.
+# Docker Desktop hides the client address (every request arrives from 172.18.0.1), so the IP cannot
+# identify the device - hence the agent's proof.
+_master_nonces: dict[str, tuple[int, float]] = {}       # nonce -> (admin user id, expires monotonic)
+MASTER_NONCE_S = 60.0
+
+
+@router.get("/master/nonce")
+def master_nonce(admin: User = Depends(require_admin)):
+    import secrets
+    now = time.monotonic()
+    for k in [k for k, (_, exp) in _master_nonces.items() if exp < now]:
+        _master_nonces.pop(k, None)
+    n = secrets.token_hex(16)
+    _master_nonces[n] = (admin.id, now + MASTER_NONCE_S)
+    return {"nonce": n}
+
+
+class MasterClaim(BaseModel):
+    device_label: str = Field(max_length=120)
+    device_uid: Optional[str] = Field(default=None, max_length=64)
+    nonce: Optional[str] = Field(default=None, max_length=64)
+    proof: Optional[str] = Field(default=None, max_length=128)
+
+
+def _proof_ok(d: Device, nonce: str, proof: str) -> bool:
+    import hashlib
+    import hmac as _hmac
+    from app.api.deps import hash_device_key
+    hashes = [h for h in (d.key_hash, hash_device_key(settings.DEVICE_API_KEY) if settings.DEVICE_SHARED_KEY else None) if h]
+    return any(_hmac.compare_digest(_hmac.new(h.encode(), nonce.encode(), hashlib.sha256).hexdigest(), proof)
+               for h in hashes)
+
+
+@router.post("/master/claim")
+def master_claim(req: MasterClaim, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Called by the web app right after an admin signs in. The admin becomes the master; the lab PC
+    they sit at becomes the master PC only with a valid agent proof."""
+    pc: Optional[Device] = None
+    if req.device_uid and req.nonce and req.proof:
+        owner = _master_nonces.pop(req.nonce, None)
+        if owner is None or owner[0] != admin.id or owner[1] < time.monotonic():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Sign-in check expired - sign in again")
+        d = get_device(db, req.device_uid)
+        if d is None or d.device_type != DeviceType.PC or not _proof_ok(d, req.nonce, req.proof):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "This PC could not prove which PC it is")
+        pc = d
+    changed = []
+    for d in db.scalars(select(Device).where(Device.device_type == DeviceType.PC)).all():
+        want = pc is not None and d.id == pc.id
+        if bool(d.is_master_pc) != want:
+            d.is_master_pc = want
+            changed.append(d.id)
+    db.add(AuditLog(actor_user_id=admin.id, action="MASTER_CLAIMED", entity_type="user",
+                    entity_id=str(admin.id), detail={"admin": admin.full_name, "device": req.device_label,
+                                                     "pc": pc.device_uid if pc else None}))
+    db.commit()
+    for i in changed:
+        pc_control.signal(i)
+    _pc_changed(None)
+    return _master_out(db)
+
+
+def _master_out(db: Session) -> dict:
+    a = db.scalar(select(AuditLog).where(AuditLog.action == "MASTER_CLAIMED")
+                  .order_by(desc(AuditLog.created_at), desc(AuditLog.id)).limit(1))
+    if a is None:
+        return {"user_name": None, "device": None, "pc": None, "pc_name": None, "since": None}
+    pc = get_device(db, a.detail.get("pc")) if a.detail.get("pc") else None
+    return {"user_name": a.detail.get("admin"), "device": a.detail.get("device"),
+            "pc": pc.device_uid if pc else None, "pc_name": pc.name if pc else None, "since": a.created_at}
+
+
+@router.get("/master")
+def current_master(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Who the master is now: the admin who signed in last, their device, and their lab PC (if any)."""
+    return _master_out(db)
 
 
 class MasterRequest(BaseModel):
@@ -280,6 +431,7 @@ def set_master(device_id: int, req: MasterRequest, db: Session = Depends(get_db)
                     entity_id=str(d.id), detail={"device": d.device_uid, "is_master": req.is_master}))
     db.commit()
     pc_control.signal(d.id)
+    _pc_changed(d.id)
     return {"device_id": d.id, "is_master_pc": d.is_master_pc}
 
 
@@ -335,7 +487,26 @@ def report_lan_presence(req: LanPresenceReport, db: Session = Depends(get_db),
                             entity_type="device", entity_id=str(d.id),
                             detail={"device": d.device_uid, "ip": pc.ip, "mac": pc.mac, "via": pc.via}))
     db.commit()
+    if changes:
+        _pc_changed(None)
     return {"ok": True, "changes": changes}
+
+
+@router.get("/pc/lan-targets", tags=["devices"])
+def lan_targets(db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """For tools/lan_presence: every lab PC whose agent has reported its MAC address(es), so a new PC
+    is checked on the LAN without anyone typing its MAC (2026-10-21). Shared lab key only."""
+    from app.api.deps import SHARED
+    if identity != SHARED:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "LAN targets need the lab's shared device key")
+    out = []
+    for d in db.scalars(select(Device).where(Device.device_type == DeviceType.PC)).all():
+        macs = [m for m in (d.component_state or {}).get("macs") or [] if isinstance(m, str) and len(m) == 17]
+        if macs:
+            a = db.get(Asset, d.asset_id) if d.asset_id else None
+            out.append({"device_uid": d.device_uid, "asset_tag": a.asset_tag if a else d.name,
+                        "macs": macs, "ips": (d.component_state or {}).get("ips") or []})
+    return out
 
 
 @router.get("/pc/poll", tags=["devices"])
@@ -361,19 +532,24 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
             # Shown the moment it is handed over: nothing else to wait for.
             c.status, c.sent_at, c.completed_at = "DONE", now, now
             c.message = "Shown on the PC."
-            message = {"id": c.id, "text": (c.args or {}).get("text", "")}
+            who = db.get(User, c.requested_by_id) if c.requested_by_id else None
+            message = {"id": c.id, "text": (c.args or {}).get("text", ""), "from": who.full_name if who else None}
         cmds.publish_later(db, c)
         db.commit()
         cmds.flush_published(db)
     b = pc_control.broadcast_state()
+    capture = bool(b["active"] and ((b["source"] == "master_pc" and d.is_master_pc)
+                                    or (b["source"] == "pc" and b.get("device_id") == d.id)))
     return {"mode": d.mode or "NORMAL", "mirror": pc_control.is_watched(d.id),
+            "exam": {"url": u, "lockdown": True} if (u := _exam_url_for(db, d)) else None,
             "message": message, "action": _hand_over_action(db, d),
             # Presenting: students' PCs open the portal's /share page; the master PC uploads frames
             # when the admin chose it as the source.
             "broadcast": {"active": b["active"] and (b["targets"] is None or d.id in b["targets"]),
-                          "by": b["by"], "title": b["title"]} if not d.is_master_pc else None,
+                          "by": b["by"], "title": b["title"]}
+                         if not d.is_master_pc and not capture and b.get("audience", "all") == "all" else None,
             "mirror_opts": pc_control.view_opts(d.id) if pc_control.is_watched(d.id) else None,
-            "broadcast_capture": bool(d.is_master_pc and b["active"] and b["source"] == "master_pc")}
+            "broadcast_capture": capture}
 
 
 @router.post("/pc/frame", tags=["devices"], status_code=status.HTTP_204_NO_CONTENT)
@@ -585,6 +761,7 @@ def pc_action_result(req: PcActionResult, db: Session = Depends(get_db), identit
                     entity_id=str(d.id), detail={"device": d.device_uid, "command_id": c.id, "ok": req.ok,
                                                  "message": c.message, **(c.args or {})}))
     db.commit()
+    _pc_changed(d.id)
     return _action_out(c)
 
 
@@ -609,20 +786,123 @@ def broadcast_start(req: BroadcastStart, db: Session = Depends(get_db), admin: U
     db.add(AuditLog(actor_user_id=admin.id, action="PC_BROADCAST_STARTED", entity_type="broadcast",
                     entity_id="screen", detail={"source": req.source, "title": req.title, "targets": req.targets or "all"}))
     db.commit()
+    _share_changed()
     return st
 
 
 @router.post("/broadcast/stop")
 def broadcast_stop(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    was = pc_control.broadcast_state()["active"]
     st = pc_control.broadcast_stop()
-    db.add(AuditLog(actor_user_id=admin.id, action="PC_BROADCAST_STOPPED", entity_type="broadcast", entity_id="screen"))
-    db.commit()
+    if was:                                       # idempotent: a second Stop is not audited again
+        db.add(AuditLog(actor_user_id=admin.id, action="PC_BROADCAST_STOPPED", entity_type="broadcast", entity_id="screen"))
+        db.commit()
+    _share_changed()
     return st
 
 
 @router.get("/broadcast/status")
-def broadcast_status(_: User = Depends(get_current_user)):
-    return pc_control.broadcast_state()
+def broadcast_status(viewer: User = Depends(get_current_user)):
+    st = pc_control.broadcast_state()
+    if st.get("audience") == "staff" and viewer.role not in (Role.ADMIN, Role.LAB_STAFF) and viewer.id != st.get("by_id"):
+        return {**st, "active": False, "by": None, "title": ""}  # private to staff: others see nothing
+    return st
+
+
+# ---------------------------------- a student asks to share; an admin accepts (2026-10-21) ---
+class ShareAsk(BaseModel):
+    device_uid: Optional[str] = Field(default=None, max_length=64)
+    nonce: Optional[str] = Field(default=None, max_length=64)
+    proof: Optional[str] = Field(default=None, max_length=128)
+
+
+def _admin_ids(db: Session) -> list[int]:
+    return list(db.scalars(select(User.id).where(User.role == Role.ADMIN, User.is_active.is_(True))).all())
+
+
+@router.get("/share-requests/nonce")
+def share_nonce(user: User = Depends(get_current_user)):
+    """One-time nonce for the PC proof (as at the admin's sign-in): which lab PC the student sits at."""
+    import secrets
+    now = time.monotonic()
+    n = secrets.token_hex(16)
+    _master_nonces[n] = (user.id, now + MASTER_NONCE_S)
+    return {"nonce": n}
+
+
+@router.post("/share-requests")
+def share_ask(req: ShareAsk, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """A student asks to share their lab PC's screen. Only a PC whose agent proves itself can present
+    (its agent captures - the lab PCs' browsers run on plain http, where a page may not capture)."""
+    if not (req.device_uid and req.nonce and req.proof):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "Sharing works from a lab PC with the Smart Lab agent - this device could not be recognised.")
+    owner = _master_nonces.pop(req.nonce, None)
+    if owner is None or owner[0] != user.id or owner[1] < time.monotonic():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The check expired - try again")
+    d = get_device(db, req.device_uid)
+    if d is None or d.device_type != DeviceType.PC or not _proof_ok(d, req.nonce, req.proof):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This PC could not prove which PC it is")
+    r = pc_control.share_request_add(user.id, user.full_name, d.id, d.name)
+    db.add(AuditLog(actor_user_id=user.id, action="SHARE_REQUESTED", entity_type="device", entity_id=str(d.id),
+                    detail={"device": d.device_uid, "request": r["id"]}))
+    notify(db, _admin_ids(db), "SHARE_REQUEST", f"{user.full_name} asks to share {d.name}'s screen",
+           body="Accept or reject on Lab equipment - Robots & PCs.", link="/admin/equipment?tab=noncons",
+           severity="warning")
+    db.commit()
+    _share_changed()
+    return r
+
+
+@router.get("/share-requests/mine")
+def share_mine(user: User = Depends(get_current_user)):
+    r = pc_control.share_request_of(user.id)
+    st = pc_control.broadcast_state()
+    return {"request": r, "presenting": bool(st["active"] and st.get("by_id") == user.id and st["source"] == "pc")}
+
+
+@router.get("/share-requests")
+def share_list(_: User = Depends(require_admin)):
+    return pc_control.share_requests()
+
+
+class ShareDecision(BaseModel):
+    accept: bool
+    audience: Literal["all", "staff"] = "all"          # everyone (all lab PCs + /share) or only staff
+
+
+@router.post("/share-requests/{req_id}")
+def share_decide(req_id: int, body: ShareDecision, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    r = pc_control.share_request_set(req_id, "ACCEPTED" if body.accept else "REJECTED")
+    if r is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This request was already answered or has expired")
+    st = None
+    if body.accept:
+        st = pc_control.broadcast_start(r["name"], r["user_id"], "pc", f"{r['pc_name']}", None,
+                                        device_id=r["device_id"], audience=body.audience)
+        pc_control.signal(r["device_id"])                         # the student's agent starts capturing now
+    db.add(AuditLog(actor_user_id=admin.id, action="SHARE_ACCEPTED" if body.accept else "SHARE_REJECTED",
+                    entity_type="device", entity_id=str(r["device_id"]),
+                    detail={"student": r["name"], "request": req_id, "audience": body.audience}))
+    notify(db, [r["user_id"]], "SHARE_ANSWER",
+           "Your screen is being shared" if body.accept else "Your share request was declined",
+           link="/share", severity="info")
+    db.commit()
+    _share_changed()
+    return {"request": r, "broadcast": st}
+
+
+@router.post("/share-requests/mine/stop")
+def share_stop_mine(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The presenting student ends their own share."""
+    st = pc_control.broadcast_state()
+    if not (st["active"] and st.get("by_id") == user.id and st["source"] == "pc"):
+        return st
+    st = pc_control.broadcast_stop()
+    db.add(AuditLog(actor_user_id=user.id, action="PC_BROADCAST_STOPPED", entity_type="broadcast", entity_id="screen"))
+    db.commit()
+    _share_changed()
+    return st
 
 
 @router.post("/broadcast/frame", status_code=status.HTTP_204_NO_CONTENT)
@@ -641,11 +921,13 @@ async def broadcast_frame_from_browser(request: Request, admin: User = Depends(r
 @router.post("/pc/broadcast-frame", tags=["devices"], status_code=status.HTTP_204_NO_CONTENT)
 async def broadcast_frame_from_master(request: Request, device_uid: str = Query(max_length=64),
                                       db: Session = Depends(get_db), identity: str = Depends(require_device)):
-    """A frame from the admin's master PC agent, accepted only while it is the chosen source."""
+    """A frame from the PC that presents: the admin's master PC, or a student's PC an admin accepted."""
     device_scope(identity, device_uid)
     d = get_device(db, device_uid)
     st = pc_control.broadcast_state()
-    if d is None or not d.is_master_pc or not st["active"] or st["source"] != "master_pc":
+    ok = d is not None and st["active"] and ((st["source"] == "master_pc" and d.is_master_pc)
+                                             or (st["source"] == "pc" and st.get("device_id") == d.id))
+    if not ok:
         raise HTTPException(status.HTTP_409_CONFLICT, "Not presenting from this PC")
     body = await request.body()
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
@@ -655,10 +937,17 @@ async def broadcast_frame_from_master(request: Request, device_uid: str = Query(
 
 
 @router.get("/broadcast/frame.jpg")
-def broadcast_frame(_: User = Depends(get_current_user)):
-    """Latest presented frame for anyone signed in (students watch on /share); 204 = none yet."""
+def broadcast_frame(viewer: User = Depends(get_current_user)):
+    """Latest presented frame for anyone signed in (students watch on /share); 204 = none yet,
+    410 = sharing has ENDED (the viewer clears the picture at once instead of showing the last frame
+    until its next status check - "stop does not stop immediately", 2026-10-21)."""
+    st = pc_control.broadcast_state()
+    if st.get("audience") == "staff" and viewer.role not in (Role.ADMIN, Role.LAB_STAFF) and viewer.id != st.get("by_id"):
+        return Response(status_code=status.HTTP_410_GONE)          # not shown to the other students
     jpeg = pc_control.broadcast_frame()
     if jpeg is None:
+        if not pc_control.broadcast_state()["active"]:
+            return Response(status_code=status.HTTP_410_GONE)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 

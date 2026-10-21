@@ -34,9 +34,14 @@ xcopy /y /i /q agent\* "C:\SmartLab\pc_agent\" >nul
 echo [5/6] allow ping from the lab laptop (fast on/off in the portal)
 netsh advfirewall firewall delete rule name="Smart Lab ping" >nul 2>&1
 netsh advfirewall firewall add rule name="Smart Lab ping" dir=in action=allow protocol=icmpv4:8,any >nul
-echo [6/6] start the agent at every Windows sign-in (Startup folder, all users)
-copy /y agent\SmartLab_PC_agent.bat "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup\" >nul
+echo [6/6] run the agent INVISIBLY: scheduled task at every sign-in + re-check every minute
+rem (older installs used a visible window from the Startup folder - removed)
+del /q "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Startup\SmartLab_PC_agent.bat" 2>nul
+taskkill /f /fi "WINDOWTITLE eq Smart Lab - PC agent*" >nul 2>&1
+schtasks /create /tn "Smart Lab PC agent" /xml "C:\SmartLab\pc_agent\SmartLab_PC_agent_task.xml" /f
+if errorlevel 1 ( echo Scheduled task FAILED. & pause & exit /b 1 )
+schtasks /run /tn "Smart Lab PC agent" >nul
 echo.
-echo Done. Starting the agent now (minimised window "Smart Lab - PC agent")...
-start "Smart Lab - PC agent" /min "C:\SmartLab\pc_agent\start_pc_agent.bat"
+echo Done. The agent now runs without a window. It is back within a minute if it is stopped,
+echo and starts by itself at every sign-in. Log: C:\SmartLab\pc_agent\agent.log
 pause

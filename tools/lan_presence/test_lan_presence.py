@@ -44,3 +44,15 @@ def test_never_seen_pc_is_absent():
     p = pc()
     p.decide(False, None)
     assert not p.present and p.via == "arp"
+
+
+def test_pcs_reported_by_their_agents_are_added_without_a_mac_list():
+    pcs = [pc()]
+    added = L.merge_targets(pcs, [
+        {"device_uid": "PC_07", "asset_tag": "PC-07", "macs": ["AA:BB:CC:DD:EE:07"], "ips": ["192.168.1.107"]},
+        {"device_uid": "PC_01", "asset_tag": "PC-01", "macs": ["60-eb-69-6b-c8-50", "70-f3-95-e5-db-57"]},
+        {"device_uid": "PC_08", "macs": []}])
+    assert added == ["PC-07", "PC_01 (+MAC)"]
+    p7 = next(p for p in pcs if p.uid == "PC_07")
+    assert p7.macs == {"aa-bb-cc-dd-ee-07"} and p7.ip == "192.168.1.107"
+    assert L.merge_targets(pcs, [{"device_uid": "PC_07", "macs": ["aa-bb-cc-dd-ee-07"]}]) == []   # nothing new

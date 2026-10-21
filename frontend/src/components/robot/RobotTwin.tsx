@@ -56,9 +56,15 @@ function Controls({ resetKey, size, view, lookY, turned = false }: { resetKey: n
     c.maxDistance = 4
     c.addEventListener('change', () => invalidate())
     ;(gl.domElement as HTMLElement & { __orbit?: OrbitControls }).__orbit = c
+    // The wheel scrolls the PAGE over an embedded twin (it used to zoom the robot instead, which felt like
+    // the page froze while scrolling past the two robots - 2026-10-21); Ctrl + wheel zooms, like a map.
+    // In the full-screen view (a dialog) the plain wheel zooms. Capture phase: decided before OrbitControls.
+    const onWheel = (e: WheelEvent) => { c.enableZoom = e.ctrlKey || e.metaKey || !!gl.domElement.closest('[role="dialog"]') }
+    gl.domElement.addEventListener('wheel', onWheel, { capture: true, passive: true })
+    gl.domElement.title = 'Drag to turn the view · Ctrl + mouse wheel to zoom'
     c.update()
     invalidate()
-    return () => c.dispose()
+    return () => { gl.domElement.removeEventListener('wheel', onWheel, { capture: true }); c.dispose() }
   }, [camera, gl, invalidate, resetKey, size, lookY, side])
   return null
 }
@@ -131,6 +137,27 @@ function Trail({ points, color }: { points: Vec3[]; color: string }) {
   useEffect(() => () => { if (mesh) { mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose() } }, [mesh])
   if (!mesh) return null
   return <primitive object={mesh} />
+}
+
+/** A still of the finished 3D view, for the instant picture shown next time (2026-10-21): the page then opens
+ *  without creating a WebGL context at all (measured: ~270 ms per context + ~120 ms extensions, two robots).
+ *  Taken right after an explicit render (no preserveDrawingBuffer); a blank frame - shaders still compiling -
+ *  is tiny and retried. */
+function Snapshot({ onShot }: { onShot: (url: string) => void }) {
+  const { gl, scene, camera } = useThree()
+  useEffect(() => {
+    let tries = 0
+    const t = window.setInterval(() => {
+      if (++tries > 20) { window.clearInterval(t); return }
+      try {
+        gl.render(scene, camera)
+        const url = gl.domElement.toDataURL('image/webp', 0.8)
+        if (url.length > 15000) { window.clearInterval(t); onShot(url) }
+      } catch { window.clearInterval(t) }
+    }, 400)
+    return () => window.clearInterval(t)
+  }, [gl, scene, camera, onShot])
+  return null
 }
 
 /** Draws one frame once the meshes are in (on-demand rendering). */
@@ -215,6 +242,7 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
         {props.trail && <Trail points={props.trail} color={props.trailColor ?? props.model.accent} />}
         <Suspense fallback={<Arm model={props.model} q={q} selected={props.selected} moving={props.moving} />}>
           <Loaded onLoad={invalidate} />
+          {props.onSnapshot && <Snapshot onShot={props.onSnapshot} />}
           {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
           <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
                    onSelect={props.onSelect} gripper={props.gripper}
@@ -297,6 +325,7 @@ export interface TwinProps {
   selected?: number | null
   moving?: boolean[] | null
   onSelect?: (j: number) => void
+  onSnapshot?: (dataUrl: string) => void
 }
 
 const VIEWS: [ViewName, string][] = [['front', 'Front'], ['back', 'Back'], ['right', 'Right'], ['left', 'Left'], ['top', 'Top'], ['bottom', 'Bottom'], ['iso', '3D']]

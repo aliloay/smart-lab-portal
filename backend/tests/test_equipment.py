@@ -235,7 +235,7 @@ def test_admin_shares_screen_from_browser_students_watch_and_pcs_are_told(client
     f = client.get("/api/equipment/broadcast/frame.jpg", headers=hst)                            # a student watches
     assert f.status_code == 200 and f.content == JPEG
     client.post("/api/equipment/broadcast/stop", headers=ha)
-    assert client.get("/api/equipment/broadcast/frame.jpg", headers=hst).status_code == 204
+    assert client.get("/api/equipment/broadcast/frame.jpg", headers=hst).status_code == 410     # ended: viewers drop the picture at once (2026-10-21)
     assert _poll(client, device_headers)["broadcast"]["active"] is False
     assert db.query(AuditLog).filter_by(action="PC_BROADCAST_STARTED").count() == 1
 
@@ -322,3 +322,37 @@ def test_pc_identity_and_clock_offset_are_kept(client, db, staff, lab, device_he
                detail={"agent_time": "not a number"})
     db.refresh(d)
     assert r.status_code == 200 and "clock_offset_s" not in d.component_state
+
+
+def test_stop_is_immediate_idempotent_and_no_frame_survives(client, db, admin, alice, lab, device_headers, monkeypatch):
+    """Stop sharing (2026-10-21): after Stop no frame is accepted or served, viewers get 410 at once, a second
+    Stop is harmless (audited once), a vanished browser presenter ends the share by itself, and every change
+    is pushed live (share_state / pc_state)."""
+    from app.services import pc_control as pcc
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", sent.append)
+    pcc.broadcast_reset()
+    ha, hst = auth_headers(client, admin.email), auth_headers(client, alice.email)
+    up = lambda: client.post("/api/equipment/broadcast/frame", headers={**ha, "Content-Type": "image/jpeg"}, content=JPEG)
+    client.post("/api/equipment/broadcast/start", headers=ha, json={"source": "browser"})
+    assert up().status_code == 204
+    assert {"type": "share_state"} in sent
+    sent.clear()
+    client.post("/api/equipment/broadcast/stop", headers=ha)
+    assert sent == [{"type": "share_state"}]
+    assert up().status_code == 409                                                  # a late frame is refused
+    assert client.get("/api/equipment/broadcast/frame.jpg", headers=hst).status_code == 410
+    client.post("/api/equipment/broadcast/stop", headers=ha)                        # second Stop: fine
+    assert db.query(AuditLog).filter_by(action="PC_BROADCAST_STOPPED").count() == 1
+    # a presenter whose tab vanished: the share ends by itself
+    monkeypatch.setattr(pcc, "PRESENTER_GONE_S", 0.05)
+    client.post("/api/equipment/broadcast/start", headers=ha, json={"source": "browser"})
+    import time as _t
+    _t.sleep(0.1)
+    assert client.get("/api/equipment/broadcast/status", headers=hst).json()["active"] is False
+    # PC changes are pushed to staff pages
+    d = _pc(client, db, lab, device_headers)
+    sent.clear()
+    client.put(f"/api/equipment/{d.id}/mode", headers=ha, json={"mode": "LOCKED"})
+    assert {"type": "pc_state", "device_id": d.id} in sent

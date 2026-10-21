@@ -9,7 +9,7 @@
  */
 import Replay, { ReplayFrame } from './Replay'
 import RobotControlPanel from './RobotControlPanel'
-import { Suspense, lazy, useEffect, useMemo, useState, memo } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, memo } from 'react'
 import WorkcellEditor from './WorkcellEditor'
 import { Workcell, collisions, defaultWorkcell, tableBox } from './workcell'
 import { Link } from 'react-router-dom'
@@ -18,6 +18,7 @@ import { api, SecurityCamera } from '../../lib/api'
 import { Robot } from '../../lib/api'
 import { relative } from '../../lib/time'
 import { isStaff, useAuth } from '../../lib/auth'
+import { useLiveMessages } from '../../lib/live'
 import { pcStatus } from '../../lib/pcStatus'
 import { Skeleton } from '../ui'
 import { MODELS, RobotModel } from './kinematics'
@@ -86,6 +87,7 @@ function LabPcs() {
     }
     load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
   }, [staff])
+  useLiveMessages(m => { if (m.type === 'pc_state' && staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => {}) })
   const zones = (cams ?? []).flatMap(c => c.zones ?? [])
   const names = Array.from({ length: 11 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
   const word: Record<string, [string, string]> = {
@@ -201,15 +203,25 @@ function PanelInner({ model, robot, onFull, big }: {
   // 3D views one after another while the browser is idle. The full view starts at once. Since shaders
   // compile without blocking (threeSetup, 2026-10-20) the idle wait is capped at 300 ms (was 1.5 s).
   const [mount3d, setMount3d] = useState(!!big)
+  const live = !!robot && !robot.stale && !!robot.q && robot.q.length === 6
+  // Instant picture (2026-10-21, "Robots & PCs very slow"): the profile showed the freeze is creating the two
+  // WebGL contexts (~270 ms) and their extensions (~120 ms), not data. With a saved still of this robot, the
+  // view starts as that picture and becomes live 3D only when it matters: the robot is LIVE (real motion),
+  // or the user points at / clicks the view, or moves a joint. No still yet (first visit): 3D as before.
+  const shotKey = `smartlab.twinShot.${model.key}`
+  const [shot, setShot] = useState<string | null>(() => { try { return localStorage.getItem(shotKey) } catch { return null } })
+  const saveShot = useCallback((url: string) => {
+    try { localStorage.setItem(shotKey, url) } catch { /* storage full: the 3D view still works */ }
+  }, [shotKey])
   useEffect(() => {
     warmTwins()
-    if (mount3d) return
+    if (mount3d || (shot && !live)) return
     const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback
     const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 300 }) : setMount3d(true),
                                 model.key === 'FANUC' ? 250 : 0)   // meshes now preloaded: shorter waits
     return () => window.clearTimeout(t)
-  }, [mount3d, model.key])
-  const live = !!robot && !robot.stale && !!robot.q && robot.q.length === 6
+  }, [mount3d, model.key, shot, live])
+  const wake = () => { if (!mount3d) setMount3d(true) }
   // Each robot's own home pose: UR5e upright (J2, J4 at -90 deg); FANUC all joints 0 with the
   // wrist J5 at -90 deg (the usual FANUC home - the lab's taught HOME may differ slightly).
   const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : UR_HOME_DEG.map(v => v * Math.PI / 180)
@@ -265,9 +277,17 @@ function PanelInner({ model, robot, onFull, big }: {
           <span className="tnum text-right text-slate-200">{live ? '—' : `${Math.round(grip * 100)}% closed`}</span>
         </div>
   </div>
-  const twinView = !mount3d ? <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} /> : (
+  const twinView = !mount3d ? (shot
+      ? <button type="button" onPointerEnter={wake} onFocus={wake} onClick={wake}
+                className="relative block w-full h-72 bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
+          <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} />
+          <span className="absolute bottom-2 right-2 rounded-md border border-ink-600 bg-ink-900/80 px-2 py-0.5 text-[11px] text-slate-300 group-hover:text-white">
+            3D view - point here</span>
+        </button>
+      : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
       <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
         <RobotTwin model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
+                   onSnapshot={big || live ? undefined : saveShot}
                    gripper={live || replay ? null : grip}
                    trail={replay ? replay.path.map(p => tipPosition(urdf, p)) : undefined} trailColor="#a78bfa"
                    onPose={live || replay ? undefined : setPose}
