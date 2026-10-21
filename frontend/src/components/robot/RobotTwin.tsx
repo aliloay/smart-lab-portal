@@ -8,7 +8,7 @@
  * while the robot is still. Loaded lazily (three.js stays out of other pages).
  */
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, memo, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RobotModel, forward } from './kinematics'
@@ -212,7 +212,10 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
   const baseRef = useRef<THREE.Group>(null)
   const qRef = useRef<number[]>(props.q ?? [])
   qRef.current = props.q ?? []
-  useEffect(() => { invalidate() }, [props.q, props.selected, props.moving, props.homeQ, props.trail, invalidate])
+  // Redraw only when the VALUES change (2026-10-21): the panel re-renders every second (its staleness clock) and
+  // handed over new arrays with the same numbers - each one forced a full 3D redraw while the user scrolled.
+  const drawKey = JSON.stringify([props.q, props.selected, props.moving, props.homeQ, props.trail?.length, props.gripper])
+  useEffect(() => { invalidate() }, [drawKey, invalidate])
   const q = props.q ?? new Array(6).fill(0)
   const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
   const urdf = urdfFor(props.model.key)
@@ -330,12 +333,41 @@ export interface TwinProps {
 
 const VIEWS: [ViewName, string][] = [['front', 'Front'], ['back', 'Back'], ['right', 'Right'], ['left', 'Left'], ['top', 'Top'], ['bottom', 'Bottom'], ['iso', '3D']]
 
-export default function RobotTwin(props: TwinProps & { resetKey?: number; className?: string; label?: string }) {
+type RobotTwinProps = TwinProps & { resetKey?: number; className?: string; label?: string }
+
+/** Same data = no re-render (2026-10-21): the panels re-render every second for their staleness clock; the
+ *  3D view (and R3F's scene reconcile, ~0.9 s per 5 s of scrolling in the profile) skips identical props.
+ *  Callbacks are not compared - they are state setters / handlers built from the same model. */
+function sameTwinProps(a: RobotTwinProps, b: RobotTwinProps): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof RobotTwinProps>
+  for (const k of keys) {
+    const x = a[k], y = b[k]
+    if (typeof x === 'function' || typeof y === 'function') continue
+    if (x === y) continue
+    if (typeof x === 'object' && typeof y === 'object' && JSON.stringify(x) === JSON.stringify(y)) continue
+    return false
+  }
+  return true
+}
+
+export default memo(RobotTwinView, sameTwinProps)
+
+function RobotTwinView(props: RobotTwinProps) {
   const [view, setView] = useState<{ name: ViewName; n: number }>({ name: 'iso', n: 0 })
+  // Off screen (scrolled away): no drawing at all until it is visible again.
+  const box = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(true)
+  useEffect(() => {
+    const el = box.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting), { rootMargin: '100px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
   return (
-    <div className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
+    <div ref={box} className={`relative bg-[radial-gradient(ellipse_at_50%_35%,rgba(56,189,248,0.10),transparent_65%)] ${props.className ?? 'h-80'}`}
          aria-label={props.label ?? `${props.model.label} 3D view`} data-trail-points={props.trail?.length ?? 0}>
-      <Canvas onCreated={noShaderChecks} frameloop="demand" dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
+      <Canvas onCreated={noShaderChecks} frameloop={visible ? 'demand' : 'never'} dpr={[1, 1.75]} camera={{ fov: 40, near: 0.05, far: 20 }}
               style={{ opacity: props.q ? (props.stale ? 0.55 : 1) : 0.45, filter: props.stale ? 'grayscale(0.7)' : undefined }}>
         <Scene {...props} resetKey={props.resetKey ?? 0} view={view} />
       </Canvas>

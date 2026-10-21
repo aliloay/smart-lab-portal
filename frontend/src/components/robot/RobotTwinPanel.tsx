@@ -9,7 +9,7 @@
  */
 import Replay, { ReplayFrame } from './Replay'
 import RobotControlPanel from './RobotControlPanel'
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, memo } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import WorkcellEditor from './WorkcellEditor'
 import { Workcell, collisions, defaultWorkcell, tableBox } from './workcell'
 import { Link } from 'react-router-dom'
@@ -222,6 +222,16 @@ function PanelInner({ model, robot, onFull, big }: {
     return () => window.clearTimeout(t)
   }, [mount3d, model.key, shot, live])
   const wake = () => { if (!mount3d) setMount3d(true) }
+  // Pointing starts the 3D only when the pointer RESTS on the picture (0.7 s, no scrolling meanwhile):
+  // scrolling moves pictures under a still pointer, and starting WebGL mid-scroll was a visible stall.
+  const dwell = useRef(0)
+  const rest = () => { window.clearTimeout(dwell.current); dwell.current = window.setTimeout(wake, 700) }
+  const unrest = () => window.clearTimeout(dwell.current)
+  useEffect(() => {
+    window.addEventListener('wheel', unrest, { passive: true })
+    window.addEventListener('scroll', unrest, { passive: true, capture: true })
+    return () => { unrest(); window.removeEventListener('wheel', unrest); window.removeEventListener('scroll', unrest, { capture: true }) }
+  }, [])
   // Each robot's own home pose: UR5e upright (J2, J4 at -90 deg); FANUC all joints 0 with the
   // wrist J5 at -90 deg (the usual FANUC home - the lab's taught HOME may differ slightly).
   const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : UR_HOME_DEG.map(v => v * Math.PI / 180)
@@ -278,11 +288,11 @@ function PanelInner({ model, robot, onFull, big }: {
         </div>
   </div>
   const twinView = !mount3d ? (shot
-      ? <button type="button" onPointerEnter={wake} onFocus={wake} onClick={wake}
+      ? <button type="button" onPointerMove={rest} onPointerLeave={unrest} onFocus={wake} onClick={wake}
                 className="relative block w-full h-72 bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
           <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} />
           <span className="absolute bottom-2 right-2 rounded-md border border-ink-600 bg-ink-900/80 px-2 py-0.5 text-[11px] text-slate-300 group-hover:text-white">
-            3D view - point here</span>
+            3D view - click or rest the pointer here</span>
         </button>
       : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
       <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
