@@ -9,6 +9,22 @@
 | Snapshots for the thesis: both live views, plain views, side by side, one crop per box, contact sheets, boxes.json, portal screenshots | tools/security_vision/anchors/box_snapshots/2026-10-21_1539/ (local only: shows people - blur faces before any figure is published) |
 | Earlier 10 min activity correlation for the PC links rejected (busy room: common motion matched nearly every pair) | not used |
 
+## Checkpoint 2026-10-21 ~18:45 (lab, closing) - committed, NOT pushed; cameras/face server were closed at the end
+| Done | Evidence |
+|---|---|
+| Same-desk pairing (desk_map.json, PC-05..13) in crosscam; desk guesses "Eng. Hemaly? (desk)" (PC-04/PC-01) and "TA? (desk)" (PC-16) shown only | test_crosscam_desk.py, test_desk_hints.py; live: Hemaly's guess at PC-04 |
+| Look leads close pairings: veto > 0.65, clear match <= 0.40 with 0.20 margin pairs up to 2 m and may cross while touching (measured from 396 obs: same 0.31, different 0.79); tie-break | test_crosscam_look_leads.py (replays 18:37: floor put Nour where Ali sat); 275 camera tests (02cb119) - NOT yet seen live (cameras closed right after) |
+| Door TEST watcher needs agreement (same name 2x / 5 s, no other in 10 s): one face read USER5, USER1, USER3 in 25 s and named Ali "USER3 by door" | test_door_test_entry.py (72bedff); wrong USER3/USER5 test entries closed with TEST exits |
+| Analysis 10/s (live 9.1 / 8.6, GTX 70-76 %); live view ~15 pictures/s; boxes < 8 px learn; PC in use held only by a seated person; Robots & PCs smooth (18k -> 5.5k elements) | d6cf0ef, 5d76dfa, b3dc744, f2b2884 |
+| Floor maps refit with 3 clean two-camera pairs (UR5e side); backups *_floor.20261021-1823.bak.json | gaps 0.37-0.52 -> 0.27-0.44 m; tape marks <= 0.11 m |
+
+Open (next lab visit):
+* Seat areas per PC: sitting at PC-07 shows PC-08 (and PC-11 -> PC-12) on BOTH cameras - the body covers the next monitor box. Owner sits at each PC 5 s; record seat boxes; use them for in-use + desk pairing.
+* Look re-acquire after a track break while moving (name kept only on hand-back at the same place within 20 s).
+* UR5e "Moving - by teach pendant" while another person moves it (owner: the pendant moves one joint at a time, or all only going home) - check tools/robot_monitor/control_source.py.
+* Verify the look-led pairing live (Ali seated next to Nour at the UR5e table).
+* UR5e area floor still ~0.3-0.5 m apart between cameras; far corner beyond calibration (tile-counted marks there).
+
 ## Checkpoint 2026-10-21 ~04:45 (home, Smart_Lab router on LAN3 with the owner's old HP laptop = PC-01) - committed, NOT pushed, deployed
 | Done | Evidence |
 |---|---|
