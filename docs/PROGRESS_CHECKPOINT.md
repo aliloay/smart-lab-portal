@@ -24,7 +24,18 @@ Open (next lab visit):
 * UR5e "Moving - by teach pendant" while another person moves it (owner: the pendant moves one joint at a time, or all only going home) - check tools/robot_monitor/control_source.py.
 * Verify the look-led pairing live (Ali seated next to Nour at the UR5e table).
 * UR5e area floor still ~0.3-0.5 m apart between cameras; far corner beyond calibration (tile-counted marks there).
-* IN PROGRESS (evening, not deployed): Robots & PCs with BOTH robots live reproduced offline (e2e/robots_pcs_smooth.mjs
+* DONE 2026-10-22 (42c198f, deployed; camera + robot monitor code active at their next start):
+  - Robots & PCs, both robots live (simulated at real rates, visible Chrome): 51/48 fps, 11+3 janky, 2 freezes
+    (worst 350 ms) -> 60/60 fps, 0 janky, 0 freezes (static 3D parts memoized).
+  - PC in use: recorded SEATS (py tools/security_vision/seat_capture.py PC-07 while sitting there; no restart)
+    decide over monitor boxes; PC power from the LAN (config "pc_on") prefers the PC that is on. Lab PCs on the
+    university network show power unknown - the seats are the fix for them. PC tiles: "Seated · PC off" / "Off".
+  - UR5e Local mode: External Control program = computer, other program = started on the pendant, one joint =
+    jogging, several joints = Move/Home or another way (tests 42).
+  - NOT built: name back "by look anywhere" - conflicts with the owner's 2026-10-12 rule (a lost name comes back
+    only to a person whose own face matched it, never by clothes); needs the owner's explicit decision.
+  - Next lab visit: run seat_capture.py at each PC both cameras see; then the walk-in test; check UR5e labels.
+* (was IN PROGRESS) Robots & PCs with BOTH robots live reproduced offline (e2e/robots_pcs_smooth.mjs
   LIVE_ROBOT=2 HEADFUL=1): 2 freezes > 200 ms, worst 350 ms, 11 janky frames / 12 s; profile = R3F re-diffing the whole
   scene on every joint update. RobotTwin.tsx now memoizes the static parts (frame, FANUC cell, obstacles, lights,
   controls) - tsc OK; NEXT: re-measure with the same script, then deploy. Also planned: PC status = LAN on/off + camera
