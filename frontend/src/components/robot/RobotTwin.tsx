@@ -142,20 +142,29 @@ function Trail({ points, color }: { points: Vec3[]; color: string }) {
 /** A still of the finished 3D view, for the instant picture shown next time (2026-10-21): the page then opens
  *  without creating a WebGL context at all (measured: ~270 ms per context + ~120 ms extensions, two robots).
  *  Taken right after an explicit render (no preserveDrawingBuffer); a blank frame - shaders still compiling -
- *  is tiny and retried. */
+ *  is tiny and retried. Encoded with toBlob (off the main thread): toDataURL froze the page ~250 ms per
+ *  still (profile 2026-10-21). */
 function Snapshot({ onShot }: { onShot: (url: string) => void }) {
   const { gl, scene, camera } = useThree()
   useEffect(() => {
-    let tries = 0
+    let tries = 0, done = false, busy = false
     const t = window.setInterval(() => {
+      if (done || busy) return
       if (++tries > 20) { window.clearInterval(t); return }
       try {
         gl.render(scene, camera)
-        const url = gl.domElement.toDataURL('image/webp', 0.8)
-        if (url.length > 15000) { window.clearInterval(t); onShot(url) }
+        busy = true
+        gl.domElement.toBlob(b => {             // pixels are read now, encoded in the background
+          busy = false
+          if (done || !b || b.size < 11000) return
+          done = true; window.clearInterval(t)
+          const r = new FileReader()
+          r.onload = () => { if (typeof r.result === 'string') onShot(r.result) }
+          r.readAsDataURL(b)
+        }, 'image/webp', 0.8)
       } catch { window.clearInterval(t) }
     }, 400)
-    return () => window.clearInterval(t)
+    return () => { done = true; window.clearInterval(t) }
   }, [gl, scene, camera, onShot])
   return null
 }

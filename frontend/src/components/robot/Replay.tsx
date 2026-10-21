@@ -11,6 +11,8 @@ import { relative } from '../../lib/time'
 
 export interface ReplayFrame { q: number[]; t: number; duration: number; path: number[][] }
 
+const ROWS_STEP = 40
+
 export default memo(Replay)
 function Replay({ robotId, onFrame, active }: {
   robotId: number
@@ -23,6 +25,9 @@ function Replay({ robotId, onFrame, active }: {
   const [pos, setPos] = useState(0)                // seconds into the movement
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
+  // Only the newest rows are drawn (2026-10-21): up to 1000 movements were ~4400 page elements - 77 % of
+  // the Robots & PCs tab - and the browser re-did their style and layout on every scroll and tab return.
+  const [shown, setShown] = useState(ROWS_STEP)
   const raf = useRef(0)
 
   // The movement list costs the server ~170 ms (UR5e, 2026-10-20) and is only needed for the replay
@@ -99,7 +104,7 @@ function Replay({ robotId, onFrame, active }: {
       ) : (
         <div className="max-h-72 overflow-auto text-[12.5px] space-y-2">
           <div className="text-[11.5px] text-slate-400">{moves.length} recorded movement{moves.length === 1 ? '' : 's'} with their full joint paths, newest first</div>
-          {Object.entries(moves.reduce<Record<string, RobotEventRow[]>>((g, m) => {
+          {Object.entries(moves.slice(0, shown).reduce<Record<string, RobotEventRow[]>>((g, m) => {
             const d = new Date(m.occurred_at).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
             ;(g[d] ??= []).push(m); return g
           }, {})).map(([day, list]) => (
@@ -118,6 +123,9 @@ function Replay({ robotId, onFrame, active }: {
                   </li>))}
               </ul>
             </div>))}
+          {moves.length > shown && (
+            <button className="btn-ghost btn-sm w-full" onClick={() => setShown(n => n + ROWS_STEP)}>
+              Show {Math.min(ROWS_STEP, moves.length - shown)} older ({moves.length - shown} more)</button>)}
         </div>)}
     </div>)
 }

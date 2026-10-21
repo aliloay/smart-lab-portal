@@ -202,6 +202,11 @@ export default function Equipment() {
   const tab = (TABS.some(t => t.key === params.get('tab')) ? params.get('tab') : 'environment') as Tab
   const [adding, setAdding] = useState(false)
   const [version, setVersion] = useState(0)        // remounts the shown system after an addition
+  // Robots & PCs stays mounted (hidden) once opened (2026-10-21, owner: "very slow, freezes"): starting a
+  // robot's 3D view costs ~1 s of the main thread (WebGL context, model, shaders - profiled), and leaving the
+  // tab threw both views away, so every return paid it again. Hidden, the views draw nothing (off screen).
+  const [robotsOpened, setRobotsOpened] = useState(tab === 'noncons')
+  useEffect(() => { if (tab === 'noncons') setRobotsOpened(true) }, [tab])
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Robotics Lab" title="Equipment"
@@ -212,7 +217,7 @@ export default function Equipment() {
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
       <div key={version} className="contents">
       {tab === 'environment' && <EnvironmentOverview />}
-      {tab === 'noncons' && <div className="space-y-5"><RobotTwinPanels /><NetworkedEquipment /></div>}
+      {robotsOpened && <div className={tab === 'noncons' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /><NetworkedEquipment /></div>}
       {tab === 'consumables' && <ConsumableBins />}
       {tab === 'reusables' && <ReusableItems />}
       {tab === 'register' && <EquipmentRegister />}

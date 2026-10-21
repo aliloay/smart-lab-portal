@@ -88,8 +88,17 @@ function LabPcs() {
     load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
   }, [staff])
   useLiveMessages(m => { if (m.type === 'pc_state' && staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => {}) })
-  const zones = (cams ?? []).flatMap(c => c.zones ?? [])
-  const names = Array.from({ length: 11 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
+  const all = (cams ?? []).flatMap(c => c.zones ?? [])
+  // The lab's real PCs (owner 2026-10-21: boxes named by the lab numbers, PC-03 removed from the lab):
+  // every PC box on any camera plus every PC in the inventory. A PC seen by both cameras is "In use"
+  // when either camera sees someone at it.
+  const isPc = (n: string) => /^PC-\d+$/i.test(n)
+  const names = Array.from(new Set([...all.map(z => String(z.name).toUpperCase()).filter(isPc),
+                                    ...pcs.map(e => String(e.asset_tag ?? e.name).toUpperCase()).filter(isPc)]))
+    .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))
+  const rank = (s: string) => (s === 'IN_USE' ? 3 : s === 'CHANGED' || s === 'MOTION' ? 2 : s === 'OK' ? 1 : 0)
+  const zones = all.filter(z => isPc(String(z.name))).map(z => ({ ...z, name: String(z.name).toUpperCase() }))
+    .sort((a, b) => rank(b.status) - rank(a.status))
   const word: Record<string, [string, string]> = {
     IN_USE: ['In use', 'border-sky-400/50 bg-sky-500/15 text-sky-200'],
     OK: ['Free', 'border-ok/40 bg-ok/10 text-ok-soft'],
@@ -210,8 +219,15 @@ function PanelInner({ model, robot, onFull, big }: {
   // or the user points at / clicks the view, or moves a joint. No still yet (first visit): 3D as before.
   const shotKey = `smartlab.twinShot.${model.key}`
   const [shot, setShot] = useState<string | null>(() => { try { return localStorage.getItem(shotKey) } catch { return null } })
+  // A still is taken once and renewed weekly - not on every wake-up of the 3D view (each one cost a
+  // ~250 ms freeze while the owner pointed at the robots, 2026-10-21).
+  const [shotFresh] = useState(() => {
+    try { return !!localStorage.getItem(shotKey) && Date.now() - Number(localStorage.getItem(`${shotKey}.at`) || 0) < 7 * 86400e3 }
+    catch { return false }
+  })
   const saveShot = useCallback((url: string) => {
-    try { localStorage.setItem(shotKey, url) } catch { /* storage full: the 3D view still works */ }
+    try { localStorage.setItem(shotKey, url); localStorage.setItem(`${shotKey}.at`, String(Date.now())) }
+    catch { /* storage full: the 3D view still works */ }
   }, [shotKey])
   useEffect(() => {
     warmTwins()
@@ -221,17 +237,10 @@ function PanelInner({ model, robot, onFull, big }: {
                                 model.key === 'FANUC' ? 250 : 0)   // meshes now preloaded: shorter waits
     return () => window.clearTimeout(t)
   }, [mount3d, model.key, shot, live])
+  // The 3D starts on a click only (or by itself when the robot is live). Starting it costs ~1 s of the
+  // main thread (profiled 2026-10-21): a resting pointer used to start it while the owner just moved
+  // around the page - each time a freeze nobody asked for.
   const wake = () => { if (!mount3d) setMount3d(true) }
-  // Pointing starts the 3D only when the pointer RESTS on the picture (0.7 s, no scrolling meanwhile):
-  // scrolling moves pictures under a still pointer, and starting WebGL mid-scroll was a visible stall.
-  const dwell = useRef(0)
-  const rest = () => { window.clearTimeout(dwell.current); dwell.current = window.setTimeout(wake, 700) }
-  const unrest = () => window.clearTimeout(dwell.current)
-  useEffect(() => {
-    window.addEventListener('wheel', unrest, { passive: true })
-    window.addEventListener('scroll', unrest, { passive: true, capture: true })
-    return () => { unrest(); window.removeEventListener('wheel', unrest); window.removeEventListener('scroll', unrest, { capture: true }) }
-  }, [])
   // Each robot's own home pose: UR5e upright (J2, J4 at -90 deg); FANUC all joints 0 with the
   // wrist J5 at -90 deg (the usual FANUC home - the lab's taught HOME may differ slightly).
   const homePose = model.key === 'FANUC' ? [0, 0, 0, 0, -Math.PI / 2, 0] : UR_HOME_DEG.map(v => v * Math.PI / 180)
@@ -288,16 +297,16 @@ function PanelInner({ model, robot, onFull, big }: {
         </div>
   </div>
   const twinView = !mount3d ? (shot
-      ? <button type="button" onPointerMove={rest} onPointerLeave={unrest} onFocus={wake} onClick={wake}
+      ? <button type="button" onClick={wake}
                 className="relative block w-full h-72 bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
           <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} />
           <span className="absolute bottom-2 right-2 rounded-md border border-ink-600 bg-ink-900/80 px-2 py-0.5 text-[11px] text-slate-300 group-hover:text-white">
-            3D view - click or rest the pointer here</span>
+            Click for the 3D view</span>
         </button>
       : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
       <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
         <RobotTwin model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
-                   onSnapshot={big || live ? undefined : saveShot}
+                   onSnapshot={big || live || shotFresh ? undefined : saveShot}
                    gripper={live || replay ? null : grip}
                    trail={replay ? replay.path.map(p => tipPosition(urdf, p)) : undefined} trailColor="#a78bfa"
                    onPose={live || replay ? undefined : setPose}
