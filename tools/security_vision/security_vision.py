@@ -694,6 +694,15 @@ class Service:
 
     VIEW_CHECK_S = 15.0
     VIEW_CHECK_UNSETTLED_S = 3.0     # while the view is moving / just moved
+    # PTZ cameras (2026-10-21): at power-on they sweep and stop at a default tilt, and staff
+    # tilt them back by hand. A view check in that time re-aligned camera 2's boxes to the
+    # wrong view. So for this long after the stream (re)connects nothing is anchored or moved.
+    VIEW_STARTUP_QUIET_S = 180.0
+
+    def view_settling(self, now: float) -> bool:
+        """True while the camera is not streaming or has only just (re)connected."""
+        cam = self.camera
+        return cam.state != "STREAMING" or now - cam.state_since < self.VIEW_STARTUP_QUIET_S
 
     def watch_view(self):
         """Every 15 s: has the camera's view moved? Confident (twice in a row)
@@ -801,7 +810,7 @@ class Service:
         within 1 %) and the match is strong. No chaining, so no drift."""
         frame, at = self.camera.latest()
         zones, door = self.cfg.get("zones", []), self.cfg.get("door")
-        if frame is None or time.time() - at > 5 or not (zones or door):
+        if frame is None or time.time() - at > 5 or not (zones or door) or self.view_settling(time.time()):
             return
         with self.lock:
             people = [t.box for t in self.tracks]
