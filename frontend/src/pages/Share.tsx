@@ -42,7 +42,7 @@ export default function Share() {
         {st?.active && <button className="btn-ghost btn-sm ml-auto" onClick={() => box.current?.requestFullscreen?.()}>
           <Maximize2 size={14} /> Full screen</button>}
       </div>
-      <div ref={box} className="rounded-xl overflow-hidden border border-ink-600 bg-black aspect-video grid place-items-center">
+      <div ref={box} className="rounded-xl overflow-hidden border border-ink-600 bg-black h-[calc(100vh-260px)] min-h-[320px] grid place-items-center">
         {!st ? <span className="text-slate-400">Loading…</span>
           : !st.active ? <span className="text-slate-400">Nothing is being shared right now. This page updates by itself.</span>
           : src ? <img src={src} alt="Shared screen" className={`w-full h-full object-contain ${stale ? 'opacity-60' : ''}`} />

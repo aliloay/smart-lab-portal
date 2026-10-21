@@ -181,7 +181,7 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
           Switch to https://{window.location.hostname}</a>
         <span className="text-slate-500">(a warning there means this computer does not trust the lab certificate yet: import
           deploy/tls/smartlab-ca.crt once)</span></div>}
-      {st?.active && <div className="rounded-lg overflow-hidden border border-ink-600 bg-black/40 max-w-md aspect-video grid place-items-center">
+      {st?.active && <div className="rounded-lg overflow-hidden border border-ink-600 bg-black/40 max-w-md w-full h-[252px] grid place-items-center">
         {src ? <img src={src} alt="What the students see" className="w-full h-full object-contain" />
           : <span className="text-[12px] text-slate-400">Waiting for the first frame…</span>}</div>}
       <p className="text-[11px] text-slate-500">The chosen PCs (with the lab agent) get a notice and open the presentation in their browser;

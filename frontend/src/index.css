@@ -269,3 +269,10 @@ body {
 }
 @keyframes rb-spin { to { --rb-angle: 360deg; } }
 @media (prefers-reduced-motion: reduce) { .ray-border::before { animation: none; } }
+
+/* Old Chrome on the lab's Windows 7 PCs (< 88) has no aspect-ratio: a box sized only by it got 0 height,
+   so a shared screen or camera was invisible until Full screen (seen on PC-01, 2026-10-21). */
+@supports not (aspect-ratio: 16 / 9) {
+  .aspect-video { min-height: 14rem; }
+  .aspect-\[4\/3\] { min-height: 15rem; }
+}

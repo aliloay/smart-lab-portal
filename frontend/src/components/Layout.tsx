@@ -9,8 +9,7 @@ import {
   Sparkles, UserRound, Users, Wrench, X,
   Cctv, Siren,
   FlaskConical,
-  Bot, Search,
-} from 'lucide-react'
+  Bot, Search, Cast } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
 import CommandPalette, { openPalette } from './CommandPalette'
@@ -54,6 +53,7 @@ const STUDENT_NAV: Section[] = [
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
     { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
     { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
   ]},
   { title: 'Support', items: [
     { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
@@ -72,6 +72,7 @@ const STAFF_NAV: Section[] = [
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
   ]},
   { title: 'Safety & access', items: [
@@ -104,6 +105,7 @@ const ADMIN_NAV: Section[] = [
     { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
     { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
     { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
     { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
   ]},
   { title: 'Safety & access', items: [
