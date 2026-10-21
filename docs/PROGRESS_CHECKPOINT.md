@@ -1,5 +1,14 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## Checkpoint 2026-10-21 ~15:40 (lab) - cameras re-boxed by real PC numbers - committed, NOT pushed
+| Done | Evidence |
+|---|---|
+| PTZ power-on guard: no view anchor / box re-alignment for 180 s after a stream (re)connects (camera 2's boxes had been moved to the post-sweep view) | test_view_startup.py; both services restarted 14:27, boxes in place on live frames (bf0264e) |
+| Owner re-drew all boxes by the real lab numbers: camera 1 PC-01,02,04-15 + UR5e, Fanuc, door, Security_Camera_2; camera 2 PC-05..13, PC-16 + UR5e, Fanuc, Security_Camera_1. Robot boxes no motion alert. PC-03 not boxed yet | DB zones 5 / 12; smallest box 0.5 % (2a7e934, deployed) |
+| Two-camera PC links (same number on both cameras): PC-05..PC-13 (9 PCs), owner-verified | tools/security_vision/anchors/desk_map.json (local, git-ignored); deskmap.validate = no problems. The same-desk identity rule that would use it is still OFF |
+| Snapshots for the thesis: both live views, plain views, side by side, one crop per box, contact sheets, boxes.json, portal screenshots | tools/security_vision/anchors/box_snapshots/2026-10-21_1539/ (local only: shows people - blur faces before any figure is published) |
+| Earlier 10 min activity correlation for the PC links rejected (busy room: common motion matched nearly every pair) | not used |
+
 ## Checkpoint 2026-10-21 ~04:45 (home, Smart_Lab router on LAN3 with the owner's old HP laptop = PC-01) - committed, NOT pushed, deployed
 | Done | Evidence |
 |---|---|
