@@ -24,6 +24,12 @@ Open (next lab visit):
 * UR5e "Moving - by teach pendant" while another person moves it (owner: the pendant moves one joint at a time, or all only going home) - check tools/robot_monitor/control_source.py.
 * Verify the look-led pairing live (Ali seated next to Nour at the UR5e table).
 * UR5e area floor still ~0.3-0.5 m apart between cameras; far corner beyond calibration (tile-counted marks there).
+* IN PROGRESS (evening, not deployed): Robots & PCs with BOTH robots live reproduced offline (e2e/robots_pcs_smooth.mjs
+  LIVE_ROBOT=2 HEADFUL=1): 2 freezes > 200 ms, worst 350 ms, 11 janky frames / 12 s; profile = R3F re-diffing the whole
+  scene on every joint update. RobotTwin.tsx now memoizes the static parts (frame, FANUC cell, obstacles, lights,
+  controls) - tsc OK; NEXT: re-measure with the same script, then deploy. Also planned: PC status = LAN on/off + camera
+  (a PC that is off cannot be in use; prefer the PC that is on when a body covers two monitor boxes); UR5e Local-mode
+  label (a running program / several joints at once is not "teach pendant jogging").
 
 ## Checkpoint 2026-10-21 ~04:45 (home, Smart_Lab router on LAN3 with the owner's old HP laptop = PC-01) - committed, NOT pushed, deployed
 | Done | Evidence |

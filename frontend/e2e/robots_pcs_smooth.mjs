@@ -13,27 +13,34 @@ const BASE = process.argv[2] || 'http://192.168.1.200'
 const OUT = process.argv[3] || ''
 // LIVE_ROBOT=1: the UR5e as when it is live in the lab - robot_state at 5/s (the server's rate) is added
 // to this test browser's own WebSocket only. Made-up joint values; nothing is sent anywhere.
-const LIVE = process.env.LIVE_ROBOT === '1'
+const LIVE = ['1', '2'].includes(process.env.LIVE_ROBOT ?? '')
 const token = fs.readFileSync(process.env.E2E_TOKEN_FILE, 'utf8').trim()
 
 const b = await chromium.launch({ channel: 'chrome', headless: process.env.HEADFUL !== '1' })
 const ctx = await b.newContext({ viewport: { width: 1600, height: 950 } })
 if (LIVE) {
   const r = await fetch(BASE + '/api/robots', { headers: { Authorization: `Bearer ${token}` } })
-  const ur = (await r.json()).find(x => !x.demo && /UR5/i.test(`${x.model} ${x.device_uid}`))
+  const all = await r.json()
+  const ur = all.find(x => !x.demo && /UR5/i.test(`${x.model} ${x.device_uid}`))
+  const fa = all.find(x => !x.demo && /FANUC/i.test(`${x.model} ${x.device_uid}`))
+  // LIVE_ROBOT=2: both robots live at the server's real rates (UR5e 5/s, FANUC ~3/s), all joints moving
+  const robots = process.env.LIVE_ROBOT === '2' && fa ? [[ur, 200], [fa, 333]] : [[ur, 200]]
   await ctx.routeWebSocket(/\/ws\/activity/, ws => {
     ws.connectToServer()
-    let k = 0
-    const t = setInterval(() => {
-      k++
-      const q = [-0.26 + 0.3 * Math.sin(k / 10), -2.2, 2.04, -1.4, 1.59, 1.66]
-      try {
-        ws.send(JSON.stringify({ type: 'robot_state', device_id: ur.device_id, lab_id: ur.lab_id, state: 'MOVING', q,
-          qd: [0.1, 0, 0, 0, 0, 0], joints_moving: [true, false, false, false, false, false], home: 'NOT_HOME',
-          source: 'test', telemetry_age_ms: 20 }))
-      } catch { clearInterval(t) }
-    }, 200)
-    ws.onClose(() => clearInterval(t))
+    const timers = robots.map(([rb, every]) => {
+      let k = 0
+      return setInterval(() => {
+        k++
+        const s = Math.sin(k / 10)
+        const q = [-0.26 + 0.3 * s, -2.2 + 0.2 * s, 2.04 - 0.2 * s, -1.4 + 0.1 * s, 1.59, 1.66 + 0.3 * s]
+        try {
+          ws.send(JSON.stringify({ type: 'robot_state', device_id: rb.device_id, lab_id: rb.lab_id, state: 'MOVING', q,
+            qd: [0.1, 0.1, 0.1, 0.1, 0, 0.1], joints_moving: [true, true, true, true, false, true], home: 'NOT_HOME',
+            source: 'test', telemetry_age_ms: 20 }))
+        } catch { /* closed */ }
+      }, every)
+    })
+    ws.onClose(() => timers.forEach(clearInterval))
   })
 }
 await ctx.addInitScript(t => {

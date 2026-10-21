@@ -216,6 +216,30 @@ function Obstacles({ cell, hits, selected }: { cell: Workcell; hits: Hit[]; sele
     </group>))}</group>
 }
 
+/** The parts that never move with the joints (2026-10-21, owner: "Robots & PCs freezes, especially live"): with
+ *  both robots live (8 joint updates a second) every update re-rendered the whole scene - ~30 frame beams, the
+ *  FANUC cell, obstacles, lights, ring, controls - and R3F re-diffed them all (prepareUpdate / equ, ~0.5 s per
+ *  12 s; 2 freezes > 200 ms). Memoized, a joint update re-renders the arm only. */
+const ControlsStatic = memo(Controls)
+const FanucCellStatic = memo(FanucCell)
+const UR5eCellStatic = memo(UR5eCell, (a, b) => JSON.stringify(a.table ?? null) === JSON.stringify(b.table ?? null))
+const ObstaclesStatic = memo(Obstacles, (a, b) => a.cell === b.cell && a.selected === b.selected &&
+  a.hits.map(h => h.obstacle).join() === b.hits.map(h => h.obstacle).join())
+const Decor = memo(function Decor({ reach, accent }: { reach: number; accent: string }) {
+  return <>
+    <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
+    <ambientLight intensity={0.35} />
+    <directionalLight position={[2, 3, 2]} intensity={1.4} />
+    <directionalLight position={[-2, 1.5, -1]} intensity={0.35} />
+    <gridHelper args={[3, 30, '#334155', '#1e293b']} />
+    {/* reach ring: the arm's working circle on the floor (from its geometry) */}
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
+      <ringGeometry args={[reach - 0.006, reach, 96]} />
+      <meshBasicMaterial color={accent} transparent opacity={0.35} />
+    </mesh>
+  </>
+})
+
 function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n: number } }) {
   const { invalidate, camera, gl } = useThree()
   const baseRef = useRef<THREE.Group>(null)
@@ -230,23 +254,14 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
   const urdf = urdfFor(props.model.key)
   return (
     <>
-      <Controls resetKey={props.resetKey} view={props.view} turned={props.model.key === 'FANUC'} lookY={urdf.ceilingHeight ? urdf.ceilingHeight / 2 : urdf.mountHeight ? FANUC_CELL.height_m / 2 : undefined}
+      <ControlsStatic resetKey={props.resetKey} view={props.view} turned={props.model.key === 'FANUC'} lookY={urdf.ceilingHeight ? urdf.ceilingHeight / 2 : urdf.mountHeight ? FANUC_CELL.height_m / 2 : undefined}
                 size={(reach / 0.62 / 1.4) * (props.compact ? 0.74 : 1) * (urdf.ceilingHeight ? 2.1 : urdf.mountHeight ? 1.9 : 1)} />
-      <hemisphereLight args={['#dbeafe', '#0f172a', 0.7]} />
-      <ambientLight intensity={0.35} />
-      <directionalLight position={[2, 3, 2]} intensity={1.4} />
-      <directionalLight position={[-2, 1.5, -1]} intensity={0.35} />
-      <gridHelper args={[3, 30, '#334155', '#1e293b']} />
-      {/* reach ring: the arm's working circle on the floor (from its geometry) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.002, 0]}>
-        <ringGeometry args={[reach - 0.006, reach, 96]} />
-        <meshBasicMaterial color={props.model.accent} transparent opacity={0.35} />
-      </mesh>
+      <Decor reach={reach} accent={props.model.accent} />
       {/* Robot frames are Z-up; three.js is Y-up. */}
       <group rotation={[-Math.PI / 2, 0, 0]}>
-       {props.model.key === 'UR5E' && urdf.ceilingHeight && <UR5eCell table={props.workcell ? props.workcell.table : undefined} />}
-       {props.model.key === 'FANUC' && urdf.mountHeight && <FanucCell />}
-       {props.workcell && <Obstacles cell={props.workcell} hits={props.hits ?? []} selected={props.selectedObstacle} />}
+       {props.model.key === 'UR5E' && urdf.ceilingHeight && <UR5eCellStatic table={props.workcell ? props.workcell.table : undefined} />}
+       {props.model.key === 'FANUC' && urdf.mountHeight && <FanucCellStatic />}
+       {props.workcell && <ObstaclesStatic cell={props.workcell} hits={props.hits ?? []} selected={props.selectedObstacle} />}
        <group ref={baseRef} position={[0, 0, urdf.ceilingHeight ?? urdf.mountHeight ?? 0]} rotation={mountRotation(urdf)}>
         {urdf.ceilingHeight && <mesh position={[0, 0, -0.012]}>
           <boxGeometry args={[0.5, 0.5, 0.02]} /><meshStandardMaterial color="#9ca3af" metalness={0.5} roughness={0.4} /></mesh>}
