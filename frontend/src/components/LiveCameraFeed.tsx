@@ -11,9 +11,9 @@ import { VideoOff } from 'lucide-react'
 import { fetchBlob } from '../lib/api'
 import { useBoxesShown } from '../lib/cameraView'
 
-/** Pause for a big live view: one frame takes ~40 ms through the portal and
- *  the service draws 15 a second, so this shows ~12-15 pictures a second. */
-export const LIVE_MS = 40
+/** Pause for a big live view: one frame takes 32-46 ms through the portal (measured 2026-10-21, ~100 KB)
+ *  and the service draws 15 a second; 25 ms shows ~14-15 a second (40 ms gave ~11). */
+export const LIVE_MS = 25
 
 export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, className = '',
                                          fit = 'cover', children, onFrame }: {

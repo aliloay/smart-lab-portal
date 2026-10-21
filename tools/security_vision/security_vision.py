@@ -1359,7 +1359,9 @@ def main():
     ap.add_argument("--size", type=int, default=640, help="detector input (640: finds seated / half-hidden people - measured 2.97 of 3 vs 2.10 at 416 on lab frames, 2026-10-12)")
     ap.add_argument("--conf", type=float, default=0.35)   # 0.45 missed a seated person (0.39); 0.25 doubles boxes - lab frame 2026-10-12
     ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
-    ap.add_argument("--det-fps", type=float, default=7.0)   # was 5; a pass takes ~95 ms (p95 ~146) since 2026-10-14
+    # was 5, then 7; 10 since 2026-10-21 (owner: "a bit slow"): passes took 78-93 ms p50 with both cameras on
+    # the GTX at 42-54 % - a pass that takes longer simply runs at its own pace (never a backlog).
+    ap.add_argument("--det-fps", type=float, default=10.0)
     ap.add_argument("--max-width", type=int, default=960)
     ap.add_argument("--peer", type=int, default=int(os.environ.get("PEER_PORT") or 0),
                     help="port of the OTHER camera service in the same lab (0 = none); see crosscam.py")

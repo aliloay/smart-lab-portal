@@ -127,7 +127,7 @@ function Wall({ cams, labs, onPick }: {
           <div key={c.device_id} role="button" tabIndex={0} title="Click to enlarge"
                onClick={() => setBigId(c.device_id)} onKeyDown={e => { if (e.key === 'Enter') setBigId(c.device_id) }}
                className="group relative aspect-video rounded-2xl overflow-hidden border border-ink-600/70 bg-black cursor-zoom-in">
-            <LiveCameraFeed deviceId={c.device_id} intervalMs={cams.length > 4 ? 400 : 200} className="!absolute inset-0" />
+            <LiveCameraFeed deviceId={c.device_id} intervalMs={cams.length > 4 ? 300 : 100} className="!absolute inset-0" />
             <div className="absolute inset-x-0 top-0 p-2.5 flex items-center gap-2 bg-gradient-to-b from-black/75 to-transparent">
               <span className="text-white font-extrabold text-[17px] leading-none">{c.lab_code}</span>
               <span className="text-slate-300 text-[12px] truncate">{lc.length > 1 ? camLabel(c) : c.name}</span>
