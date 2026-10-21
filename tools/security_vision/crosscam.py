@@ -57,6 +57,15 @@ APPEARANCE = os.environ.get("CROSSCAM_APPEARANCE", "observe").lower()      # off
 GATE_WIDE_M = 1.3
 APPEAR_MAX, APPEAR_MARGIN, APPEAR_VETO = 0.25, 0.10, 0.45
 OBS_EVERY = 7                                 # log observations about once a second
+# 2026-10-21: SAME DESK. Seated at a desk the feet are hidden (no floor position), so the floor never
+# paired people there. anchors/desk_map.json (deskmap.py, owner-verified: PC boxes named by the real lab
+# numbers on both cameras) links the PCs both cameras see. One person seated at PC-08 here and one
+# seated at PC-08 there = a pairing candidate. Only when that desk has exactly one seated person in EACH
+# view, never against the floor (both positions known and further apart than DESK_VETO_M) or a clear
+# appearance veto, and through the same stability / confirmed-name / conflict rules as the floor.
+DESK_SCORE = 0.5                              # below a close floor match, above nothing
+DESK_VETO_M = 2.0
+DESK_OVERLAP = 0.02                           # person box vs PC box, as vision.ZoneWatcher (in use)
 
 
 def feet_floor(floor, box, w: int, h: int):
@@ -67,6 +76,23 @@ def feet_floor(floor, box, w: int, h: int):
     if not (ROOM_M[0] <= x <= ROOM_M[1] and ROOM_M[2] <= y <= ROOM_M[3]):
         return None
     return (x, y)
+
+
+def desk_of(box, w: int, h: int, desks: Optional[dict]) -> Optional[str]:
+    """The mapped PC (name -> 0-1 rect) this person SITS at, or None. Standing in front of a PC is not
+    sitting at it (same rule as vision.ZoneWatcher: box taller than STANDING_RATIO x its width)."""
+    if not desks or box[2] <= 0:
+        return None
+    from vision import ZoneWatcher, iou
+    if box[3] / box[2] > ZoneWatcher.STANDING_RATIO:
+        return None
+    p = (box[0] / w, box[1] / h, box[2] / w, box[3] / h)
+    best, name = DESK_OVERLAP, None
+    for n, r in desks.items():
+        o = iou(tuple(r), p)
+        if o > best:
+            best, name = o, n
+    return name
 
 
 def deep_of(t):
@@ -115,12 +141,12 @@ class FloorMap:
             return cls(json.load(f)["points"])
 
 
-def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float) -> dict:
-    """What this camera tells the other one (served at /peer)."""
+def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float, desks: Optional[dict] = None) -> dict:
+    """What this camera tells the other one (served at /peer). desk = this camera's PC name."""
     out = []
     for t in tracks:
         d = deep_of(t)
-        out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h),
+        out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h), "desk": desk_of(t.box, w, h, desks),
                     "label": t.label, "name": t.name, "role": t.role, "source": t.source,
                     "state": t.identity_state, "crowded": bool(t.crowded),
                     "deep": [round(float(v), 4) for v in d] if d is not None else None})
@@ -141,6 +167,9 @@ class CrossCam:
         self._stop = False
         self.obs_path = obs_path                  # appearance observations (jsonl) to measure APPEAR_*
         self.passes = 0
+        self.desk_link: dict[str, str] = {}       # other camera's PC name -> this camera's (desk_map.json)
+        self.desks: dict[str, tuple] = {}         # this camera's linked PC boxes (0-1), set every pass
+        self.by_desk: set[tuple[int, int]] = set()   # this pass's pairings that came from the desk
 
     # ------------------------------------------------------------ polling ---
     def start(self, period_s: float = 0.25):
@@ -166,22 +195,43 @@ class CrossCam:
         from vision import assign_max
         self.notes = []
         peer = self.peer
-        if (self.floor is None or not peer or not peer.get("calibrated")
+        floor_ok = self.floor is not None and bool(peer and peer.get("calibrated"))
+        desk_ok = bool(self.desk_link and self.desks)
+        if (not peer or not (floor_ok or desk_ok)
                 or not -1.0 <= now - float(peer.get("t", 0)) <= MAX_AGE_S):   # stale, or stamped ahead (clock step)
             self.streak.clear()
             return []
-        theirs = [p for p in peer["tracks"] if p.get("floor")]
+        theirs = [p for p in peer["tracks"]
+                  if (floor_ok and p.get("floor")) or (desk_ok and self.desk_link.get(p.get("desk") or ""))]
         mine = list(tracks)
         if not mine or not theirs:
             self.streak.clear()
             return []
-        pos = [feet_floor(self.floor, t.box, w, h) for t in mine]
+        pos = [feet_floor(self.floor, t.box, w, h) if floor_ok else None for t in mine]
         self.passes += 1
         ad = [[deep_distance(deep_of(t), p.get("deep")) for p in theirs] for t in mine]
-        dist = [[math.dist(pos[i], p["floor"]) if pos[i] is not None else None for p in theirs]
+        dist = [[math.dist(pos[i], p["floor"]) if pos[i] is not None and p.get("floor") else None for p in theirs]
                 for i in range(len(mine))]
         self._observe(mine, theirs, dist, ad, now)
-        score = [[self._score(dist[i][j], ad[i], j) for j in range(len(theirs))] for i in range(len(mine))]
+        # Same desk (see DESK_SCORE): my PC per track, theirs translated to my PC names; a desk counts
+        # only when exactly one person sits at it in each view.
+        my_desk = [desk_of(t.box, w, h, self.desks) if desk_ok else None for t in mine]
+        their_desk = [self.desk_link.get(p.get("desk") or "") if desk_ok else None for p in theirs]
+        alone = {d for d in set(my_desk) if d and my_desk.count(d) == 1 and their_desk.count(d) == 1}
+        self.by_desk = set()
+        score = []
+        for i in range(len(mine)):
+            row = []
+            for j in range(len(theirs)):
+                s = self._score(dist[i][j], ad[i], j)
+                if (my_desk[i] in alone and their_desk[j] == my_desk[i]
+                        and not (dist[i][j] is not None and dist[i][j] > DESK_VETO_M)
+                        and not (APPEARANCE == "on" and ad[i][j] is not None and ad[i][j] > APPEAR_VETO)
+                        and (s is None or s < DESK_SCORE)):
+                    s = DESK_SCORE
+                    self.by_desk.add((mine[i].id, theirs[j]["id"]))
+                row.append(s)
+            score.append(row)
         pairs = assign_max(score)
         keep = {(mine[i].id, theirs[j]["id"]) for i, j in pairs}
         self.streak = {k: self.streak.get(k, 0) + 1 for k in keep}
@@ -222,8 +272,9 @@ class CrossCam:
             labeler._give(t, {"auth_subject": p["label"], "name": p.get("name"), "role": p.get("role")},
                           "peer", how="other camera")
             held.add(p["label"])
-            self._note("CROSSCAM_NAME", t.id, p["label"],
-                       f"same floor spot as the other camera's track {p['id']} for {STABLE_PASSES}+ passes")
+            how = (f"seated alone at {desk_of(t.box, w, h, self.desks)} on both cameras (other camera's track"
+                   if (t.id, p["id"]) in self.by_desk else "same floor spot as the other camera's track (")
+            self._note("CROSSCAM_NAME", t.id, p["label"], f"{how} {p['id']}) for {STABLE_PASSES}+ passes")
         return self.notes
 
     def _score(self, d, ads: list, j: int):

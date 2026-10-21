@@ -323,8 +323,11 @@ class Service:
         peer = f"http://127.0.0.1:{args.peer}" if args.peer else None
         self.crosscam = CrossCam(peer, self.key, floor, obs_path=os.path.join(
             os.path.abspath(args.recordings), f"crosscam_obs_{args.device}.jsonl"))
+        import deskmap
+        self.crosscam.desk_link, why = deskmap.link_for(os.path.join(HERE, "anchors"), args.device)
         self.frame_wh = (0, 0)
-        print(f"[crosscam] other camera {peer or 'none'}; floor map {'loaded' if floor else 'not calibrated - nothing shared'}")
+        print(f"[crosscam] other camera {peer or 'none'}; floor map {'loaded' if floor else 'not calibrated - nothing shared'}"
+              f"; same desk: {why}")
         self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
         self.robot_vis = RobotVisualMotion() # optical flow in robot boxes (alert_on_motion off)
         self.robot_visual: dict[int, dict] = {}
@@ -526,6 +529,7 @@ class Service:
                                for z in self.cfg.get("zones", [])}
                         self.labeler.home_desk(tracks, HOME_DESKS, zpx, occupants,
                                                {k["auth_subject"]: k for k in (self.cfg.get("known") or [])}, t0)
+                    self.crosscam.desks = self.linked_desks()
                     notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
                     self.frame_wh = (w, h)
                     id_events = list(self.labeler.events)
@@ -698,6 +702,11 @@ class Service:
     # tilt them back by hand. A view check in that time re-aligned camera 2's boxes to the
     # wrong view. So for this long after the stream (re)connects nothing is anchored or moved.
     VIEW_STARTUP_QUIET_S = 180.0
+
+    def linked_desks(self) -> dict:
+        """This camera's PC boxes (0-1) that desk_map.json links to the other camera."""
+        mine = set(self.crosscam.desk_link.values())
+        return {z["name"]: (z["x"], z["y"], z["w"], z["h"]) for z in self.cfg.get("zones", []) if z["name"] in mine}
 
     def view_settling(self, now: float) -> bool:
         """True while the camera is not streaming or has only just (re)connected."""
@@ -1114,7 +1123,8 @@ def make_app(svc: Service) -> Flask:
         w, h = svc.frame_wh
         with svc.lock:
             tracks = list(svc.tracks)
-        return jsonify(peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time()))
+        return jsonify(peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time(),
+                                 svc.linked_desks() if w else None))
 
     @app.get("/state")
     def state():

@@ -1,5 +1,6 @@
 """
-Same-desk mapping between the two cameras (2026-10-19) - VALIDATION ONLY, the same-desk rule stays OFF.
+Same-desk mapping between the two cameras (2026-10-19; used by crosscam.py since 2026-10-21 once the owner
+named both cameras' PC boxes by the real lab numbers and verified the file - see link_for).
 
 Camera 1 names the lab PCs PC-01..PC-11; camera 2's PC boxes are provisional letters (PC-B..PC-L). The
 same-desk rule ("the person seated at PC-08 on camera 1 is the person seated at the same PC on camera 2")
@@ -52,3 +53,26 @@ def load(folder: str, cam1_pcs: set[str], cam2_pcs: set[str]) -> tuple[Optional[
         return None, [f"desk_map.json unreadable: {e}"]
     errors = validate(mapping, cam1_pcs, cam2_pcs)
     return (None, errors) if errors else (dict(mapping["pairs"]), [])
+
+
+def link_for(folder: str, device: str) -> tuple[dict, str]:
+    """(other camera's PC name -> this camera's, why) for crosscam's same-desk pairing (2026-10-21).
+    desk_map.json names its cameras ("camera1" / "camera2" device ids); pairs are camera 2 -> camera 1.
+    Empty unless the file is owner-verified and names this device. Box names are checked at use: a
+    linked name with no box on a camera simply never matches."""
+    path = os.path.join(folder, "desk_map.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        return {}, "no readable desk_map.json - same-desk pairing off"
+    pairs = m.get("pairs") or {}
+    if not m.get("verified_by") or not m.get("verified_at") or not isinstance(pairs, dict) or not pairs:
+        return {}, "desk_map.json not owner-verified - same-desk pairing off"
+    if len(set(pairs.values())) != len(pairs):
+        return {}, "desk_map.json maps a camera-1 PC twice - same-desk pairing off"
+    if device == m.get("camera1"):
+        return {c2: c1 for c2, c1 in pairs.items()}, f"{len(pairs)} linked PCs"
+    if device == m.get("camera2"):
+        return {c1: c2 for c2, c1 in pairs.items()}, f"{len(pairs)} linked PCs"
+    return {}, f"desk_map.json is not for {device} - same-desk pairing off"
