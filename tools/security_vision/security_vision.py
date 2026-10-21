@@ -721,9 +721,39 @@ class Service:
     VIEW_STARTUP_QUIET_S = 180.0
 
     def linked_desks(self) -> dict:
-        """This camera's PC boxes (0-1) that desk_map.json links to the other camera."""
+        """This camera's PC boxes (0-1) that desk_map.json links to the other camera - the recorded seat
+        where there is one (seat_capture.py), else the monitor box."""
         mine = set(self.crosscam.desk_link.values())
-        return {z["name"]: (z["x"], z["y"], z["w"], z["h"]) for z in self.cfg.get("zones", []) if z["name"] in mine}
+        seats = self.seats()
+        return {z["name"]: tuple(seats.get(z["name"]) or (z["x"], z["y"], z["w"], z["h"]))
+                for z in self.cfg.get("zones", []) if z["name"] in mine}
+
+    def _seats_path(self) -> str:
+        return os.path.join(HERE, "anchors", f"{self.args.device}_seats.json")
+
+    def seats(self) -> dict:
+        """PC name -> seat box (0-1) recorded with seat_capture.py: where a person sitting at that PC appears in
+        THIS camera's picture (2026-10-21: sitting at PC-07 covered PC-08's monitor box). Re-read when the
+        file changes; none = the monitor boxes decide, as before."""
+        p = self._seats_path()
+        try:
+            m = os.path.getmtime(p)
+        except OSError:
+            return {}
+        if getattr(self, "_seats_mtime", None) != m:
+            try:
+                d = json.load(open(p, encoding="utf-8"))
+                self._seats = {k: list(v["box"]) for k, v in d.get("seats", {}).items()}
+                print(f"[seats] {len(self._seats)} PC seat(s) loaded: {', '.join(sorted(self._seats))}")
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                print(f"[seats] could not read {p}: {e!r}")
+                self._seats = {}
+            self._seats_mtime = m
+        return self._seats
+
+    def zones_with_seats(self, zones: list[dict]) -> list[dict]:
+        seats = self.seats()
+        return [{**z, "seat": seats[z["name"]]} if z["name"] in seats else z for z in zones] if seats else zones
 
     def view_settling(self, now: float) -> bool:
         """True while the camera is not streaming or has only just (re)connected."""
@@ -762,7 +792,7 @@ class Service:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             with self.lock:
                 pnorm = list(self.person_rects)
-            states = self.zones.update(zones, gray, pnorm, t0)
+            states = self.zones.update(self.zones_with_seats(zones), gray, pnorm, t0)
             robot_boxes = [z for z in zones if z.get("alert_on_motion", True) is False]
             visual = self.robot_vis.update(robot_boxes, gray, pnorm, t0) if robot_boxes else {}
             with self.lock:
@@ -1153,8 +1183,11 @@ def make_app(svc: Service) -> Flask:
                                     "confidence": t.identity_confidence, "named_by": t.named_by}
                                    for t in svc.tracks],
                         "zones": [{"id": s.id, "name": s.name, "status": s.status, "score": s.score,
-                                   "home": s.home, "home_score": s.home_score}
-                                  for s in svc.zone_states]})    # current boxes only, not deleted ones
+                                   "home": s.home, "home_score": s.home_score,
+                                   "box": next(([z["x"], z["y"], z["w"], z["h"]] for z in svc.cfg.get("zones", [])
+                                                if z["id"] == s.id), None)}
+                                  for s in svc.zone_states],    # current boxes only, not deleted ones
+                        "frame": list(svc.frame_wh)})
 
     @app.post("/home/save")
     def home_save():

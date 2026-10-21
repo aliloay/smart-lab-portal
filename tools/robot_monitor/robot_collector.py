@@ -330,7 +330,8 @@ class Collector:
                         s.extra.update(self.dash.current())
                     if a.source == "ur":
                         moving = bool(s.qd) and max(abs(v) for v in s.qd) > 0.005
-                        s.extra["control_source"], s.extra["control_detail"] = classify(s.extra, moving)
+                        turning = sum(1 for v in (s.qd or []) if abs(v) > 0.005) if s.qd else None
+                        s.extra["control_source"], s.extra["control_detail"] = classify(s.extra, moving, turning)
                     self.rate_t.append(now)
                     self._events(self.motion.update(s, arrival=now))
             except Exception as e:

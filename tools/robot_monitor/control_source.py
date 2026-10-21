@@ -28,7 +28,16 @@ TEACH_BUTTON_BIT = 1 << 2
 PROGRAM_RUNNING_BIT = 1 << 1
 
 
-def classify(extra: dict, moving: bool) -> tuple[str, str]:
+EXTERNAL_HINTS = ("external", "ros", "urcap")   # program names of the ROS 2 driver's External Control program
+
+
+def classify(extra: dict, moving: bool, joints_moving: Optional[int] = None) -> tuple[str, str]:
+    """joints_moving: how many joints are turning now (None = not known).
+    Owner 2026-10-21: "says moving by teach pendant but another person moves it - the pendant moves one joint at
+    a time, or all only when going home". Local mode used to mean "pendant" for EVERY movement. Now, still only
+    from what the controller reports: a running External Control program = a computer; another running
+    program = started on the pendant; no program and one joint = pendant jogging; no program and several
+    joints = the pendant's Move / Home or something else - said as such, never guessed further."""
     bits = extra.get("robot_status_bits")
     remote = extra.get("remote_control")             # True / False / None (dashboard not readable)
     prog = extra.get("loaded_program") or ""
@@ -36,9 +45,16 @@ def classify(extra: dict, moving: bool) -> tuple[str, str]:
     running = ("PLAYING" in pstate) or (isinstance(bits, int) and bool(bits & PROGRAM_RUNNING_BIT))
     if isinstance(bits, int) and bits & TEACH_BUTTON_BIT:
         return "HAND_GUIDING", "Freedrive: the arm is being moved by hand (teach button pressed)"
+    if running and any(h in prog.lower() for h in EXTERNAL_HINTS):
+        return "EXTERNAL_CONTROL", (f"External Control program {prog} running - the arm is moved by a computer "
+                                    "(e.g. the ROS 2 driver), not by the pendant")
     if remote is False:
-        return "PENDANT", ("Teach pendant (Local mode)" + (f" - program {prog} running" if running and prog else
-                           " - program running" if running else " - jogging or idle" if moving else " - idle"))
+        if running:
+            return "PENDANT_PROGRAM", f"Program {prog or '(unnamed)'} running - started on the teach pendant (Local mode)"
+        if moving and joints_moving is not None and joints_moving >= 2:
+            return "MULTI_JOINT", (f"{joints_moving} joints moving at once with no program - the pendant's Move / "
+                                   "Home, or the arm moved another way (pendant jogging turns one joint)")
+        return "PENDANT", ("Teach pendant (Local mode)" + (" - jogging" if moving else " - idle"))
     if remote is True:
         if running:
             return "REMOTE_PROGRAM", f"Remote mode - program {prog or '(unnamed)'} started over the network"

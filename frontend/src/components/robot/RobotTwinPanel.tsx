@@ -120,7 +120,12 @@ function LabPcs() {
           const st = d ? pcStatus(d) : null
           const stCls = !st ? 'text-slate-500' : st.tone === 'ok' ? 'text-ok-soft' : st.tone === 'warn' ? 'text-warn-soft'
             : st.tone === 'bad' ? 'text-bad-soft' : 'text-slate-300'
-          const [w, cls] = z ? (word[z.status] ?? [z.status, 'border-ink-500 text-slate-300']) : ['No camera box', 'border-ink-600 text-slate-500']
+          // Camera and LAN together (owner 2026-10-21): a PC that is off on the LAN is not "in use" - someone
+          // is only sitting there; on and nobody seated = free; off and nobody = off.
+          const off = !!d?.lan && !d.lan.present
+          const [w, cls] = z?.status === 'IN_USE' && off ? ['Seated · PC off', 'border-warn/50 bg-warn/15 text-warn-soft']
+            : off && (!z || z.status === 'OK') ? ['Off', 'border-ink-600 text-slate-400']
+            : z ? (word[z.status] ?? [z.status, 'border-ink-500 text-slate-300']) : ['No camera box', 'border-ink-600 text-slate-500']
           return (
             <div key={n} className="rounded-lg border border-ink-600/70 bg-ink-900/40 p-2.5">
               <div className="flex items-center justify-between">
@@ -148,6 +153,9 @@ const UR_POSES: { key: string; label: string; q: number[]; note: string }[] = [
 const SOURCE_LABEL: Record<string, [string, string]> = {
   HAND_GUIDING: ['Hand guiding', 'text-amber-300 border-amber-400/50'],
   PENDANT: ['Teach pendant', 'text-sky-300 border-sky-400/50'],
+  PENDANT_PROGRAM: ['Program from the pendant', 'text-sky-300 border-sky-400/50'],
+  MULTI_JOINT: ['Several joints - Move / Home or other', 'text-amber-300 border-amber-400/50'],
+  EXTERNAL_CONTROL: ['Computer - External Control (ROS)', 'text-violet-300 border-violet-400/50'],
   REMOTE_PROGRAM: ['Network - program', 'text-violet-300 border-violet-400/50'],
   REMOTE_DIRECT: ['Network - direct commands', 'text-violet-300 border-violet-400/50'],
   IDLE: ['Idle', 'text-slate-300 border-ink-600'],
@@ -174,7 +182,11 @@ function usePersonAt(robotName: string): boolean {
 function ActivityLine({ robot, code }: { robot: Robot & { stale: boolean }; code: string | null }) {
   const person = usePersonAt(robot.model || robot.name)
   const moving = !robot.stale && robot.state === 'MOVING'
-  const by = code === 'PENDANT' ? 'by teach pendant' : code === 'HAND_GUIDING' ? 'by hand guiding'
+  // Owner 2026-10-21: "by teach pendant" was shown for every movement in Local mode (control_source.py).
+  const by = code === 'PENDANT' ? 'by teach pendant (jogging)' : code === 'HAND_GUIDING' ? 'by hand guiding'
+    : code === 'PENDANT_PROGRAM' ? 'program started on the pendant'
+    : code === 'EXTERNAL_CONTROL' ? 'by a computer (External Control / ROS)'
+    : code === 'MULTI_JOINT' ? 'several joints at once (pendant Move / Home, or another way)'
     : code?.startsWith('REMOTE') ? 'by network command' : null
   const [text, cls] = moving
     ? [`Moving${by ? ` - ${by}` : ''}${person ? ' - person at the robot' : ''}`, 'text-amber-200 border-amber-400/60 bg-amber-500/10']

@@ -1693,6 +1693,45 @@ class ZoneWatcher:
             return min(1.0, abs(float(a.mean() - b.mean())) / 64)
         return float(np.clip(1 - (a * b).sum() / den, 0, 1))
 
+    SEAT_MATCH = 0.3                   # person box vs a PC's recorded seat box (IoU): sitting in that seat
+
+    def pc_occupancy(self, zones: list[dict], person_rects_norm: list[tuple], fw: int, fh: int) -> dict:
+        """Which PC boxes a SEATED person is at (zone id -> bool). Standing in front of a PC (talking, passing,
+        waiting) overlaps its box too, but is not use (2026-10-14 lab: a man standing at PC-11 made it "in use").
+        2026-10-21 lab: sitting at PC-07 showed PC-08 on BOTH cameras - the body covers the next monitor box. So:
+          * a PC with a recorded seat ("seat": person box 0-1, seat_capture.py) is in use only by someone
+            sitting in that seat - its monitor box is not used;
+          * otherwise the monitor boxes the body covers; and with the PCs' power (portal "pc_on": True on,
+            False off, None unknown): if the body covers PCs that are on and PCs that are off, it is at the ones
+            that are on; if every covered PC is off and exactly one PC that is on sits right beside the person
+            (at_desk), it is at that one. Unknown power changes nothing."""
+        pcs = [z for z in zones if z.get("alert_on_motion", True) is not False]
+        occ = {z["id"]: False for z in pcs}
+        seated = [p for p in person_rects_norm if not self._standing(p, fw, fh)]
+        seat_of = {z["id"]: tuple(z["seat"]) for z in pcs if z.get("seat")}
+        for z in pcs:
+            if z["id"] in seat_of:
+                occ[z["id"]] = any(iou(seat_of[z["id"]], p) >= self.SEAT_MATCH for p in seated)
+        free = [z for z in pcs if z["id"] not in seat_of]
+        px = lambda r: (r[0] * fw, r[1] * fh, r[2] * fw, r[3] * fh)
+        for p in seated:
+            if any(iou(s, p) >= self.SEAT_MATCH for s in seat_of.values()):
+                continue                                    # in a recorded seat: decided above
+            cands = [z for z in free if iou((z["x"], z["y"], z["w"], z["h"]), p) > 0.02]
+            if not cands:
+                continue
+            power = [z.get("pc_on") for z in cands]
+            if True in power and False in power:
+                cands = [z for z in cands if z.get("pc_on") is True]
+            elif all(v is False for v in power):
+                beside = [z for z in free if z.get("pc_on") is True and z not in cands
+                          and at_desk(px(p), px((z["x"], z["y"], z["w"], z["h"])))]
+                if len(beside) == 1:
+                    cands = beside
+            for z in cands:
+                occ[z["id"]] = True
+        return occ
+
     @classmethod
     def _near(cls, rect, person_rects_norm) -> bool:
         m = cls.NEAR_MARGIN
@@ -1729,6 +1768,7 @@ class ZoneWatcher:
                now: float) -> list[ZoneState]:
         """zones: [{"id", "name", "x", "y", "w", "h"}] normalised 0-1."""
         out = []
+        pc_occ = self.pc_occupancy(zones, person_rects_norm, gray.shape[1], gray.shape[0])
         moving_now = self._moving_now(zones, gray, person_rects_norm)
         # Many empty boxes moving at the same instant = the whole picture changed.
         whole_picture = len(moving_now) >= 3 and \
@@ -1747,11 +1787,8 @@ class ZoneWatcher:
                 area = (rect[0] - g * rect[2], rect[1] - g * rect[3], rect[2] * (1 + 2 * g), rect[3] * (1 + 2 * g))
                 occupied = any(iou(area, p) > 0.02 for p in person_rects_norm)
             else:
-                # A PC is used by someone SITTING at it. Standing in front of it (talking,
-                # passing, waiting) overlaps the box in the picture too, but is not use
-                # (2026-10-14 lab: a man standing at PC-11 made it "in use").
-                fh, fw = gray.shape[:2]
-                occupied = any(iou(rect, p) > 0.02 and not self._standing(p, fw, fh) for p in person_rects_norm)
+                # A PC is used by someone SITTING at it - see pc_occupancy (seat areas, PC power).
+                occupied = pc_occ.get(zid, False)
             # Motion compares with the picture from MOTION_GAP_S ago (the thresholds
             # were set for that gap), however often update() is called.
             prev = self.prev.get(zid)

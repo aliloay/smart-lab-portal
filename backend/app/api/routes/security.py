@@ -105,6 +105,26 @@ def occupants(db: Session, lab_id: int) -> list[dict]:
     return out
 
 
+def pc_power(db: Session, lab_id: int, now: datetime) -> dict:
+    """Owner 2026-10-21: a lab PC's power, by its name as the camera boxes use it ("PC-07"): True on, False off,
+    None unknown. The LAN check wins (cable + powered, nothing installed); else a fresh agent heartbeat means
+    on; else unknown - never guessed "off". The camera uses it: a PC that is off cannot be in use, and a
+    seated person whose body covers two monitor boxes is at the one that is on."""
+    from app.services import lan_presence
+    from app.services.devices import is_fresh
+    out: dict[str, Optional[bool]] = {}
+    for p in db.scalars(select(Device).where(Device.device_type == DeviceType.PC, Device.lab_id == lab_id)).all():
+        asset = db.get(Asset, p.asset_id) if p.asset_id else None
+        key = ((asset.asset_tag if asset and asset.asset_tag else None) or p.name or "").strip().upper()
+        if not key:
+            continue
+        lan = lan_presence.get(p.device_uid, now)
+        on = lan["present"] if lan else (True if is_fresh(p, now) else None)
+        if key not in out or on is True:
+            out[key] = on
+    return out
+
+
 # ------------------------------------------------------------ the service ---
 @router.get("/config", tags=["devices"])
 def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_length=32),
@@ -140,8 +160,10 @@ def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_lengt
         r = next((r for r in robots_now if key and key in f"{(r.component_state or {}).get('model', '')} {r.name} {r.device_uid}".upper()), None)
         return _effective_state(r, now) if r is not None else None
 
+    power = pc_power(db, lab.id, now)
     return {"device_id": d.id, "lab_code": lab.code, "lab_name": lab.name,
-            "zones": [{**_zone_out(z, db), "robot_state": robot_state(z)} for z in zones if z.kind == "EQUIPMENT"],
+            "zones": [{**_zone_out(z, db), "robot_state": robot_state(z), "pc_on": power.get(z.name.strip().upper())}
+                      for z in zones if z.kind == "EQUIPMENT"],
             "door": next((_zone_out(z, db) for z in zones if z.kind == "DOOR"), None),
             "occupants": occupants(db, lab.id), "server_time": now.timestamp(),
             # Who USERx is, so a face recognised before the door can be named
