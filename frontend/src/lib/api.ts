@@ -1275,6 +1275,8 @@ export const api = {
   addTrial: (id: number, t: Partial<ExperimentTrial>) => post<ExperimentTrial>(`/experiments/${id}/trials`, t),
   /** Monitors / laptops the detector finds now, numbered after the saved boxes (nothing saved). */
   robots: () => request<Robot[]>('/robots'),
+  /** Long frames seen in this browser (lib/jankProbe.ts) - staff only, kept in server memory. */
+  uiperfReport: (r: unknown) => post<{ ok: boolean }>('/uiperf/report', r),
   robot: (id: number) => request<RobotDetail>(`/robots/${id}`),
   workcells: (key: 'UR5E' | 'FANUC') =>
     request<{ name: string; data: import('../components/robot/workcell').Workcell; saved_at: string; version_id: number }[]>(`/workcell/${key}`),
