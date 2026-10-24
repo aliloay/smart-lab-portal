@@ -193,6 +193,35 @@ public class Builder
             (box[3] - box[0]) / MM, (box[4] - box[1]) / MM, (box[5] - box[2]) / MM, Volume() * 1e6));
     }
 
+    /// Planar faces of the part lying in the plane z = zMm (normal along z).
+    static List<Face2> FacesAtZ(double zMm)
+    {
+        var out_ = new List<Face2>();
+        var bodies = (object[])((PartDoc)doc).GetBodies2((int)swBodyType_e.swSolidBody, true);
+        if (bodies == null) return out_;
+        foreach (Body2 b in bodies)
+            foreach (Face2 f in (object[])b.GetFaces())
+            {
+                var s = (Surface)f.GetSurface();
+                if (!s.IsPlane()) continue;
+                var pp = (double[])s.PlaneParams;                  // normal x, y, z, root point x, y, z
+                if (Math.Abs(Math.Abs(pp[2]) - 1) < 1e-6 && Math.Abs(pp[5] - zMm * MM) < 1e-6) out_.Add(f);
+            }
+        return out_;
+    }
+
+    static bool SelectPlanarFace(double zMm, bool largest)
+    {
+        Face2 best = null; double area = -1;
+        foreach (var f in FacesAtZ(zMm)) { double a = f.GetArea(); if (a > area) { area = a; best = f; } }
+        return best != null && ((Entity)best).Select4(false, null);
+    }
+
+    static double PlanarFaceArea(double zMm)
+    {
+        double a = 0; foreach (var f in FacesAtZ(zMm)) a += f.GetArea(); return a;
+    }
+
     // ------------------------------------------------------------------ parts ---
     static void BuildBody(P p, string dir)
     {
@@ -203,11 +232,16 @@ public class Builder
         // 1. solid block with rounded vertical edges, shelled open at the front
         Open("Front Plane"); RoundRect(-W / 2, 0, W / 2, H, r); var sk = Close();
         Extrude(sk, D, false, false, "Block");
+        // The face to open is found by its geometry (planar, at z = D). Selecting it by a point went through the
+        // graphics view and, depending on how the window was turned, picked nothing: SOLIDWORKS then shelled a
+        // CLOSED box (2026-10-24 build: front closed, 19 interferences with the panel's parts).
         doc.ClearSelection2(true);
-        doc.Extension.SelectByID2("", "FACE", 0, H / 2 * MM, D * MM, false, 0, null, 0);
+        if (!SelectPlanarFace(D, true)) throw new Exception("Body: no front face at z = depth to open");
         double vb = Volume();
         doc.InsertFeatureShell(t * MM, false);
         if (Volume() >= vb - 1e-9) L("WARNING: shell failed");
+        if (PlanarFaceArea(D) > 0.2 * W * H * MM * MM)
+            throw new Exception("Body: the shell left the front CLOSED - not saving a wrong box");
         // 2. corner columns, full depth, with heat-set insert holes for the front panel
         double ci = F.N("corner_boss_inset"), cd = F.N("corner_boss_d");
         double[,] corners = { { -W / 2 + ci, ci }, { W / 2 - ci, ci }, { -W / 2 + ci, H - ci }, { W / 2 - ci, H - ci } };
@@ -291,6 +325,30 @@ public class Builder
         Extrude(sk, N.N("pilot_depth"), true, false, "NFC pilot holes");
     }
 
+    /// Owner 2026-10-24: the R307 stands OUT of the panel (finger on its 45-degree end). Opening = the measured end
+    /// + 0.3; a sleeve behind the panel as long as the rest of the body; a back stop (two ledges, wires pass in
+    /// the middle) takes the finger's push; one M2.5 self-tapping screw through the sleeve wall clamps the body.
+    static void FpProtrude(P G, P F, double cx, double cy, double t)
+    {
+        double fw = G.N("face_w"), fh = G.N("face_h"), sw = G.N("sleeve_wall");
+        double sl = G.N("body_l") - G.N("protrude") - t;                       // sleeve: rest of the body behind the panel
+        double led = G.N("stop_ledge"), st = G.N("stop_t");
+        Open("Front Plane"); Rect(cx, cy, fw, fh); var sk = Close();
+        Extrude(sk, t, true, true, "Fingerprint opening");
+        // sleeve: a ring (outer rect minus the opening) grown from its tip toward the panel
+        Behind(sl, () => { Rect(cx, cy, fw + 2 * sw, fh + 2 * sw); Rect(cx, cy, fw, fh); }, "Fingerprint sleeve");
+        // back stop: two ledges at the sleeve's end, reaching `led` inward from the left / right walls
+        Open(Plane("Front Plane", -(sl + st)));
+        RectXY(cx - fw / 2 - sw, cy - fh / 2 - sw, cx - fw / 2 + led, cy + fh / 2 + sw);
+        RectXY(cx + fw / 2 - led, cy - fh / 2 - sw, cx + fw / 2 + sw, cy + fh / 2 + sw);
+        sk = Close();
+        Extrude(sk, st, false, false, "Fingerprint back stop");
+        // clamp screw: an M2.5 pilot through the top and bottom walls, halfway down the sleeve (Top Plane:
+        // sketch y = -z, as the tie slots) - the screw goes in from either side
+        Open(Plane("Top Plane", cy + fh / 2 + sw + 1)); Circle(cx, sl / 2, F.N("pilot_m25_d")); sk = Close();
+        Extrude(sk, 0, true, true, "Fingerprint clamp screw pilot");
+    }
+
     static void FpMount(P G, double cx, double cy, double t)
     {
         double L = G.N("pocket_l"), Wd = G.N("pocket_w"), cw = G.N("cradle_wall"), ch = G.N("cradle_h");
@@ -347,7 +405,9 @@ public class Builder
         Extrude(sk, eng, true, false, "NFC tap outline recess");
         Open(Plane("Front Plane", t - eng)); Rect(nx, ny, N.N("pocket_w") + 2 * om, N.N("pocket_h") + 2 * om); sk = Close();
         Extrude(sk, eng, false, false, "NFC tap outline fill");
-        FpMount(FG, fx, fy, t);
+        bool fpOut = FG.S("mount") == "protrude";
+        if (fpOut) FpProtrude(FG, F, fx, fy, t); else FpMount(FG, fx, fy, t);
+        double fpHalf = fpOut ? FG.N("face_h") / 2 : FG.N("pocket_w") / 2;
         double ld = LD.B("use_holder") ? LD.N("holder_d") : LD.N("bare_d");
         Open(rear); Circle(LD.N("green_x"), LD.N("y"), ld); Circle(LD.N("red_x"), LD.N("y"), ld); sk = Close();
         Extrude(sk, t, true, true, "LED holes");
@@ -356,7 +416,7 @@ public class Builder
         Open(front);
         bool txt = Text(0, FP.N("title_y") - FP.N("title_height"), FP.S("title"), FP.N("title_height"));
         Text(nx, ny - N.N("pocket_h") / 2 - om - og - th - 2.5, "TAP CARD", th);
-        Text(fx, fy - FG.N("pocket_w") / 2 - th - 4, "FINGER", th);
+        Text(fx, fy - fpHalf - th - 4, "FINGER", th);
         Text(LD.N("green_x"), LD.N("y") - ld / 2 - th - 2.5, "OK", th);
         Text(LD.N("red_x"), LD.N("y") - ld / 2 - th - 2.5, "DENIED", th);
         sk = Close();
@@ -479,10 +539,19 @@ public class Builder
           var bx = (double[])((PartDoc)pd).GetPartBox(true);
           centre[n] = new[] { (bx[0] + bx[3]) / 2, (bx[1] + bx[4]) / 2, (bx[2] + bx[5]) / 2 }; }
         int aerr = 0; sw.ActivateDoc3(asm.GetTitle(), false, 0, ref aerr);
+        // 2026-10-24: then put each part's ORIGIN exactly where it belongs. Placing by the box centre alone went
+        // wrong once the panel grew the fingerprint sleeve (an offset plane 27 mm behind it): SOLIDWORKS' box and
+        // GetPartBox disagreed and the parts overlapped (19 false interferences). Logged so it can be checked.
+        var mu = (MathUtility)sw.GetMathUtility();
         Action<string, double, double, double> add = (n, x, y, z) => {
             var c0 = centre[n];
             var c = ad.AddComponent5(Path.Combine(dir, n + ".SLDPRT"), 0, "", false, "", x * MM + c0[0], y * MM + c0[1], z * MM + c0[2]);
-            if (c == null) L("WARNING: could not add " + n);
+            if (c == null) { L("WARNING: could not add " + n); return; }
+            if (c.IsFixed()) { c.Select4(false, null, false); ad.UnfixComponent(); asm.ClearSelection2(true); }
+            c.Transform2 = (MathTransform)mu.CreateTransform(new double[] { 1, 0, 0, 0, 1, 0, 0, 0, 1, x * MM, y * MM, z * MM, 1, 0, 0, 0 });
+            var at = (double[])c.Transform2.ArrayData;
+            L(string.Format("placed {0}: origin at x {1:0.0}  y {2:0.0}  z {3:0.0} mm (wanted {4:0.0} {5:0.0} {6:0.0})",
+                n, at[9] / MM, at[10] / MM, at[11] / MM, x, y, z));
         };
         add("DoorEnclosure_Body", 0, 0, 0);
         add("DoorEnclosure_FrontPanel", 0, 0, E.N("depth"));
