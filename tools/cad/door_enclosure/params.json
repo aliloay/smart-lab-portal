@@ -65,7 +65,7 @@
   "pocket_h": 40.7,
   "pocket_depth": 2.5,
   "front_skin": 1.5,
-  "_pocket_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; 43 x 40.4 -> 43.3 x 40.7; skin 1.5. VERIFY a card reads through the coupon first.",
+  "_pocket_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; 43 x 40.4 -> 43.3 x 40.7; skin 1.5. VERIFIED 2026-10-24 (owner, printed coupon): a card reads through the 1.5 mm skin; most coupon fits OK. Next: owner's caliper measurements + 0.3 on clearance fits (insert / self-tap holes stay undersize).",
   "island_d": 6.0,
   "island_dx": 27.8,
   "island_dy": 25.2,
