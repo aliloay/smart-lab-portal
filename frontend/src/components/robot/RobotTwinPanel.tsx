@@ -241,12 +241,18 @@ function PanelInner({ model, robot, onFull, big }: {
     try { localStorage.setItem(shotKey, url); localStorage.setItem(`${shotKey}.at`, String(Date.now())) }
     catch { /* storage full: the 3D view still works */ }
   }, [shotKey])
+  // 2026-10-27 (owner: "it freezes when I move the robot, then it disappears for a second"): the picture is only
+  // the instant first view. The 3D now starts by itself shortly after the page settles (UR5e first, FANUC after
+  // it, never both at once), or at once on a click / a slider; the picture stays ON TOP until the 3D has drawn
+  // the robot (onReady) and then fades - no blank skeleton in between, and the sliders always move a live 3D.
+  const [ready3d, setReady3d] = useState(false)
+  const onReady = useCallback(() => setReady3d(true), [])
   useEffect(() => {
     warmTwins()
-    if (mount3d || (shot && !live)) return
+    if (mount3d) return
     const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback
-    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 300 }) : setMount3d(true),
-                                model.key === 'FANUC' ? 250 : 0)   // meshes now preloaded: shorter waits
+    const delay = shot && !live ? (model.key === 'FANUC' ? 2200 : 900) : (model.key === 'FANUC' ? 250 : 0)
+    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 600 }) : setMount3d(true), delay)
     return () => window.clearTimeout(t)
   }, [mount3d, model.key, shot, live])
   // The 3D starts on a click only (or by itself when the robot is live). Starting it costs ~1 s of the
@@ -295,7 +301,7 @@ function PanelInner({ model, robot, onFull, big }: {
               ) : (
                 <input type="range" min={lo} max={hi} step={0.5} value={deg} aria-label={`${name} (preview)`}
                        className="accent-violet-400 w-full"
-                       onChange={e => { const v = [...pose]; v[i] = Number(e.target.value) / DEG; setPose(v) }} />
+                       onChange={e => { wake(); const v = [...pose]; v[i] = Number(e.target.value) / DEG; setPose(v) }} />
               )}
               <span className={`tnum text-right ${isMoving ? 'text-ok-soft' : 'text-slate-200'}`}>{deg.toFixed(1)}°</span>
             </div>)
@@ -308,6 +314,7 @@ function PanelInner({ model, robot, onFull, big }: {
           <span className="tnum text-right text-slate-200">{live ? '—' : `${Math.round(grip * 100)}% closed`}</span>
         </div>
   </div>
+  const still = shot ? <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} /> : null
   const twinView = !mount3d ? (shot
       ? <button type="button" onClick={wake}
                 className="relative block w-full h-72 bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
@@ -316,8 +323,10 @@ function PanelInner({ model, robot, onFull, big }: {
             Click for the 3D view</span>
         </button>
       : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
-      <Suspense fallback={<Skeleton className="h-72 rounded-none" />}>
-        <RobotTwin model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
+      <div className="relative">
+      <Suspense fallback={still ? <div className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}>{still}</div>
+                                : <Skeleton className="h-72 rounded-none" />}>
+        <RobotTwin onReady={onReady} model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
                    onSnapshot={big || live || shotFresh ? undefined : saveShot}
                    gripper={live || replay ? null : grip}
                    trail={replay ? replay.path.map(p => tipPosition(urdf, p)) : undefined} trailColor="#a78bfa"
@@ -325,7 +334,9 @@ function PanelInner({ model, robot, onFull, big }: {
                    onJointDrag={live ? undefined : (j, d) => setPose(p => {
                      const v = [...p], [lo, hi] = limits[j]
                      v[j] = Math.max(lo / DEG, Math.min(hi / DEG, v[j] + d)); return v })} />
-      </Suspense>)
+      </Suspense>
+      {still && !big && <div aria-hidden className={`absolute inset-0 bg-ink-950/40 transition-opacity duration-300 ${ready3d ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>{still}</div>}
+      </div>)
   const control = robot ? <RobotControlPanel robotId={robot.device_id} robotName={robot.name} /> : null
   return (
     <div className="card overflow-hidden">

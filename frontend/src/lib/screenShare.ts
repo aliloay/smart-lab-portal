@@ -16,12 +16,16 @@ let stream: MediaStream | null = null
 let live = false
 let timer = 0
 let video: HTMLVideoElement | null = null      // the hidden player frames are drawn from (released on stop)
+let sentAt = 0                                  // last frame actually uploaded (0 = none yet)
+let liveSince = 0
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach(f => f())
 
 export const canCaptureHere = () => window.isSecureContext && !!navigator.mediaDevices?.getDisplayMedia
 export const isCapturing = () => live
 export const pendingPreview = () => (stream && !live ? stream : null)
+/** Live but no picture yet after a few seconds: the chosen window gives none (minimized / closed / blocked). */
+export const noPictureYet = () => live && sentAt === 0 && Date.now() - liveSince > 6000
 export function onShareChange(f: () => void) { listeners.add(f); return () => { listeners.delete(f) } }
 
 /** Step 1: choose what to share; returns the stream for a local preview. Nothing is sent. */
@@ -42,15 +46,26 @@ export async function goLive(title: string, targets: number[] | null): Promise<v
   if (!stream) throw new Error('Choose a screen or window first')
   await api.broadcastStart('browser', title, targets)
   live = true
+  sentAt = 0
+  liveSince = Date.now()
   const v = document.createElement('video')
   video = v
   v.muted = true
+  v.playsInline = true
   v.srcObject = stream
-  await v.play()
+  // 2026-10-27: "Waiting for the first frame" forever - `await v.play()` never resolves while the shared
+  // window gives no picture (e.g. minimized), so no frame loop ever started. Never block on it: the loop
+  // starts at once and uploads as soon as the player has a picture.
+  void v.play().catch(() => { /* retried by the loop below */ })
   const canvas = document.createElement('canvas')
   const tick = async () => {
     if (!stream || !live || video !== v) return              // stopped (or a newer share replaced this one)
-    const vw = v.videoWidth || 1280, vh = v.videoHeight || 720      // follows resolution changes
+    if (v.readyState < 2 || !v.videoWidth) {                 // no picture yet: try again shortly
+      if (v.paused) void v.play().catch(() => {})
+      if (live) { notify(); timer = window.setTimeout(tick, FRAME_MS) }
+      return
+    }
+    const vw = v.videoWidth, vh = v.videoHeight              // follows resolution changes
     const w = Math.min(MAX_W, vw), h = Math.round(w * vh / vw)
     canvas.width = w
     canvas.height = h
@@ -59,6 +74,7 @@ export async function goLive(title: string, targets: number[] | null): Promise<v
     if (blob && live && video === v) {                       // never upload a frame taken before Stop
       const st = await uploadBroadcastFrame(blob).catch(() => 0)
       if (st === 409) { stopTracks(); notify(); return }       // stopped elsewhere
+      if (st >= 200 && st < 300) { if (!sentAt) notify(); sentAt = Date.now() }
     }
     if (live) timer = window.setTimeout(tick, FRAME_MS)
   }

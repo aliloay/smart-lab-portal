@@ -872,7 +872,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
           </div>
           <div className="wall-floor-stage">
             {tiles === null && !error ? <Skeleton className="h-full w-full" />
-              : currentTile && currentCam?.lab_id === currentTile.lab_id ? <LabFloor tile={currentTile} cam={currentCam} robots={floorRobots} compact />
+              : currentTile && currentCam?.lab_id === currentTile.lab_id ? <LabFloor tile={currentTile} cam={currentCam} cams={scopedCams.filter(c => c.lab_id === currentTile.lab_id)} robots={floorRobots} compact />
                 : <div className="wall-floor-unavailable"><Radar size={20} /><span>No verified floor layout for {scopeName}.</span><Link to="/labs">Lab details</Link></div>}
           </div>
         </section>
@@ -964,7 +964,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
           {tiles === null && !error && cams === null && !cameraError ? <Skeleton className="aspect-[1.55] w-full" />
             : currentTile && currentCam?.lab_id === currentTile.lab_id ? (
               <div className="rounded-xl border border-white/[.06] bg-[#0d131a] p-2 sm:p-3">
-                <LabFloor tile={currentTile} cam={currentCam} robots={floorRobots} />
+                <LabFloor tile={currentTile} cam={currentCam} cams={scopedCams.filter(c => c.lab_id === currentTile.lab_id)} robots={floorRobots} />
               </div>
             ) : (
               <div className="flex min-h-[250px] flex-col items-center justify-center rounded-xl border border-dashed border-white/[.12] bg-black/15 px-5 text-center">

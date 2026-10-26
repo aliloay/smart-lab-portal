@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom'
 import { Cast, Crown, LayoutGrid, MonitorPlay, MonitorUp, Square, X } from 'lucide-react'
 import { BroadcastState, MasterNow, ShareRequest, api, fetchBlob } from '../lib/api'
 import { relative } from '../lib/time'
-import { cancelPreview, canCaptureHere, goLive, isCapturing, onShareChange, pendingPreview, pickScreen, stopShare } from '../lib/screenShare'
+import { cancelPreview, canCaptureHere, goLive, isCapturing, noPictureYet, onShareChange, pendingPreview, pickScreen, stopShare } from '../lib/screenShare'
 import { PcScreenViewer } from './PcControls'
 import { useLiveMessages } from '../lib/live'
 import { Chip } from './ui'
@@ -183,7 +183,10 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
           deploy/tls/smartlab-ca.crt once)</span></div>}
       {st?.active && <div className="rounded-lg overflow-hidden border border-ink-600 bg-black/40 max-w-md w-full h-[252px] grid place-items-center">
         {src ? <img src={src} alt="What the students see" className="w-full h-full object-contain" />
-          : <span className="text-[12px] text-slate-400">Waiting for the first frame…</span>}</div>}
+          : isCapturing() && noPictureYet()
+            ? <span className="text-[12px] text-warn-soft px-4 text-center">No picture from the shared window yet - it may be
+                minimized or closed. Restore it, or press Stop sharing and share a whole screen instead.</span>
+            : <span className="text-[12px] text-slate-400">Waiting for the first frame…</span>}</div>}
       <p className="text-[11px] text-slate-500">The chosen PCs (with the lab agent) get a notice and open the presentation in their browser;
         anyone signed in can also open /share. Nothing is recorded.</p>
       {error && <p className="text-[12px] text-bad-soft">{error}</p>}

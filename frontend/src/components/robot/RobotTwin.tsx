@@ -144,6 +144,19 @@ function Trail({ points, color }: { points: Vec3[]; color: string }) {
  *  Taken right after an explicit render (no preserveDrawingBuffer); a blank frame - shaders still compiling -
  *  is tiny and retried. Encoded with toBlob (off the main thread): toDataURL froze the page ~250 ms per
  *  still (profile 2026-10-21). */
+/** Rendered inside the mesh Suspense: fires once the manufacturer's meshes are on screen (two frames later), so
+ *  the panel can keep its still picture on top until then - no blank flash (2026-10-27). */
+function Ready({ onReady }: { onReady: () => void }) {
+  const { invalidate } = useThree()
+  useEffect(() => {
+    invalidate()
+    let a = 0, b = 0
+    a = requestAnimationFrame(() => { b = requestAnimationFrame(() => onReady()) })
+    return () => { cancelAnimationFrame(a); cancelAnimationFrame(b) }
+  }, [onReady, invalidate])
+  return null
+}
+
 function Snapshot({ onShot }: { onShot: (url: string) => void }) {
   const { gl, scene, camera } = useThree()
   useEffect(() => {
@@ -270,6 +283,7 @@ function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n:
         <Suspense fallback={<Arm model={props.model} q={q} selected={props.selected} moving={props.moving} />}>
           <Loaded onLoad={invalidate} />
           {props.onSnapshot && <Snapshot onShot={props.onSnapshot} />}
+          {props.onReady && <Ready onReady={props.onReady} />}
           {props.homeQ && <MeshArm model={urdf} q={props.homeQ} ghost accent={props.model.accent} />}
           <MeshArm model={urdf} q={q} selected={props.selected} moving={props.moving} accent={props.model.accent}
                    onSelect={props.onSelect} gripper={props.gripper}
@@ -353,6 +367,8 @@ export interface TwinProps {
   moving?: boolean[] | null
   onSelect?: (j: number) => void
   onSnapshot?: (dataUrl: string) => void
+  /** The robot's own meshes are drawn (first frame) - the panel's still picture can fade away. */
+  onReady?: () => void
 }
 
 const VIEWS: [ViewName, string][] = [['front', 'Front'], ['back', 'Back'], ['right', 'Right'], ['left', 'Left'], ['top', 'Top'], ['bottom', 'Bottom'], ['iso', '3D']]

@@ -1,5 +1,32 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-10-27 ~02:00 (continuation mission, in progress)
+Done this session (UNCOMMITTED until the full backend suite passes):
+- Launcher: one process/port snapshot instead of 8x `tasklist /v` (10-60 s each); rebuild only when code changed
+  (`.last_build_fingerprint`, `launch.bat rebuild` forces); helpers at below-normal priority; fixed PC-agent/UR-agent
+  window check clash; voice / OPC UA / UR agent started. Dry run OK. (A dry run wrote a false fingerprint - deleted.)
+- smartlab.local: announcer (tools/mdns/announce.py) was not running after the reboot - started; resolves + HTTPS 200.
+- P0 photos: firmware/tools/ali.jpg.jpg + ali2.jpg git-ignored (portrait photo), kept on disk.
+- P0 passwords: seed.py uses SEED_*_PASSWORD or random (never printed); README / DEMO.md / How_To_Run_System.md no
+  longer list passwords; backend/set_password.py (hidden prompt, policy, audit) + tests/test_set_password.py (2 pass).
+  LIVE accounts still on the published passwords - OWNER: change them (Users & roles).
+- Deploy: tools/deploy/deploy_now.ps1 (hidden password prompt -> deploy.py --full-tests). OWNER runs it. A token-mint
+  shortcut was refused by the permission system (credential access) and removed.
+- IoT Dashboard floor plan: camera 2 drawn diagonally opposite camera 1; per-camera people counts (never summed);
+  PC state from either camera (LabFloor.tsx, CommandCenter.tsx).
+- Screen share "Waiting for the first frame": frame loop no longer blocks on video.play(); hint when the shared
+  window gives no picture (screenShare.ts, ScreenShare.tsx).
+- Scan + voice: mic on the Scan page; the asset card in view travels as context (Scan.tsx ScanVoice, cardContext);
+  e2e/scan_voice.mjs written - NOT yet passed (copy backend slow during the suite).
+- Robot twins: 3D starts by itself after the page settles (UR5e 0.9 s, FANUC 2.2 s) or on click / slider; the still
+  picture stays on top until the meshes are drawn (RobotTwin onReady) - no blank flash.
+- AI (from 10-26/27, uncommitted): keyword tool router, bounded answers, guide only for how-to, time line + volatile
+  snapshot lines last (prompt cache), 4K ctx, AI_LOCAL_ONLY, Whisper local_files_only.
+NEXT: full backend suite result -> commit (review files) -> e2e scan_voice + robots smoothness -> owner deploy ->
+model sweep (clean CPU, one job at a time) -> docs/LOCAL_AI_BENCHMARK -> remaining backlog.
+
+> 2026-10-27 ~01:00 status: docs/SMART_LAB_COMPLETE_STATUS_REPORT_2026-10-27.md (report only). Live still c74ee3b; HEAD cf81823 + uncommitted AI router / local-only / prompt-cache work; local model sweep in progress; offline test not done.
+
 ## Checkpoint 2026-10-26 evening - FINAL AUDIT (docs/FINAL_IMPLEMENTATION_AUDIT_2026-10-26.md) - committed, NOT pushed, NOT deployed
 Verdict: READY WITH DOCUMENTED LIMITATIONS. Owner actions first: (1) change the admin + staff passwords - the live portal
 still accepts the ones printed in the README (read-only check; the briefing now flags it); (2) deploy (live = c74ee3b of

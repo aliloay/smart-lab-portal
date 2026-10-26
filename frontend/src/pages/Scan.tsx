@@ -13,7 +13,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Camera, CameraOff, FileVideo, MessageCircle, QrCode, RefreshCw, ScanLine, ShieldAlert, Smartphone, Users } from 'lucide-react'
+import { Camera, CameraOff, FileVideo, MessageCircle, Mic, QrCode, RefreshCw, ScanLine, ShieldAlert, Smartphone, Square, Users, VolumeX } from 'lucide-react'
+import { Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
+import { AiText } from '../components/ai'
 import { ScanCard, ScanPeople, api, scanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
 
@@ -276,6 +278,8 @@ export default function Scan() {
         <button key={c} onClick={() => setSelected(c)} className={`text-[12px] px-2 py-1 rounded-md border ${shown === c ? 'border-accent-400 text-white' : 'border-ink-600 text-slate-400'}`}>
           {cards[c]?.card?.name ?? c}</button>))}</div>}
 
+      <ScanVoice card={cs?.card} />
+
       {shown && <AssetCard code={shown} state={cs} onRefresh={() => loadCard(shown)} />}
       {!shown && running && <p className="text-[12.5px] text-slate-500">No marker in view. Unmarked equipment stays unidentified -
         the camera never guesses which device it is from its look.</p>}
@@ -315,6 +319,81 @@ function AssetCard({ code, state, onRefresh }: { code: string; state?: CardState
         <Link to={c.link} className="btn-ghost btn-sm">Open in the portal</Link>
         <button className="btn-ghost btn-sm" onClick={onRefresh}><RefreshCw size={13} /> Refresh</button>
       </div>
+    </div>
+  )
+}
+
+/** What the camera shows right now, as plain text for the assistant (only the portal's own record, with its age). */
+export function cardContext(c: ScanCard): string {
+  const parts = [`I am looking at ${c.name} (${c.type}${c.lab_code ? `, ${c.lab_code}` : ''}, marker ${c.code}) through the phone camera.`,
+    `Its record in the portal: status ${c.status.replace(/_/g, ' ').toLowerCase()}, last report ${fmtAge(c.seconds_since_seen)}.`]
+  if (c.facts.length) parts.push('Facts: ' + c.facts.map(f => `${f.label} ${f.value}${f.quality !== 'RECORD' ? ` (${f.quality.toLowerCase()})` : ''}`).join('; ') + '.')
+  if (c.readings.length) parts.push('Readings: ' + c.readings.map(r => `${r.metric} ${r.value} ${r.unit} (${fmtAge(r.age_s)}${r.quality === 'STALE' ? ', stale' : ''})`).join('; ') + '.')
+  parts.push(`${c.open_alerts} open alerts on it, ${c.open_issues_in_lab} open issues in ${c.lab_code ?? 'the lab'}.`)
+  return parts.join(' ').slice(0, 3500)
+}
+
+/**
+ * Voice while scanning (owner 2026-10-27): ask by voice about the asset in view (its live card goes along as context)
+ * or about anything in the lab. Same path as typing - /ai/ask with the same permissions; the camera keeps running.
+ * The context travels as an earlier turn, so the instant database answers and the tool router still see only the
+ * question itself.
+ */
+function ScanVoice({ card }: { card?: ScanCard }) {
+  const [voice, setVoice] = useState<VoiceStatus | null>(null)
+  const [phase, setPhase] = useState<'idle' | 'recording' | 'thinking'>('idle')
+  const [q, setQ] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [err, setErr] = useState('')
+  const [speaking, setSpeaking] = useState(false)
+  const rec = useRef<Recording | null>(null)
+  const cardRef = useRef(card); cardRef.current = card
+  useEffect(() => { if (micSupported()) voiceStatus().then(setVoice) }, [])
+  useEffect(() => () => { rec.current?.cancel(); stopSpeaking() }, [])
+  if (!micSupported() || voice?.stt === false) return null
+
+  const finish = async () => {
+    const r = rec.current
+    if (!r) return
+    rec.current = null
+    setPhase('thinking')
+    try {
+      const t = await transcribe(await r.stop())
+      if (!t.text || t.text.length < 2) { setErr('Did not catch that - try again a little closer.'); return }
+      setQ(t.text)
+      const c = cardRef.current
+      const history = c ? [{ role: 'user' as const, content: cardContext(c) },
+                           { role: 'assistant' as const, content: `Understood - you are looking at ${c.name}.` }] : []
+      const a = await api.aiAsk(t.text, history)
+      setAnswer(a.answer)
+      setSpeaking(true)
+      void speak(spokenSummary(a.answer), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Voice failed')
+    } finally { setPhase('idle') }
+  }
+  const startRec = async () => {
+    if (rec.current || phase === 'thinking') return
+    stopSpeaking(); setSpeaking(false); setErr(''); setAnswer('')
+    try { rec.current = await Recording.start(() => void finish()); setPhase('recording') }
+    catch { setErr('The microphone is blocked - allow it for this site.') }
+  }
+  return (
+    <div className="card p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => phase === 'recording' ? void finish() : void startRec()} disabled={phase === 'thinking'}
+                aria-label={phase === 'recording' ? 'Stop and ask' : 'Ask by voice'}
+                className={`grid place-items-center w-12 h-12 rounded-full shrink-0 ${phase === 'recording' ? 'bg-red-600 text-white animate-pulse' : 'bg-accent-500/20 text-accent-200 border border-accent-400/50'}`}>
+          {phase === 'recording' ? <Square size={18} /> : <Mic size={20} />}</button>
+        <div className="text-[13px] min-w-0">
+          <div className="text-white">{phase === 'recording' ? 'Listening… tap again to ask' : phase === 'thinking' ? 'Thinking…'
+            : card ? <>Ask about <b>{card.name}</b> or anything in the lab</> : 'Ask anything about the lab by voice'}</div>
+          {q && <div className="text-slate-400 truncate">You: {q}</div>}
+        </div>
+        {speaking && <button className="ml-auto btn-ghost btn-sm" onClick={() => { stopSpeaking(); setSpeaking(false) }}><VolumeX size={13} /> Stop</button>}
+      </div>
+      {answer && <AiText text={answer} />}
+      {err && <p className="text-[12px] text-bad-soft">{err}</p>}
     </div>
   )
 }

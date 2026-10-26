@@ -22,8 +22,9 @@ const ROBOT_COLOR: Record<string, string> = {
   MOVING: '#22c55e', STATIONARY: '#38bdf8', TELEMETRY_STALE: '#fbbf24', OFFLINE: '#f87171', UNKNOWN: '#64748b',
 }
 
-function pcState(cam: SecurityCamera | null, name: string): ZoneStatus | null {
-  const z = cam?.zones.find(z => z.name.toUpperCase() === name)
+function pcState(cam: SecurityCamera | null, name: string, other?: SecurityCamera | null): ZoneStatus | null {
+  // Either camera may have the PC boxed (2026-10-27: camera 2 sees PC-05..13); the first that does decides.
+  const z = cam?.zones.find(z => z.name.toUpperCase() === name) ?? other?.zones.find(z => z.name.toUpperCase() === name)
   return (z?.status as ZoneStatus) ?? null
 }
 
@@ -53,25 +54,37 @@ function RobotCell({ x, y, w, h, label, robot, frame }: {
   return robot ? <Link to={`/robots/${robot.device_id}`}>{body}</Link> : body
 }
 
-export default function LabFloor({ tile, cam, robots, compact = false }: {
-  tile: MonitorTile | null; cam: SecurityCamera | null; robots: Robot[]; compact?: boolean
+const camLabel = (c: SecurityCamera | null | undefined) => !c || c.online == null || c.source_ok == null
+  ? 'unknown' : c.online === false ? 'offline' : c.source_ok === false ? 'no frames' : 'live'
+
+export default function LabFloor({ tile, cam, cams = [], robots, compact = false }: {
+  tile: MonitorTile | null; cam: SecurityCamera | null
+  /** Every camera of this lab (2026-10-27): camera 1 is drawn at the lower-right corner, camera 2 diagonally
+   *  opposite (upper-left), as mounted. Without it only `cam` is drawn. */
+  cams?: SecurityCamera[]
+  robots: Robot[]; compact?: boolean
 }) {
+  const ordered = cams.length ? [...cams].sort((a, b) => a.device_uid.localeCompare(b.device_uid)) : cam ? [cam] : []
+  const cam1 = ordered[0] ?? null
+  const cam2 = ordered[1] ?? null
   const ur = robots.find(r => (r.model ?? '').toUpperCase().includes('UR') && !r.demo)
     ?? robots.find(r => (r.model ?? '').toUpperCase().includes('UR'))
   const fanuc = robots.find(r => (r.model ?? '').toUpperCase().includes('FANUC') && !r.demo)
     ?? robots.find(r => (r.model ?? '').toUpperCase().includes('FANUC'))
-  const doorOpen = tile?.controller_online ? tile.door_closed === false : cam?.door_open ?? null
+  const doorOpen = tile?.controller_online ? tile.door_closed === false : cam1?.door_open ?? cam2?.door_open ?? null
   const longTable = Array.from({ length: 8 }, (_, i) => `PC-${String(i + 1).padStart(2, '0')}`)
   // A reachable vision service is not a live picture unless its source is
   // reporting frames as well.
-  const live = cam?.online === true && cam.source_ok === true
-  const cameraLabel = !cam || cam.online == null || cam.source_ok == null
-    ? 'unknown' : cam.online === false ? 'offline' : cam.source_ok === false ? 'no frames' : 'live'
+  const live = cam1?.online === true && cam1.source_ok === true
+  const live2 = cam2?.online === true && cam2.source_ok === true
+  const cameraLabel = camLabel(cam1)
   return (
     <div className={'relative ' + (compact ? 'lab-floor--wall' : '')}>
       <div className="relative z-10 mb-2 flex shrink-0 flex-wrap items-center justify-start gap-x-4 gap-y-1 border-b border-white/[.06] bg-[#0d131a] px-2 py-1 text-[11.5px] text-slate-300">
         <span><b className="text-white tnum">{tile?.people.length ?? 0}</b> inside (door)</span>
-        <span><b className="text-white tnum">{cam?.online ? cam.people ?? 0 : '–'}</b> seen by camera</span>
+        {/* Two cameras can see the same person: each count on its own, never added up. */}
+        <span><b className="text-white tnum">{cam1?.online ? cam1.people ?? 0 : '–'}</b> seen by camera{cam2 ? ' 1' : ''}</span>
+        {cam2 && <span><b className="text-white tnum">{cam2.online ? cam2.people ?? 0 : '–'}</b> seen by camera 2</span>}
         {tile?.environment?.temperature && <span><b className="text-white tnum">{tile.environment.temperature.value.toFixed(1)}</b>{tile.environment.temperature.unit}</span>}
       </div>
       <svg viewBox="0 0 100 62" className="w-full h-auto select-none" role="img"
@@ -97,6 +110,7 @@ export default function LabFloor({ tile, cam, robots, compact = false }: {
         </g>
         {/* Security camera view is drawn behind furniture and status marks. */}
         <path d="M 95 57 L 9 11 L 16 47 Z" fill="url(#cone)" opacity={live ? 1 : 0.25} />
+        {cam2 && <path d="M 4 5.5 L 92 38 L 70 55 Z" fill="url(#cone)" opacity={live2 ? 0.8 : 0.2} />}
         {/* FANUC and UR5e sit along opposite long sides, near each other. */}
         <RobotCell x={63} y={43} w={9} h={10} label="FANUC" robot={fanuc} frame="cage" />
         <RobotCell x={52} y={8} w={16} h={12} label="UR5e" robot={ur} frame="gantry" />
@@ -107,7 +121,7 @@ export default function LabFloor({ tile, cam, robots, compact = false }: {
           const row = Math.floor(i / 4)
           const x = 26 + col * 8.8
           const y = row === 0 ? 27.7 : 32
-          const st = pcState(cam, n)
+          const st = pcState(cam1, n, cam2)
           return (
             <g key={n}>
               <rect x={x} y={y} width={4.4} height={3} rx={0.6}
@@ -122,7 +136,7 @@ export default function LabFloor({ tile, cam, robots, compact = false }: {
         <rect x={5} y={7.5} width={16} height={19} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
         <text x={13} y={9.5} textAnchor="middle" fontSize={1.8} fill="#94a3b8">Lab engineer</text>
         {['PC-09', 'PC-10'].map((n, i) => {
-          const st = pcState(cam, n)
+          const st = pcState(cam1, n, cam2)
           const y = 11 + i * 7.5
           return (
             <g key={n}>
@@ -132,7 +146,12 @@ export default function LabFloor({ tile, cam, robots, compact = false }: {
         })}
         {/* Security camera at the lower-right corner, facing back across the room. */}
         <path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
-        <text x={94.5} y={50.5} textAnchor="end" fontSize={1.8} fill="#94a3b8">Camera · {cameraLabel}</text>
+        <text x={94.5} y={50.5} textAnchor="end" fontSize={1.8} fill="#94a3b8">Camera{cam2 ? ' 1' : ''} · {cameraLabel}</text>
+        {/* Camera 2, diagonally opposite camera 1 (docs/LAB_GO_NOGO_2026-10-18.md 1.3), facing back across the room. */}
+        {cam2 && <g>
+          <path d="M 7.5 5.5 h-3.2 l-1.3 1.5 v2 h5.8 z" fill={live2 ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
+          <text x={22.5} y={6.4} fontSize={1.8} fill="#94a3b8">Camera 2 · {camLabel(cam2)}</text>
+        </g>}
       </svg>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
         <span><i className="inline-block w-2 h-2 rounded-sm align-middle mr-1" style={{ background: PC_FILL.IN_USE }} />PC in use</span>
