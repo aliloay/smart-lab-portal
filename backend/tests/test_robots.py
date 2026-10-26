@@ -106,7 +106,12 @@ def test_no_endpoint_can_send_anything_to_a_robot():
     from app.services import ur_dashboard, ur_agent
     assert set(ur_dashboard.ALLOWED) == {"is in remote control", "robotmode", "safetystatus", "programState",
                                          "get loaded program", "play", "stop"}
-    assert ur_agent.ALLOWED == {("GET", "/state"), ("POST", "/command"), ("POST", "/recover")}
+    assert ur_agent.ALLOWED == {("GET", "/state"), ("POST", "/command"), ("POST", "/recover"),
+                                ("POST", "/auto_home/cancel")}
+    # The stop relay (2026-10-26) is polled BY the ESP32: the backend opens no connection to it.
+    from app.services import stop_relay
+    for bad in ("import socket", "httpx", "import requests", "urllib"):
+        assert bad not in inspect.getsource(stop_relay), bad
 
 
 # ---------------------------------------------------------------- fusion ---

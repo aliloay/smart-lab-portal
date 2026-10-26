@@ -533,6 +533,41 @@ def control_global_stop(device_id: int, req: StopIn, db: Session = Depends(get_d
     return {**r.out(), **_control_out(d, datetime.now(timezone.utc))}
 
 
+@router.post("/{device_id}/control/auto-home/cancel")
+def control_auto_home_cancel(device_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """Any staff member cancels the automatic Home countdown (the idle clock restarts). Sends nothing to a robot."""
+    d = _robot(db, device_id)
+    r = rctl.ur_agent("POST", "/auto_home/cancel", {"by": user.full_name})
+    if r is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "the UR agent is not running - no countdown exists")
+    db.add(AuditLog(actor_user_id=user.id, action="ROBOT_AUTO_HOME_CANCEL", entity_type="robot", entity_id=str(d.id),
+                    detail={"was": r.get("was")}))
+    db.commit()
+    return {"message": r.get("reason"), **_control_out(d, datetime.now(timezone.utc))}
+
+
+# ------------------------------------------------- hardware stop relay (ESP32, safeguard stop input) ---
+from app.services import stop_relay  # noqa: E402
+
+
+def _relay_for(d: Device) -> bool:
+    return stop_relay.configured() and (d.device_uid or "") == stop_relay.ROBOT_UID
+
+
+@router.get("/stop-relay/poll", tags=["devices"])
+def stop_relay_poll(relay: Optional[str] = Query(None, pattern="^(RUN|STOP)$"),
+                    applied_seq: Optional[int] = Query(None, ge=0), fw: Optional[str] = Query(None, max_length=24),
+                    rssi: Optional[int] = Query(None, ge=-120, le=0),
+                    identity: str = Depends(require_device), db: Session = Depends(get_db)):
+    """The stop-relay ESP32 asks every 200 ms. Only that device's OWN key (not the shared door key).
+    STOP whenever the portal's STOP latch for the robot is set; the answer never depends on the browser."""
+    if not stop_relay.configured() or identity != stop_relay.RELAY_UID:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not the configured stop relay")
+    rid = db.scalar(select(Device.id).where(Device.device_uid == stop_relay.ROBOT_UID))
+    wanted = True if rid is None else rctl.stop_latched(rid)          # unknown robot -> STOP (fail-safe)
+    return stop_relay.poll(wanted, relay, applied_seq, fw, rssi)
+
+
 def restore_stop_latches(db: Session) -> list[int]:
     """Called once at start-up (main.lifespan): re-latch every STOP that was never recovered."""
     rows = db.execute(select(AuditLog, User.full_name).outerjoin(User, User.id == AuditLog.actor_user_id)
@@ -546,9 +581,21 @@ def restore_stop_latches(db: Session) -> list[int]:
 
 @router.post("/{device_id}/control/recover")
 def control_recover(device_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    """Deliberate recovery after STOP (administrator, arm reported still). Restarts nothing."""
+    """Deliberate recovery after STOP (administrator, arm reported still). Restarts nothing.
+    With the hardware stop relay: refused while a program is still running / paused (closing the safeguard input
+    would let it carry on); the UR agent's own latch is cleared too."""
     d = _robot(db, device_id)
-    ok, why = rctl.recover(d.id, _moving(d.component_state or {}))
+    cs = d.component_state or {}
+    is_ur = rctl.adapter_for(_ctl_model(d)).name == "UR5e"
+    if is_ur and _relay_for(d) and rctl.stop_latched(d.id):
+        local = rctl.ur_agent_state(max_age=0.0) if rctl.UR_PATH == "local_agent" else None
+        prog = ((local or {}).get("state") or {}).get("program_state") or (cs.get("extra") or {}).get("program_state")
+        why = stop_relay.release_blocker(prog)
+        if why:
+            raise HTTPException(status.HTTP_409_CONFLICT, why)
+    ok, why = rctl.recover(d.id, _moving(cs))
+    if ok and is_ur and rctl.UR_PATH == "local_agent":
+        rctl.ur_agent("POST", "/recover", {})              # the agent's own latch (None = agent not running)
     db.add(AuditLog(actor_user_id=admin.id, action="ROBOT_STOP_RECOVERY", entity_type="robot", entity_id=str(d.id),
                     detail={"cleared": ok, "reason": why}))
     db.commit()

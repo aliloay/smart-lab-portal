@@ -175,3 +175,86 @@ def test_dashboard_reader_only_sends_read_queries():
         out = r.read()
     assert set(seen) == set(answers) and out["remote"] is False and out["robot_mode"] == "RUNNING"
     assert not {"stop", "pause", "play", "load", "power on", "power off", "brake release"} & set(seen)
+
+
+# ------------------------------------------------------------------ automatic Home (2026-10-26) ---
+def auto_agent(mode="dry_run", **kw):
+    s = state(**kw)
+    link = FakeLink() if mode == "live" else None
+    cfg = U.Config(mode=mode, auto_home=True, idle_s=120.0, countdown_s=20.0)
+    return U.Agent(cfg, dash=FakeDash(s), rtde_r=FakeRtde(s), link=link), s, link
+
+
+def test_auto_home_off_by_default():
+    a, _ = agent()
+    assert a.auto_tick(1000.0) is None and a.auto.view(1000.0)["phase"] == "OFF"
+    assert U.Config.from_env({}).auto_home is False
+
+
+def test_auto_home_idle_then_countdown_then_home_live():
+    a, s, link = auto_agent(mode="live")
+    t0 = time.time()
+    for dt in (0, 60, 119):
+        a.clock = lambda dt=dt: t0 + dt                    # simulated clock: telemetry stays fresh
+        assert a.auto_tick() is None
+    assert a.auto.phase == "WAITING"
+    a.clock = lambda: t0 + 120
+    a.auto_tick()
+    v = a.auto.view(t0 + 125)
+    assert v["phase"] == "COUNTDOWN" and v["remaining_s"] == pytest.approx(15.0) and link.calls == []
+    a.clock = lambda: t0 + 139
+    assert a.auto_tick() is None and link.calls == []
+    a.clock = lambda: t0 + 140
+    r = a.auto_tick()
+    assert r["status"] == "REQUESTED" and link.calls[0][0] == "moveJ" and a.auto.last["status"] == "REQUESTED"
+
+
+def _fresh_ticks(a, s, t0, secs):
+    for dt in secs:
+        a.clock = lambda dt=dt: t0 + dt
+        a.auto_tick()
+
+
+def test_motion_or_other_driver_cancels_countdown_and_restarts_clock():
+    a, s, link = auto_agent(mode="live")
+    t0 = time.time()
+    _fresh_ticks(a, s, t0, (0, 120))
+    assert a.auto.phase == "COUNTDOWN"
+    s["qd"] = [0.0, 0.2, 0, 0, 0, 0]                        # someone moves it (jog / another source)
+    _fresh_ticks(a, s, t0, (125,))
+    assert a.auto.last_cancel and "moving" in a.auto.last_cancel["reason"]
+    s["qd"] = [0.0] * 6
+    _fresh_ticks(a, s, t0, (126, 200))
+    assert a.auto.phase == "WAITING"                        # clock restarted at 126: only 74 s idle
+    s["program_state"], s["loaded_program"] = "PLAYING pick.urp", "/p/pick.urp"
+    _fresh_ticks(a, s, t0, (400, 600))
+    assert a.auto.phase == "WAITING" and "another program" in a.auto.reason and link.calls == []
+
+
+def test_cancel_button_and_stop_latch_prevent_auto_home():
+    a, s, link = auto_agent(mode="live")
+    t0 = time.time()
+    _fresh_ticks(a, s, t0, (0, 120))
+    assert a.auto_cancel("Ali")["was"] == "COUNTDOWN" and a.auto.phase == "CANCELLED"
+    _fresh_ticks(a, s, t0, (140,))
+    assert a.auto.phase == "WAITING" and link.calls == []
+    a.latched = True
+    _fresh_ticks(a, s, t0, (300, 500, 700))
+    assert a.auto.phase == "WAITING" and "latched" in a.auto.reason and link.calls == []
+
+
+def test_auto_home_not_from_unverified_pose_or_when_at_home():
+    a, s, link = auto_agent(mode="live", q=FAR)
+    t0 = time.time()
+    _fresh_ticks(a, s, t0, (0, 200, 400))
+    assert a.auto.phase == "WAITING" and "verified" in a.auto.reason and link.calls == []
+    a, s, link = auto_agent(mode="live", q=HOME_RAD)
+    _fresh_ticks(a, s, t0, (0, 200, 400))
+    assert "already at Home" in a.auto.reason and link.calls == []
+
+
+def test_auto_home_dry_run_sends_nothing():
+    a, s, _ = auto_agent()
+    t0 = time.time()
+    _fresh_ticks(a, s, t0, (0, 120, 140))
+    assert a.auto.last["status"] == "DRY_RUN"

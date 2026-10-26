@@ -7,7 +7,7 @@
  * STOP is a software stop - NOT a safety-rated emergency stop: the robot's own E-stop is.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Hand, Home, Lock, OctagonX, RotateCcw, ShieldAlert, Unlock } from 'lucide-react'
+import { Hand, Home, Lock, OctagonX, RotateCcw, ShieldAlert, Timer, Unlock, Zap } from 'lucide-react'
 import { RobotCommandResult, RobotControl, api } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { Chip } from '../ui'
@@ -47,7 +47,17 @@ export default function RobotControlPanel({ robotId, robotName }: { robotId: num
 
   const load = useCallback(() => { api.robotControl(robotId).then(setSt).catch(e => setError(e.message)) }, [robotId])
   const homing = st?.master?.phase === 'HOMING'
-  useEffect(() => { load(); const t = window.setInterval(load, homing ? 1000 : 5000); return () => window.clearInterval(t) }, [load, homing])
+  const countdown = st?.master?.auto_home?.phase === 'COUNTDOWN'
+  useEffect(() => { load(); const t = window.setInterval(load, homing || countdown ? 1000 : 5000); return () => window.clearInterval(t) }, [load, homing, countdown])
+  // The countdown ticks locally between the 1 s refreshes (the server's remaining_s is the truth on each refresh).
+  const [tick, setTick] = useState(0)
+  const seenAt = useRef(0)
+  useEffect(() => { seenAt.current = Date.now(); setTick(0) }, [st])
+  useEffect(() => {
+    if (!countdown) return
+    const t = window.setInterval(() => setTick((Date.now() - seenAt.current) / 1000), 200)
+    return () => window.clearInterval(t)
+  }, [countdown])
 
   const mine = !!st?.owner && st.owner.user_id === user?.id
   const caps = st?.capabilities
@@ -104,7 +114,7 @@ export default function RobotControlPanel({ robotId, robotName }: { robotId: num
           className="rounded-xl py-2.5 font-bold tracking-wide text-white bg-red-600 hover:bg-red-500 disabled:opacity-60 flex items-center justify-center gap-2">
           <OctagonX size={16} /> {stopping ? 'STOPPING…' : 'STOP'}</button>
       </div>
-      <p className="text-center text-[10.5px] text-red-300/90">Software stop - not an emergency stop. In danger use the pendant / cell E-stop.</p>
+      <p className="text-center text-[10.5px] text-red-300/90">{m?.relay?.configured ? 'Stops the robot through its safeguard stop input, whoever drives it' : 'Software stop'} - not an emergency stop. In danger use the pendant / cell E-stop.</p>
       {m?.path === 'local_agent' && <div className="text-[11.5px] rounded-lg border border-ink-600 px-2.5 py-1.5 space-y-0.5">
         {m.local?.controller
           ? <><div className="text-slate-300">Controller: <b>{m.local.controller.control_mode === 'LOCAL' ? 'Local mode' : m.local.controller.control_mode === 'REMOTE' ? 'Remote mode' : 'mode unknown'}</b>
@@ -113,6 +123,22 @@ export default function RobotControlPanel({ robotId, robotName }: { robotId: num
           : <div className="text-warn-soft">Local-mode agent not running - Home / Stop cannot reach the robot (nothing is sent).</div>}
         {m.local_limits && <div className="text-slate-500">{m.local_limits}</div>}
       </div>}
+      {m?.auto_home && m.auto_home.enabled && (countdown
+        ? <div role="alert" className="rounded-lg border border-warn/60 bg-warn/10 px-2.5 py-2 flex items-center gap-3">
+            <Timer size={18} className="text-warn-soft shrink-0" />
+            <div className="flex-1 text-[12.5px] text-slate-100">Nobody used the robot for {Math.round(m.auto_home.idle_s / 60 * 10) / 10} min -
+              it goes <b>Home in {Math.max(0, Math.ceil((m.auto_home.remaining_s ?? 0) - tick))} s</b>. Clear the work area or cancel.</div>
+            <button type="button" className="btn-ghost btn-sm border border-warn/50" disabled={busy}
+                    onClick={() => run(async () => setSt(await api.robotAutoHomeCancel(robotId)))}>Cancel</button>
+          </div>
+        : <p className="text-[11px] text-slate-500"><Timer size={11} className="inline mr-1" />Automatic Home after {Math.round(m.auto_home.idle_s)} s idle
+            ({m.auto_home.countdown_s} s countdown): {m.auto_home.phase === 'WAITING' && m.auto_home.idle_for_s != null
+              ? `idle ${Math.round(m.auto_home.idle_for_s)} s` : m.auto_home.reason || m.auto_home.phase.toLowerCase()}
+            {m.auto_home.last ? ` · last automatic Home: ${m.auto_home.last.status === 'DRY_RUN' ? 'dry run' : m.auto_home.last.status.toLowerCase()}` : ''}</p>)}
+      {m?.relay && <p className={`text-[11.5px] ${!m.relay.online ? 'text-warn-soft' : m.relay.in_sync ? 'text-slate-400' : 'text-bad-soft'}`}>
+        <Zap size={11} className="inline mr-1" />Hardware stop relay (safeguard stop input): {!m.relay.online
+          ? `OFFLINE${m.relay.last_poll_s != null ? ` (${fmtAge(m.relay.last_poll_s)} ago)` : ''} - holding its last state`
+          : `${m.relay.relay === 'STOP' ? 'STOP - robot held in safeguard stop' : 'RUN'}${m.relay.in_sync ? '' : ` - switching to ${m.relay.wanted}`}${m.relay.latency_ms != null ? ` · last switch ${m.relay.latency_ms} ms after the click` : ''}`}</p>}
       {m?.stop_latched && <p className="text-[12px] text-bad-soft">STOP latched by {m.stop?.by}{m.stop?.restored ? ' (kept through a portal restart)' : ''} - Home is refused until an administrator recovers.</p>}
       {m?.stop_latched && user?.role === 'ADMIN' && <button className="btn-ghost btn-sm w-full" disabled={busy} onClick={recover}>
         <RotateCcw size={13} /> Recover after STOP (admin)</button>}

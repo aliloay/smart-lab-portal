@@ -279,6 +279,13 @@ export interface RobotControl {
       home_checks: RobotCheck[] | null
     } | null
     local_limits?: string | null
+    /** Automatic Home after the arm sat idle (agent UR_AUTO_HOME, off by default) - countdown, cancellable. */
+    auto_home?: { enabled: boolean; phase: 'OFF' | 'WAITING' | 'COUNTDOWN' | 'SENT' | 'CANCELLED'; reason: string
+      idle_s: number; countdown_s: number; idle_for_s: number | null; remaining_s: number | null
+      last: { t: number; status: string; reason: string } | null; last_cancel: { t: number; reason: string } | null } | null
+    /** Hardware stop relay on the controller's safeguard stop input (ESP32), null = not configured. */
+    relay?: { configured: boolean; uid: string | null; online: boolean; last_poll_s: number | null; wanted: 'RUN' | 'STOP'
+      relay: 'RUN' | 'STOP' | null; in_sync: boolean; latency_ms: number | null; fw: string | null; rssi: number | null } | null
   } | null
 }
 /** Admin screen shared with the students' PCs (in memory on the server, nothing recorded). */
@@ -1331,6 +1338,7 @@ export const api = {
   robotGlobalStop: (id: number, command_id: string) =>
     post<RobotCommandResult & RobotControl>(`/robots/${id}/control/stop`, { command_id }),
   robotStopRecover: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/recover`),
+  robotAutoHomeCancel: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/auto-home/cancel`),
   robotControlRelease: (id: number) => post<RobotControl & { released: boolean }>(`/robots/${id}/control/release`),
   robotCommand: (id: number, body: { action: 'home' | 'routine' | 'stop'; routine?: string; command_id: string; confirmed: boolean }) =>
     post<RobotCommandResult>(`/robots/${id}/control/command`, body),

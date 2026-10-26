@@ -409,12 +409,25 @@ def master_state(device_id: int, q_deg: Optional[list], moving: bool, fresh: boo
             "local": None if local is None else {"controller": local.get("controller"), "agent_mode": local.get("mode"),
                                                  "program": local.get("program"), "state": local.get("state"),
                                                  "home_checks": local.get("home_checks")},
+            # automatic Home after the arm sat idle (agent, UR_AUTO_HOME) - countdown shown + cancellable in the twin
+            "auto_home": None if local is None else local.get("auto_home"),
+            "relay": _relay_view(stop is not None),
             "local_limits": ("Local mode: Home and Stop work only while the portal program runs on the pendant "
                              "(the operator pressed Play). Stop cannot end pendant jogging, Freedrive or another "
                              "program - the controller accepts the Dashboard stop only in Remote mode.")
                             if UR_PATH == "local_agent" else None,
             "estop_note": "Software stop only (stopJ / Dashboard stop). It is NOT a safety-rated emergency "
                           "stop - use the red E-stop on the teach pendant or the cell's hardware E-stop."}
+
+
+def _relay_view(latched: bool) -> Optional[dict]:
+    from app.services import stop_relay
+    return stop_relay.view(latched) if stop_relay.configured() else None
+
+
+def stop_latched(device_id: int) -> bool:
+    with _state.lock:
+        return device_id in _state.stops
 
 
 def _check(device_id, model, user_id, action, routine, age) -> Result:

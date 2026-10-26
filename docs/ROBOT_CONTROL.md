@@ -220,3 +220,59 @@ wired to the control box's configurable **safety input** pair set to "Emergency 
 (password-protected; changes the safety checksum), or a safety relay / safety PLC feeding that pair from several
 stations. Requires a qualified person, the UR safety configuration change and a validation test - not a software task.
 The browser STOP and any ROS / RTDE command are **not** safety-rated and are never described as an E-stop.
+
+## 2026-10-26 (b) - automatic Home when nobody uses the UR5e + hardware stop relay (Local mode)
+
+**Owner's design:** the robot always stays in Local mode. (1) When it sits idle, it goes Home by itself after a visible
+countdown. (2) A portal STOP works whoever moves the robot. Both are built and tested offline. **Neither has run on
+the robot.**
+
+### Automatic Home (agent `tools/ur5e_control/ur_local_control.py`, class `AutoHome`; OFF by default)
+`robot.env`: `UR_AUTO_HOME=on`, `UR_AUTO_HOME_IDLE_S=120` (min 30), `UR_AUTO_HOME_COUNTDOWN_S=20` (min 10).
+1. WAITING: `portal_control.urp` plays on the pendant, the arm is still, it is **not** at Home, and every Home check
+   passes (fresh joints, safety NORMAL/REDUCED, RUNNING, STOP not latched, start pose within 10 deg of Home or of a
+   verified approach pose). The idle clock counts while all of this is true.
+2. After `IDLE_S`: COUNTDOWN. The twin shows "Robot goes Home in N s" with **Cancel** for every staff member
+   (`POST /api/robots/{id}/control/auto-home/cancel`, audit `ROBOT_AUTO_HOME_CANCEL`).
+3. Any motion, another driver (pendant jog, another program), a failed check, a STOP or Cancel ends the countdown,
+   and the idle clock restarts from zero. At 0: the same guarded Home as the button (moveJ 0.35 rad/s), HOMING to
+   HOME_REACHED live in the twin from joint feedback.
+* It can only happen while our pendant program plays, so nobody else is driving. The pendant keeps full authority
+  (Stop / Pause / E-stop).
+* Limit: Home starts only from near Home or from a recorded, operator-verified approach pose (`UR_APPROACH_FILE`).
+  Record the poses the robot is usually left in during commissioning, or it will wait with "start pose not verified".
+* The cameras do not take part. A person standing at the arm is not detected; the countdown and the robot's
+  collaborative safety limits are the protection. The owner decides whether that is acceptable for the lab.
+
+### Exact pendant steps (PolyScope 5, e-Series) - done once, by the operator, at reduced speed
+1. **Installation for the portal:** Installation tab -> URCaps -> **External Control** -> Host IP `192.168.1.200`
+   (this laptop), Custom port `50002`. Save -> **Save Installation As** `portal_200`. Her setup with host .101 can
+   stay as its own installation file and is not changed.
+2. **The program:** New -> Program. Program tab -> URCaps -> **External Control** (one node; nothing else is needed).
+   Robot Program node: leave "Program Loops Forever" off. Save -> **Save Program As** `portal_control` ->
+   `portal_control.urp` (saved together with `portal_200`).
+3. **Default program:** Installation -> General -> Startup -> **Load default program** = `portal_control.urp`
+   (*load* only, not auto-start: in Local mode a program only starts with Play).
+4. Daily, when the robot is free: on the laptop the agent is running. On the pendant: Open -> Program ->
+   `portal_control.urp` -> **Play**. The pendant shows the External Control node running, and the twin shows
+   "portal program playing". From then on, Home, Stop and automatic Home work.
+5. Before someone else uses the robot: press **Stop** on the pendant (our program ends), then use the robot normally.
+   When done: open `portal_control.urp` and press Play (one tap).
+6. Commissioning order: the steps under "Commissioning" above. Then turn on `UR_AUTO_HOME=on` with `IDLE_S=60`,
+   watch one countdown and one Cancel, then one automatic Home with a hand on the E-stop, then set the final
+   `IDLE_S`.
+
+### Hardware stop relay (firmware `firmware/SmartLab_Robot_Stop`, backend `app/services/stop_relay.py`)
+An ESP32 holds two relay contacts closed in the controller's **Safeguard Stop** inputs (SI0/SI1). The relay mirrors
+the portal's STOP latch: STOP opens them, and the controller performs a safeguard stop in Local mode, whoever drives
+the arm (programs, jogging, Freedrive, another PC).
+* The ESP32 polls `GET /api/robots/stop-relay/poll` every 200 ms with its **own** key (the shared door key is
+  refused). It reports what its relays do, and the twin shows online / in sync / latency.
+* Fail-safe direction: ESP32 power loss opens the contacts. Wi-Fi loss keeps the last state.
+* Recovery (administrator) is **refused while a program is still PLAYING or PAUSED**. Without a Safeguard Reset
+  input, closing the contacts would let it carry on by itself. Stop it on the pendant first. Recovery also clears
+  the agent's latch.
+* Off until `ROBOT_STOP_RELAY_UID` is set. Wiring, bench test and bring-up: `firmware/SmartLab_Robot_Stop/README.md`.
+  Not a safety-rated E-stop.
+* Tests: `backend/tests/test_stop_relay.py` (6), `tools/ur5e_control/test_ur_local_control.py` (20, incl. 6
+  automatic Home).

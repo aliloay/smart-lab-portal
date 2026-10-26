@@ -15,7 +15,7 @@ import httpx
 
 URL = os.environ.get("UR_AGENT_URL", "http://host.docker.internal:5310")
 KEY = os.environ.get("UR_AGENT_KEY", "")
-ALLOWED = {("GET", "/state"), ("POST", "/command"), ("POST", "/recover")}
+ALLOWED = {("GET", "/state"), ("POST", "/command"), ("POST", "/recover"), ("POST", "/auto_home/cancel")}
 _cache: dict = {"t": 0.0, "v": None}
 
 

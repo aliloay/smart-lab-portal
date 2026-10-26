@@ -51,6 +51,9 @@ class Config:
     program: str = "portal_control.urp"           # the pendant program holding the External Control node
     ur_cap_port: int = 50002
     approach: list = field(default_factory=list)  # operator-verified start poses (deg), recorded at commissioning
+    auto_home: bool = False                       # owner sign-off: Home by itself after the arm sat idle
+    idle_s: float = 120.0                         # still this long (portal program playing, not at Home) ...
+    countdown_s: float = 20.0                     # ... then a cancellable countdown shown in the twin, then Home
 
     @staticmethod
     def from_env(env: Optional[dict] = None) -> "Config":
@@ -62,7 +65,10 @@ class Config:
                 poses = [list(map(float, q)) for q in json.load(f).get("poses", [])]
         return Config(mode=e.get("UR_CONTROL_MODE", "dry_run").lower(), host=e.get("UR5E_IP", "192.168.1.102"),
                       program=e.get("UR_PORTAL_PROGRAM", "portal_control.urp"),
-                      ur_cap_port=int(e.get("UR_CAP_PORT", "50002")), approach=poses)
+                      ur_cap_port=int(e.get("UR_CAP_PORT", "50002")), approach=poses,
+                      auto_home=e.get("UR_AUTO_HOME", "off").lower() in ("on", "1", "true", "yes"),
+                      idle_s=max(30.0, float(e.get("UR_AUTO_HOME_IDLE_S", "120"))),
+                      countdown_s=max(10.0, float(e.get("UR_AUTO_HOME_COUNTDOWN_S", "20"))))
 
 
 # ------------------------------------------------------------------ policy (pure, unit-tested) ---
@@ -180,9 +186,78 @@ class DashboardReader:
         return out
 
 
+def at_home(state: dict) -> bool:
+    q = state.get("q")
+    return bool(q and len(q) == 6 and max(abs(a - b) for a, b in zip(_deg(q), HOME_Q_DEG)) <= HOME_TOL_DEG)
+
+
+class AutoHome:
+    """Home by itself when nobody uses the robot (owner's request 2026-10-26). Local mode, OFF by default.
+
+      WAITING   portal program playing, arm still, not at Home, every Home check passes - for idle_s, then
+      COUNTDOWN countdown_s, shown in the twin with a Cancel button for every staff member, then
+      SENT      Home through the same guarded path as the button (decide(): approach pose, safety, latch ...)
+    Anything that changes during the countdown cancels it: motion, another driver (pendant / another program),
+    a check failing, a STOP, Cancel. After a cancel the idle clock starts again from zero. It can only run while
+    the operator's pendant program is playing - the pendant keeps full authority (Stop / Pause / E-stop)."""
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+        self.phase, self.reason = ("WAITING", "") if cfg.auto_home else ("OFF", "UR_AUTO_HOME=off")
+        self.still_since: Optional[float] = None
+        self.deadline: Optional[float] = None
+        self.last: Optional[dict] = None              # the last automatic Home result
+        self.last_cancel: Optional[dict] = None
+
+    def blockers(self, st: dict, latched: bool, now: float) -> list:
+        out = [f"{k['name']}: {k['detail']}" for k in home_checks(st, self.cfg, True, latched, now) if not k["ok"]]
+        if at_home(st):
+            out.append("already at Home")
+        return out
+
+    def tick(self, st: dict, latched: bool, now: float) -> Optional[str]:
+        """Returns "home" when the countdown has run out (the caller sends it), else None."""
+        if not self.cfg.auto_home or self.cfg.mode == "off":
+            self.phase, self.reason = "OFF", "UR_AUTO_HOME=off" if not self.cfg.auto_home else "control off"
+            return None
+        bad = self.blockers(st, latched, now)
+        if self.phase == "COUNTDOWN":
+            if bad:
+                self.cancel("countdown cancelled - " + bad[0])
+                return None
+            if now >= self.deadline:
+                self.phase, self.reason, self.deadline, self.still_since = "SENT", "countdown over - Home sent", None, None
+                return "home"
+            return None
+        if bad:
+            self.phase, self.reason, self.still_since = "WAITING", bad[0], None
+            return None
+        if self.still_since is None:
+            self.still_since = now
+        if now - self.still_since >= self.cfg.idle_s:
+            self.phase, self.deadline = "COUNTDOWN", now + self.cfg.countdown_s
+            self.reason = f"idle {self.cfg.idle_s:.0f} s - the robot goes Home in {self.cfg.countdown_s:.0f} s"
+        else:
+            self.phase, self.reason = "WAITING", f"idle {now - self.still_since:.0f} / {self.cfg.idle_s:.0f} s"
+        return None
+
+    def cancel(self, why: str) -> None:
+        self.phase, self.reason, self.deadline, self.still_since = "CANCELLED", why, None, None
+        self.last_cancel = {"t": time.time(), "reason": why}
+
+    def view(self, now: float) -> dict:
+        return {"enabled": self.cfg.auto_home, "phase": self.phase, "reason": self.reason,
+                "idle_s": self.cfg.idle_s, "countdown_s": self.cfg.countdown_s,
+                "idle_for_s": None if self.still_since is None else round(now - self.still_since, 1),
+                "remaining_s": None if self.deadline is None else max(0.0, round(self.deadline - now, 1)),
+                "last": self.last, "last_cancel": self.last_cancel}
+
+
 class Agent:
     def __init__(self, cfg: Config, dash=None, rtde_r=None, link=None):
         self.cfg, self.lock = cfg, threading.Lock()
+        self.auto = AutoHome(cfg)
+        self.clock = time.time                         # injectable for tests
         self.dash = dash or DashboardReader(cfg.host)
         self.rtde_r, self.link = rtde_r, link
         self.state: dict = {"link": "off"}
@@ -208,7 +283,7 @@ class Agent:
             if self.rtde_r is None:
                 import rtde_receive
                 self.rtde_r = rtde_receive.RTDEReceiveInterface(self.cfg.host)
-            st["q"], st["qd"], st["t"] = list(self.rtde_r.getActualQ()), list(self.rtde_r.getActualQd()), time.time()
+            st["q"], st["qd"], st["t"] = list(self.rtde_r.getActualQ()), list(self.rtde_r.getActualQd()), self.clock()
         except Exception as e:                              # unreachable robot: state unknown, nothing allowed
             st["rtde_error"] = e.__class__.__name__
         if self.cfg.mode == "dry_run":
@@ -245,6 +320,26 @@ class Agent:
             self.log.append({"t": time.time(), **{k: out[k] for k in ("command_id", "action", "status", "reason")}})
             return out
 
+    def auto_tick(self, now: Optional[float] = None) -> Optional[dict]:
+        """One step of the automatic Home (the background loop calls this every 0.5 s)."""
+        now = now or self.clock()
+        st = self.refresh()
+        with self.lock:
+            go = self.auto.tick(st, self.latched, now)
+        if go != "home":
+            return None
+        r = self.command("home", f"auto-{int(now)}", confirmed=True)
+        with self.lock:
+            self.auto.last = {"t": now, "status": r["status"], "reason": r["reason"]}
+            self.auto.reason = f"automatic Home: {r['status']}"
+        return r
+
+    def auto_cancel(self, who: str) -> dict:
+        with self.lock:
+            was = self.auto.phase
+            self.auto.cancel(f"cancelled by {who[:60]}")
+        return {"ok": True, "was": was, "reason": f"automatic Home cancelled by {who[:60]} - the idle clock restarts"}
+
     def recover(self) -> dict:
         st = self.refresh()
         if classify(st, self.cfg)["moving"]:
@@ -276,7 +371,8 @@ def serve(agent: Agent, key: str, port: int = 5310):
                                       "controller": classify(st, agent.cfg),
                                       "state": {k: st.get(k) for k in ("remote", "robot_mode", "safety", "program_state",
                                                                        "loaded_program", "polyscope", "link", "t")},
-                                      "home_checks": home_checks(st, agent.cfg, True, agent.latched)})
+                                      "home_checks": home_checks(st, agent.cfg, True, agent.latched),
+                                      "auto_home": agent.auto.view(time.time())})
             self._ok(404, {"error": "not found"})
 
         def do_POST(self):
@@ -289,6 +385,8 @@ def serve(agent: Agent, key: str, port: int = 5310):
                                                    bool(body.get("confirmed"))))
             if self.path == "/recover":
                 return self._ok(200, agent.recover())
+            if self.path == "/auto_home/cancel":
+                return self._ok(200, agent.auto_cancel(str(body.get("by") or "portal")))
             self._ok(400, {"error": "bad request"})
 
         def log_message(self, *a):
@@ -313,4 +411,15 @@ if __name__ == "__main__":
     agent = Agent(cfg)
     if cfg.mode == "live":                                  # wait (in the background) for the pendant program
         threading.Thread(target=agent._link, daemon=True, name="ext-control-link").start()
+    if cfg.auto_home:
+        print(f"Automatic Home ON: idle {cfg.idle_s:.0f} s -> {cfg.countdown_s:.0f} s countdown -> Home")
+
+        def loop():
+            while True:
+                try:
+                    agent.auto_tick()
+                except Exception as e:                       # never let the loop die silently
+                    print("auto-home tick error:", e.__class__.__name__)
+                time.sleep(0.5)
+        threading.Thread(target=loop, daemon=True, name="auto-home").start()
     serve(agent, key)
