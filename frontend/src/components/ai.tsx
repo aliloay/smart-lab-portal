@@ -12,7 +12,8 @@
 import { FormEvent, ReactNode, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowUpRight, BookOpen, Bot, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, TriangleAlert, X, Zap } from 'lucide-react'
+import { ArrowUpRight, BookOpen, Bot, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, Square, TriangleAlert, Volume2, VolumeX, X, Zap } from 'lucide-react'
+import { MAX_RECORD_MS, Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
 import { AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
@@ -91,6 +92,20 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const end = useRef<HTMLDivElement>(null)
+  // Voice (2026-10-26): push to talk -> local Whisper -> the same question path; spoken questions get spoken answers.
+  const [voice, setVoice] = useState<VoiceStatus | null>(null)
+  const [vphase, setVphase] = useState<'idle' | 'recording' | 'transcribing'>('idle')
+  const [recMs, setRecMs] = useState(0)
+  const [speaking, setSpeaking] = useState(false)
+  const rec = useRef<Recording | null>(null)
+  const voiceRef = useRef(voice); voiceRef.current = voice
+  useEffect(() => { if (micSupported()) voiceStatus().then(setVoice) }, [])
+  useEffect(() => () => { rec.current?.cancel(); stopSpeaking() }, [])
+  useEffect(() => {
+    if (vphase !== 'recording') return
+    const t = window.setInterval(() => setRecMs(Date.now() - (rec.current?.started ?? Date.now())), 200)
+    return () => window.clearInterval(t)
+  }, [vphase])
 
   useEffect(() => {
     (student ? api.studentAiStatus() : api.aiStatus()).then(setStatus)
@@ -99,7 +114,7 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
   }, [student])
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns, busy])
 
-  const ask = async (question: string) => {
+  const ask = async (question: string, spoken = false) => {
     const text = question.trim()
     if (!text || busy) return
     setError('')
@@ -111,6 +126,10 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
       const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
       setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used,
                              instant: r.instant, link: r.link, charts: r.charts }])
+      if (spoken) {
+        setSpeaking(true)
+        void speak(spokenSummary(r.answer), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The assistant could not answer.')
       setTurns(t => t.slice(0, -1))
@@ -118,6 +137,42 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
     } finally { setBusy(false) }
   }
   const submit = (e: FormEvent) => { e.preventDefault(); ask(q) }
+  const finishRecording = async () => {
+    const r = rec.current
+    if (!r) return
+    rec.current = null
+    setVphase('transcribing')
+    try {
+      const audio = await r.stop()
+      const t = await transcribe(audio)
+      if (!t.text || t.text.length < 2) { setError('Did not catch that - hold the mic and speak a little closer.'); return }
+      await askRef.current(t.text, true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Voice failed - type the question instead.')
+    } finally { setVphase('idle') }
+  }
+  const finishRef = useRef(finishRecording); finishRef.current = finishRecording
+  const startRecording = async () => {
+    if (rec.current || busy) return
+    stopSpeaking(); setSpeaking(false); setError('')
+    if (!micSupported()) { setError('Voice needs the secure (https) portal address and a browser with a microphone.'); return }
+    if (voiceRef.current === null) { const v = await voiceStatus(); voiceRef.current = v; setVoice(v) }   // "Talk" before the status arrived
+    if (!voiceRef.current?.stt) { setError(`Voice is not available: ${voiceRef.current?.reason ?? 'the voice service is not running on the lab laptop'}. Type the question instead.`); return }
+    try {
+      rec.current = await Recording.start(() => void finishRef.current())
+      setRecMs(0); setVphase('recording')
+    } catch {
+      setError('The microphone is blocked - allow it for this site (lock icon in the address bar).')
+    }
+  }
+  const startRef = useRef(startRecording); startRef.current = startRecording
+  const micOn = !!voice?.stt
+  useEffect(() => {
+    if (!listen) return
+    const on = () => { void startRef.current() }
+    window.addEventListener('smartlab:talk', on)
+    return () => window.removeEventListener('smartlab:talk', on)
+  }, [listen])
   const askRef = useRef(ask); askRef.current = ask
   useEffect(() => {
     if (!listen) return
@@ -192,10 +247,26 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
       </div>
       {error && <div className="mt-2 text-[12.5px] text-bad-soft flex items-center gap-1.5">
         <TriangleAlert size={13} />{error}</div>}
+      {vphase !== 'idle' && <div className="mt-2 flex items-center gap-2 text-[12.5px]" role="status">
+        {vphase === 'recording'
+          ? <><span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-slate-200">Listening… {(recMs / 1000).toFixed(0)} / {MAX_RECORD_MS / 1000} s - press the mic again when done</span>
+              <button type="button" className="ml-auto text-slate-400 hover:text-white" onClick={() => { rec.current?.cancel(); rec.current = null; setVphase('idle') }}>Cancel</button></>
+          : <><Spinner inline /><span className="text-slate-300">Turning speech into text (on this laptop)…</span></>}
+      </div>}
+      {speaking && <button type="button" onClick={() => { stopSpeaking(); setSpeaking(false) }}
+        className="mt-2 self-start text-[12px] text-slate-400 hover:text-white inline-flex items-center gap-1"><VolumeX size={13} /> Stop speaking</button>}
       <form onSubmit={submit} className="mt-3 flex gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} maxLength={1000} disabled={busy}
-          placeholder={student ? 'Ask about your bookings…' : 'Ask the lab…'}
+          placeholder={vphase === 'recording' ? 'Listening…' : student ? 'Ask about your bookings…' : 'Ask the lab…'}
           aria-label="Question for the AI assistant" className="input flex-1" />
+        {micOn && <button type="button" aria-label={vphase === 'recording' ? 'Stop and send' : 'Ask by voice'}
+          title={vphase === 'recording' ? 'Stop and send' : 'Ask by voice (push to talk)'}
+          disabled={busy || vphase === 'transcribing'}
+          onClick={() => vphase === 'recording' ? void finishRecording() : void startRecording()}
+          className={`grid place-items-center w-11 rounded-xl border ${vphase === 'recording'
+            ? 'bg-red-600 border-red-500 text-white' : 'border-ink-600 text-slate-300 hover:text-white hover:border-accent-400/50'}`}>
+          {vphase === 'recording' ? <Square size={15} /> : <Mic size={16} />}</button>}
         <button type="submit" className="btn-primary" disabled={busy || q.trim().length < 2}>
           <Send size={15} /><span className="hidden sm:inline">Ask</span></button>
       </form>
@@ -204,6 +275,7 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
           ? 'It only sees your own bookings and reports. It cannot book, cancel or open doors.'
           : 'Read-only: the assistant cannot change bookings, issues or doors. Check important figures on the charts.'}
         {status.provider === 'ollama' && ` Runs on a free local model (${status.model}).`}
+        {micOn && <> <Volume2 size={11} className="inline" /> Voice runs on this laptop ({voice?.model}); recordings are not kept.</>}
       </p>
     </div>
   )

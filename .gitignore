@@ -86,3 +86,7 @@ tools/pc_agent/win7_usb/agent/pc_agent.py
 tools/pc_agent/win7_usb/agent/exam_lockdown.py
 tools/pc_agent/win7_usb/agent/notice.py
 tools/pc_agent/win7_usb/agent/start_pc_agent.bat
+
+# local voice models (downloaded, tools/voice/README.md)
+tools/voice/models/
+tools/voice/voice.env
