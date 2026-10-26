@@ -49,6 +49,7 @@ def ollama(monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
     monkeypatch.setattr(settings, "OLLAMA_URL", "http://ollama:11434")
     monkeypatch.setattr(settings, "OLLAMA_STUDENT_MODEL", "qwen2.5:1.5b")
+    monkeypatch.setattr(settings, "OLLAMA_NUM_CTX", 8192)     # these tests exercise the 8k -> 4k -> processor retries
     ai._health.update(at=0.0, value=None)
 
     def install(replies, **kw):
@@ -67,7 +68,9 @@ def test_provider_selection(monkeypatch):
     monkeypatch.setattr(settings, "OLLAMA_URL", "http://x:11434")
     assert ai.provider() == "ollama"
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "k")
-    assert ai.provider() == "anthropic"
+    assert ai.provider() == "ollama"                 # 100 % local by default: a cloud key is ignored (2026-10-26)
+    monkeypatch.setattr(settings, "AI_LOCAL_ONLY", False)
+    assert ai.provider() == "anthropic"              # only with an explicit opt-in
     monkeypatch.setattr(settings, "AI_PROVIDER", "ollama")
     assert ai.provider() == "ollama"
 
@@ -80,7 +83,8 @@ def test_ollama_answers_from_the_snapshot_in_one_call(db, lab, ollama):
     assert "tools" not in body and "SNAPSHOT" in body["messages"][0]["content"]
 
 
-def test_ollama_tool_loop(db, lab, ollama):
+def test_ollama_tool_loop(db, lab, ollama, monkeypatch):
+    monkeypatch.setattr(ai.settings, "AI_ROUTER", False)          # the model-driven loop (router: test_ai_router.py)
     fake = ollama([
         {"role": "assistant", "content": "NEED_TOOLS"},     # the snapshot does not cover it
         {"role": "assistant", "content": "",

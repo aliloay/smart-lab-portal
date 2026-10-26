@@ -1,0 +1,502 @@
+{
+ "about": "Smart Lab assistant evaluation (2026-10-26). Uses the frozen system prompt + snapshot exported from the isolated copy database (ctx.json). kind: snapshot = answerable from the snapshot, must contain every 'all' item and one of each 'any' group; tools = the snapshot does not hold it: the model must answer NEED_TOOLS (pass 1) and then call the expected tool (pass 2); unknown = nothing in the data: the model must say so and must not invent a number. instant = answered from the database before any model (agent.quick_answer); scored end to end only (e2e_ask.py).",
+ "questions": [
+  {
+   "id": 1,
+   "kind": "snapshot",
+   "q": "How many door entries were granted in the last 7 days?",
+   "all": [
+    "14"
+   ]
+  },
+  {
+   "id": 2,
+   "kind": "snapshot",
+   "q": "How many door entries were refused this week?",
+   "any": [
+    [
+     "0",
+     "none",
+     "no "
+    ]
+   ]
+  },
+  {
+   "id": 3,
+   "kind": "snapshot",
+   "q": "Compare door entries granted this week with the week before.",
+   "all": [
+    "14",
+    "86"
+   ]
+  },
+  {
+   "id": 4,
+   "kind": "snapshot",
+   "q": "How many alerts are not resolved right now?",
+   "all": [
+    "143"
+   ]
+  },
+  {
+   "id": 5,
+   "kind": "snapshot",
+   "q": "Is anyone inside the lab now?",
+   "any": [
+    [
+     "nobody",
+     "no one",
+     "no-one",
+     "not anyone",
+     "empty",
+     "none"
+    ]
+   ]
+  },
+  {
+   "id": 6,
+   "kind": "snapshot",
+   "q": "Which equipment ran the most hours in the last 7 days?",
+   "all": [
+    "ADMIN-LAPTOP",
+    "97"
+   ]
+  },
+  {
+   "id": 7,
+   "kind": "snapshot",
+   "q": "How many hours did the physical UR5e run this week?",
+   "all": [
+    "4.5"
+   ]
+  },
+  {
+   "id": 8,
+   "kind": "snapshot",
+   "q": "How many maintenance issues are open, and how many are overdue?",
+   "all": [
+    "4"
+   ],
+   "any": [
+    [
+     "overdue"
+    ]
+   ]
+  },
+  {
+   "id": 9,
+   "kind": "snapshot",
+   "q": "Are any open maintenance issues critical?",
+   "any": [
+    [
+     "0 critical",
+     "no critical",
+     "none",
+     "not critical",
+     "zero",
+     "no ",
+     "0"
+    ]
+   ]
+  },
+  {
+   "id": 10,
+   "kind": "snapshot",
+   "q": "Is the door controller online?",
+   "any": [
+    [
+     "offline",
+     "not online",
+     "no"
+    ]
+   ]
+  },
+  {
+   "id": 11,
+   "kind": "snapshot",
+   "q": "Is the environment node reporting right now?",
+   "any": [
+    [
+     "offline",
+     "not",
+     "no"
+    ]
+   ]
+  },
+  {
+   "id": 12,
+   "kind": "snapshot",
+   "q": "Which PC keeps going offline, and how often?",
+   "all": [
+    "PC-01",
+    "10"
+   ]
+  },
+  {
+   "id": 13,
+   "kind": "snapshot",
+   "q": "What should we do about PC-01 going offline so often?",
+   "any": [
+    [
+     "DHCP",
+     "power supply",
+     "Wi-Fi",
+     "laptop",
+     "portal was off"
+    ]
+   ]
+  },
+  {
+   "id": 14,
+   "kind": "snapshot",
+   "q": "Was there movement at any equipment while nobody was there?",
+   "all": [
+    "PC-07"
+   ]
+  },
+  {
+   "id": 15,
+   "kind": "snapshot",
+   "q": "Is any equipment moved or missing?",
+   "all": [
+    "PC-11"
+   ]
+  },
+  {
+   "id": 16,
+   "kind": "snapshot",
+   "q": "How many bookings were there in the last 7 days?",
+   "any": [
+    [
+     "none",
+     "no bookings",
+     "0",
+     "zero",
+     "no "
+    ]
+   ]
+  },
+  {
+   "id": 17,
+   "kind": "snapshot",
+   "q": "For how many sessions was an exit recorded this week?",
+   "all": [
+    "2"
+   ]
+  },
+  {
+   "id": 18,
+   "kind": "snapshot",
+   "q": "Is the physical FANUC robot online?",
+   "any": [
+    [
+     "offline",
+     "not online",
+     "no"
+    ]
+   ]
+  },
+  {
+   "id": 19,
+   "kind": "snapshot",
+   "q": "Is the physical UR5e online right now?",
+   "any": [
+    [
+     "offline",
+     "not online",
+     "no"
+    ]
+   ]
+  },
+  {
+   "id": 20,
+   "kind": "snapshot",
+   "q": "Give me a two-sentence status summary of the lab.",
+   "any": [
+    [
+     "offline"
+    ],
+    [
+     "143",
+     "alert"
+    ]
+   ]
+  },
+  {
+   "id": 21,
+   "kind": "snapshot",
+   "q": "How many sessions started in the last 7 days?",
+   "all": [
+    "14"
+   ]
+  },
+  {
+   "id": 22,
+   "kind": "snapshot",
+   "q": "How many hours did PC-01 run this week?",
+   "all": [
+    "1.4"
+   ]
+  },
+  {
+   "id": 23,
+   "kind": "tools",
+   "q": "What was the temperature in LAB_01 over the last 24 hours?",
+   "tool": [
+    "get_environment"
+   ]
+  },
+  {
+   "id": 24,
+   "kind": "tools",
+   "q": "Show the weekly usage trends for the last 8 weeks.",
+   "tool": [
+    "get_trends"
+   ]
+  },
+  {
+   "id": 25,
+   "kind": "tools",
+   "q": "In what order should the technicians fix the open maintenance items? Give the priority list.",
+   "tool": [
+    "get_maintenance_priorities",
+    "list_open_issues"
+   ]
+  },
+  {
+   "id": 26,
+   "kind": "tools",
+   "q": "List the open issues reported in LAB_01 with their titles.",
+   "tool": [
+    "list_open_issues"
+   ]
+  },
+  {
+   "id": 27,
+   "kind": "tools",
+   "q": "Is LAB_01 ready for a session right now? Check its readiness.",
+   "tool": [
+    "get_lab_readiness"
+   ]
+  },
+  {
+   "id": 28,
+   "kind": "tools",
+   "q": "Were there any anomalies in the last 24 hours?",
+   "tool": [
+    "get_anomalies"
+   ]
+  },
+  {
+   "id": 29,
+   "kind": "tools",
+   "q": "Give me the monthly report.",
+   "tool": [
+    "get_report",
+    "instant:report_monthly"
+   ]
+  },
+  {
+   "id": 30,
+   "kind": "tools",
+   "q": "Which labs exist and what is each one's capacity?",
+   "tool": [
+    "list_labs"
+   ]
+  },
+  {
+   "id": 31,
+   "kind": "unknown",
+   "q": "What is the humidity in the university cafeteria right now?"
+  },
+  {
+   "id": 32,
+   "kind": "unknown",
+   "q": "How many students failed the robotics exam last semester?"
+  },
+  {
+   "id": 33,
+   "kind": "unknown",
+   "q": "What will the lab temperature be tomorrow at noon?"
+  },
+  {
+   "id": 34,
+   "kind": "unknown",
+   "q": "What is the serial number of the UR5e control box?"
+  },
+  {
+   "id": 35,
+   "kind": "instant",
+   "q": "Who is in the lab right now?",
+   "any": [
+    [
+     "nobody",
+     "no one",
+     "empty",
+     "0",
+     "none",
+     "inside"
+    ]
+   ]
+  },
+  {
+   "id": 36,
+   "kind": "instant",
+   "q": "Which PCs are online?",
+   "any": [
+    [
+     "pc"
+    ]
+   ]
+  },
+  {
+   "id": 37,
+   "kind": "instant",
+   "q": "Is the UR5e robot online?",
+   "any": [
+    [
+     "ur5e"
+    ]
+   ]
+  },
+  {
+   "id": 38,
+   "kind": "instant",
+   "q": "What is the status of the robots right now?",
+   "any": [
+    [
+     "ur5e",
+     "fanuc",
+     "robot"
+    ]
+   ]
+  },
+  {
+   "id": 39,
+   "kind": "instant",
+   "q": "How many consumables are left in the bins?",
+   "any": [
+    [
+     "bin"
+    ]
+   ]
+  },
+  {
+   "id": 40,
+   "kind": "instant",
+   "q": "Are the cameras online?",
+   "any": [
+    [
+     "camera"
+    ]
+   ]
+  },
+  {
+   "id": 41,
+   "kind": "instant",
+   "q": "Any open alerts?",
+   "any": [
+    [
+     "alert"
+    ]
+   ]
+  },
+  {
+   "id": 42,
+   "kind": "instant",
+   "q": "Which labs are free now?",
+   "any": [
+    [
+     "lab"
+    ]
+   ]
+  },
+  {
+   "id": 43,
+   "kind": "instant",
+   "q": "Weekly report",
+   "any": [
+    [
+     "week",
+     "7 days",
+     "report"
+    ]
+   ]
+  },
+  {
+   "id": 44,
+   "kind": "instant",
+   "q": "Which devices are offline?",
+   "any": [
+    [
+     "offline"
+    ]
+   ]
+  },
+  {
+   "id": 45,
+   "kind": "tools",
+   "q": "What is the humidity in LAB_01 right now?",
+   "tool": [
+    "get_environment"
+   ]
+  },
+  {
+   "id": 46,
+   "kind": "tools",
+   "q": "Show the trends for the last 4 weeks.",
+   "tool": [
+    "get_trends"
+   ]
+  },
+  {
+   "id": 47,
+   "kind": "tools",
+   "q": "Is LAB_02 ready to use?",
+   "tool": [
+    "get_lab_readiness"
+   ]
+  },
+  {
+   "id": 48,
+   "kind": "tools",
+   "q": "Was there any suspicious activity in the last 48 hours?",
+   "tool": [
+    "get_anomalies"
+   ]
+  },
+  {
+   "id": 49,
+   "kind": "tools",
+   "q": "What was the lab utilisation over the last 30 days?",
+   "tool": [
+    "get_operations_overview"
+   ]
+  },
+  {
+   "id": 50,
+   "kind": "unknown",
+   "q": "What is the Wi-Fi password of the lab router?"
+  },
+  {
+   "id": 51,
+   "kind": "unknown",
+   "q": "How much did the UR5e cost to buy?"
+  },
+  {
+   "id": 52,
+   "kind": "snapshot",
+   "q": "Why has PC-01 disconnected repeatedly?",
+   "any": [
+    [
+     "laptop",
+     "portal",
+     "dhcp",
+     "power",
+     "wi-fi",
+     "address"
+    ]
+   ]
+  }
+ ]
+}

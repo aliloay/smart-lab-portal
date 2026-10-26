@@ -28,6 +28,7 @@ tool results and are treated as data, not instructions (see SYSTEM).
 from __future__ import annotations
 
 import json
+import re
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -77,18 +78,35 @@ Rules:
 
 
 def provider() -> Optional[str]:
+    """2026-10-26 owner requirement: 100 % local. With AI_LOCAL_ONLY (default) a cloud key is ignored - no prompt or
+    lab data ever leaves the laptop, and there is no silent cloud fallback. AI_LOCAL_ONLY=false is an explicit opt-in."""
     p = settings.AI_PROVIDER.strip().lower()
-    if p in ("auto", "anthropic") and settings.ANTHROPIC_API_KEY:
+    if p in ("auto", "anthropic") and settings.ANTHROPIC_API_KEY and not settings.AI_LOCAL_ONLY:
         return "anthropic"
     if p in ("auto", "ollama") and settings.OLLAMA_URL:
         return "ollama"
     return None
 
 
-def _staff_system(extra: str = "") -> str:
+# "How does it work" questions need the guide (~900 tokens); data questions do not. Sending it only when asked keeps
+# the local model's prompt small (2026-10-26: prompt reading was most of a CPU answer's time).
+_HOWTO = re.compile(r"\bhow (do|does|can|to|should)\b|\bwhere (do|can|is)\b|\bcan i\b|\bwhy (doesn'?t|can'?t|won'?t|"
+                    r"isn'?t|is my|does my)\b|\bwhat (is|are) (a |the )?(qr|booking|fingerprint|face|role|guide)\b|"
+                    r"\b(explain|steps?|procedure|instructions?)\b", re.I)
+
+
+def needs_guide(question: Optional[str]) -> bool:
+    return question is None or bool(_HOWTO.search(question))
+
+
+def _staff_system(extra: str = "", question: Optional[str] = None, with_time: bool = True) -> str:
+    """Stable part first (cached by the local engine), the guide only when the question needs it. with_time=False:
+    the caller appends the data, then the time line - a time that changes every minute in the middle of the prompt
+    made the local engine re-read everything after it (measured: only 470 of 1050 tokens reused)."""
     from app.services.ai_guide import guide
-    return (SYSTEM + extra + "\n- For 'how does it work' questions, answer from the guide "
-            "below; for numbers, use the tools.\n\n" + guide() + "\n\n" + _today_line())
+    g = ("\n- For 'how does it work' questions, answer from the guide below; for numbers, use the tools.\n\n"
+         + guide()) if needs_guide(question) else ""
+    return SYSTEM + extra + g + ("\n\n" + _today_line() if with_time else "")
 
 
 def configured() -> bool:
@@ -484,7 +502,7 @@ def _slots() -> threading.BoundedSemaphore:
 
 
 def _ollama_chat(model: str, messages: list[dict],
-                 tools: Optional[list[dict]] = None) -> dict:
+                 tools: Optional[list[dict]] = None, num_predict: Optional[int] = None) -> dict:
     """Bounded: at most OLLAMA_MAX_CONCURRENT generations at once (2026-10-18 - one answer took camera
     analysis from 7 to 1.7 frames/s; two in parallel would take twice the cores)."""
     slots = _slots()
@@ -492,13 +510,13 @@ def _ollama_chat(model: str, messages: list[dict],
         raise AIUnavailable("The local AI is answering another question right now - please ask again in a "
                             "moment (one answer at a time keeps the cameras and the portal fast).")
     try:
-        return _ollama_chat_unbounded(model, messages, tools)
+        return _ollama_chat_unbounded(model, messages, tools, num_predict)
     finally:
         slots.release()
 
 
 def _ollama_chat_unbounded(model: str, messages: list[dict],
-                           tools: Optional[list[dict]] = None) -> dict:
+                           tools: Optional[list[dict]] = None, num_predict: Optional[int] = None) -> dict:
     """
     One /api/chat call. If Ollama's engine crashes (seen on Windows with
     small or unsupported GPUs: "llama-server process has terminated"),
@@ -520,6 +538,8 @@ def _ollama_chat_unbounded(model: str, messages: list[dict],
             options["num_gpu"] = 0          # no layers on the graphics card
         if settings.OLLAMA_NUM_THREAD > 0:
             options["num_thread"] = settings.OLLAMA_NUM_THREAD      # leave cores for the cameras
+        if num_predict:
+            options["num_predict"] = num_predict                    # bounded answers (2026-10-26)
         body: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
             "options": options,
@@ -598,18 +618,90 @@ def _ollama_tools() -> list[dict]:
         "parameters": t["input_schema"]}} for t in TOOLS]
 
 
+# ------------------------------------------------- deterministic tool router (2026-10-26) ---
+# Measured: qwen2.5:1.5b chose a tool for 0 of 8 tool questions (it answered from the snapshot or guessed). For
+# this fixed, small tool set a keyword router is exact and instant; the model only writes the short answer from
+# that one tool's result. Order matters (first match wins). AI_ROUTER=false restores the model-driven loop.
+_ROUTES: list[tuple[str, str]] = [
+    ("get_environment", r"\b(temperature|humidity|smoke|flame|gas|leak|environment(al)?|air quality)\b"),
+    ("get_maintenance_priorities", r"\bpriorit\w*|\bfix first\b|\bwhat should .* fix\b|\border\b.*\b(fix|repair)"),
+    ("get_trends", r"\btrends?\b|\bweek[- ]over[- ]week\b|\blast \d+ weeks\b|\bweekly (usage|series)\b"),
+    ("get_anomalies", r"\banomal\w*|\bunusual\b|\bsuspicious\b"),
+    ("get_lab_readiness", r"\breadiness\b|\bready\b"),
+    ("list_open_issues", r"\b(list|show|which|what are|titles?)\b.*\b(issues?|tickets?|problems?)\b"),
+    ("get_report", r"\b(daily|weekly)\s+report\b|\breport (for )?(today|this week)\b"),
+    ("list_labs", r"\bcapacity\b|\b(which|what|list|all)\b.*\blabs\b.*\b(exist|are there|have)\b|\blist (the )?labs\b"),
+    ("get_operations_overview", r"\butili[sz]ation\b|\bbusiest\b|\bstatistics\b|\bstats\b"),
+]
+ROUTED_RULES = """
+- Answer ONLY from the TOOL RESULT below (the portal's own data). Copy numbers and names exactly; never add facts
+  that are not in it. If it does not contain what is asked, say so in one sentence.
+- At most 4 short bullets, no preamble. Same language as the question."""
+
+
+def route(question: str) -> Optional[tuple[str, dict]]:
+    """(tool, arguments) when the question clearly needs one of the read-only tools, else None."""
+    q = question.lower()
+    for name, rx in _ROUTES:
+        if not re.search(rx, q):
+            continue
+        args: dict = {}
+        m = re.search(r"\blab[_ ]?0?(\d{1,2})\b", q)
+        if m:
+            args["lab_code"] = f"LAB_{int(m.group(1)):02d}"
+        elif name in ("get_environment", "get_lab_readiness"):
+            args["lab_code"] = settings.AI_DEFAULT_LAB
+        m = re.search(r"\b(\d{1,4})\s*(hours?|h)\b", q)
+        if m and name in ("get_environment", "get_anomalies"):
+            args["hours"] = int(m.group(1))
+        m = re.search(r"\b(\d{1,2})\s*weeks?\b", q)
+        if m and name == "get_trends":
+            args["weeks"] = int(m.group(1))
+        m = re.search(r"\b(\d{1,3})\s*days?\b", q)
+        if m and name == "get_operations_overview":
+            args["days"] = int(m.group(1))
+        if name == "get_report":
+            args["period"] = "daily" if re.search(r"\b(daily|today)\b", q) else "weekly"
+        return name, args
+    return None
+
+
+def _ask_routed(db: Session, question: str, history: Optional[list[dict]], model: str) -> Optional[dict]:
+    r = route(question)
+    if r is None:
+        return None
+    name, args = r
+    out, err = run_tool(db, name, args)
+    if err:
+        return None
+    if len(out) > settings.AI_ROUTED_RESULT_CHARS:
+        out = out[:settings.AI_ROUTED_RESULT_CHARS] + '..."(truncated)"'
+    system = (_staff_system(ROUTED_RULES, question, with_time=False) + f"\n\nTOOL RESULT ({name} {_json(args)}):\n{out}"
+              + "\n\n" + _today_line())
+    msg = _ollama_chat(model, [{"role": "system", "content": system}] + _history(question, history),
+                       num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
+    text = (msg.get("content") or "").strip()
+    return {"answer": text or "No answer was produced.", "tools_used": [name], "model": model, "routed": True}
+
+
 def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
     from app.services.agent import snapshot
     model = settings.OLLAMA_MODEL
+    if settings.AI_ROUTER:
+        routed = _ask_routed(db, question, history, model)
+        if routed is not None:
+            return routed
     first = [{"role": "system",
-              "content": _staff_system(OLLAMA_SNAPSHOT_RULES) + "\n\n" + snapshot(db)}]
-    msg = _ollama_chat(model, first + _history(question, history)).get("message") or {}
+              "content": _staff_system(OLLAMA_SNAPSHOT_RULES, question, with_time=False) + "\n\n" + snapshot(db)
+                         + "\n" + _today_line()}]
+    msg = _ollama_chat(model, first + _history(question, history),
+                       num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
     text = (msg.get("content") or "").strip()
     if text and NEED_TOOLS not in text:
         return {"answer": text, "tools_used": ["snapshot"], "model": model}
     # Not covered by the snapshot: the slower tool loop.
     messages = [{"role": "system",
-                 "content": _staff_system(OLLAMA_EXTRA)}]
+                 "content": _staff_system(OLLAMA_EXTRA, question)}]
     messages += _history(question, history)
     tools = _ollama_tools()
     tools_used: list[str] = []

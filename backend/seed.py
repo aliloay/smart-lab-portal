@@ -44,12 +44,24 @@ for r, desc in [("STUDENT", "Books laboratories and opens doors they booked"),
     get_or_create(RoleRow, {"description": desc}, name=r)
 
 # --- users ------------------------------------------------------------------
+# Initial passwords (2026-10-27 security audit): never a password printed in the repository. Taken from
+# SEED_ADMIN_PASSWORD / SEED_STAFF_PASSWORD / SEED_STUDENT_PASSWORD when set, else a random one that nobody
+# knows - set it with `docker compose exec backend python set_password.py <email>`. Only NEW accounts get one:
+# get_or_create never touches an existing account's password.
+import os  # noqa: E402
+import secrets  # noqa: E402
+
+
+def initial_password(kind: str) -> str:
+    return os.environ.get(f"SEED_{kind}_PASSWORD", "") or secrets.token_urlsafe(18)
+
+
 # auth_subject MUST match the face-server labels and the firmware's
 # authorizedUsers[].name, or step 2 can never be bound to step 1.
 admin, _ = get_or_create(
     User, {
         "full_name": "System Administrator",
-        "hashed_password": hash_password("Admin#2026"),
+        "hashed_password": hash_password(initial_password("ADMIN")),
         "role": Role.ADMIN,
         "department": "Robotics & Automation",
     }, email="admin@giu-uni.de")
@@ -57,7 +69,7 @@ admin, _ = get_or_create(
 ali, _ = get_or_create(
     User, {
         "full_name": "Ali Loay",
-        "hashed_password": hash_password("Student#2026"),
+        "hashed_password": hash_password(initial_password("STUDENT")),
         "role": Role.STUDENT,
         "auth_subject": "USER1",
         "student_id": "GIU-RAE-2023",
@@ -67,7 +79,7 @@ ali, _ = get_or_create(
 ramy, _ = get_or_create(
     User, {
         "full_name": "Dr. Ramy Amir Shawkey Shenouda",
-        "hashed_password": hash_password("Staff#2026"),
+        "hashed_password": hash_password(initial_password("STAFF")),
         "role": Role.LAB_STAFF,
         "auth_subject": "USER2",
         "department": "Robotics & Automation Engineering",
@@ -79,7 +91,7 @@ ramy, _ = get_or_create(
 get_or_create(
     User, {
         "full_name": "Eng. Hemaly",
-        "hashed_password": hash_password("Staff#2026"),
+        "hashed_password": hash_password(initial_password("STAFF")),
         "role": Role.LAB_STAFF,
         "auth_subject": "USER5",
         "department": "Lab engineering",
@@ -240,11 +252,9 @@ db.commit()
 
 print("Seed complete.")
 print()
-print("  Sign in with:")
-print("    admin@giu-uni.de / Admin#2026      (ADMIN)")
-print("    ali@giu-uni.de   / Student#2026    (STUDENT, auth_subject USER1)")
-print("    ramy@giu-uni.de  / Staff#2026      (LAB_STAFF, auth_subject USER2)")
+print("  Accounts: admin@giu-uni.de (ADMIN), ali@giu-uni.de (STUDENT, USER1), ramy@giu-uni.de (LAB_STAFF, USER2).")
+print("  New accounts use SEED_*_PASSWORD or a random password; set one with:")
+print("    docker compose exec backend python set_password.py <email>")
 print()
 print(f"  Labs: {len(LAB_SPECS)} seeded. LAB_01 is the only one with door hardware.")
-print("  Change these passwords before any real deployment.")
 db.close()

@@ -35,6 +35,12 @@ echo says "Engine running", then run this again.
 pause & exit /b 1
 :docker_ready
 
+rem ---- What is already running: ONE snapshot of process command lines + listening ports (2026-10-27).
+rem "tasklist /v" per service took 10-60 s each on Windows 11 and made the start lag; this takes ~1 s.
+set "RUN=%TEMP%\smartlab_running.txt"
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'py%%' or Name='cmd.exe'\" | ForEach-Object { $_.CommandLine }" > "%RUN%" 2>nul
+netstat -ano | findstr LISTENING >> "%RUN%"
+
 rem ---- Face server (own window, own lifecycle) --------------------------------
 set "FACE_STARTED="
 netstat -ano | findstr /r /c:":5000 .*LISTENING" >nul
@@ -61,7 +67,7 @@ if exist "%~dp0tools\security_vision\camera.env" (
 rem ---- Security camera 2 (optional): its own window and process once
 rem tools\security_vision\camera2.env exists (the start script refuses a second copy) ----
 if exist "%~dp0tools\security_vision\camera2.env" (
-  tasklist /v /fi "WINDOWTITLE eq Smart Lab - Security camera SECCAM_LAB02*" | findstr /i "SECCAM_LAB02" >nul || (
+  findstr /i /c:"camera2.env" "%RUN%" >nul || (
     start "Smart Lab - Security camera 2" cmd /k call "%~dp0tools\security_vision\start_security_vision.bat" camera2.env
   )
 )
@@ -71,7 +77,7 @@ rem has the robot's IP. It retries by itself, so the robot shows ONLINE as soon
 rem as it is on the lab LAN. ---------------------------------------------------
 if exist "%~dp0tools\robot_monitor\robot.env" (
   findstr /r /c:"^UR5E_IP=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
-    tasklist /v /fi "WINDOWTITLE eq Smart Lab - UR5e monitor*" | findstr /i "UR5e" >nul || (
+    findstr /i /c:"start_ur5e_monitor.bat" "%RUN%" >nul || (
       start "Smart Lab - UR5e monitor" cmd /k call "%~dp0tools\robot_monitor\start_ur5e_monitor.bat"
     )
   )
@@ -80,7 +86,7 @@ if exist "%~dp0tools\robot_monitor\robot.env" (
 rem ---- FANUC monitor (optional, read-only): once robot.env has FANUC_IP ----------
 if exist "%~dp0tools\robot_monitor\robot.env" (
   findstr /r /c:"^FANUC_IP=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
-    tasklist /v /fi "WINDOWTITLE eq Smart Lab - FANUC monitor*" | findstr /i "FANUC" >nul || (
+    findstr /i /c:"start_fanuc_monitor.bat" "%RUN%" >nul || (
       start "Smart Lab - FANUC monitor" cmd /k call "%~dp0tools\robot_monitor\start_fanuc_monitor.bat"
     )
   )
@@ -102,37 +108,62 @@ if exist "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe" (
   start "Smart Lab - Ollama" /min "%OLLAMA_EXE%" serve
 )
 :ai_models
-start "Smart Lab - AI models" /min cmd /c call "%~dp0scripts\ollama_models.bat"
+start "Smart Lab - AI models" /min /belownormal cmd /c call "%~dp0scripts\ollama_models.bat"
 :ai_done
 
 rem ---- Project knowledge (admins/staff in the portal, and the n8n knowledge jobs):
 rem local service on 127.0.0.1:5199 only - not reachable from the lab network.
 rem Starts once tools\knowledge\config.json exists (it holds the private paths and key).
 if exist "%~dp0tools\knowledge\config.json" (
-  tasklist /v /fi "WINDOWTITLE eq Smart Lab - Knowledge*" | findstr /i "Knowledge" >nul || (
-    start "Smart Lab - Knowledge" /min cmd /k py "%~dp0tools\knowledge\serve.py"
+  findstr /i /c:"knowledge\serve.py" "%RUN%" >nul || (
+    start "Smart Lab - Knowledge" /min /belownormal cmd /k py "%~dp0tools\knowledge\serve.py"
+  )
+)
+
+rem ---- Voice for the AI assistant (2026-10-26): local Whisper + Piper on 127.0.0.1:5320, CPU only.
+rem Starts once tools\voice\voice.env exists (it holds the key the backend uses).
+if exist "%~dp0tools\voice\voice.env" (
+  findstr /i /c:"voice_service.py" "%RUN%" >nul || (
+    start "Smart Lab - Voice" /min /belownormal cmd /k py -3.12 "%~dp0tools\voice\voice_service.py"
+  )
+)
+
+rem ---- UR5e Local-mode control agent (2026-10-26): Home / Stop / automatic Home through the pendant-started
+rem program. DRY RUN unless robot.env says UR_CONTROL_MODE=live (owner sign-off). Starts once robot.env has UR_AGENT_KEY.
+if exist "%~dp0tools\robot_monitor\robot.env" (
+  findstr /r /c:"^UR_AGENT_KEY=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
+    findstr /i /c:"ur_local_control.py" "%RUN%" >nul || (
+      start "Smart Lab - UR5e control agent" /min /belownormal cmd /k py -3.12 "%~dp0tools\ur5e_control\ur_local_control.py"
+    )
+  )
+)
+
+rem ---- OPC UA server (2026-10-26, read-only, opc.tcp://127.0.0.1:4840/smartlab/). Starts once tools\opcua\opcua.env exists.
+if exist "%~dp0tools\opcua\opcua.env" (
+  findstr /i /c:"opcua_server.py" "%RUN%" >nul || (
+    start "Smart Lab - OPC UA" /min /belownormal cmd /k py -3.12 "%~dp0tools\opcua\opcua_server.py"
   )
 )
 
 rem ---- This laptop's own PC agent (ADMIN-LAPTOP in the portal: online, screen view, the admin's
 rem master PC at sign-in). Starts once tools\pc_agent\agent.env exists (it holds this PC's key).
 if exist "%~dp0tools\pc_agent\agent.env" (
-  tasklist /v /fi "WINDOWTITLE eq Smart Lab - PC agent*" | findstr /i "agent" >nul || (
-    start "Smart Lab - PC agent" /min cmd /c call "%~dp0tools\pc_agent\start_pc_agent.bat"
+  findstr /i /c:"start_pc_agent.bat" "%RUN%" >nul || (
+    start "Smart Lab - PC agent" /min /belownormal cmd /c call "%~dp0tools\pc_agent\start_pc_agent.bat"
   )
 )
 
 rem ---- Lab PCs on / off over the lab cable, by MAC - nothing installed on the PCs
 rem (tools\lan_presence\lan_presence.json lists them).
 if exist "%~dp0tools\lan_presence\lan_presence.json" (
-  tasklist /v /fi "WINDOWTITLE eq Smart Lab - LAN presence*" | findstr /i "presence" >nul || (
-    start "Smart Lab - LAN presence" /min cmd /c call "%~dp0tools\lan_presence\start_lan_presence.bat"
+  findstr /i /c:"start_lan_presence.bat" "%RUN%" >nul || (
+    start "Smart Lab - LAN presence" /min /belownormal cmd /c call "%~dp0tools\lan_presence\start_lan_presence.bat"
   )
 )
 
 rem ---- The friendly name https://smartlab.local for every device on the Smart_Lab network (mDNS).
-tasklist /v /fi "WINDOWTITLE eq Smart Lab - Name*" | findstr /i "Name" >nul || (
-  start "Smart Lab - Name smartlab.local" /min cmd /k py "%~dp0tools\mdns\announce.py"
+findstr /i /c:"mdns\announce.py" "%RUN%" >nul || (
+  start "Smart Lab - Name smartlab.local" /min /belownormal cmd /k py "%~dp0tools\mdns\announce.py"
 )
 
 rem ---- Automation (n8n) is optional: on only when .env configures it ----------
@@ -186,11 +217,23 @@ if errorlevel 1 (
   echo.
   goto start_portal
 )
+rem Rebuild only when the portal's code changed since the last good build (2026-10-27: a full build ran on
+rem every launch and held the CPU for minutes). "launch.bat rebuild" forces one.
+set "FP=%TEMP%\smartlab_build_fp.txt"
+(git rev-parse HEAD & git status --porcelain -- backend frontend docker-compose.yml) > "%FP%" 2>nul
+set "NEED_BUILD=1"
+if /i not "%~1"=="rebuild" if exist ".last_build_fingerprint" fc /b "%FP%" ".last_build_fingerprint" >nul 2>&1 && set "NEED_BUILD="
+if not defined NEED_BUILD (
+  echo  Portal code unchanged since the last build - starting it without rebuilding.
+  goto start_portal
+)
 docker compose %PROFILE% build
 if errorlevel 1 (
   echo.
   echo  Could not rebuild - starting the last built version.
   echo.
+) else (
+  copy /y "%FP%" ".last_build_fingerprint" >nul
 )
 :start_portal
 docker compose %PROFILE% up --no-build

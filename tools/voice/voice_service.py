@@ -58,7 +58,10 @@ class Voice:
 
     def load(self) -> None:
         from faster_whisper import WhisperModel
-        self.stt = WhisperModel(self.model_name, device="cpu", compute_type="int8", cpu_threads=self.threads)
+        # Offline operation (2026-10-26): load from the local cache only - no Hugging Face check at start.
+        # VOICE_OFFLINE=0 allows the first download on a new machine.
+        self.stt = WhisperModel(self.model_name, device="cpu", compute_type="int8", cpu_threads=self.threads,
+                                local_files_only=os.environ.get("VOICE_OFFLINE", "1") == "1")
         if os.path.isfile(self.voice_path):
             from piper import PiperVoice
             self.tts = PiperVoice.load(self.voice_path)

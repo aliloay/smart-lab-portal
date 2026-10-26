@@ -299,13 +299,15 @@ new tables.
 
 ### Sign in
 
-| Email | Password | Role |
-|---|---|---|
-| `admin@giu-uni.de` | `Admin#2026` | Administrator |
-| `ali@giu-uni.de` | `Student#2026` | Student (`USER1`) |
-| `ramy@giu-uni.de` | `Staff#2026` | Lab staff (`USER2`) |
+| Email | Role |
+|---|---|
+| `admin@giu-uni.de` | Administrator |
+| `ali@giu-uni.de` | Student (`USER1`) |
+| `ramy@giu-uni.de` | Lab staff (`USER2`) |
 
-**Change these before the system goes anywhere real.**
+Initial passwords are not published. A new install takes them from `SEED_ADMIN_PASSWORD`, `SEED_STAFF_PASSWORD`
+and `SEED_STUDENT_PASSWORD` in `.env`, or creates random ones; set or reset any account's password on the laptop with
+`docker compose exec backend python set_password.py <email>` (hidden prompt), or on **Users & roles**.
 
 **New accounts.** Students can use the **Sign up** tab on the login page. Sign-up
 only ever creates a *student* with no fingerprint/card enrolment, so it gives no

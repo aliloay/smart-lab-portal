@@ -11,7 +11,7 @@ cd /d "%~dp0"
 echo Closing the Smart Lab windows...
 taskkill /fi "WINDOWTITLE eq Smart Lab - *" /t /f >nul 2>&1
 rem Python services whose window title changed while running (safety net, by script name only)
-powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^py(thon)?(w)?\.exe$' -and $_.CommandLine -match 'security_vision\.py|robot_collector\.py|tools\\knowledge\\serve\.py|face_server' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^py(thon)?(w)?\.exe$' -and $_.CommandLine -match 'security_vision\.py|robot_collector\.py|tools\\knowledge\\serve\.py|face_server|voice_service\.py|ur_local_control\.py|opcua_server\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 docker info >nul 2>&1
 if errorlevel 1 (
   echo Docker is not running - nothing else to stop.

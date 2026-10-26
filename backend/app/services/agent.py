@@ -768,7 +768,7 @@ def snapshot(db: Session) -> str:
     open_alerts = db.query(Alert).filter(Alert.is_resolved.is_(False)).count()
     # Both periods as plain numbers: a small model must not have to compute.
     text = "\n".join([
-        "SNAPSHOT (from the database, " + _when(now) + "):",
+        "SNAPSHOT (from the database):",
         "Last 7 days: " + " ".join(week["lines"]),
         "This week vs the week before (exact numbers): "
         f"confirmed bookings {b['confirmed']} vs {pb['confirmed']}; booked hours {b['booked_hours']} vs "
@@ -777,14 +777,17 @@ def snapshot(db: Session) -> str:
         f"{m['opened']} vs {pm['opened']}; issues resolved {m['resolved']} vs {pm['resolved']}.",
         "Top refusal reasons (7 d): " + (", ".join(f"{d['meaning']} x{d['count']}" for d in week["top_denials"])
                                          or "none"),
-        f"Alerts not resolved now: {open_alerts}.",
         "Labs by booked hours: " + ", ".join(f"{lab['lab_code']} {lab['hours']}h" for lab in week["labs"][:6]),
-        "Equipment running hours (7 d): " + (", ".join(f"{e['name']} {e['running_h']}h"
-                                                       for e in week["equipment"][:6]) or "none reported"),
-        "Inside now: " + ("; ".join(f"{o['lab_code']}: " + ", ".join(p["name"] for p in o["people"])
-                                    for o in occ) or "nobody"),
         "Repeated problems (7 d): " + ("; ".join(f"{i['title']} -> {i['recommendation']}"
                                                  for i in week["insights"][:4]) or "none"),
+        # the lines that change most often last: the local model re-reads only from the first changed line
+        "Equipment running hours (7 d): " + (", ".join(f"{e['name']} {e['running_h']}h"
+                                                       for e in week["equipment"][:6]) or "none reported"),
+        f"Alerts not resolved now: {open_alerts}.",
+        "Inside now: " + ("; ".join(f"{o['lab_code']}: " + ", ".join(p["name"] for p in o["people"])
+                                    for o in occ) or "nobody"),
+        # the time last: everything above stays a cached prompt prefix for the local model (2026-10-26)
+        "(Snapshot taken " + _when(now) + ".)",
     ])
     _snapshot.update(at=time.monotonic(), text=text)
     return text

@@ -210,7 +210,7 @@ class Settings(BaseSettings):
     OLLAMA_STUDENT_NUM_CTX: int = 4096
     # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
     # 4k by itself if Ollama's engine crashes.
-    OLLAMA_NUM_CTX: int = 8192
+    OLLAMA_NUM_CTX: int = 4096          # 2026-10-26: = the student size -> one loaded copy when both use one model
     # true = never use the graphics card (slower, but works when the GPU
     # driver cannot run Ollama's CUDA code).
     OLLAMA_CPU_ONLY: bool = False
@@ -224,6 +224,12 @@ class Settings(BaseSettings):
     # Answers generated at the same time (each takes OLLAMA_NUM_THREAD cores); others wait up to
     # OLLAMA_QUEUE_WAIT_S, then get a clear "busy" message - never an unbounded pile-up on the CPU.
     OLLAMA_MAX_CONCURRENT: int = 1
+    # 2026-10-26: keyword tool router + bounded answers for the local model (docs/LOCAL_AI_BENCHMARK_2026-10-26.md)
+    AI_ROUTER: bool = True
+    AI_LOCAL_ONLY: bool = True          # never use a cloud model, even if a key is configured
+    AI_MAX_ANSWER_TOKENS: int = 220
+    AI_ROUTED_RESULT_CHARS: int = 3500
+    AI_DEFAULT_LAB: str = "LAB_01"
     OLLAMA_QUEUE_WAIT_S: float = 45.0
     # Incident escalation (2026-10-18): open + not acknowledged for longer than these, or a condition
     # that keeps repeating / coming back. Every value configurable, none hides an alert.

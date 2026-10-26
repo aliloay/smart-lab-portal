@@ -96,3 +96,8 @@ tools/llm_bench/results*.jsonl
 tools/opcua/opcua.env
 tools/opcua/*.pem
 tools/opcua/*.der
+.last_build_fingerprint
+
+# personal photos (2026-10-27 audit): never commit
+firmware/tools/ali.jpg.jpg
+firmware/tools/ali2.jpg
