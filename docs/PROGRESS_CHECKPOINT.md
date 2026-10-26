@@ -1,5 +1,13 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## Checkpoint 2026-10-26 evening - FINAL AUDIT (docs/FINAL_IMPLEMENTATION_AUDIT_2026-10-26.md) - committed, NOT pushed, NOT deployed
+Verdict: READY WITH DOCUMENTED LIMITATIONS. Owner actions first: (1) change the admin + staff passwords - the live portal
+still accepts the ones printed in the README (read-only check; the briefing now flags it); (2) deploy (live = c74ee3b of
+10-21; needs SMARTLAB_EMAIL/PASSWORD for the smoke tests; add VOICE_KEY + UR_AGENT_KEY to .env); (3) restart both camera
+services in the lab; (4) UR5e commissioning + stop-relay bench test (docs/ROBOT_CONTROL.md, firmware/SmartLab_Robot_Stop).
+Commits today after 3a68d82: b2d6ae5 (UR5e auto-Home + stop relay), 2a0b760 (voice), a1470ed (booking race fix, /equipment,
+sign-in burst, hidden tabs, Excel, health score, headcount, AAS), 53a35d0 (Evaluation tab, default-password warning).
+
 ## Checkpoint 2026-10-26 (home, cameras + robots OFFLINE - recordings / mocks only) - committed, NOT pushed, NOT deployed
 | Done | Evidence |
 |---|---|
@@ -18,10 +26,10 @@ system to 98 % and slows both cameras to ~7/s (next: AI threads / scheduling).
 - [x] CV benchmark + tracking + two-camera speed (above)   - [x] UR5e Local-mode Home/Stop software (dry run)
 - [x] Phone camera "Scan the lab" (docs/SCAN_THE_LAB.md; fake-camera browser tests pass; real phone + printed markers still to verify)
 - [x] Voice in the assistant (tools/voice/README.md; 2a0b760)   - [x] UR5e automatic Home + hardware stop relay (b2d6ae5, dry run / not wired)
-- [ ] A security (seed credentials, HTTPS, privacy)   - [ ] B Evaluation section   - [ ] C IoT reliability / sensor trust
-- [ ] D performance (polling audit, /equipment N+1, sign-in burst, booking exclusion constraint, workers/Redis decision, nginx)
-- [ ] E identity fusion study   - [ ] F AI agents (routing, models, retrieval)   - [ ] G Excel/PDF reports (openpyxl approved)
-- [ ] H operational intelligence   - [ ] I flight recorder / time slider   - [ ] J AAS / OPC UA demo   - [ ] L/M/N/O optional
+- [~] A security: HTTPS/secrets PASS; seed passwords still live (owner); recording retention (owner)   - [x] B Evaluation tab   - [~] C IoT (quality flags exist; no flash buffering)
+- [x] D performance (hidden-tab polling, /equipment, sign-in burst, booking race lock, 1 worker/no Redis decided, nginx verified)
+- [ ] E identity fusion study   - [~] F AI agents (knowledge bench 10/12; Qwen vs Gemma not run)   - [x] G Excel (stdlib) + Print/PDF
+- [x] H Lab Health Score (+ existing anomalies/inventory)   - [~] I robot replay only   - [~] J AAS export (no OPC UA)   - [~] headcount done; triage/.pkpass not built
 - [ ] FANUC Home/Stop (after UR5e works physically)   - [ ] K hardware pilots: LAST, proposals only (owner: no new hardware now)
 
 ## Checkpoint 2026-10-21 ~15:40 (lab) - cameras re-boxed by real PC numbers - committed, NOT pushed
