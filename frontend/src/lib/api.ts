@@ -1250,6 +1250,8 @@ export const api = {
   // --- labs
   labs: () => request<Lab[]>('/labs'),
   labsOverview: () => request<LabOverview[]>('/labs/overview'),
+  evaluation: () => request<{ updated: string; hardware: string; labels: Record<string, string>
+    groups: { name: string; rows: { metric: string; before: string; after: string; label: string; source: string }[] }[] }>('/reliability/evaluation'),
   labsHealth: () => request<{ lab_id: number; lab_code: string; lab_name: string; score: number | null
     band: 'GOOD' | 'FAIR' | 'POOR' | 'UNKNOWN'; coverage: number; weakest: string | null
     parts: Record<string, { value: number | null; weight: number; evidence: string }> }[]>('/labs/health'),

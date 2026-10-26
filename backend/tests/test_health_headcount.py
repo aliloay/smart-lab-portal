@@ -50,3 +50,25 @@ def test_headcount_with_cameras_offline_says_door_only(client, db, staff, lab):
     x = next(v for v in client.get("/api/labs/headcount", headers=auth_headers(client, staff.email)).json()
              if v["lab_code"] == lab.code)
     assert x["camera_people"] is None and "door record only" in x["note"]
+
+
+def test_briefing_flags_accounts_still_on_the_published_password(client, db, admin, staff):
+    """Security audit 2026-10-26: the README's sign-in table works on the live portal - the briefing says so."""
+    from app.core.security import hash_password
+    from app.models import User
+    from app.services import briefing
+    u = User(email="admin@giu-uni.de", full_name="Seed admin", hashed_password=hash_password("Admin#2026"),
+             role=admin.role)
+    db.add(u); db.commit()
+    r = client.get("/api/reliability/briefing", headers=auth_headers(client, staff.email)).json()
+    assert any(i["kind"] == "security" and "admin@giu-uni.de" in " ".join(i["evidence"]) for i in r["items"])
+    u.hashed_password = hash_password("a-new-secret-pass-77"); db.commit()
+    assert briefing.default_passwords_in_use(db) == []
+
+
+def test_evaluation_lists_measured_and_unmeasured(client, staff, alice):
+    assert client.get("/api/reliability/evaluation", headers=auth_headers(client, alice.email)).status_code == 403
+    d = client.get("/api/reliability/evaluation", headers=auth_headers(client, staff.email)).json()
+    rows = [r for g in d["groups"] for r in g["rows"]]
+    assert rows and all(r["label"] in d["labels"] and r["source"] for r in rows)
+    assert any(r["label"] == "not_verified" for r in rows)          # gaps are shown, not hidden

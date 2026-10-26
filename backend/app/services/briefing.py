@@ -20,6 +20,26 @@ def _utc(d):
     return None if d is None else d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+# The sign-in table in the public README (2026-10-26 audit: on the live portal the admin and staff accounts still
+# accepted these). Checked against each account's CURRENT hash; the answer is cached per hash, so the ~100 ms Argon2
+# check runs once per password change, not on every briefing. Nothing is changed - the owner changes the passwords.
+PUBLISHED_DEFAULTS = {"admin@giu-uni.de": "Admin#2026", "ramy@giu-uni.de": "Staff#2026", "ali@giu-uni.de": "Student#2026"}
+_default_cache: dict[tuple[str, str], bool] = {}
+
+
+def default_passwords_in_use(db: Session) -> list[str]:
+    from app.core.security import verify_password
+    from app.models import User
+    out = []
+    for u in db.scalars(select(User).where(User.email.in_(list(PUBLISHED_DEFAULTS)), User.is_active.is_(True))).all():
+        k = (u.email, u.hashed_password or "")
+        if k not in _default_cache:
+            _default_cache[k] = bool(u.hashed_password) and verify_password(PUBLISHED_DEFAULTS[u.email], u.hashed_password)
+        if _default_cache[k]:
+            out.append(f"{u.email} ({getattr(u.role, 'value', u.role)})")
+    return out
+
+
 def build(db: Session, services: list[dict], drift: Optional[dict], regressions: list[dict],
           backup: dict, restore: Optional[dict], now: Optional[datetime] = None) -> dict:
     now = now or datetime.now(timezone.utc)
@@ -29,6 +49,11 @@ def build(db: Session, services: list[dict], drift: Optional[dict], regressions:
         items.append({"priority": priority, "kind": kind, "title": title, "evidence": evidence, "link": link,
                       "uncertainty": uncertainty})
 
+    weak = default_passwords_in_use(db)
+    if weak:
+        add(1, "security", f"{len(weak)} account(s) still use the password printed in the public README",
+            weak + ["Change them on Users & roles (or Profile) - anyone who read the repository can sign in."],
+            "/admin/users")
     open_ = db.scalars(select(Alert).where(Alert.is_resolved.is_(False))).all()
     crit = [a for a in open_ if getattr(a.severity, "value", a.severity) == "CRITICAL"]
     if crit:

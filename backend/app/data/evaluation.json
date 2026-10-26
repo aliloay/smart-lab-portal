@@ -1,0 +1,48 @@
+{
+  "updated": "2026-10-26",
+  "hardware": "Lab laptop: 12-thread CPU, GTX 1650 (DirectML), Windows 11; backend in Docker (1 Uvicorn worker); copy database smartlab_perf_test (restored 2026-10-25 dump)",
+  "labels": {
+    "measured": "measured on this laptop with the named script",
+    "offline": "measured with recordings / fake devices / mocks - not on the physical hardware",
+    "not_verified": "not measured yet"
+  },
+  "groups": [
+    {"name": "Cameras: detection and tracking", "rows": [
+      {"metric": "Person recall, 363 reviewed people (123 frames)", "before": "0.898 (YOLO26s 640)", "after": "0.923 (YOLO26s 544x960)", "label": "offline", "source": "docs/CV_BENCHMARK_2026-10-26.md"},
+      {"metric": "Tracking HOTA / IDF1, 3 reviewed lab clips", "before": "0.732 / 0.831", "after": "0.779 / 0.874", "label": "offline", "source": "docs/CV_BENCHMARK_2026-10-26.md"},
+      {"metric": "ID switches / missed boxes", "before": "14 / 1366", "after": "12 / 1042", "label": "offline", "source": "docs/CV_BENCHMARK_2026-10-26.md"},
+      {"metric": "Two cameras, analyses per second (full service)", "before": "7.8 / 8.9", "after": "9.4 / 9.9", "label": "offline", "source": "tools/perf/load_simlab.py (recordings)"},
+      {"metric": "Live camera check of the new defaults", "before": "-", "after": "not yet (services must be restarted in the lab)", "label": "not_verified", "source": "docs/PROGRESS_CHECKPOINT.md"}
+    ]},
+    {"name": "Phone camera (Scan the lab)", "rows": [
+      {"metric": "Marker -> live asset card (warm)", "before": "-", "after": "227-244 ms (first start 1.3 s)", "label": "offline", "source": "frontend/e2e/scan_lab.mjs (fake camera, 5 cycles, PASS)"},
+      {"metric": "People boxes on phone frames", "before": "-", "after": "7.4 frames/s, round trip p50 54 / p95 95 ms, 0 errors", "label": "offline", "source": "frontend/e2e/scan_people.mjs"},
+      {"metric": "Camera released on Stop / hidden tab", "before": "-", "after": "5/5 + hidden tab", "label": "offline", "source": "frontend/e2e/scan_lab.mjs"},
+      {"metric": "Real phone (Android / iPhone) on the lab Wi-Fi", "before": "-", "after": "not tested", "label": "not_verified", "source": "docs/SCAN_THE_LAB.md"}
+    ]},
+    {"name": "Voice assistant (local)", "rows": [
+      {"metric": "Speech-to-text, Whisper base.en CPU int8 2 threads (synthetic speech)", "before": "-", "after": "1.28 s per question, WER 5.7 % (tiny.en 0.76 s / 2.9 %)", "label": "offline", "source": "tools/voice/README.md"},
+      {"metric": "Browser: stop -> answer shown / first spoken audio", "before": "-", "after": "3.0-3.5 s / 4.3-5.3 s (3/3 PASS, mic released)", "label": "offline", "source": "frontend/e2e/voice_talk.mjs"},
+      {"metric": "Camera during nonstop transcription", "before": "10.0 analyses/s", "after": "10.0 analyses/s", "label": "measured", "source": "tools/voice/README.md"},
+      {"metric": "Real voices / accents", "before": "-", "after": "not tested", "label": "not_verified", "source": "tools/voice/README.md"}
+    ]},
+    {"name": "Portal speed", "rows": [
+      {"metric": "Page switch (warm), 40 visits", "before": "p50 126 / p90 231 ms", "after": "p50 119 / p90 229 ms", "label": "measured", "source": "frontend/e2e/nav_timing.mjs (copy backend)"},
+      {"metric": "Warm content per role (median of routes)", "before": "-", "after": "admin 145, staff 140, student 100 ms", "label": "measured", "source": "frontend/e2e/role_matrix_perf.mjs"},
+      {"metric": "20 sign-ins at once: p50 / other pages during it", "before": "1.58 s / 317 ms", "after": "0.94 s / 156 ms", "label": "measured", "source": "Argon2 hash slots (backend/app/core/security.py)"},
+      {"metric": "Hidden tab requests per second (Monitor)", "before": "0.77", "after": "0.2 (alarms only)", "label": "measured", "source": "frontend/e2e/hidden_tab_polling.mjs"},
+      {"metric": "Reliability briefing", "before": "433 ms", "after": "54 ms", "label": "measured", "source": "docs/PROGRESS_CHECKPOINT.md (2026-10-26)"},
+      {"metric": "Camera frame under load (security page)", "before": "-", "after": "fetch p50 28 / p95 74 ms, frame age p50 86 ms, 0 long tasks", "label": "measured", "source": "frontend/e2e/perf_portal.mjs"}
+    ]},
+    {"name": "Correctness / safety", "rows": [
+      {"metric": "Two simultaneous overlapping bookings", "before": "both saved", "after": "exactly one saved", "label": "measured", "source": "backend/tests/test_booking_race.py"},
+      {"metric": "Screen share Stop from another tab", "before": "never released", "after": "released in 192-275 ms (3/3)", "label": "offline", "source": "frontend/e2e/share_stop_release.mjs"},
+      {"metric": "UR5e Home / Stop in Local mode, automatic Home, stop relay", "before": "-", "after": "dry run only, nothing sent to a robot", "label": "not_verified", "source": "docs/ROBOT_CONTROL.md"}
+    ]},
+    {"name": "AI assistants", "rows": [
+      {"metric": "Project knowledge: right source / right facts (12 questions)", "before": "-", "after": "10/12 / 10/12", "label": "measured", "source": "py tools/knowledge/agent.py --bench"},
+      {"metric": "Project knowledge latency: lookup / model answer (CPU)", "before": "-", "after": "165 ms / median 14 s, max 22 s", "label": "measured", "source": "py tools/knowledge/agent.py --bench"},
+      {"metric": "Lab assistant: common questions (instant)", "before": "-", "after": "0.04-0.21 s", "label": "measured", "source": "voice end-to-end run (copy backend)"}
+    ]}
+  ]
+}

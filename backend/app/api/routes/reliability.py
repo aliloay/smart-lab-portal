@@ -207,6 +207,18 @@ def backups(_: User = Depends(require_staff)):
                    "compares every table; production is only read."}
 
 
+# -------------------------------------------------------------- evaluation ---
+@router.get("/evaluation")
+def get_evaluation(_: User = Depends(require_staff)):
+    """The thesis evaluation (priority B): measured before/after results with their conditions and the script or
+    document that produced them; unmeasured items are listed as such (app/data/evaluation.json)."""
+    import json
+    import os
+    with open(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "evaluation.json"),
+              encoding="utf-8") as f:
+        return json.load(f)
+
+
 # ---------------------------------------------------------------- briefing ---
 @router.get("/briefing")
 def get_briefing(db: Session = Depends(get_db), user: User = Depends(require_staff)):

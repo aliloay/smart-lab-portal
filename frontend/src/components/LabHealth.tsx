@@ -48,6 +48,34 @@ export function LabHealth() {
   )
 }
 
+const LABEL: Record<string, ['ok' | 'warn' | 'idle', string]> = {
+  measured: ['ok', 'measured'], offline: ['warn', 'offline test'], not_verified: ['idle', 'not verified'] }
+
+/** Evaluation (priority B): measured before/after with conditions and the script that produced each number. */
+export function Evaluation() {
+  const [d, setD] = useState<Awaited<ReturnType<typeof api.evaluation>> | null>(null)
+  const [err, setErr] = useState('')
+  useEffect(() => { api.evaluation().then(setD).catch(e => setErr(e.message)) }, [])
+  if (err) return <p className="text-[12.5px] text-bad-soft">{err}</p>
+  if (!d) return <Skeleton className="h-40" />
+  return (
+    <div className="space-y-4">
+      <p className="text-[12.5px] text-slate-400">Updated {d.updated}. {d.hardware}. Labels: {Object.entries(d.labels).map(([k, v]) => `${LABEL[k]?.[1] ?? k} = ${v}`).join('; ')}.</p>
+      {d.groups.map(g => <div key={g.name} className="card p-0 overflow-hidden">
+        <div className="px-4 py-2.5 text-white font-medium border-b border-ink-600">{g.name}</div>
+        <div className="overflow-x-auto"><table className="w-full text-[12.5px]">
+          <thead><tr className="text-left text-slate-400"><th className="px-4 py-1.5 font-normal">Metric</th><th className="px-2 font-normal">Before</th>
+            <th className="px-2 font-normal">After</th><th className="px-2 font-normal">Status</th><th className="px-4 font-normal">Evidence</th></tr></thead>
+          <tbody>{g.rows.map(r => <tr key={r.metric} className="border-t border-ink-700 align-top">
+            <td className="px-4 py-1.5 text-slate-200">{r.metric}</td><td className="px-2 py-1.5 text-slate-400">{r.before}</td>
+            <td className="px-2 py-1.5 text-white">{r.after}</td>
+            <td className="px-2 py-1.5"><Chip tone={LABEL[r.label]?.[0] ?? 'idle'}>{LABEL[r.label]?.[1] ?? r.label}</Chip></td>
+            <td className="px-4 py-1.5 text-slate-500 mono text-[11px]">{r.source}</td></tr>)}</tbody></table></div>
+      </div>)}
+    </div>
+  )
+}
+
 export function Headcount() {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof api.labsHeadcount>> | null>(null)
   useEffect(() => {

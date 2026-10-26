@@ -16,9 +16,9 @@ import { Activity, BookOpen, Database, GitBranch, Gauge, HeartPulse, ListChecks,
 import { AlertQuality, DriftReport, PerfReport, RelGraph, RelNode, WhatIf, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Chip, MetricCard, PageHeader, Tabs } from '../components/ui'
-import { LabHealth } from '../components/LabHealth'
+import { Evaluation, LabHealth } from '../components/LabHealth'
 
-type TabKey = 'briefing' | 'health' | 'graph' | 'drift' | 'performance' | 'quality' | 'backups' | 'policy'
+type TabKey = 'briefing' | 'health' | 'evaluation' | 'graph' | 'drift' | 'performance' | 'quality' | 'backups' | 'policy'
 const STATE_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'idle' | 'violet'> = {
   HEALTHY: 'ok', DEGRADED: 'warn', 'STALE DATA': 'warn', OFFLINE: 'bad', SIMULATED: 'violet', UNKNOWN: 'idle'
 }
@@ -35,6 +35,7 @@ export default function Reliability() {
       <Tabs id="rel" value={tab} onChange={setTab} tabs={[
         { key: 'briefing', label: 'Briefing', icon: <ListChecks size={14} /> },
         { key: 'health', label: 'Lab health', icon: <HeartPulse size={14} /> },
+        { key: 'evaluation', label: 'Evaluation', icon: <BookOpen size={14} /> },
         { key: 'graph', label: 'Dependencies', icon: <GitBranch size={14} /> },
         { key: 'drift', label: 'Drift', icon: <Scale size={14} /> },
         { key: 'performance', label: 'Performance', icon: <Gauge size={14} /> },
@@ -45,6 +46,7 @@ export default function Reliability() {
       <div className="mt-4">
         {tab === 'briefing' && <Briefing />}
         {tab === 'health' && <LabHealth />}
+        {tab === 'evaluation' && <Evaluation />}
         {tab === 'graph' && <Graph />}
         {tab === 'drift' && <Drift />}
         {tab === 'performance' && <Performance />}
