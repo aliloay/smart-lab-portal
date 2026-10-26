@@ -11,8 +11,8 @@
  */
 import { FormEvent, ReactNode, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Link, useLocation } from 'react-router-dom'
-import { ArrowUpRight, Bot, ListOrdered, Maximize2, MessageCircle, Minimize2, Send, Sparkles, TriangleAlert, X, Zap } from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { ArrowUpRight, BookOpen, Bot, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, TriangleAlert, X, Zap } from 'lucide-react'
 import { AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
@@ -77,10 +77,12 @@ function SetupHint({ s }: { s: AiStatus }) {
     detail={`In a terminal on that computer run: ${s.missing_models.map(m => `ollama pull ${m}`).join('  and  ')}`} />
 }
 
-export function AskTheLab({ mode = 'staff', fill = false }: {
+export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
   mode?: 'staff' | 'student'
   /** Fill the parent's height (the chat panel) instead of a fixed-height box. */
   fill?: boolean
+  /** The chat bubble's instance answers 'smartlab:ask-lab' events (e.g. "Ask the lab about it" on Scan the lab). */
+  listen?: boolean
 }) {
   const student = mode === 'student'
   const [status, setStatus] = useState<AiStatus | null>(null)
@@ -116,6 +118,13 @@ export function AskTheLab({ mode = 'staff', fill = false }: {
     } finally { setBusy(false) }
   }
   const submit = (e: FormEvent) => { e.preventDefault(); ask(q) }
+  const askRef = useRef(ask); askRef.current = ask
+  useEffect(() => {
+    if (!listen) return
+    const on = (e: Event) => { const t = (e as CustomEvent<string>).detail; if (typeof t === 'string') void askRef.current(t) }
+    window.addEventListener('smartlab:ask-lab', on)
+    return () => window.removeEventListener('smartlab:ask-lab', on)
+  }, [listen])
 
   if (status === null) return <Skeleton className="h-40" />
   // Without a working model the chat still answers the common questions
@@ -310,11 +319,30 @@ export function ChatBubble() {
     return () => window.removeEventListener('keydown', k)
   }, [open])
 
+  // The bubble / sidebar button opens the LAUNCHER first (staff): ask the lab, ask the project, scan with the
+  // phone camera, or talk. Students go straight to their helper.
+  const [launcher, setLauncher] = useState(false)
+  const nav = useNavigate()
   useEffect(() => {
-    const show = () => setOpen(true)
+    const show = () => { if (staff) setLauncher(true); else setOpen(true) }
+    const askLab = () => { setLauncher(false); setMode('lab'); setOpen(true) }
     window.addEventListener(OPEN_CHAT, show)
-    return () => window.removeEventListener(OPEN_CHAT, show)
-  }, [])
+    window.addEventListener('smartlab:ask-lab', askLab)
+    return () => { window.removeEventListener(OPEN_CHAT, show); window.removeEventListener('smartlab:ask-lab', askLab) }
+  }, [staff])
+  useEffect(() => {
+    if (!launcher) return
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setLauncher(false) }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [launcher])
+  const pick = (what: 'lab' | 'project' | 'scan' | 'talk') => {
+    setLauncher(false)
+    if (what === 'scan') { setOpen(false); nav('/scan'); return }
+    setMode(what === 'project' ? 'project' : 'lab')
+    setOpen(true)
+    if (what === 'talk') window.dispatchEvent(new Event('smartlab:talk'))
+  }
 
   if (!user || !available) return null
   // The Operations Center already shows the full panel; the bubble appears
@@ -362,12 +390,29 @@ export function ChatBubble() {
                 {m === 'lab' ? 'Lab data' : 'Project knowledge'}</button>))}
           </div>)}
         <div className="flex-1 min-h-0">
-          {staff && mode === 'project'
-            ? <Suspense fallback={<Spinner />}><ProjectKnowledge /></Suspense>
-            : <AskTheLab mode={staff ? 'staff' : 'student'} fill />}
+          {staff && mode === 'project' && <Suspense fallback={<Spinner />}><ProjectKnowledge /></Suspense>}
+          {/* Always mounted (hidden on the project tab) so a question sent from elsewhere is never lost. */}
+          <div className={`h-full min-h-0 ${staff && mode === 'project' ? 'hidden' : ''}`}>
+            <AskTheLab mode={staff ? 'staff' : 'student'} fill listen /></div>
         </div>
       </div>
-      <button onClick={() => setOpen(o => !o)} aria-label={open ? 'Close assistant' : 'Open AI assistant'}
+      {launcher && !open && <>
+        <div className="fixed inset-0 z-[60]" onClick={() => setLauncher(false)} />
+        <div className="fixed z-[61] bottom-24 right-4 sm:right-6 w-[min(320px,calc(100vw-2rem))] card p-2 shadow-2xl"
+             role="menu" aria-label="AI assistant">
+          {([['lab', <Bot size={17} key="i" />, 'Ask the lab', 'Live and recorded lab data'],
+             ['project', <BookOpen size={17} key="i" />, 'Ask the project', 'Design, code, wiring - with sources'],
+             ['scan', <ScanLine size={17} key="i" />, 'Scan the lab', 'Phone camera: point at a marker, see live state'],
+             ['talk', <Mic size={17} key="i" />, 'Talk', 'Push to talk, spoken answers']] as const).map(([k, icon, t, d]) => (
+            <button key={k} role="menuitem" onClick={() => pick(k)}
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-ink-700/60">
+              <span className="grid place-items-center w-9 h-9 rounded-lg bg-violet-500/15 text-violet-300">{icon}</span>
+              <span><span className="block text-[14px] text-white">{t}</span><span className="block text-[11.5px] text-slate-400">{d}</span></span>
+            </button>))}
+        </div>
+      </>}
+      <button onClick={() => { if (open) setOpen(false); else if (staff) setLauncher(l => !l); else setOpen(true) }}
+        aria-label={open ? 'Close assistant' : 'Open AI assistant'}
         className="fixed z-[62] bottom-5 right-4 sm:right-6 w-14 h-14 rounded-full grid place-items-center
                    bg-gradient-to-br from-accent-500 to-violet-500 text-white shadow-lg
                    hover:scale-105 transition-transform">

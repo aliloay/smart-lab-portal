@@ -29,6 +29,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "deploy", "tls")
+# The CA's PRIVATE key is kept out of deploy/tls: that folder is mounted into the nginx container, which needs
+# only the server certificate + key (2026-10-26). Whoever holds the CA key can mint certificates every lab
+# device trusts, so it stays on the laptop only.
+CA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "deploy", "tls-ca")
 
 
 def _write(path, data, private=False):
@@ -54,8 +58,13 @@ def main():
     ips = a.ip or ["192.168.1.200", "192.168.1.210"]
     names = ["localhost"] + a.name
     os.makedirs(OUT, exist_ok=True)
+    os.makedirs(CA_DIR, exist_ok=True)
     now = dt.datetime.now(dt.timezone.utc)
-    ca_key_p, ca_crt_p = os.path.join(OUT, "smartlab-ca.key"), os.path.join(OUT, "smartlab-ca.crt")
+    ca_key_p, ca_crt_p = os.path.join(CA_DIR, "smartlab-ca.key"), os.path.join(OUT, "smartlab-ca.crt")
+    old_key = os.path.join(OUT, "smartlab-ca.key")
+    if os.path.isfile(old_key) and not os.path.isfile(ca_key_p):
+        os.replace(old_key, ca_key_p)                  # move the key out of the folder nginx mounts
+        print(f"moved the CA private key to {os.path.normpath(ca_key_p)} (not mounted into nginx)")
 
     if os.path.isfile(ca_key_p) and os.path.isfile(ca_crt_p):
         ca_key = serialization.load_pem_private_key(open(ca_key_p, "rb").read(), None)

@@ -1229,6 +1229,35 @@ def make_app(svc: Service) -> Flask:
                         "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
                                      "max_width": svc.args.max_width, "render_fps": svc.RENDER_FPS}})
 
+    phone_slot = threading.Semaphore(1)
+
+    @app.post("/detect")
+    def detect_phone():
+        """People boxes for ONE phone frame ("Scan the lab", 2026-10-26). One at a time: a second request while
+        one runs gets 429 (the phone just sends its next frame - no queue, the fixed cameras keep priority).
+        The small zoom model (416 x 416). The frame is decoded in memory and dropped; nothing is stored, and a
+        box never carries a name (identification is by QR marker only)."""
+        if not authorised():
+            return Response("device key required", status=401)
+        body = request.get_data(cache=False)
+        if not body.startswith(b"\xff\xd8") or len(body) > 400_000:
+            return Response("expected one JPEG under 400 KB", status=422)
+        if not phone_slot.acquire(blocking=False):
+            return Response("busy", status=429)
+        try:
+            t0 = time.perf_counter()
+            img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return Response("not a decodable JPEG", status=422)
+            h, w = img.shape[:2]
+            dets = [d for d in svc.zoom_detector.detect(img) if d.cls == PERSON]
+            return jsonify({"w": w, "h": h, "ms": round((time.perf_counter() - t0) * 1000, 1),
+                            "engine": svc.detector_engine(), "class": "person",
+                            "boxes": [{"x": d.box[0] / w, "y": d.box[1] / h, "w": d.box[2] / w, "h": d.box[3] / h,
+                                       "score": round(d.score, 3)} for d in dets]})
+        finally:
+            phone_slot.release()
+
     @app.get("/identity")
     def identity():
         """Evidence panel: why each person in view has (or has not) a name, and

@@ -58,6 +58,8 @@ docs/paper_images_private/
 firmware/face_server/wrong_person/
 deploy/tls/*
 !deploy/tls/README.md
+# the CA private key lives OUTSIDE the folder mounted into nginx (2026-10-26)
+deploy/tls-ca/
 tools/robot_monitor/robot.env
 firmware/face_server/dataset_archive/
 

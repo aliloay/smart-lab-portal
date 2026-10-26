@@ -287,6 +287,41 @@ export interface BroadcastState {
   since: number | null; title: string; has_frame?: boolean; targets?: number[] | null
 }
 /** Upload one captured frame of the admin's screen (raw JPEG). */
+/** "Scan the lab": one asset identified by its QR marker, with the authoritative live state of that record. */
+export interface ScanFact { label: string; value: string | number; quality: 'LIVE' | 'STALE' | 'RECORD' | string }
+export interface ScanCard {
+  code: string; kind: 'device' | 'bin' | 'asset'; key: string; name: string; type: string; lab_code: string | null
+  status: string; last_seen_at: string | null; seconds_since_seen: number | null
+  facts: ScanFact[]
+  readings: { metric: string; value: number; unit: string; at: string; age_s: number; quality: 'LIVE' | 'STALE' }[]
+  open_alerts: number; open_issues_in_lab: number; link: string; ask: string
+}
+export interface ScanRegistryItem { code: string; kind: string; key: string; name: string; type: string; lab_code: string | null }
+export interface ScanPeople {
+  w: number; h: number; ms: number; proxy_ms: number; engine: string; class: 'person'
+  boxes: { x: number; y: number; w: number; h: number; score: number }[]
+}
+/** One phone frame -> person boxes (generic class, never a name). 429 = the detector is busy: skip this frame. */
+export async function scanPeople(jpeg: Blob, signal: AbortSignal): Promise<ScanPeople | null> {
+  const token = getToken()
+  const r = await fetch('/api/scan/people', {
+    method: 'POST', body: jpeg, signal, cache: 'no-store',
+    headers: { 'Content-Type': 'image/jpeg', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (r.status === 429) return null
+  if (!r.ok) throw new Error(r.status === 503 ? 'People boxes unavailable - no camera service is running (markers still work)'
+                                              : `People detection failed (${r.status})`)
+  return r.json()
+}
+/** The printable marker image (needs the sign-in, so it is fetched, not linked). */
+export async function scanMarkerBlob(code: string): Promise<Blob> {
+  const token = getToken()
+  const r = await fetch(`/api/scan/marker.png?code=${encodeURIComponent(code)}`,
+                        { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!r.ok) throw new Error(`Marker ${code}: ${r.status}`)
+  return r.blob()
+}
+
 export async function uploadBroadcastFrame(jpeg: Blob): Promise<number> {
   const token = getToken()
   const r = await fetch('/api/equipment/broadcast/frame', {
@@ -1363,6 +1398,8 @@ export const api = {
     post<BroadcastState>('/equipment/broadcast/start', { source, title, targets }),
   broadcastStop: () => post<BroadcastState>('/equipment/broadcast/stop'),
   broadcastStatus: () => request<BroadcastState>('/equipment/broadcast/status', { cache: 'no-store' }),
+  scanRegistry: () => request<{ prefix: string; assets: ScanRegistryItem[] }>('/scan/registry'),
+  scanAsset: (code: string) => request<ScanCard>(`/scan/asset?code=${encodeURIComponent(code)}`, { cache: 'no-store' }),
   reportCatalogue: () => request<{ kind: string; title: string; description: string; source: string }[]>('/reports-center'),
   reportCenter: (kind: string, start: string, end: string) => request<{
     kind: string; title: string; description: string; source: string; start: string; end: string; generated_at: string

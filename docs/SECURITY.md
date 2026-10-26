@@ -34,8 +34,15 @@ Plain HTTP on port 80 still works. It is NOT redirected yet, so that no device
 breaks before it trusts the CA. The door tablet and the ESP32 nodes talk to the
 backend on `:8000` and are not affected.
 
-The CA's private key (`deploy/tls/smartlab-ca.key`) never leaves the laptop.
-Anyone holding it can mint certificates the lab devices trust.
+The CA's private key (`deploy/tls-ca/smartlab-ca.key`, git-ignored) never leaves the laptop.
+Anyone holding it can mint certificates the lab devices trust. **Since 2026-10-26 it is no longer in
+`deploy/tls`**: that folder is mounted into the nginx container, which needs only `server.crt` / `server.key`
+(and serves the public `smartlab-ca.crt` at `/smartlab-ca.crt` for the Phone setup page). `make_local_ca.py`
+moves an old key out by itself and reads it from `deploy/tls-ca/`.
+
+Phones: the portal's **Phone setup** page (`/phone-setup`, staff) checks the secure context, offers the CA
+download with the Android / iPhone trust steps and shows a QR that opens `https://<laptop>/scan` on the phone.
+Camera and microphone are allowed for this site only (`Permissions-Policy: camera=(self), microphone=(self)`).
 
 ## Open items
 

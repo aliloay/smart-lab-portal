@@ -96,6 +96,9 @@ const Robots = lazy(() => import('./pages/Robots'))
 const RobotDetail = lazy(() => import('./pages/RobotDetail'))
 const Monitor = lazy(() => import('./pages/Monitor'))
 const ReportPrint = lazy(() => import('./pages/ReportPrint'))
+const Scan = lazy(() => import('./pages/Scan'))
+const ScanMarkers = lazy(() => import('./pages/ScanSetup').then(m => ({ default: m.ScanMarkers })))
+const PhoneSetup = lazy(() => import('./pages/ScanSetup').then(m => ({ default: m.PhoneSetup })))
 
 function Chunk({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>
@@ -189,6 +192,9 @@ export default function App() {
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
           <Route path="/admin/system" element={staffOnly(<Chunk><SystemAnalytics /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
+          <Route path="/scan" element={staffOnly(<Chunk><Scan /></Chunk>)} />
+          <Route path="/scan/markers" element={staffOnly(<Chunk><ScanMarkers /></Chunk>)} />
+          <Route path="/phone-setup" element={staffOnly(<Chunk><PhoneSetup /></Chunk>)} />
           <Route path="/admin/users" element={staffOnly(<Users />)} />
           <Route path="/admin/experiments" element={staffOnly(<Experiments />)} />
           <Route path="/admin/settings" element={adminOnly(<Settings />)} />
