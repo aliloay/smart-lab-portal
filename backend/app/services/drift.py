@@ -39,6 +39,22 @@ def baseline() -> dict:
         return json.load(f)
 
 
+_HEAD: list = []
+
+
+def migration_head() -> str:
+    """The code's alembic head. Read once per process: finding it imports every migration file (~370 ms,
+    measured 2026-10-25 - most of the 433 ms /reliability/briefing), and the files cannot change under a
+    running backend. The DATABASE's version is still read on every check."""
+    if not _HEAD:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+        cfg = Config(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
+        cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "..", "alembic"))
+        _HEAD.append(ScriptDirectory.from_config(cfg).get_current_head())
+    return _HEAD[0]
+
+
 def _actual_setting(name: str):
     if name in ("ROBOT_CONTROL", "UR5E_HOME_METHOD", "UR5E_HOME_PROGRAM"):
         from app.services import robot_control as rc
@@ -93,11 +109,7 @@ def check(db: Session, now: Optional[datetime] = None) -> dict:
                 "high", "anyone who reads the repository knows it", APPROVAL, f"rotate {name} (credentials change needs the owner)")
     # migration head
     try:
-        from alembic.config import Config
-        from alembic.script import ScriptDirectory
-        cfg = Config(os.path.join(os.path.dirname(__file__), "..", "..", "alembic.ini"))
-        cfg.set_main_option("script_location", os.path.join(os.path.dirname(__file__), "..", "..", "alembic"))
-        head = ScriptDirectory.from_config(cfg).get_current_head()
+        head = migration_head()
         # never send a failing statement: it would abort the caller's transaction
         managed = db.execute(text("select to_regclass('public.alembic_version')")).scalar() is not None
         dbv = db.execute(text("select version_num from alembic_version")).scalar() if managed else None

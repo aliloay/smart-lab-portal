@@ -170,3 +170,53 @@ From the controller's own page `/MD/SUMMARY.DG` (plain HTTP GET, 2026-10-14 18:2
 
 **Rollback:** cell/pendant E-stop if unsafe -> disable remote start on the controller (operator) -> adapter back to
 UNAVAILABLE / `ROBOT_CONTROL=dry_run` -> record the failure.
+
+## 2026-10-26 - UR5e Home + STOP while the robot STAYS IN LOCAL MODE
+
+**What Universal Robots allows (official Dashboard Server reference, e-Series SW 5.x, "Only Remote Control"):**
+`load`, `play`, `stop`, `pause`, `power on/off`, `brake release`, `unlock protective stop`, `close safety popup` are
+refused in Local mode; read queries (`robotmode`, `safetystatus`, `programState`, `get loaded program`,
+`is in remote control` - 5.6.0+) work in both. So the 2026-10-18 path (Dashboard load/play/stop + script on port
+30002) **cannot** work in Local mode. The supported Local-mode route is a program **started with Play on the
+teach pendant** that hands control to a computer: the **External Control URCap** (UR ROS 2 driver "teach pendant
+mode"; ur_rtde `FLAG_USE_EXT_UR_CAP`, port 50002 - present in the installed ur_rtde 1.6.5). The URCap is already
+installed on our UR5e (pendant photo 2026-10-12; its host is set to 192.168.1.101, an old ROS laptop).
+
+**Built (software verified with mocks; DRY RUN by default; nothing has ever been sent to the robot):**
+- `tools/ur5e_control/ur_local_control.py` - native agent (Python 3.12 + ur_rtde), 127.0.0.1:5310, key
+  `UR_AGENT_KEY` (robot.env, git-ignored). Read-only Dashboard queries + RTDE receive; the External Control link is
+  opened only with `UR_CONTROL_MODE=live`. Tests: `tools/ur5e_control/test_ur_local_control.py` (14).
+- Backend `UR5E_CONTROL_PATH=local_agent` (default; `dashboard` = the Remote-mode path): `app/services/ur_agent.py`
+  (fixed endpoint allowlist), `robot_control.py` routes Home / STOP to the agent; **backend ROBOT_CONTROL and agent
+  UR_CONTROL_MODE must agree** (two sign-offs). Tests: `backend/tests/test_robot_control_local.py` (6).
+- Twin panel (`RobotControlPanel.tsx`): actual control mode (Local / Remote, read from the controller), who drives
+  the arm (portal program / another program / pendant jog / idle), the agent's checks, and the Local-mode limits.
+
+| In Local mode | Works? | Why |
+|---|---|---|
+| Home | **Only while the portal program plays on the pendant** (operator pressed Play) and every check passes: operator confirmation, fresh joints, safety NORMAL/REDUCED, robot RUNNING, arm still, STOP not latched, start pose within 10 deg of Home or of an operator-verified approach pose (`UR_APPROACH_FILE`, recorded at commissioning; empty = only from near Home). One moveJ (v 0.35 rad/s, a 0.8 rad/s^2) to the verified pose; completion only from joint feedback. | The controller runs external motion only inside a pendant-started program |
+| Stop (software) | **Only for motion the portal program commands**: stopJ(2.0 rad/s^2), confirmed from feedback | Same link |
+| Stop of pendant jogging / Freedrive | **No** - reported as such | Only the person at the pendant or the E-stop |
+| Stop of another pendant program | **No** in Local mode (Remote mode: Dashboard stop) | Dashboard `stop` is Remote-only |
+| Someone else uses the robot | Home refused ("another program is playing" / "moved from the pendant"); the pendant always wins | Portal ownership never locks the pendant |
+| Emergency stop | **Never** from the portal | The pendant E-stop / cell E-stop are the only emergency stops |
+
+**Pendant program needed (operator, at the pendant, reduced speed first):** `portal_control.urp` = Robot Program ->
+(optional MoveJ to a safe start) -> **External Control** node with host = this laptop (192.168.1.200), port 50002.
+The installation's External Control host must be changed from .101 to .200 (a program setting, not a safety setting).
+
+**Commissioning (supervised, stop at the first failure; the owner signs off each step):**
+1. Agent in dry run: `py -3.12 tools/ur5e_control/ur_local_control.py`; the twin shows "Local mode" + "no program".
+2. Operator presses Play on `portal_control.urp`; twin shows "portal program playing"; Home answers DRY RUN.
+3. Jog away 5 deg; Home DRY RUN passes; jog 30 deg away; Home refused (approach zone).
+4. Record the verified approach poses (operator walks the joint-space path to Home and confirms clearance).
+5. `UR_CONTROL_MODE=live` (agent) + `ROBOT_CONTROL=live` (backend); hand on the E-stop; STOP first while still;
+   then Home from 5 deg; watch HOMING -> HOME_REACHED; press STOP during a slow Home -> STOPPED from feedback.
+6. Back to dry run at the end of the session unless the owner keeps live on.
+
+**Independent safety-rated E-stop (proposal only, nothing changed):** a category-0/1 E-stop must act on the UR
+controller's safety inputs - e.g. a second Emergency Stop button (IEC 60947-5-5, positive-opening, two NC channels)
+wired to the control box's configurable **safety input** pair set to "Emergency stop" in the Safety configuration
+(password-protected; changes the safety checksum), or a safety relay / safety PLC feeding that pair from several
+stations. Requires a qualified person, the UR safety configuration change and a validation test - not a software task.
+The browser STOP and any ROS / RTDE command are **not** safety-rated and are never described as an E-stop.

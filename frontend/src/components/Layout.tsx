@@ -29,6 +29,7 @@ import { Summary, api } from '../lib/api'
 import { warmRoute } from '../lib/warm'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
+import { isCapturing, syncShare } from '../lib/screenShare'
 
 type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
 interface Item {
@@ -287,6 +288,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   }, [staff])
   useLiveMessages(m => {
     if (staff && m.type === 'staff') api.summary().then(setSummary).catch(() => {})
+    if (m.type === 'share_state' && isCapturing()) void syncShare(user?.id)   // Stop pressed elsewhere: release now
   })
 
   const badges: Record<BadgeKey, number> = {

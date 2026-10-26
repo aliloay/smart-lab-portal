@@ -10,8 +10,11 @@ from tests.test_robots import tele
 
 
 @pytest.fixture(autouse=True)
-def _fresh():
+def _fresh(monkeypatch):
     rctl.reset()
+    # These tests cover the REMOTE-mode Dashboard path; the Local-mode agent path has its own file
+    # (tests/test_robot_control_local.py).
+    monkeypatch.setattr(rctl, "UR_PATH", "dashboard")
     yield
     rctl.reset()
 

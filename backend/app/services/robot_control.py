@@ -76,6 +76,23 @@ HOME_TIMEOUT_S = 60.0               # not at Home by then = FAILED (reported, ne
 #   "movej"             - one direct joint move to UR_HOME_Q_DEG. NOT equivalent to the pendant's Home
 #                         routine (path, speed, blending can differ): use only if the operator approves.
 UR_HOME_METHOD = os.environ.get("UR5E_HOME_METHOD", "program").lower()
+# Which way commands reach the UR5e (2026-10-26):
+#   "local_agent" (default) - the robot STAYS IN LOCAL MODE. The operator presses Play on the pendant program that
+#       holds the External Control node; the native agent (tools/ur5e_control/ur_local_control.py, 127.0.0.1:5310)
+#       sends Home (moveJ) / Stop (stopJ) through it and runs its own checks. Official UR reference: the Dashboard's
+#       load / play / stop / pause are "Only Remote Control", so in Local mode the Dashboard path is refused.
+#   "dashboard" - the Remote-mode path below (load + play home.urp, Dashboard stop + stopj).
+UR_PATH = os.environ.get("UR5E_CONTROL_PATH", "local_agent").lower()
+
+
+def ur_agent_state(max_age: float = 1.0) -> Optional[dict]:
+    from app.services import ur_agent
+    return ur_agent.state(max_age)
+
+
+def ur_agent(method: str, path: str, body: Optional[dict] = None, timeout: float = 2.0) -> Optional[dict]:
+    from app.services import ur_agent as client
+    return client.call(method, path, body, timeout)
 # RTDE codes (Universal Robots RTDE guide): safety mode 1 NORMAL, 2 REDUCED; robot mode 7 RUNNING.
 UR_SAFETY_OK = {1: "NORMAL", 2: "REDUCED"}
 UR_SAFETY_NAMES = {3: "PROTECTIVE STOP", 4: "RECOVERY", 5: "SAFEGUARD STOP", 6: "SYSTEM EMERGENCY STOP",
@@ -87,17 +104,31 @@ class URAdapter(Adapter):
     blocker = ("UR5e: control is off (ROBOT_CONTROL=off).")
 
     @property
+    def agent_path(self) -> bool:
+        return UR_PATH == "local_agent"
+
+    @property
     def interface(self):
+        if self.agent_path:
+            via = "Local-mode agent (External Control program started on the pendant)"
+            return {"dry_run": "DRY RUN - nothing is sent (would use the " + via + ")", "live": via}.get(
+                MODE, "RTDE receive only (monitoring)")
         return {"dry_run": f"DRY RUN - nothing is sent (would use Dashboard Server {UR_HOST}:29999)",
                 "live": f"Dashboard Server {UR_HOST}:29999"}.get(MODE, "RTDE receive only (monitoring)")
 
     def capabilities(self) -> dict:
         on = MODE in ("dry_run", "live")
-        return {"home": on, "routines": [], "stop": on, "interface": self.interface,
-                "home_program": UR_HOME_PROGRAM, "home_method": UR_HOME_METHOD,
+        return {"home": on, "routines": [], "stop": on, "interface": self.interface, "path": UR_PATH,
+                "home_program": UR_HOME_PROGRAM, "home_method": "movej (agent)" if self.agent_path else UR_HOME_METHOD,
                 "unavailable_reason": None if on else self.blocker}
 
     def controller_mode(self) -> str:
+        if self.agent_path and MODE in ("dry_run", "live"):
+            st = ur_agent_state()
+            if st is None:
+                return "AGENT_UNREACHABLE"
+            c = st.get("controller") or {}
+            return f"{c.get('control_mode', 'UNKNOWN')}:{c.get('driver', 'UNKNOWN')}"   # e.g. LOCAL:PORTAL_PROGRAM
         if MODE == "dry_run":
             return "DRY_RUN_SIMULATED"      # never shown as a real controller state
         if MODE == "live":
@@ -106,6 +137,29 @@ class URAdapter(Adapter):
         return "UNKNOWN"
 
     def execute(self, action: str, routine: Optional[str]) -> Result:
+        if self.agent_path and MODE in ("dry_run", "live"):
+            return self._via_agent(action)
+        return self._via_dashboard(action, routine)
+
+    def _via_agent(self, action: str) -> Result:
+        """Local mode: the agent runs its own checks and sends only through the pendant-started program. Both
+        sides must be in the same mode (backend ROBOT_CONTROL and agent UR_CONTROL_MODE): two sign-offs."""
+        st = ur_agent_state(max_age=0.0)
+        if st is None:
+            return Result("UNAVAILABLE", "the UR5e Local-mode agent is not running / not reachable - nothing sent "
+                                         "(start tools/ur5e_control/ur_local_control.py)")
+        if st.get("mode") != MODE:
+            return Result("REJECTED", f"backend ROBOT_CONTROL={MODE} but the UR agent runs in {st.get('mode')} mode - "
+                                      "both must agree before anything is sent")
+        r = ur_agent("POST", "/command", {"action": action, "command_id": "portal", "confirmed": True}, timeout=5.0)
+        if r is None:
+            return Result("FAILED", "the agent did not answer - state unknown, not retried")
+        status = r.get("status", "FAILED")
+        if action == "stop" and status == "UNSUPPORTED" and (r.get("class") or {}).get("control_mode") == "REMOTE":
+            return self._via_dashboard("stop", None)            # Remote mode: the Dashboard stop applies
+        return Result(status, r.get("reason", ""))
+
+    def _via_dashboard(self, action: str, routine: Optional[str]) -> Result:
         from app.services import ur_script
         q = ", ".join(f"{v:.2f}" for v in UR_HOME_Q_DEG)
         if action == "home":
@@ -339,7 +393,8 @@ def master_state(device_id: int, q_deg: Optional[list], moving: bool, fresh: boo
             phase, detail = "BLOCKED", "no joint feedback from the controller - robot state unknown"
         else:
             phase, detail = ("HOME_REACHED", "at Home (feedback)") if at_home else ("READY", "")
-    checks = ur_checks(q_deg, fresh, extra or {}, stop is not None, simulated)
+    local = ur_agent_state() if UR_PATH == "local_agent" and MODE in ("dry_run", "live") else None
+    checks = ur_checks(q_deg, fresh, extra or {}, stop is not None, simulated, local)
     pre = all(c["ok"] for c in checks if c["key"] != "signoff")
     readiness = ("READY" if pre and MODE == "live" else "READY_FOR_PHYSICAL_TEST" if pre and MODE == "dry_run"
                  else "BLOCKED")
@@ -349,7 +404,16 @@ def master_state(device_id: int, q_deg: Optional[list], moving: bool, fresh: boo
             "max_error_deg": None if err is None else round(err, 2), "stop_latched": stop is not None,
             "stop": None if not stop else {"by": stop["by"], "at": stop["t"], "result": stop.get("result"),
                                            "restored": bool(stop.get("restored"))},   # latched before a restart
-            "estop_note": "Software stop only (stopj / Dashboard stop). It is NOT a safety-rated emergency "
+            "path": UR_PATH,
+            # Local-mode view from the agent: actual control mode, who drives the arm, the agent's own Home checks
+            "local": None if local is None else {"controller": local.get("controller"), "agent_mode": local.get("mode"),
+                                                 "program": local.get("program"), "state": local.get("state"),
+                                                 "home_checks": local.get("home_checks")},
+            "local_limits": ("Local mode: Home and Stop work only while the portal program runs on the pendant "
+                             "(the operator pressed Play). Stop cannot end pendant jogging, Freedrive or another "
+                             "program - the controller accepts the Dashboard stop only in Remote mode.")
+                            if UR_PATH == "local_agent" else None,
+            "estop_note": "Software stop only (stopJ / Dashboard stop). It is NOT a safety-rated emergency "
                           "stop - use the red E-stop on the teach pendant or the cell's hardware E-stop."}
 
 
@@ -369,6 +433,10 @@ def _check(device_id, model, user_id, action, routine, age) -> Result:
     if action == "home" and h and not h.get("dry_run") and time.time() - h["t"] < HOME_TIMEOUT_S:
         return Result("REJECTED", "Home is already in progress - wait for Home reached / failed, or press STOP")
     mode = ad.controller_mode()
+    if getattr(ad, "agent_path", False) and MODE in ("dry_run", "live"):
+        if mode == "AGENT_UNREACHABLE":
+            return Result("UNAVAILABLE", "the UR5e Local-mode agent is not reachable - nothing sent")
+        return ad.execute(action, routine)          # the agent checks the controller itself (Local or Remote)
     if mode == "DRY_RUN_SIMULATED" and MODE == "dry_run":
         return ad.execute(action, routine)          # answers DRY_RUN; sends nothing
     if mode != "REMOTE_READY":
@@ -376,13 +444,37 @@ def _check(device_id, model, user_id, action, routine, age) -> Result:
     return ad.execute(action, routine)
 
 
-def ur_checks(q_deg: Optional[list], fresh: bool, extra: dict, latched: bool, simulated: bool = False) -> list[dict]:
+def ur_checks(q_deg: Optional[list], fresh: bool, extra: dict, latched: bool, simulated: bool = False,
+              local: Optional[dict] = None) -> list[dict]:
     """The pre-conditions for a supervised physical HOME / STOP test, from what the controller itself
-    reports through the read-only collector (RTDE + Dashboard queries). Unknown = not ok."""
+    reports through the read-only collector (RTDE + Dashboard queries). Unknown = not ok.
+    Local-mode path: 'Remote control' and 'no program playing' are replaced by the agent's reading - the portal
+    program must be PLAYING (started on the pendant) and connected."""
     sm, rm = extra.get("safety_mode"), extra.get("robot_mode")
     remote, pstate = extra.get("remote_control"), str(extra.get("program_state") or "")
     def c(key, name, ok, detail):
         return {"key": key, "name": name, "ok": bool(ok), "detail": detail}
+    if UR_PATH == "local_agent":
+        ctl = (local or {}).get("controller") or {}
+        drv = ctl.get("driver")
+        mode_check = [
+            c("agent", "Local-mode agent running", local is not None,
+              "reachable" if local is not None else "not running / not reachable - nothing can be sent"),
+            c("program", "Portal program playing on the pendant (External Control)", drv == "PORTAL_PROGRAM",
+              {"PORTAL_PROGRAM": "playing, connected", "OTHER_PROGRAM": "another program is playing",
+               "PENDANT_MANUAL": "moved from the pendant (jog / Freedrive)",
+               "IDLE": f"press Play on {(local or {}).get('program') or 'the portal program'} on the pendant"}.get(
+                  drv, "unknown")),
+            c("remote", "Control mode read from the controller", ctl.get("control_mode") in ("LOCAL", "REMOTE"),
+              (ctl.get("control_mode") or "unknown").lower() + " (Local mode is supported on this path)"),
+        ]
+    else:
+        mode_check = [
+            c("remote", "Remote control enabled on the pendant", remote is True,
+              "remote" if remote is True else "local (pendant)" if remote is False else "not reported (Dashboard not read)"),
+            c("program", "No other program playing", "PLAYING" not in pstate.upper(),
+              pstate or "no program state reported"),
+        ]
     return [
         c("source", "A real robot (not the simulator)", not simulated,
           "SIMULATION record - never physical evidence" if simulated else "real robot record"),
@@ -392,10 +484,7 @@ def ur_checks(q_deg: Optional[list], fresh: bool, extra: dict, latched: bool, si
         c("safety", "Controller safety mode", isinstance(sm, int) and sm in UR_SAFETY_OK,
           UR_SAFETY_OK.get(sm) or (UR_SAFETY_NAMES.get(sm, f"code {sm}") if sm is not None else "not reported")),
         c("power", "Robot powered and running", rm == 7, "RUNNING" if rm == 7 else f"robot mode {rm!r}"),
-        c("remote", "Remote control enabled on the pendant", remote is True,
-          "remote" if remote is True else "local (pendant)" if remote is False else "not reported (Dashboard not read)"),
-        c("program", "No other program playing", "PLAYING" not in pstate.upper(),
-          pstate or "no program state reported"),
+        *mode_check,
         c("stop", "STOP not latched", not latched, "clear" if not latched else "latched - admin recovery needed"),
         c("signoff", "Live control signed off (ROBOT_CONTROL=live)", MODE == "live",
           "live" if MODE == "live" else f"{MODE} - nothing is sent until the owner signs off"),

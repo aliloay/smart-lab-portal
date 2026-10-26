@@ -25,6 +25,13 @@ const READINESS: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' }> 
   BLOCKED: { label: 'Blocked', tone: 'bad' },
 }
 const JOINTS = ['Base', 'Shoulder', 'Elbow', 'Wrist 1', 'Wrist 2', 'Wrist 3']
+// Who moves the arm, as the controller reports it (Local-mode agent, 2026-10-26).
+const DRIVER: Record<string, string> = {
+  PORTAL_PROGRAM: 'portal program playing on the pendant - Home / Stop go through it',
+  OTHER_PROGRAM: 'another pendant program is running - the portal cannot stop it in Local mode',
+  PENDANT_MANUAL: 'moved from the teach pendant (jog / Freedrive) - only the pendant or E-stop stops it',
+  IDLE: 'no program running - press Play on the portal program on the pendant to enable Home / Stop',
+}
 const fmtAge = (s: number) => s < 120 ? `${s.toFixed(1)} s` : s < 7200 ? `${Math.round(s / 60)} min`
   : s < 172800 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} days`
 
@@ -98,6 +105,14 @@ export default function RobotControlPanel({ robotId, robotName }: { robotId: num
           <OctagonX size={16} /> {stopping ? 'STOPPING…' : 'STOP'}</button>
       </div>
       <p className="text-center text-[10.5px] text-red-300/90">Software stop - not an emergency stop. In danger use the pendant / cell E-stop.</p>
+      {m?.path === 'local_agent' && <div className="text-[11.5px] rounded-lg border border-ink-600 px-2.5 py-1.5 space-y-0.5">
+        {m.local?.controller
+          ? <><div className="text-slate-300">Controller: <b>{m.local.controller.control_mode === 'LOCAL' ? 'Local mode' : m.local.controller.control_mode === 'REMOTE' ? 'Remote mode' : 'mode unknown'}</b>
+              {m.local.state?.robot_mode ? ` · ${m.local.state.robot_mode.toLowerCase()}` : ''}{m.local.state?.safety ? ` · safety ${m.local.state.safety.toLowerCase()}` : ''}</div>
+            <div className={m.local.controller.driver === 'PORTAL_PROGRAM' ? 'text-emerald-300' : 'text-warn-soft'}>{DRIVER[m.local.controller.driver] ?? m.local.controller.driver}</div></>
+          : <div className="text-warn-soft">Local-mode agent not running - Home / Stop cannot reach the robot (nothing is sent).</div>}
+        {m.local_limits && <div className="text-slate-500">{m.local_limits}</div>}
+      </div>}
       {m?.stop_latched && <p className="text-[12px] text-bad-soft">STOP latched by {m.stop?.by}{m.stop?.restored ? ' (kept through a portal restart)' : ''} - Home is refused until an administrator recovers.</p>}
       {m?.stop_latched && user?.role === 'ADMIN' && <button className="btn-ghost btn-sm w-full" disabled={busy} onClick={recover}>
         <RotateCcw size={13} /> Recover after STOP (admin)</button>}
@@ -127,7 +142,9 @@ export default function RobotControlPanel({ robotId, robotName }: { robotId: num
         {st.readiness.dependencies.length > 0 && <div className="text-[11.5px] text-warn-soft">
           <div className="font-medium">Needed before any command can exist for this robot:</div>
           <ol className="list-decimal pl-5 text-slate-400">{st.readiness.dependencies.map(d => <li key={d}>{d}</li>)}</ol></div>}
-        {m?.home_method && <div className="text-[11px] text-slate-500">Home method: {m.home_method === 'program'
+        {m?.path === 'local_agent' ? <div className="text-[11px] text-slate-500">Home method: one joint move to the verified Home pose
+          through the pendant-started portal program, only from an operator-verified start pose; completion from joint feedback</div>
+        : m?.home_method && <div className="text-[11px] text-slate-500">Home method: {m.home_method === 'program'
           ? <>the pendant's validated program <b className="text-slate-300">{m.home_program}</b> (load + play), completion from joint feedback</>
           : 'direct joint move (movej) - only with operator approval'}</div>}
       </div>}

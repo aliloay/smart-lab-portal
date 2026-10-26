@@ -15,6 +15,7 @@ const MAX_W = 1280
 let stream: MediaStream | null = null
 let live = false
 let timer = 0
+let video: HTMLVideoElement | null = null      // the hidden player frames are drawn from (released on stop)
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach(f => f())
 
@@ -41,20 +42,21 @@ export async function goLive(title: string, targets: number[] | null): Promise<v
   if (!stream) throw new Error('Choose a screen or window first')
   await api.broadcastStart('browser', title, targets)
   live = true
-  const video = document.createElement('video')
-  video.muted = true
-  video.srcObject = stream
-  await video.play()
+  const v = document.createElement('video')
+  video = v
+  v.muted = true
+  v.srcObject = stream
+  await v.play()
   const canvas = document.createElement('canvas')
   const tick = async () => {
-    if (!stream || !live) return
-    const vw = video.videoWidth || 1280, vh = video.videoHeight || 720      // follows resolution changes
+    if (!stream || !live || video !== v) return              // stopped (or a newer share replaced this one)
+    const vw = v.videoWidth || 1280, vh = v.videoHeight || 720      // follows resolution changes
     const w = Math.min(MAX_W, vw), h = Math.round(w * vh / vw)
     canvas.width = w
     canvas.height = h
-    canvas.getContext('2d')?.drawImage(video, 0, 0, w, h)
+    canvas.getContext('2d')?.drawImage(v, 0, 0, w, h)
     const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.6))
-    if (blob && live) {
+    if (blob && live && video === v) {                       // never upload a frame taken before Stop
       const st = await uploadBroadcastFrame(blob).catch(() => 0)
       if (st === 409) { stopTracks(); notify(); return }       // stopped elsewhere
     }
@@ -67,8 +69,24 @@ export async function goLive(title: string, targets: number[] | null): Promise<v
 function stopTracks() {
   window.clearTimeout(timer)
   stream?.getTracks().forEach(t => t.stop())
+  if (video) { video.pause(); video.srcObject = null }      // release the decoder / last frame too
+  video = null
   stream = null
   live = false
+}
+
+/** A share_state push (live socket - delivered at once even in a background tab, whose timers Chrome
+ *  slows to ~1/min): if this tab is capturing but the portal no longer shows OUR browser share (Stop
+ *  pressed in another tab / device, an admin ended it, a new share replaced it), release the screen
+ *  now instead of on the next frame upload (409) - up to a minute later in a background tab. */
+export async function syncShare(myId: number | null | undefined): Promise<void> {
+  if (!live) return
+  const st = await api.broadcastStatus().catch(() => null)
+  if (!st || !live) return                                   // no answer: keep going (the 409 still stops it)
+  if (!st.active || st.source !== 'browser' || (myId != null && st.by_id !== myId)) {
+    stopTracks()
+    notify()
+  }
 }
 
 export function cancelPreview() { stopTracks(); notify() }
@@ -87,7 +105,7 @@ window.addEventListener('pagehide', () => {
 
 /** force: the admin pressed Stop - end the share in the portal even when THIS tab is not the one
  *  capturing (another tab / device, or the master PC). Without it Stop did nothing there (2026-10-21).
- *  The capturing tab learns it on its next frame (409) and releases the screen. */
+ *  The capturing tab learns it from the share_state push (syncShare) or its next frame (409). */
 export async function stopShare(force = false): Promise<void> {
   const wasLive = live
   stopTracks()

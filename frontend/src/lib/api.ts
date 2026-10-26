@@ -270,6 +270,15 @@ export interface RobotControl {
     checks?: RobotCheck[]
     home_q_deg: number[]; tolerance_deg: number; max_error_deg: number | null
     stop_latched: boolean; stop: { by: string; at: number; result?: string; restored?: boolean } | null; estop_note: string
+    /** 'local_agent' = Home / Stop with the robot in LOCAL mode through the pendant-started portal program. */
+    path?: 'local_agent' | 'dashboard'
+    local?: {
+      controller: { control_mode: 'LOCAL' | 'REMOTE' | 'UNKNOWN'; driver: 'PORTAL_PROGRAM' | 'OTHER_PROGRAM' | 'PENDANT_MANUAL' | 'IDLE'; moving?: boolean } | null
+      agent_mode: string | null; program: string | null
+      state: { robot_mode?: string; safety?: string; program_state?: string; polyscope?: string } | null
+      home_checks: RobotCheck[] | null
+    } | null
+    local_limits?: string | null
   } | null
 }
 /** Admin screen shared with the students' PCs (in memory on the server, nothing recorded). */

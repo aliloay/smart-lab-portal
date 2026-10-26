@@ -306,6 +306,14 @@ class Service:
         self.http.headers["X-Device-Key"] = self.key
         cv2.setNumThreads(args.threads)            # leave CPU for the face server
         self.detector = make_detector(args.model, conf=args.conf, size=args.size, threads=args.threads)
+        # Zoom crops (a lost / half-hidden person's surroundings, ~300 px) through a small square input: the same
+        # YOLO26s weights at 416 x 416 take 14 ms instead of 38 ms for the 544x960 model, and recover the same
+        # hidden people (reviewed lab frames 2026-10-26: 1-2 of 13 for every input size). Two cameras: zoom was
+        # 64 ms of a 150 ms pass.
+        zoom = os.path.join(HERE, "models", "yolo26s_416.onnx")
+        self.zoom_detector = (make_detector(zoom, conf=args.conf, size=416, threads=args.threads)
+                              if getattr(args, "zoom_model", True) and os.path.isfile(zoom) and "yolo26" in os.path.basename(args.model)
+                              else self.detector)
         # Who looks like whom: colours always, the body model when downloaded.
         reid = args.reid if args.reid and os.path.isfile(args.reid) else None
         self.appearance = Appearance(reid)
@@ -494,7 +502,16 @@ class Service:
                 h, w = frame.shape[:2]
                 with self.det_lock:
                     d0 = time.perf_counter()
-                    people = [d.box for d in self.detector.detect(frame) if d.cls == PERSON]
+                    # One pass at the LOW threshold, split by score: confident boxes are people; the rest
+                    # only keep confirmed tracks alive (Tracker stage 5, ByteTrack's second association).
+                    low_conf = getattr(self.args, "low_conf", self.args.conf)
+                    if low_conf < self.args.conf and hasattr(self.detector, "in_hw"):
+                        found = [d for d in self.detector.detect(frame, conf=low_conf) if d.cls == PERSON]
+                    else:
+                        found = [d for d in self.detector.detect(frame) if d.cls == PERSON]
+                    people = [d.box for d in found if d.score > self.args.conf]
+                    low = [d.box for d in found if d.score <= self.args.conf]
+                    sure = {d.box for d in found if d.score >= getattr(self.args, "new_conf", 0.0)}   # may start a new track
                     z0 = time.perf_counter()
                     self.part_ms.setdefault("detect_main", collections.deque(maxlen=100)).append((z0 - d0) * 1000)
                     # A named person just lost (Labeler.lost): look again, zoomed, where they were.
@@ -518,15 +535,18 @@ class Service:
                     wide_turn = [wide[(self._zoom_i // 2) % len(wide)]] if wide and self._zoom_i % 2 == 0 else []
                     regions = lost[:1] or wide_turn or turn
                     if regions:
-                        people += zoom_people(self.detector, frame, regions, people, max_n=1)
+                        zoomed = zoom_people(self.zoom_detector, frame, regions, people, max_n=1)
+                        people += zoomed
+                        sure.update(zoomed)       # found on purpose (a lost / hidden person): may start a track
                     self.part_ms.setdefault("zoom", collections.deque(maxlen=100)).append((time.perf_counter() - z0) * 1000)
                     detect_ms = (time.perf_counter() - d0) * 1000
                 k0 = time.perf_counter()
                 people = drop_slivers(people)
+                low = [b for b in low if all(iou(b, p) < 0.3 for p in people)]   # a zoom may have found them
                 r0 = time.perf_counter()
                 looks = self.appearance.looks(frame, people, t0)
                 r1 = time.perf_counter()
-                tracks = self.tracker.update(people, t0, looks)
+                tracks = self.tracker.update(people, t0, looks, low=low, starts=[p in sure for p in people])
                 r2 = time.perf_counter()
                 occupants = self.cfg.get("occupants", [])
                 door = self.cfg.get("door")
@@ -1401,13 +1421,27 @@ def main():
                          "0.0.0.0 only when the portal runs on another computer")
     # YOLO26s (Ultralytics, AGPL-3.0) when present: same accuracy as YOLOX-S at 640, 3.5x faster
     # (measured on lab frames 2026-10-12); otherwise the YOLOX-S model.
-    ap.add_argument("--model", default=os.path.join(HERE, "models", "yolo26s.onnx")
-                    if os.path.isfile(os.path.join(HERE, "models", "yolo26s.onnx"))
-                    else os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx"))
+    # 2026-10-26: YOLO26s exported at 544x960 (the analysis frame's own size, no square letterbox) first - best end to
+    # end on reviewed lab clips (see --new-conf); then the 640x640 export; then YOLOX-S.
+    ap.add_argument("--model", default=next(
+        (os.path.join(HERE, "models", m) for m in ("yolo26s_544x960.onnx", "yolo26s.onnx")
+         if os.path.isfile(os.path.join(HERE, "models", m))),
+        os.path.join(HERE, "models", "object_detection_yolox_2022nov.onnx")))
     ap.add_argument("--reid", default=os.path.join(HERE, "models", "person_reid_youtu_2021nov.onnx"),
                     help="body re-identification model (optional; colours only without it)")
     ap.add_argument("--size", type=int, default=640, help="detector input (640: finds seated / half-hidden people - measured 2.97 of 3 vs 2.10 at 416 on lab frames, 2026-10-12)")
     ap.add_argument("--conf", type=float, default=0.35)   # 0.45 missed a seated person (0.39); 0.25 doubles boxes - lab frame 2026-10-12
+    # Tracking settings chosen 2026-10-26 on 3 reviewed lab clips (310 s, 14 people, HOTA/IDF1 with TrackEval
+    # definitions; docs/CV_BENCHMARK_2026-10-26.md): YOLO26s 544x960 + low 0.15 + new-track 0.60 + part boxes ->
+    # HOTA 0.732 -> 0.779, IDF1 0.831 -> 0.874, ID switches 14 -> 12, missed boxes -24 %.
+    ap.add_argument("--low-conf", type=float, default=0.15,
+                    help="boxes between this and --conf only keep existing tracks alive (ByteTrack second stage); "
+                         "= --conf turns it off")
+    ap.add_argument("--no-zoom-model", dest="zoom_model", action="store_false",
+                    help="zoom crops through the main detector instead of models/yolo26s_416.onnx")
+    ap.add_argument("--new-conf", type=float, default=0.60,
+                    help="a box must score this much to START a new track (a weaker one may only extend a person "
+                         "already tracked); <= --conf turns it off")
     ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
     # was 5, then 7; 10 since 2026-10-21 (owner: "a bit slow"): passes took 78-93 ms p50 with both cameras on
     # the GTX at 42-54 % - a pass that takes longer simply runs at its own pace (never a backlog).

@@ -100,11 +100,13 @@ def test_no_endpoint_can_send_anything_to_a_robot():
     src = inspect.getsource(robot_control)
     for bad in ("import socket", "httpx", "import requests", "RTDEControl", "rtde_control", "urllib", "30002"):
         assert bad not in src, bad
-    # The only network code is the UR5e Dashboard client, reached only in live mode (off by default).
+    # The only network code is the UR5e Dashboard client, reached only in live mode (off by default),
+    # and the Local-mode agent client (2026-10-26): a fixed endpoint allowlist; the agent re-checks everything.
     assert robot_control.MODE != "live"
-    from app.services import ur_dashboard
+    from app.services import ur_dashboard, ur_agent
     assert set(ur_dashboard.ALLOWED) == {"is in remote control", "robotmode", "safetystatus", "programState",
                                          "get loaded program", "play", "stop"}
+    assert ur_agent.ALLOWED == {("GET", "/state"), ("POST", "/command"), ("POST", "/recover")}
 
 
 # ---------------------------------------------------------------- fusion ---

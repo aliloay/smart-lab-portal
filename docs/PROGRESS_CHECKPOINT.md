@@ -1,5 +1,29 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## Checkpoint 2026-10-26 (home, cameras + robots OFFLINE - recordings / mocks only) - committed, NOT pushed, NOT deployed
+| Done | Evidence |
+|---|---|
+| Camera detector + tracker chosen on OUR footage: YOLO26s 544x960 + low-confidence stage 0.15 + new-track 0.60 + part boxes + zoom model 416 | docs/CV_BENCHMARK_2026-10-26.md: 363 reviewed people (recall 0.898 -> 0.923), 3 reviewed clips (HOTA 0.732 -> 0.779, IDF1 0.831 -> 0.874, ID switches 14 -> 12, missed -24 %), two cameras 7.8/8.9 -> 9.4/9.9 analyses/s, pass p95 134-156 -> 115-129 ms; 30 detector configs + 9 published trackers compared |
+| Camera tests | tools/security_vision 288 passed (+7 test_tracking_2026_10_26.py) |
+| UR5e Home + software STOP with the robot in LOCAL mode (design per UR docs: Dashboard load/play/stop are Remote-only; Local = pendant-started External Control program) | tools/ur5e_control (agent, 14 tests), backend ur_agent.py + test_robot_control_local.py (6); twin shows Local/Remote + who drives the arm; DRY RUN, nothing ever sent; docs/ROBOT_CONTROL.md 2026-10-26 |
+| Screen share: Stop pressed in another tab releases the presenting tab's capture via the share_state push (uploads held: before = never released, after 368-853 ms, 3/3) | frontend/e2e/share_stop_release.mjs |
+| /reliability/briefing 433 -> 54 ms (alembic head read once per process); page-load burst 770 -> 510 ms | isolated copy backend (smartlab_perf_test) |
+| Backend 590 passed; frontend tsc + build OK | this session |
+
+**Open (owner / lab):** live camera check of the new defaults (restart both camera services); UR5e commissioning steps 1-6
+(docs/ROBOT_CONTROL.md, needs the lab + operator + host IP .200 in the External Control program); AI on the CPU pushes the
+system to 98 % and slows both cameras to ~7/s (next: AI threads / scheduling).
+
+### Persistent checklist (missions of 2026-10-26; update as items close)
+- [x] CV benchmark + tracking + two-camera speed (above)   - [x] UR5e Local-mode Home/Stop software (dry run)
+- [ ] Phone camera "Scan the lab" (HTTPS phone setup page, QR asset markers + registry, live asset cards, server person boxes)
+- [ ] Voice in the assistant (local faster-whisper STT, piper / browser TTS, push-to-talk)
+- [ ] A security (seed credentials, HTTPS, privacy)   - [ ] B Evaluation section   - [ ] C IoT reliability / sensor trust
+- [ ] D performance (polling audit, /equipment N+1, sign-in burst, booking exclusion constraint, workers/Redis decision, nginx)
+- [ ] E identity fusion study   - [ ] F AI agents (routing, models, retrieval)   - [ ] G Excel/PDF reports (openpyxl approved)
+- [ ] H operational intelligence   - [ ] I flight recorder / time slider   - [ ] J AAS / OPC UA demo   - [ ] L/M/N/O optional
+- [ ] FANUC Home/Stop (after UR5e works physically)   - [ ] K hardware pilots: LAST, proposals only (owner: no new hardware now)
+
 ## Checkpoint 2026-10-21 ~15:40 (lab) - cameras re-boxed by real PC numbers - committed, NOT pushed
 | Done | Evidence |
 |---|---|

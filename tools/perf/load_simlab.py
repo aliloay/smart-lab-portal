@@ -52,9 +52,10 @@ def start_workloads():
                                       cwd=rm, env={**env, "DEVICE_KEY": KEY}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     sv = os.path.join(ROOT, "tools", "security_vision")
     vids = sorted(f for f in os.listdir(REC) if f.endswith(".mp4"))[-2:]
+    extra = os.environ.get("SIMLAB_CAMERA_ARGS", "").split()   # e.g. the old config, for a before/after run
     for port, dev, vid in ((5102, "SECCAM_LT1", vids[0]), (5103, "SECCAM_LT2", vids[-1])):
         procs.append(subprocess.Popen(["py", "security_vision.py", "--lab", "LAB_01", "--device", dev, "--port", str(port),
-                                       "--portal", API, "--face-server", ""], cwd=sv,
+                                       "--portal", API, "--face-server", ""] + extra, cwd=sv,
                                       env={**env, "SECURITY_CAMERA_SOURCE": os.path.join(REC, vid)},
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     return procs
@@ -106,6 +107,27 @@ def dashboard(stop, lat, errors):
         stop.wait(0.05)
 
 
+AI_QUESTIONS = ("Summarise this week for the lab manager in three bullets", "Which lab needs attention first and why?",
+                "Compare door refusals this week with last week")
+
+
+def ai_load(stop, out):
+    """SIMLAB_AI=1: the Lab AI model answers one question after another for the whole run (the worst case for the
+    cameras: a generation is always running). Times per answer are recorded."""
+    s = requests.Session()
+    tok = s.post(API + "/auth/login", json={"email": EMAIL, "password": PASSWORD}, timeout=10).json()
+    s.headers["Authorization"] = "Bearer " + (tok.get("access_token") or tok.get("token"))
+    i = 0
+    while not stop.is_set():
+        t = time.perf_counter()
+        try:
+            r = s.post(API + "/ai/ask", json={"question": AI_QUESTIONS[i % len(AI_QUESTIONS)], "history": []}, timeout=300)
+            out.append({"ms": (time.perf_counter() - t) * 1000, "status": r.status_code})
+        except requests.RequestException as e:
+            out.append({"ms": (time.perf_counter() - t) * 1000, "status": e.__class__.__name__})
+        i += 1
+
+
 def sample_resources(stop, out):
     while not stop.is_set():
         procs = [p for p in psutil.process_iter(["name", "cmdline"]) if p.info["name"] and "python" in p.info["name"].lower()
@@ -130,7 +152,8 @@ def camera_metrics(port):
         a = m["analysis"]
         return {"engines": m.get("engines"), "capture_fps": m["capture"]["fps"], "analysis_fps": a["fps"],
                 "pass_p50": (a["pass_ms"] or {}).get("p50"), "pass_p95": (a["pass_ms"] or {}).get("p95"),
-                "frame_age_p95": (a["frame_age_ms"] or {}).get("p95"), "skipped": a["skipped_latest_frame_policy"]}
+                "frame_age_p95": (a["frame_age_ms"] or {}).get("p95"), "skipped": a["skipped_latest_frame_policy"],
+                "parts_p50": m.get("track_parts_ms_p50")}
     except Exception as e:
         return {"error": e.__class__.__name__}
 
@@ -139,10 +162,12 @@ def main():
     if not EMAIL or not PASSWORD:
         sys.exit("set E2E_EMAIL / E2E_PASSWORD (a seeded account of the load-test database)")
     procs = start_workloads()
-    stop, lat, errors, res = threading.Event(), {}, [], []
+    stop, lat, errors, res, ai = threading.Event(), {}, [], [], []
     time.sleep(25)                                   # warm-up: models load, collectors connect
-    ths = [threading.Thread(target=f, args=a, daemon=True) for f, a in
-           ((env_node, (stop,)), (dashboard, (stop, lat, errors)), (sample_resources, (stop, res)))]
+    work = [(env_node, (stop,)), (dashboard, (stop, lat, errors)), (sample_resources, (stop, res))]
+    if os.environ.get("SIMLAB_AI") == "1":
+        work.append((ai_load, (stop, ai)))
+    ths = [threading.Thread(target=f, args=a, daemon=True) for f, a in work]
     t0 = time.time()
     [t.start() for t in ths]
     time.sleep(DUR)
@@ -157,6 +182,9 @@ def main():
     print(f"  API errors: {len(errors)} {sorted(set(errors))[:5]}")
     for p, m in cams.items():
         print(f"  camera :{p} {m}")
+    if ai:
+        print(f"  AI answers during the run: {len(ai)}  p50 {pct([a['ms'] for a in ai], .5)} ms  "
+              f"statuses {sorted({str(a['status']) for a in ai})}")
     if res:
         print(f"  workload procs {res[-1]['procs']}: cpu {pct([r['cpu'] for r in res], .5)}% (p50, sum)  rss {round(res[0]['rss_mb'])}->{round(res[-1]['rss_mb'])} MB"
               f"  threads {res[0]['threads']}->{res[-1]['threads']}  GPU p50 {pct([r['gpu'] for r in res if r['gpu'] is not None], .5)}%"

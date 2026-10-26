@@ -118,6 +118,10 @@ class Yolo26Detector:
     def __init__(self, path: str, conf: float = 0.45, nms: float = 0.45, size: int = 640,
                  threads: int = 8):
         self.conf, self.nms, self.size = conf, nms, size
+        # The model's own input shape (H, W): a 544x960 export takes the 960x540 analysis frame at full
+        # resolution with no square letterbox (measured 2026-10-25 on 363 reviewed lab people: recall
+        # 0.898 -> 0.923, seated 0.88 -> 0.91, small 0.84 -> 0.88; two cameras at 10/s p95 66 -> 73 ms).
+        self.in_hw = _onnx_input_hw(path) or (size, size)
         self.engine, self._ov, self.sess = "onnxruntime", None, None
         want = os.environ.get("SMARTLAB_DETECTOR", "gpu").lower()
         if want == "gpu":
@@ -148,7 +152,7 @@ class Yolo26Detector:
             import onnxruntime as ort
             if "DmlExecutionProvider" not in ort.get_available_providers():
                 return
-            x = np.zeros((1, 3, self.size, self.size), np.float32)
+            x = np.zeros((1, 3, *self.in_hw), np.float32)
             best = None
             for dev in range(int(os.environ.get("SMARTLAB_DML_DEVICES", "2"))):   # this laptop: iGPU 0, GTX 1650 1
                 try:
@@ -172,7 +176,7 @@ class Yolo26Detector:
             while best and best[0] >= 80 and tries < 4:
                 tries += 1
                 time.sleep(1.5)
-                xb = np.zeros((1, 3, self.size, self.size), np.float32)
+                xb = np.zeros((1, 3, *self.in_hw), np.float32)
                 t = time.perf_counter()
                 for _ in range(3):
                     best[2].run(None, {best[3]: xb})
@@ -191,23 +195,26 @@ class Yolo26Detector:
         with GPU_LOCK:
             return self.sess.run(None, {self.input: blob})[0]
 
-    def detect(self, img: np.ndarray) -> list[Detection]:
+    def detect(self, img: np.ndarray, conf: Optional[float] = None) -> list[Detection]:
+        """conf: a lower threshold than the configured one for this call (the tracker's second stage)."""
         h, w = img.shape[:2]
-        r = min(self.size / h, self.size / w)
+        H, W = self.in_hw
+        r = min(H / h, W / w)
         nw, nh = int(round(w * r)), int(round(h * r))
-        pad = np.full((self.size, self.size, 3), 114, np.uint8)
+        pad = np.full((H, W, 3), 114, np.uint8)
         pad[:nh, :nw] = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
         blob = pad[:, :, ::-1].transpose(2, 0, 1)[None].astype(np.float32) / 255.0   # RGB, 0-1
         out = self._infer(blob)[0].T                                                 # N x 84
         scores = out[:, 4:]
         cls = scores.argmax(1)
         best = scores[np.arange(len(cls)), cls]
-        keep = best > self.conf
+        thr = self.conf if conf is None else conf
+        keep = best > thr
         if not keep.any():
             return []
         b, best, cls = out[keep, :4], best[keep], cls[keep]
         boxes = np.concatenate([b[:, :2] - b[:, 2:4] / 2, b[:, 2:4]], 1) / r
-        idx = cv2.dnn.NMSBoxesBatched(boxes.tolist(), best.tolist(), cls.tolist(), self.conf, self.nms)
+        idx = cv2.dnn.NMSBoxesBatched(boxes.tolist(), best.tolist(), cls.tolist(), thr, self.nms)
         dets = []
         for i in np.array(idx).flatten():
             x, y, bw, bh = boxes[i]
@@ -215,6 +222,17 @@ class Yolo26Detector:
             bw, bh = min(bw, w - x), min(bh, h - y)
             dets.append(Detection(int(cls[i]), float(best[i]), (float(x), float(y), float(bw), float(bh))))
         return dets
+
+
+def _onnx_input_hw(path: str) -> Optional[tuple[int, int]]:
+    """(H, W) of a static ONNX image input, read from the file (None if dynamic / unreadable)."""
+    try:
+        import onnxruntime as ort
+        shape = ort.InferenceSession(path, providers=["CPUExecutionProvider"]).get_inputs()[0].shape
+        h, w = shape[2], shape[3]
+        return (int(h), int(w)) if isinstance(h, int) and isinstance(w, int) else None
+    except Exception:
+        return None
 
 
 def make_detector(path: str, conf: float = 0.45, size: int = 640, threads: int = 8):
@@ -690,8 +708,24 @@ class Tracker:
             used_t.add(tis[i])
             used_b.add(bis[j])
 
+    # ByteTrack's second stage (2026-10-25): a confirmed track that found no confident box this pass may take a
+    # LOW-confidence box that overlaps where it is heading. Seated people behind monitors and people half behind
+    # someone score 0.15-0.35 for seconds at a time; dropping those boxes broke their tracks (and names). A low box
+    # never starts a track, never changes a look, and only extends a track it clearly overlaps (IoU >= LOW_IOU).
+    LOW_IOU = 0.5
+
+    def _low_pairs(self, low: list[tuple], used_t: set, now: float) -> list[tuple[int, int]]:
+        tis = [ti for ti, t in enumerate(self.tracks) if ti not in used_t and t.hits >= self.CONFIRM_HITS
+               and now - t.last_seen <= (self.MAX_MISS_STILL_S if self._still(t) else self.MAX_MISS_S)]
+        if not tis or not low:
+            return []
+        score = [[(v if (v := iou(self._predicted(self.tracks[ti], now), b)) >= self.LOW_IOU else None)
+                  for b in low] for ti in tis]
+        return [(tis[i], j) for i, j in assign_max(score)]
+
     def update(self, boxes: list[tuple], now: float,
-               looks: Optional[list[Optional[Look]]] = None) -> list[Track]:
+               looks: Optional[list[Optional[Look]]] = None, low: Optional[list[tuple]] = None,
+               starts: Optional[list[bool]] = None) -> list[Track]:
         """Staged association (2026-10-18, ByteTrack-style order): a track seen a moment ago keeps its
         person before a track that has been missing for a while may take anyone. Found with the
         simulated scenario bench: a runner crossing the spot where someone had just stood (that
@@ -703,7 +737,9 @@ class Tracker:
              where it was heading, and a look that positively agrees - _turn_pairs);
           4. tracks back after a gap - never with a box that a just-seen, unmatched track explains
              better (closer, look not clearly different);
-          5. a new track for every box left."""
+          5. confirmed tracks still unmatched may take a LOW-confidence box they overlap (`low`, _low_pairs);
+          6. a new track for every confident box left - only where `starts[bi]` is true when given
+             (ByteTrack's separate new-track threshold: a doubtful box may extend a person, not create one)."""
         looks = looks if looks is not None else [None] * len(boxes)
         used_t, used_b = set(), set()
         recent = [ti for ti, t in enumerate(self.tracks) if now - t.last_seen <= self.GAP_S]
@@ -732,8 +768,13 @@ class Tracker:
                     return True
             return False
         self._match(gap, boxes, looks, now, used_t, used_b, veto=explained)
+        if low:                                # 5. low-confidence boxes keep confirmed tracks alive (after
+            nolook = [None] * len(low)         #    every track had its chance at a confident box)
+            for ti, bi in self._low_pairs(low, used_t, now):
+                self._take(self.tracks[ti], bi, low, nolook, now)
+                used_t.add(ti)
         for bi, b in enumerate(boxes):
-            if bi not in used_b:
+            if bi not in used_b and (starts is None or starts[bi]):
                 self.tracks.append(Track(self._next, b, now, now, look=looks[bi]))
                 self._next += 1
         self.tracks = [t for t in self.tracks if now - t.last_seen <= self.MAX_MISS_S
@@ -873,16 +914,25 @@ def zoom_people(det, frame, regions: list[tuple], existing: list[tuple], pad: fl
     return found
 
 
-def drop_slivers(boxes: list[tuple]) -> list[tuple]:
+def drop_slivers(boxes: list[tuple], parts: bool = True) -> list[tuple]:
     """One person, two boxes: a thin strip mostly inside a wider box is the same person (live
     2026-10-14: 19 px strip inside Hemaly's 40 px box -> 'two people at the desk', nobody named).
-    Someone half behind another (Ali behind Nour, ~55 % inside, similar width) is kept."""
+    Someone half behind another (Ali behind Nour, ~55 % inside, similar width) is kept.
+    parts (2026-10-25): an UPPER-BODY box of a person already boxed whole - same top edge, similar width,
+    >= 85 % inside, smaller - is the same person too. The 960-px detector gives these for seated / bending
+    people and each started an extra track (reviewed lab clip: 11 tracks for 5 people). Someone seated
+    behind a standing person has a lower top edge and is kept."""
     def inside(a, e):
         ix = max(0.0, min(a[0] + a[2], e[0] + e[2]) - max(a[0], e[0]))
         iy = max(0.0, min(a[1] + a[3], e[1] + e[3]) - max(a[1], e[1]))
         return ix * iy / max(a[2] * a[3], 1.0)
+
+    def part_of(a, e):
+        return (inside(a, e) > 0.85 and a[2] * a[3] < e[2] * e[3] and abs(a[1] - e[1]) < 0.15 * e[3]
+                and a[2] > 0.6 * e[2])
     return [b for i, b in enumerate(boxes)
-            if not any(j != i and inside(b, e) > 0.7 and b[2] < 0.6 * e[2] for j, e in enumerate(boxes))]
+            if not any(j != i and ((inside(b, e) > 0.7 and b[2] < 0.6 * e[2]) or (parts and part_of(b, e)))
+                       for j, e in enumerate(boxes))]
 
 
 def at_door(box, door_rect) -> bool:
