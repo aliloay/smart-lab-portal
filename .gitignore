@@ -90,3 +90,9 @@ tools/pc_agent/win7_usb/agent/start_pc_agent.bat
 # local voice models (downloaded, tools/voice/README.md)
 tools/voice/models/
 tools/voice/voice.env
+tools/llm_bench/bin/
+tools/llm_bench/models/
+tools/llm_bench/results*.jsonl
+tools/opcua/opcua.env
+tools/opcua/*.pem
+tools/opcua/*.der

@@ -116,6 +116,8 @@ services:
       # Voice for the assistant (2026-10-26): tools/voice/voice_service.py on this laptop, 127.0.0.1:5320.
       VOICE_URL: ${VOICE_URL:-http://host.docker.internal:5320}
       VOICE_KEY: ${VOICE_KEY:-}
+      # OPC UA feed (tools/opcua/opcua_server.py): read-only; empty = off.
+      OPCUA_KEY: ${OPCUA_KEY:-}
       # Robot control (docs/ROBOT_CONTROL.md): dry_run until the owner signs off a commissioning step.
       ROBOT_CONTROL: ${ROBOT_CONTROL:-dry_run}
       UR5E_CONTROL_PATH: ${UR5E_CONTROL_PATH:-local_agent}
