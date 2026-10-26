@@ -51,7 +51,7 @@ export default function Scan() {
   const [running, setRunning] = useState(false)
   const [starting, setStarting] = useState(false)
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
-  const [peopleOn, setPeopleOn] = useState(false)
+  const [peopleOn, setPeopleOn] = useState(true)        // owner 2026-10-27: people boxes on by default (button turns them off)
   const [error, setError] = useState('')
   const [source, setSource] = useState<'camera' | 'file'>('camera')
   const [cards, setCards] = useState<Record<string, CardState>>({})

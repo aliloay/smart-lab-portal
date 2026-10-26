@@ -20,7 +20,7 @@ try {
   await p.fill('#email', process.env.E2E_EMAIL); await p.fill('#password', process.env.E2E_PASSWORD)
   await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'))
   await p.goto(`${BASE}/scan`)
-  await p.click('button:has-text("People boxes off")')
+  if (await p.$('button:has-text("People boxes off")')) await p.click('button:has-text("People boxes off")')   // on by default since 2026-10-27
   await p.click('button:has-text("Start camera")')
   await p.waitForTimeout(20000)
   if (process.env.SHOT) await p.screenshot({ path: process.env.SHOT })
