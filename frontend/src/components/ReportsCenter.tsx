@@ -69,11 +69,11 @@ function Exports() {
     try { setR(await api.reportCenter(kind, start, end)) } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
     finally { setBusy(false) }
   }
-  const csv = async () => {
+  const download = async (fmt: 'csv' | 'xlsx') => {
     try {
-      const b = await fetchBlob(`/reports-center/${kind}?start=${start}&end=${end}&format=csv`)
+      const b = await fetchBlob(`/reports-center/${kind}?start=${start}&end=${end}&format=${fmt}`)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(b); a.download = `smartlab_${kind}_${start}_${end}.csv`; a.click()
+      a.href = URL.createObjectURL(b); a.download = `smartlab_${kind}_${start}_${end}.${fmt}`; a.click()
       setTimeout(() => URL.revokeObjectURL(a.href), 2000)
     } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') }
   }
@@ -85,7 +85,8 @@ function Exports() {
         <label className="text-[12px] text-slate-400">From<input type="date" className="input !py-1.5 block mt-1" value={start} max={end} onChange={e => setStart(e.target.value)} /></label>
         <label className="text-[12px] text-slate-400">To<input type="date" className="input !py-1.5 block mt-1" value={end} min={start} onChange={e => setEnd(e.target.value)} /></label>
         <button className="btn-primary btn-sm" disabled={busy} onClick={load}><RefreshCw size={13} /> {busy ? 'Loading…' : 'Show'}</button>
-        <button className="btn-ghost btn-sm" onClick={csv}><Download size={13} /> CSV</button>
+        <button className="btn-ghost btn-sm" onClick={() => download('csv')}><Download size={13} /> CSV</button>
+        <button className="btn-ghost btn-sm" onClick={() => download('xlsx')}><Download size={13} /> Excel</button>
         <button className="btn-ghost btn-sm" disabled={!r} onClick={() => r && printReport(r)}><Printer size={13} /> Print / PDF</button>
       </div>
       <p className="text-[12px] text-slate-400">{cat.find(c => c.kind === kind)?.description} Source: <span className="mono">{cat.find(c => c.kind === kind)?.source}</span></p>
@@ -97,7 +98,7 @@ function Exports() {
           <table className="w-full text-[12px]"><thead className="sticky top-0 bg-ink-800"><tr>{r.columns.map(c => <th key={c} className="text-left px-2 py-1.5 text-slate-300">{c}</th>)}</tr></thead>
             <tbody>{r.rows.slice(0, 300).map((row, i) => <tr key={i} className="border-t border-ink-700">
               {r.columns.map(c => <td key={c} className="px-2 py-1 text-slate-200 whitespace-nowrap">{fmt(row[c])}</td>)}</tr>)}</tbody></table>
-          {r.count > 300 && <p className="p-2 text-[11.5px] text-slate-500">Showing 300 of {r.count}; the CSV has all rows.</p>}
+          {r.count > 300 && <p className="p-2 text-[11.5px] text-slate-500">Showing 300 of {r.count}; the CSV / Excel file has all rows.</p>}
         </div>}
       </>}
     </div>

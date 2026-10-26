@@ -12,12 +12,13 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Activity, BookOpen, Database, GitBranch, Gauge, ListChecks, RefreshCw, Scale, ShieldAlert } from 'lucide-react'
+import { Activity, BookOpen, Database, GitBranch, Gauge, HeartPulse, ListChecks, RefreshCw, Scale, ShieldAlert } from 'lucide-react'
 import { AlertQuality, DriftReport, PerfReport, RelGraph, RelNode, WhatIf, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Chip, MetricCard, PageHeader, Tabs } from '../components/ui'
+import { LabHealth } from '../components/LabHealth'
 
-type TabKey = 'briefing' | 'graph' | 'drift' | 'performance' | 'quality' | 'backups' | 'policy'
+type TabKey = 'briefing' | 'health' | 'graph' | 'drift' | 'performance' | 'quality' | 'backups' | 'policy'
 const STATE_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'idle' | 'violet'> = {
   HEALTHY: 'ok', DEGRADED: 'warn', 'STALE DATA': 'warn', OFFLINE: 'bad', SIMULATED: 'violet', UNKNOWN: 'idle'
 }
@@ -33,6 +34,7 @@ export default function Reliability() {
         sub="What needs attention, how the parts depend on each other, configuration and performance drift, alert quality, backups. From the portal's own checks and records - physical states still need a person on site." />
       <Tabs id="rel" value={tab} onChange={setTab} tabs={[
         { key: 'briefing', label: 'Briefing', icon: <ListChecks size={14} /> },
+        { key: 'health', label: 'Lab health', icon: <HeartPulse size={14} /> },
         { key: 'graph', label: 'Dependencies', icon: <GitBranch size={14} /> },
         { key: 'drift', label: 'Drift', icon: <Scale size={14} /> },
         { key: 'performance', label: 'Performance', icon: <Gauge size={14} /> },
@@ -42,6 +44,7 @@ export default function Reliability() {
       ]} />
       <div className="mt-4">
         {tab === 'briefing' && <Briefing />}
+        {tab === 'health' && <LabHealth />}
         {tab === 'graph' && <Graph />}
         {tab === 'drift' && <Drift />}
         {tab === 'performance' && <Performance />}

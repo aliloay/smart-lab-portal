@@ -86,3 +86,31 @@ def test_asset_lifecycle_flags_overdue_checkout_maintenance_and_faults(client, d
     assert by["MM-01"]["holder"] == alice.full_name and by["MM-01"]["flags"][0].startswith("OVERDUE")
     assert by["OSC-01"]["flags"] == ["MAINTENANCE_DUE"] and by["OK-01"]["flags"] == []
     assert r["flagged"] == 2
+
+
+def test_excel_export_is_a_valid_workbook_with_provenance(client, staff):
+    """Priority G (2026-10-26): .xlsx from the same report data - About sheet (source, period, warnings) + Data."""
+    import io
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from app.services import reports_center as rc
+    h = auth_headers(client, staff.email)
+    kind = next(iter(rc.REPORTS))
+    r = client.get(f"/api/reports-center/{kind}?days=7&format=xlsx", headers=h)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("application/vnd.openxmlformats")
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    assert {"[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml"} <= set(z.namelist())
+    for n in z.namelist():
+        if n.endswith(".xml") or n.endswith(".rels"):
+            ET.fromstring(z.read(n))                       # every part is well-formed XML
+    about = z.read("xl/worksheets/sheet1.xml").decode()
+    assert "Source" in about and "Generated" in about
+
+
+def test_xlsx_writer_types_and_escaping():
+    import io
+    import zipfile
+    from app.services.xlsx import workbook
+    b = workbook([("Data", [["name", "n", "ok"], ["<a & b>", 3.5, True], ["x\x01y", None, False]], True)])
+    s = zipfile.ZipFile(io.BytesIO(b)).read("xl/worksheets/sheet1.xml").decode()
+    assert "&lt;a &amp; b&gt;" in s and "<v>3.5</v>" in s and 't="b"' in s and "\x01" not in s and 'state="frozen"' in s

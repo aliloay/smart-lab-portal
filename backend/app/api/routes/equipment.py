@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, get_current_user, require_admin, require_device, require_staff
@@ -212,32 +212,43 @@ def report_violation(req: ViolationReport, db: Session = Depends(get_db),
 
 
 # --------------------------------------------------------------- staff ---
-def _today_seconds(db: Session, d: Device, state: str, now: datetime) -> int:
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    total = 0.0
-    for s in db.scalars(select(EquipmentSession).where(
-            EquipmentSession.device_id == d.id, EquipmentSession.state == state,
-            EquipmentSession.started_at < now)).all():
-        a = max(_utc(s.started_at), start)
-        b = _utc(s.ended_at) if s.ended_at else now
-        if b > a:
-            total += (b - a).total_seconds()
-    return int(total)
-
-
 @router.get("")
 def list_equipment(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Robots + PCs with their current session. A fixed number of queries whatever the number of devices
+    (2026-10-26: was ~6 per device, and "running today" read every session the device ever had)."""
     refresh_liveness(db)
     now = datetime.now(timezone.utc)
     close_offline_sessions(db, now)
     db.commit()
+    devices = db.scalars(select(Device).where(Device.device_type.in_(
+        (DeviceType.ROBOT, DeviceType.PC))).order_by(Device.device_uid)).all()
+    if not devices:
+        return []
+    ids = [d.id for d in devices]
+    labs = {l.id: l for l in db.scalars(select(Lab).where(Lab.id.in_({d.lab_id for d in devices}))).all()}
+    aids = {d.asset_id for d in devices if d.asset_id}
+    assets = {a.id: a for a in db.scalars(select(Asset).where(Asset.id.in_(aids))).all()} if aids else {}
+    open_s = {s.device_id: s for s in db.scalars(select(EquipmentSession).where(
+        EquipmentSession.device_id.in_(ids), EquipmentSession.ended_at.is_(None))).all()}
+    uids = {s.user_id for s in open_s.values() if s.user_id}
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(uids))).all()} if uids else {}
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    running: dict[int, float] = {}
+    for s in db.scalars(select(EquipmentSession).where(           # only sessions that overlap today
+            EquipmentSession.device_id.in_(ids), EquipmentSession.state == "RUNNING",
+            EquipmentSession.started_at < now,
+            or_(EquipmentSession.ended_at.is_(None), EquipmentSession.ended_at > start))).all():
+        a_ = max(_utc(s.started_at), start)
+        b_ = _utc(s.ended_at) if s.ended_at else now
+        if b_ > a_:
+            running[s.device_id] = running.get(s.device_id, 0.0) + (b_ - a_).total_seconds()
+    viol = dict(db.execute(select(PolicyViolation.device_id, func.count()).where(
+        PolicyViolation.device_id.in_(ids), PolicyViolation.reviewed.is_(False))
+        .group_by(PolicyViolation.device_id)).all())
     out = []
-    for d in db.scalars(select(Device).where(Device.device_type.in_(
-            (DeviceType.ROBOT, DeviceType.PC))).order_by(Device.device_uid)).all():
-        lab = db.get(Lab, d.lab_id)
-        asset = db.get(Asset, d.asset_id) if d.asset_id else None
-        s = _open_session(db, d.id)
-        who = db.get(User, s.user_id) if s and s.user_id else None
+    for d in devices:
+        lab, asset, s = labs.get(d.lab_id), assets.get(d.asset_id), open_s.get(d.id)
+        who = users.get(s.user_id) if s and s.user_id else None
         out.append({
             "device_id": d.id, "device_uid": d.device_uid, "kind": d.device_type.value,
             "name": asset.name if asset else d.name, "asset_tag": asset.asset_tag if asset else None,
@@ -247,10 +258,9 @@ def list_equipment(db: Session = Depends(get_db), _: User = Depends(require_staf
             "user_name": who.full_name if who else None,
             "booking_id": s.booking_id if s else None, "mode": d.mode or "NORMAL",
             "is_master_pc": bool(d.is_master_pc),
-            "running_today_s": _today_seconds(db, d, "RUNNING", now),
+            "running_today_s": int(running.get(d.id, 0.0)),
             "lan": lan_presence.get(d.device_uid, now) if d.device_type == DeviceType.PC else None,
-            "open_violations": db.query(PolicyViolation).filter_by(
-                device_id=d.id, reviewed=False).count()})
+            "open_violations": int(viol.get(d.id, 0))})
     return out
 
 
@@ -268,6 +278,14 @@ def sessions(device_id: int, days: int = Query(7, ge=1, le=365),
                     "user_name": u.full_name if u else None, "booking_id": s.booking_id,
                     "detail": s.detail})
     return out
+
+
+@router.get("/aas.json")
+def aas_export(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Asset Administration Shell (V3.0 JSON) of every registered asset - read-only export (app/services/aas.py)."""
+    from app.services import aas
+    return Response(content=__import__("json").dumps(aas.environment(db), default=str), media_type="application/json",
+                    headers={"Content-Disposition": 'attachment; filename="smartlab_aas.json"'})
 
 
 @router.get("/violations")

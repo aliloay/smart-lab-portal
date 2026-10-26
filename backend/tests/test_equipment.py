@@ -356,3 +356,55 @@ def test_stop_is_immediate_idempotent_and_no_frame_survives(client, db, admin, a
     sent.clear()
     client.put(f"/api/equipment/{d.id}/mode", headers=ha, json={"mode": "LOCKED"})
     assert {"type": "pc_state", "device_id": d.id} in sent
+
+
+def test_list_is_a_fixed_number_of_queries_and_counts_only_today(client, db, staff, alice, lab, device_headers):
+    """2026-10-26: the list used ~6 queries per device and "running today" read every session ever."""
+    from sqlalchemy import event
+    for i in range(6):
+        _state(client, device_headers, lab, "RUNNING", uid=f"PC_{i:02d}", kind="PC", tag=f"PC-{i:02d}")
+    d0 = db.query(Device).filter_by(device_uid="PC_00").one()
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    db.query(EquipmentSession).filter_by(device_id=d0.id).delete()
+    db.add_all([   # yesterday 2 h (does not count), across midnight (counts from 00:00), today 30 min, open now
+        EquipmentSession(device_id=d0.id, lab_id=lab.id, state="RUNNING", started_at=start - timedelta(hours=5),
+                         ended_at=start - timedelta(hours=3)),
+        EquipmentSession(device_id=d0.id, lab_id=lab.id, state="RUNNING", started_at=start - timedelta(minutes=10),
+                         ended_at=start + timedelta(minutes=20)),
+        EquipmentSession(device_id=d0.id, lab_id=lab.id, state="IDLE", started_at=start + timedelta(minutes=20),
+                         ended_at=start + timedelta(minutes=50)),
+        EquipmentSession(device_id=d0.id, lab_id=lab.id, state="RUNNING", started_at=now - timedelta(seconds=30),
+                         user_id=alice.id)])
+    db.add(PolicyViolation(device_id=d0.id, lab_id=lab.id, kind="PROHIBITED_APP", detail="x", reviewed=False))
+    db.commit()
+    h = auth_headers(client, staff.email)
+    from app.db.session import engine
+    n = {"q": 0}
+    on = lambda *a, **k: n.__setitem__("q", n["q"] + 1)
+    event.listen(engine, "before_cursor_execute", on)
+    try:
+        rows = {r["device_uid"]: r for r in client.get("/api/equipment", headers=h).json()}
+    finally:
+        event.remove(engine, "before_cursor_execute", on)
+    pc = rows["PC_00"]
+    expected = 20 * 60 + 30
+    assert abs(pc["running_today_s"] - expected) <= 3 and pc["user_name"] == "Alice" and pc["open_violations"] == 1
+    assert rows["PC_03"]["open_violations"] == 0 and rows["PC_03"]["state"] == "RUNNING"
+    assert n["q"] <= 20, n["q"]                       # 6 devices; was > 40
+
+
+def test_aas_export_v3_shape(client, db, staff, lab, device_headers):
+    """Priority J: one shell + Nameplate + OperationalData per asset, stable ids, values as reported."""
+    db.add(Asset(asset_tag="UR5E-01", name="UR5e", lab_id=lab.id, category="robot")); db.commit()
+    _state(client, device_headers, lab, "RUNNING", detail={"program": "pick.urp"})
+    r = client.get("/api/equipment/aas.json", headers=auth_headers(client, staff.email))
+    assert r.status_code == 200
+    env = r.json()
+    sh = env["assetAdministrationShells"][0]
+    assert sh["assetInformation"]["globalAssetId"] == "urn:giu:smartlab:asset:UR5E_01"
+    sms = {s["idShort"]: s for s in env["submodels"]}
+    plate = {e["idShort"]: e["value"] for e in sms["Nameplate"]["submodelElements"]}
+    assert plate["AssetTag"] == "UR5E-01" and plate["Category"] == "robot"
+    op = {e["idShort"]: e for e in sms["OperationalData"]["submodelElements"]}
+    assert op["DeviceUid"]["value"] == "UR5E_01" and op["Online"]["valueType"] == "xs:boolean"

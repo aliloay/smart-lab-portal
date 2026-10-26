@@ -1073,17 +1073,30 @@ function cloneData<T>(v: T): T {
   return typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)) as T
 }
 
+// A tab in the background (another tab in front, window minimised) re-uses the last answer of each poll for up
+// to HIDDEN_REUSE_MS instead of asking the server again (2026-10-26: 61 page timers kept polling hidden tabs).
+// Alarms, the emergency state and screen sharing always go to the server.
+const HIDDEN_REUSE_MS = 60_000                  // back in front: at most one poll interval + 60 s old
+const ALWAYS_LIVE = /^\/(labs\/hazards|emergency|share|broadcast|auth|notifications\/unread)/
+const lastOk = new Map<string, { at: number; v: unknown }>()
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.cache === 'no-store') return send<T>(path, init)       // live state: never a shared / cached answer
   const read = (!init.method || init.method === 'GET') && !init.signal && !init.body
   if (!read) {
-    shared.clear()
+    shared.clear(); lastOk.clear()
     return send<T>(path, init).finally(() => shared.clear())
   }
   const key = `${getToken() ?? ''} ${path}`
   const hit = shared.get(key)
   if (hit && Date.now() - hit.at < (hit.ttl ?? SHARE_MS)) return hit.p.then(v => cloneData(v as T))
+  if (typeof document !== 'undefined' && document.hidden && !ALWAYS_LIVE.test(path)) {
+    const old = lastOk.get(key)
+    if (old && Date.now() - old.at < HIDDEN_REUSE_MS) return cloneData(old.v as T)
+  }
   const p = send<T>(path, init)
+  p.then(v => { lastOk.set(key, { at: Date.now(), v }); if (lastOk.size > 300) lastOk.delete(lastOk.keys().next().value!) },
+         () => { /* errors are handled by the caller */ })
   shared.set(key, { at: Date.now(), p })
   p.catch(() => shared.delete(key))
   if (shared.size > 200) for (const [k, v] of shared) if (Date.now() - v.at > (v.ttl ?? SHARE_MS)) shared.delete(k)
@@ -1237,6 +1250,12 @@ export const api = {
   // --- labs
   labs: () => request<Lab[]>('/labs'),
   labsOverview: () => request<LabOverview[]>('/labs/overview'),
+  labsHealth: () => request<{ lab_id: number; lab_code: string; lab_name: string; score: number | null
+    band: 'GOOD' | 'FAIR' | 'POOR' | 'UNKNOWN'; coverage: number; weakest: string | null
+    parts: Record<string, { value: number | null; weight: number; evidence: string }> }[]>('/labs/health'),
+  labsHeadcount: () => request<{ lab_id: number; lab_code: string; lab_name: string; door_inside: number
+    names: { name: string; role: string; entered_at: number }[]; camera_people: number | null
+    cameras: { camera: string; online: boolean | null; people: number | null }[]; note: string; at: number; advisory: string }[]>('/labs/headcount'),
   lab: (id: number) => request<LabStatus>(`/labs/${id}`),
   labActivity: (id: number, limit = 80) =>
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),

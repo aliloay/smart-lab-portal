@@ -17,7 +17,7 @@ system to 98 % and slows both cameras to ~7/s (next: AI threads / scheduling).
 ### Persistent checklist (missions of 2026-10-26; update as items close)
 - [x] CV benchmark + tracking + two-camera speed (above)   - [x] UR5e Local-mode Home/Stop software (dry run)
 - [x] Phone camera "Scan the lab" (docs/SCAN_THE_LAB.md; fake-camera browser tests pass; real phone + printed markers still to verify)
-- [ ] Voice in the assistant (local faster-whisper STT, piper / browser TTS, push-to-talk)
+- [x] Voice in the assistant (tools/voice/README.md; 2a0b760)   - [x] UR5e automatic Home + hardware stop relay (b2d6ae5, dry run / not wired)
 - [ ] A security (seed credentials, HTTPS, privacy)   - [ ] B Evaluation section   - [ ] C IoT reliability / sensor trust
 - [ ] D performance (polling audit, /equipment N+1, sign-in burst, booking exclusion constraint, workers/Redis decision, nginx)
 - [ ] E identity fusion study   - [ ] F AI agents (routing, models, retrieval)   - [ ] G Excel/PDF reports (openpyxl approved)

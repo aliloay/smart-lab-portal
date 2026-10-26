@@ -133,6 +133,51 @@ def all_environments(db: Session = Depends(get_db), _: User = Depends(get_curren
     return out
 
 
+@router.get("/health")
+def labs_health(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Lab Health Score per lab (app/services/health_score.py): 0-100 + every part with its evidence; parts with no
+    data are left out and reported as coverage. Advisory - it ranks attention, it does not certify safety."""
+    if not _staff(_):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Staff only")
+    from app.services.health_score import score_labs
+    refresh_liveness(db)
+    return score_labs(db)
+
+
+@router.get("/headcount")
+def labs_headcount(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """ADVISORY emergency headcount (priority N): who the DOOR record says is inside (named, from badge/finger/QR
+    entries without an exit) next to how many people the lab's cameras see now (a count, never names; two cameras
+    can see the same person, so the larger single-camera count is shown, not the sum). For a roll call at the
+    assembly point - not proof that anybody left or is still inside."""
+    if not _staff(_):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Staff only")
+    from app.api.routes.security import occupants
+    now = datetime.now(timezone.utc)
+    cams = db.scalars(select(Device).where(Device.device_type == DeviceType.SECURITY_CAMERA)).all()
+    out = []
+    for lab in db.scalars(select(Lab).where(Lab.is_active.is_(True)).order_by(Lab.code)).all():
+        inside = occupants(db, lab.id)
+        seen = []
+        for d in (c for c in cams if c.lab_id == lab.id):
+            fresh = is_fresh(d, now)
+            seen.append({"camera": d.name, "online": fresh,
+                         "people": (d.component_state or {}).get("people") if fresh else None})
+        counts = [c["people"] for c in seen if c["people"] is not None]
+        cam = max(counts) if counts else None
+        note = ("no camera online - door record only" if cam is None else
+                "matches the door record" if cam == len(inside) else
+                f"cameras see {cam - len(inside)} more than the door record (tailgating, or entered without the door)"
+                if cam > len(inside) else
+                f"{len(inside) - cam} on the door record not seen by a camera (left without exit scan, out of view, "
+                "or hidden)")
+        out.append({"lab_id": lab.id, "lab_code": lab.code, "lab_name": lab.name, "door_inside": len(inside),
+                    "names": [{"name": o["name"], "role": o["role"], "entered_at": o["entered_at"]} for o in inside],
+                    "camera_people": cam, "cameras": seen, "note": note, "at": now.timestamp(),
+                    "advisory": "Advisory only - confirm by roll call; never a reason to skip a search."})
+    return out
+
+
 @router.get("/{lab_id}", response_model=LabStatus)
 def lab_detail(lab_id: int, db: Session = Depends(get_db),
                user: User = Depends(get_current_user)):

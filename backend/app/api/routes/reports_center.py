@@ -52,16 +52,21 @@ def asset_lifecycle(db: Session = Depends(get_db), _: User = Depends(require_sta
 
 @router.get("/{kind}")
 def report(kind: str, start: Optional[date] = None, end: Optional[date] = None, days: int = Query(7, ge=1, le=400),
-           format: Literal["json", "csv"] = "json", db: Session = Depends(get_db), user: User = Depends(require_staff)):
+           format: Literal["json", "csv", "xlsx"] = "json", db: Session = Depends(get_db), user: User = Depends(require_staff)):
     if kind not in rc.REPORTS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown report")
     s, e = _range(start, end, days)
     r = rc.run(db, kind, s, e)
-    db.add(AuditLog(actor_user_id=user.id, action="REPORT_EXPORTED" if format == "csv" else "REPORT_VIEWED",
+    db.add(AuditLog(actor_user_id=user.id, action="REPORT_EXPORTED" if format != "json" else "REPORT_VIEWED",
                     entity_type="report", entity_id=kind, detail={"start": r["start"], "end": r["end"], "rows": r["count"]}))
     db.commit()
     if format == "json":
         return r
+    if format == "xlsx":                                   # Excel (2026-10-26): About sheet + Data sheet
+        from app.services.xlsx import report_xlsx
+        return Response(content=report_xlsx(r), headers={
+            "Content-Disposition": f'attachment; filename="smartlab_{kind}_{s.date()}_{e.date()}.xlsx"'},
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     buf = io.StringIO()
     buf.write(f"# {r['title']} | source: {r['source']} | {r['start']} to {r['end']} | generated {r['generated_at']}\n")
     for w in r["warnings"]:

@@ -17,6 +17,7 @@ import { ApiError, EmergencyAction, EmergencyLab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
 import { Chip, ErrorBanner, Field, Notice, PageHeader, SectionTitle, Skeleton } from '../components/ui'
+import { Headcount } from '../components/LabHealth'
 
 type Status = Awaited<ReturnType<typeof api.emergencyStatus>>
 type Session = { token: string; expiresAt: number }
@@ -85,6 +86,7 @@ export default function Emergency() {
               No emergency password is set. Add <span className="mono">EMERGENCY_PASSWORD=…</span> to
               the <span className="mono">.env</span> file next to docker-compose.yml and restart the backend.
             </Notice>)}
+          <Headcount />
           {st.password_set && !session && <Unlock_ onOpen={setSession} />}
 
           <section>

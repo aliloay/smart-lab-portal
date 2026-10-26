@@ -35,7 +35,11 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, classN
 
   useEffect(() => {
     let stop = false, timer = 0
+    // A hidden tab fetches no pictures at all (2026-10-26: 0.5 frames/s per tile kept coming); the next one is
+    // asked for the moment the tab is back in front.
+    const onVisible = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVisible); if (!stop) tick() } }
     async function tick() {
+      if (document.hidden) { document.addEventListener('visibilitychange', onVisible); return }
       let ok = false
       try {
         const blob = await fetchBlob(`/security/cameras/${deviceId}/frame.jpg${plain ? '?raw=true' : ''}`)
@@ -53,12 +57,13 @@ export default function LiveCameraFeed({ deviceId, intervalMs = 200, raw, classN
       }
       // Hidden tab, or no picture (service down / camera offline): wait 3 s
       // between tries instead of hammering the portal 15 times a second.
-      if (!stop) timer = window.setTimeout(tick, document.hidden ? 2000 : ok ? intervalMs : Math.max(intervalMs, 3000))
+      if (!stop) timer = window.setTimeout(tick, ok ? intervalMs : Math.max(intervalMs, 3000))
     }
     tick()
     return () => {
       stop = true
       window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
       urlRef.current = null
     }
