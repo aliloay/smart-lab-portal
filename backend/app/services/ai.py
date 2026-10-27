@@ -151,7 +151,7 @@ def health() -> dict:
 def _refresh_health() -> dict:
     extra: dict[str, Any]
     try:
-        r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=2.5)
+        r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=httpx.Timeout(2.5, connect=1.0))
         r.raise_for_status()
         have = {m.get("name", "") for m in r.json().get("models", [])}
         have |= {n.removesuffix(":latest") for n in have}
@@ -567,9 +567,15 @@ def _ollama_chat_unbounded(model: str, messages: list[dict],
             body["tools"] = tools
         if thinks(model) and not settings.OLLAMA_THINK:
             body["think"] = False          # qwen3 / qwen3.5 / gemma4 ...: no hidden reasoning pass (seconds per answer)
+        # 2026-10-27 fault test (model unreachable): 6.8 s, then "took too long - try a shorter question". A model known
+        # to be down (health check < 20 s old) now fails at once with the real reason; a connect timeout is "not running".
+        h = _health.get("value")
+        if h is not None and h.get("reachable") is False and time.monotonic() - _health["at"] < 20:
+            raise AIUnavailable("The local AI model is not running right now - instant answers still work.")
         try:
-            r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
-        except httpx.ConnectError as exc:
+            r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=2.0))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            _health.update(at=time.monotonic(), value={"reachable": False, "missing_models": []}, busy=False)
             raise AIUnavailable(
                 "Ollama is not running. Install it from ollama.com, start it, "
                 "and try again.") from exc
