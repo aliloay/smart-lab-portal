@@ -204,6 +204,12 @@ def _security(db: Session, d: Device, now: datetime) -> dict:
 
 @router.get("")
 def wall_screen(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    # shared 2 s: every open wall / IoT dashboard polls this - one computation serves them all (2026-10-27 ramp)
+    from app.core.ttl import cached
+    return cached("monitor.wall", 2, lambda: _wall_screen(db))
+
+
+def _wall_screen(db: Session):
     close_expired(db)
     refresh_liveness(db)
     now = datetime.now(timezone.utc)

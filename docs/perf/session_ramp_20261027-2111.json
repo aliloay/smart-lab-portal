@@ -1,0 +1,244 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 1,
+   "seconds": 40.0,
+   "logins_ok": 1,
+   "login_p95_ms": 639.5,
+   "page_loads": 10,
+   "requests": 33,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 33
+   },
+   "page_ms": {
+    "p50": 50.8,
+    "p95": 267.6,
+    "p99": 267.6
+   },
+   "req_ms": {
+    "p50": 29.5,
+    "p95": 194.3,
+    "p99": 267.4
+   },
+   "req_per_s": 0.8,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 5.4,
+    "smart-lab-portal-db-1": 12.5
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.44,
+    "smart-lab-portal-db-1": 7.79
+   },
+   "stable": true
+  },
+  {
+   "sessions": 5,
+   "seconds": 40.0,
+   "logins_ok": 5,
+   "login_p95_ms": 892.2,
+   "page_loads": 49,
+   "requests": 123,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 119,
+    "403": 4
+   },
+   "page_ms": {
+    "p50": 20.2,
+    "p95": 100.3,
+    "p99": 136.4
+   },
+   "req_ms": {
+    "p50": 22.6,
+    "p95": 99.5,
+    "p99": 132.7
+   },
+   "req_per_s": 3.1,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 11.8,
+    "smart-lab-portal-db-1": 6.8
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.44,
+    "smart-lab-portal-db-1": 7.82
+   },
+   "stable": true
+  },
+  {
+   "sessions": 10,
+   "seconds": 40.0,
+   "logins_ok": 10,
+   "login_p95_ms": 972.6,
+   "page_loads": 98,
+   "requests": 265,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 255,
+    "403": 10
+   },
+   "page_ms": {
+    "p50": 22.4,
+    "p95": 194.6,
+    "p99": 517.4
+   },
+   "req_ms": {
+    "p50": 36.1,
+    "p95": 188.2,
+    "p99": 423.9
+   },
+   "req_per_s": 6.6,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 60.1,
+    "smart-lab-portal-db-1": 11.9
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.46,
+    "smart-lab-portal-db-1": 7.94
+   },
+   "stable": true
+  },
+  {
+   "sessions": 20,
+   "seconds": 40.0,
+   "logins_ok": 20,
+   "login_p95_ms": 1121.2,
+   "page_loads": 203,
+   "requests": 539,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 517,
+    "403": 22
+   },
+   "page_ms": {
+    "p50": 24.3,
+    "p95": 138.1,
+    "p99": 232.8
+   },
+   "req_ms": {
+    "p50": 32.7,
+    "p95": 151.7,
+    "p99": 263.7
+   },
+   "req_per_s": 13.5,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 19.0,
+    "smart-lab-portal-db-1": 11.7
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.49,
+    "smart-lab-portal-db-1": 8.1
+   },
+   "stable": true
+  },
+  {
+   "sessions": 30,
+   "seconds": 40.0,
+   "logins_ok": 30,
+   "login_p95_ms": 2066.9,
+   "page_loads": 298,
+   "requests": 804,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 768,
+    "403": 36
+   },
+   "page_ms": {
+    "p50": 30.5,
+    "p95": 267.0,
+    "p99": 730.7
+   },
+   "req_ms": {
+    "p50": 44.3,
+    "p95": 290.0,
+    "p99": 618.2
+   },
+   "req_per_s": 20.1,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 86.3,
+    "smart-lab-portal-db-1": 18.6
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.54,
+    "smart-lab-portal-db-1": 8.51
+   },
+   "stable": true
+  },
+  {
+   "sessions": 50,
+   "seconds": 40.0,
+   "logins_ok": 50,
+   "login_p95_ms": 3086.9,
+   "page_loads": 458,
+   "requests": 1273,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 1213,
+    "403": 60
+   },
+   "page_ms": {
+    "p50": 42.4,
+    "p95": 1630.6,
+    "p99": 2146.4
+   },
+   "req_ms": {
+    "p50": 65.9,
+    "p95": 1462.0,
+    "p99": 2235.8
+   },
+   "req_per_s": 31.8,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 138.0,
+    "smart-lab-portal-db-1": 13.3
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.76,
+    "smart-lab-portal-db-1": 8.62
+   },
+   "stable": true
+  },
+  {
+   "sessions": 75,
+   "seconds": 40.0,
+   "logins_ok": 74,
+   "login_p95_ms": 13658.2,
+   "page_loads": 305,
+   "requests": 884,
+   "errors": 117,
+   "error_rate": 0.1324,
+   "codes": {
+    "200": 729,
+    "0": 66,
+    "500": 51,
+    "403": 38
+   },
+   "page_ms": {
+    "p50": 108.2,
+    "p95": 15014.9,
+    "p99": 15026.8
+   },
+   "req_ms": {
+    "p50": 130.9,
+    "p95": 15002.5,
+    "p99": 15018.0
+   },
+   "req_per_s": 22.1,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 125.5,
+    "smart-lab-portal-db-1": 12.9
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.53,
+    "smart-lab-portal-db-1": 8.66
+   },
+   "stable": false
+  }
+ ]
+}

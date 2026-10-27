@@ -387,6 +387,11 @@ def camera_summary(db: Session, d: Device, now: datetime) -> dict:
 
 @router.get("/cameras")
 def cameras(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    from app.core.ttl import cached
+    return cached("security.cameras", 2, lambda: _cameras(db))
+
+
+def _cameras(db: Session):
     now = datetime.now(timezone.utc)
     return [camera_summary(db, d, now) for d in db.scalars(select(Device).where(
         Device.device_type == DeviceType.SECURITY_CAMERA).order_by(Device.lab_id, Device.id)).all()]

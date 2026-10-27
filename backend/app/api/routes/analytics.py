@@ -26,8 +26,9 @@ def operations(days: int = Query(30, ge=1, le=365),
 @router.get("/system")
 def system(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db), _: User = Depends(require_staff)):
     """Every subsystem (door, environment, robots, consumables, cameras, PCs, automation, alerts):
-    daily series, totals and the freshness of each data source. Real tables only."""
-    return system_analytics.system(db, days)
+    daily series, totals and the freshness of each data source. Real tables only. Shared 20 s (app/core/ttl.py)."""
+    from app.core.ttl import cached
+    return cached(f"analytics.system.{days}", 20, lambda: system_analytics.system(db, days))
 
 
 @router.get("/kpis")
