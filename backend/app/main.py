@@ -51,6 +51,12 @@ async def lifespan(_: FastAPI):
     # Sync endpoints run in worker threads; the live stream publishes through
     # this loop from there.
     manager.bind_loop(asyncio.get_running_loop())
+    # 2026-10-27 load ramp (py-spy + logs): at 50 sessions requests died with "QueuePool limit ... timed out". The
+    # worker threads (40) equalled the DB pool (40): the auth dependency took a connection on one thread, the route
+    # then waited for a free thread - all held by requests waiting for a connection (circular wait until the 10 s
+    # pool timeout). More threads than connections breaks the cycle; the pool stays the database's limit.
+    import anyio.to_thread
+    anyio.to_thread.current_default_thread_limiter().total_tokens = settings.API_THREADS
     # Optional n8n push. Starts only when AUTOMATION_WEBHOOK_BASE is set, and
     # its failures stay in its own thread - see app/services/integration.py.
     integration.dispatcher = integration.Dispatcher(SessionLocal)

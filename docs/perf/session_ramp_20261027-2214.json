@@ -1,0 +1,83 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 50,
+   "seconds": 50.0,
+   "logins_ok": 49,
+   "login_p95_ms": 13611.8,
+   "page_loads": 59,
+   "requests": 236,
+   "errors": 198,
+   "error_rate": 0.839,
+   "codes": {
+    "200": 29,
+    "0": 187,
+    "500": 11,
+    "403": 9
+   },
+   "page_ms": {
+    "p50": 15010.3,
+    "p95": 15026.5,
+    "p99": 15031.9
+   },
+   "req_ms": {
+    "p50": 15009.7,
+    "p95": 15021.8,
+    "p99": 15029.8
+   },
+   "req_per_s": 4.7,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 134.5,
+    "smart-lab-portal-db-1": 14.4
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.43,
+    "smart-lab-portal-db-1": 12.17
+   },
+   "slowest_endpoints": [
+    [
+     "/system/services",
+     15027.4,
+     1
+    ],
+    [
+     "/labs/1/environment",
+     15026.2,
+     5
+    ],
+    [
+     "/alerts",
+     15025.7,
+     5
+    ],
+    [
+     "/summary",
+     15024.1,
+     49
+    ],
+    [
+     "/access-events",
+     15023.7,
+     10
+    ],
+    [
+     "/security/events",
+     15021.8,
+     1
+    ],
+    [
+     "/ai/student/status",
+     15021.7,
+     7
+    ],
+    [
+     "/labs",
+     15021.5,
+     22
+    ]
+   ],
+   "stable": false
+  }
+ ]
+}

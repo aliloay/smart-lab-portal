@@ -71,3 +71,17 @@ Manifest: `docs/markers_2026-10-27/manifest.json`.
 - Phone people boxes over 5G took 3.3 s per round trip; on the laptop the detector answers in 0.06-0.2 s - use the lab Wi-Fi.
 - Both-camera sustained acceptance run (camera stalls > 2 s) was not run tonight - cameras were offline for most of it.
 - Robot commissioning, password change, offline (Wi-Fi off) test: owner items, unchanged.
+
+## 6. Final results (21:55, live version 1dd5c19)
+- Backend suite **713 passed**, 0 failed, 2 skipped; frontend type check + production build clean.
+- AI 52 questions: **86.5 %** (13/13 routing, 6/6 unknown, 10/10 instant); 34/52 instant, median 0.03 s.
+- Click-through, admin + staff + student, 48 pages, every safe control (e2e/click_everything.mjs): page open p95
+  1.65 s -> **0.25 s**, max 4.7 -> 0.5 s, worst control 5.2 -> 0.45 s; no crash, no blank page.
+- Concurrent sessions (tools/perf/session_ramp.py, isolated copy): **50 stable** (0.2 % errors, page p95 1.7 -> 0.94 s);
+  75 not stable - one backend process tops out at ~31 requests/s.
+- Phone camera: camera/face/voice calls off the event loop; voice kept warm (first answer after idle was ~14 s).
+- Assistant: books / cancels with Confirm; instant answers for who-is-where, empty labs, compare, daily summary, low stock,
+  recent activity, today's bookings, open issues, lab info, device advice ("how to make the UR5e better").
+- Markers: owner's 11 pictures incl. security camera 2, in the page and the PDF download; jsQR 88/88.
+- Not verified: real-phone camera/mic/screen-share permissions, both-camera sustained run, welcome-page stutter,
+  camera-service restart, offline test, password change, UR5e commissioning.

@@ -20,7 +20,8 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 def operations(days: int = Query(30, ge=1, le=365),
                lab_id: Optional[int] = None,
                db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    return analytics.operations(db, days, lab_id)
+    from app.core.ttl import cached     # shared 20 s: identical for every staff viewer (2026-10-27 ramp)
+    return cached(f"analytics.operations.{days}.{lab_id}", 20, lambda: analytics.operations(db, days, lab_id))
 
 
 @router.get("/system")
@@ -57,7 +58,8 @@ def me(days: int = Query(90, ge=7, le=365), db: Session = Depends(get_db),
 @router.get("/trends")
 def trends(weeks: int = Query(8, ge=2, le=52), lab_id: Optional[int] = None,
            db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    return analytics.trends(db, weeks, lab_id)
+    from app.core.ttl import cached
+    return cached(f"analytics.trends.{weeks}.{lab_id}", 20, lambda: analytics.trends(db, weeks, lab_id))
 
 
 @router.get("/export.csv")

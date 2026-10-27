@@ -227,6 +227,7 @@ class Settings(BaseSettings):
     # 2026-10-26: keyword tool router + bounded answers for the local model (docs/LOCAL_AI_BENCHMARK_2026-10-26.md)
     AI_ROUTER: bool = True
     OLLAMA_THINK: bool = False          # reasoning models (qwen3 ...) answer directly; True = allow thinking
+    API_THREADS: int = 120              # worker threads for sync routes - must exceed the DB pool (20 + 20 overflow)
     AI_LOCAL_ONLY: bool = True          # never use a cloud model, even if a key is configured
     AI_MAX_ANSWER_TOKENS: int = 220
     AI_ROUTED_RESULT_CHARS: int = 3500
