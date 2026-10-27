@@ -448,7 +448,7 @@ export function ChatBubble() {
           </div>
           <button onClick={toggleSize} aria-label={size === 'full' ? 'Smaller' : 'Full screen'}
                   title={size === 'full' ? 'Smaller' : 'Full screen'}
-                  className="hidden sm:grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
+                  className="grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
             {size === 'full' ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <button onClick={() => setOpen(false)} aria-label="Close"
                   className="grid place-items-center w-8 h-8 rounded-lg text-slate-400 hover:text-white hover:bg-ink-700/60">
@@ -472,6 +472,13 @@ export function ChatBubble() {
         <div className="fixed inset-0 z-[60]" onClick={() => setLauncher(false)} />
         <div className="fixed z-[61] bottom-24 right-4 sm:right-6 w-[min(320px,calc(100vw-2rem))] card p-2 shadow-2xl"
              role="menu" aria-label="AI assistant">
+          <div className="flex items-center gap-2 px-3 pt-1.5 pb-2 mb-1 border-b border-ink-600/70">
+            <span className="text-[12px] text-slate-400 flex-1">Opens {size === 'full' ? 'full screen' : 'as a side panel'}</span>
+            <button type="button" onClick={toggleSize} aria-pressed={size === 'full'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] border ${size === 'full'
+                      ? 'border-violet-400/60 text-violet-200 bg-violet-500/15' : 'border-ink-600 text-slate-300 hover:text-white'}`}>
+              {size === 'full' ? <Minimize2 size={13} /> : <Maximize2 size={13} />}{size === 'full' ? 'Smaller' : 'Enlarge'}</button>
+          </div>
           {([['lab', <Bot size={17} key="i" />, 'Ask the lab', 'Live and recorded lab data'],
              ['project', <BookOpen size={17} key="i" />, 'Ask the project', 'Design, code, wiring - with sources'],
              ['scan', <ScanLine size={17} key="i" />, 'Scan the lab', 'Phone camera: point at a marker, see live state'],

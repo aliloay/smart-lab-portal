@@ -7,6 +7,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { BookOpen, Send, Square } from 'lucide-react'
 import { getToken } from '../lib/api'
+import MicButton from './MicButton'
 
 interface Cite { n: number; source: string; heading?: string; label: string; snippet?: string }
 interface Turn {
@@ -141,6 +142,7 @@ export default function ProjectKnowledge() {
       <form onSubmit={submit} className="mt-3 flex gap-2">
         <input className="input flex-1" value={q} onChange={e => setQ(e.target.value)} maxLength={600}
                placeholder="Ask about the project…" disabled={running} />
+        <MicButton onText={t => void ask(t)} disabled={running} />
         {running
           ? <button type="button" className="btn-ghost" onClick={() => abort.current?.abort()}><Square size={15} /> Stop</button>
           : <button className="btn-primary" disabled={!q.trim()}><Send size={15} /></button>}
