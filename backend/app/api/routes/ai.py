@@ -89,7 +89,12 @@ def _run(db: Session, user: User, question: str, history=None, kind="ask") -> di
 def _instant(db: Session, user: User, question: str) -> Optional[dict]:
     """The agent's exact answer from the database, if the question is one it
     knows - milliseconds, no model, and it works with no AI configured."""
-    out = agent.quick_answer(db, user, question)
+    # booking actions first (2026-10-27): a PROPOSAL the page confirms - the assistant itself changes nothing
+    from app.services import agent_actions
+    p = agent_actions.propose(db, user, question)
+    out = ({"answer": p["answer"], "tools_used": [f"instant:{p['intent']}"], "model": "smartlab-instant",
+            "instant": True, **({"actions": p["actions"]} if p.get("actions") else {})}
+           if p else agent.quick_answer(db, user, question))
     if out is not None:
         db.add(AuditLog(actor_user_id=user.id, action="AI_INSTANT", entity_type="ai",
                         entity_id=out["tools_used"][0], detail={"question": question[:500]}))

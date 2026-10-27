@@ -1042,7 +1042,12 @@ export interface AiAnswer {
   answer: string; tools_used: string[]; model: string
   /** Answered by the agent straight from the records (no model). */
   instant?: boolean; link?: { label: string; to: string }; charts?: AiChartData[]
+  /** Booking proposals (2026-10-27): shown with Confirm; nothing changes until the user confirms. */
+  actions?: AiAction[]
 }
+export type AiAction =
+  | { type: 'create_booking'; lab_id: number; start_time: string; end_time: string; reason: string; label: string }
+  | { type: 'cancel_booking'; booking_id: number; label: string }
 export interface ManagementReport {
   charts?: AiChartData[]
   kind: 'weekly' | 'monthly'; span: string; title: string; period_label: string; generated_at: string

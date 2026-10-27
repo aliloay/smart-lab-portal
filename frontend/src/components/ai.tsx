@@ -14,13 +14,14 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowUpRight, BookOpen, Bot, ThumbsDown, ThumbsUp, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, Square, TriangleAlert, Volume2, VolumeX, X, Zap } from 'lucide-react'
 import { MAX_RECORD_MS, Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
-import { AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
+import { AiAction, AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
 type Turn = {
   role: 'user' | 'assistant'; content: string; tools?: string[]
   instant?: boolean; link?: { label: string; to: string }; charts?: AiChartData[]
+  actions?: AiAction[]
 }
 // Charts load with the first chart answer: Recharts stays out of the main bundle.
 const AiChart = lazy(() => import('./AiChart'))
@@ -125,7 +126,7 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
     try {
       const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
       setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used,
-                             instant: r.instant, link: r.link, charts: r.charts }])
+                             instant: r.instant, link: r.link, charts: r.charts, actions: r.actions }])
       if (spoken) {
         setSpeaking(true)
         void speak(spokenSummary(r.answer), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
@@ -215,6 +216,8 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
               <Sparkles size={14} /></span>
             <div className="min-w-0 flex-1 rounded-xl rounded-tl-sm border border-ink-600/70 bg-ink-800/40 px-3.5 py-2.5">
               <AiText text={t.content} />
+              {!!t.actions?.length && <ActionButtons actions={t.actions}
+                onDone={msg => setTurns(ts => [...ts, { role: 'assistant', content: msg, instant: true }])} />}
               {!!t.charts?.length && (
                 <Suspense fallback={<div className="mt-3 text-[12px] text-slate-500">Drawing the chart…</div>}>
                   <div className={`grid gap-3 ${t.charts.length > 1 ? 'xl:grid-cols-2' : ''}`}>
@@ -518,4 +521,37 @@ function Feedback({ question, answer, route, intent }: { question: string; answe
         <button type="button" title="Good answer" aria-label="Good answer" onClick={() => send('up')} className="p-1 hover:text-ok-soft"><ThumbsUp size={12} /></button>
         <button type="button" title="Wrong or unhelpful" aria-label="Wrong or unhelpful" onClick={() => send('down')} className="p-1 hover:text-bad-soft"><ThumbsDown size={12} /></button></>}
     </span>)
+}
+
+
+/** Booking proposals from the assistant (2026-10-27): Confirm calls the normal booking endpoints as the signed-in user
+ *  (same rules, permissions and audit as the booking pages); nothing happens without the tap. */
+function ActionButtons({ actions, onDone }: { actions: AiAction[]; onDone: (msg: string) => void }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle')
+  const run = async (a: AiAction) => {
+    setState('busy')
+    try {
+      if (a.type === 'create_booking') {
+        const b = await api.createBooking({ lab_id: a.lab_id, start_time: a.start_time, end_time: a.end_time, reason: a.reason })
+        onDone(`Done - ${a.label.replace(/^Book /, '')} is booked` + (b.status === 'PENDING' ? ' (waiting for staff approval).' : '.')
+               + ' Your QR code is under My bookings.')
+      } else {
+        await api.cancelBooking(a.booking_id)
+        onDone(`Done - ${a.label.replace(/^Cancel /, '')} is cancelled.`)
+      }
+      setState('done')
+    } catch (e) {
+      setState('idle')
+      onDone(`Not done: ${e instanceof Error ? e.message : 'the portal refused it'}`)
+    }
+  }
+  if (state === 'done') return null
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {actions.map((a, i) => (
+        <button key={i} type="button" disabled={state === 'busy'} onClick={() => void run(a)}
+                className={a.type === 'cancel_booking' ? 'btn-ghost btn-sm !text-bad-soft' : 'btn-primary btn-sm'}>
+          {state === 'busy' ? 'Working…' : `Confirm: ${a.label}`}</button>))}
+      <button type="button" className="btn-ghost btn-sm" disabled={state === 'busy'} onClick={() => setState('done')}>Not now</button>
+    </div>)
 }
