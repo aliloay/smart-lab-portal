@@ -458,6 +458,14 @@ export default function Scan() {
           {starting ? 'Starting the camera…' : 'Camera off'}</div>}
         {running && paused && <span className="absolute top-2 right-2"><Chip tone="warn">PAUSED</Chip></span>}
         {running && source === 'file' && <span className="absolute top-2 left-2"><Chip tone="warn">RECORDED TEST VIDEO</Chip></span>}
+        {/* 2026-10-28 (owner: "the Tell me more button should be higher - I scroll down to press it"): the voice
+            controls float on the picture itself, so the target stays in view while asking */}
+        {running && <div className="absolute bottom-2 inset-x-2 flex justify-center gap-2 pointer-events-none">
+          <button type="button" className="pointer-events-auto btn-primary btn-sm shadow-lg"
+                  onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:tell-more')) }}>Tell me more</button>
+          <button type="button" aria-label="Ask by voice" className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-accent-500 text-white shadow-lg"
+                  onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:mic')) }}><Mic size={16} /></button>
+        </div>}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -523,6 +531,14 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const [spokeWith, setSpokeWith] = useState<string | null>(null)
   useEffect(() => () => { rec.current?.cancel(); ac.current?.abort(); stopSpeaking() }, [])
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns])
+  // the floating buttons on the camera picture (2026-10-28) drive the same actions as the buttons below
+  const askRef = useRef<(q: string) => void>(() => {})
+  const micRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const t = () => askRef.current('Tell me more'), m = () => micRef.current()
+    window.addEventListener('smartlab:tell-more', t); window.addEventListener('smartlab:mic', m)
+    return () => { window.removeEventListener('smartlab:tell-more', t); window.removeEventListener('smartlab:mic', m) }
+  }, [])
   useEffect(() => {
     const b = () => { setBlocked(true); setSpeaking(false) }
     window.addEventListener('smartlab:audio-blocked', b)
@@ -585,6 +601,8 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   }
   const cancel = () => { rec.current?.cancel(); rec.current = null; ac.current?.abort(); stopSpeaking(); setSpeaking(false); setPhase('idle') }
   const submit = (e: FormEvent) => { e.preventDefault(); unlockAudio(); void ask(q) }
+  askRef.current = q => { if (phase === 'idle') void ask(q) }
+  micRef.current = () => { if (phase === 'recording') void finishRec(); else if (phase === 'idle' && mic) void startRec() }
   const status = phase === 'recording' ? 'Listening… tap again to ask' : phase === 'transcribing' ? 'Transcribing (local)…'
     : phase === 'thinking' ? 'Looking it up…' : speaking ? 'Speaking…'
     : muted ? 'Spoken answers are OFF - tap the speaker to turn them on'
