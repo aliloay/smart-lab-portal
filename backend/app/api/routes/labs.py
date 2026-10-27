@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user, require_admin, require_staff
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessSession, Asset, Booking,
                         BookingStatus, Device, DeviceType, Issue, IssueSeverity,
@@ -350,3 +350,17 @@ def lab_sensors(lab_id: int, db: Session = Depends(get_db),
     return db.scalars(
         select(SensorReading).where(SensorReading.lab_id == lab_id)
         .order_by(desc(SensorReading.recorded_at)).limit(200)).all()
+
+
+@router.get("/{lab_id}/at")
+def lab_at_time(lab_id: int, t: datetime = Query(..., description="ISO time, e.g. 2026-10-27T09:30:00Z"),
+                db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """Whole-lab time slider: the lab at time t, rebuilt from recorded history only (services/lab_at.py)."""
+    from app.models import Lab
+    from app.services.lab_at import lab_at
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
+    if (t.tzinfo and t > datetime.now(timezone.utc) + timedelta(minutes=1)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That time is in the future")
+    return lab_at(db, lab, t)
