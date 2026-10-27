@@ -1,0 +1,282 @@
+[
+ {
+  "file": "entry-camera.png",
+  "payload": "SLAB:D:CAM_LAB01",
+  "name": "Entry Camera (ESP32-CAM)",
+  "category": "camera",
+  "render": "shape",
+  "size": [
+   1988,
+   1904
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "face-server.png",
+  "payload": "SLAB:D:FACESRV_01",
+  "name": "Face Recognition Server",
+  "category": "server",
+  "render": "shape",
+  "size": [
+   1596,
+   2128
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "door-master.png",
+  "payload": "SLAB:D:MASTER_LAB01",
+  "name": "Door Controller (Master ESP32)",
+  "category": "door",
+  "render": "shape",
+  "size": [
+   1596,
+   2296
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "admin-laptop.png",
+  "payload": "SLAB:D:PC_ADMIN_LAPTOP",
+  "name": "ADMIN-LAPTOP",
+  "category": "pc",
+  "render": "shape",
+  "size": [
+   1764,
+   2016
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "ur5e-robot.png",
+  "payload": "SLAB:D:UR5E_01",
+  "name": "UR5e (physical)",
+  "category": "robot",
+  "render": "shape",
+  "size": [
+   2296,
+   2268
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "fanuc-robot.png",
+  "payload": "SLAB:D:FANUC_01",
+  "name": "FANUC ER-4iA (physical)",
+  "category": "robot",
+  "render": "shape",
+  "size": [
+   2296,
+   2268
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload verified",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "consumables-bin.png",
+  "payload": "SLAB:D:BIN_NODE_1",
+  "name": "BIN_NODE_1",
+  "category": "consumables",
+  "render": "shape",
+  "size": [
+   1708,
+   1988
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": false
+  },
+  "note": "pack payload SLAB:D:CONS_BIN_01 not in registry - real bin node used",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "security-camera.png",
+  "payload": "SLAB:D:SECCAM_LAB01",
+  "name": "Security camera",
+  "category": "security",
+  "render": "shape",
+  "size": [
+   1652,
+   2128
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "pack payload SLAB:D:SEC_NODE_01 not in registry - real security camera used",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "reusable-bin.png",
+  "payload": "SLAB:D:REUSE_BIN_1",
+  "name": "REUSE_BIN_1",
+  "category": "reusable",
+  "render": "shape",
+  "size": [
+   1652,
+   2100
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "added: registered reusable-items bin",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "student-pc.png",
+  "payload": "SLAB:D:PC_01",
+  "name": "PC-01",
+  "category": "pc",
+  "render": "shape",
+  "size": [
+   1764,
+   2016
+  ],
+  "opencv": {
+   "400": true,
+   "640": true,
+   "1200": true,
+   "2000": true
+  },
+  "note": "added: registered lab PC-01",
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ }
+]
