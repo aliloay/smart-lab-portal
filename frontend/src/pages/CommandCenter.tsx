@@ -339,12 +339,12 @@ function CameraPanel({ cam, all = [], loading, failed, compact = false }: {
         </div>
       ) : (
         <div className={'flex aspect-video flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,_rgba(34,48,62,.45),_rgba(10,14,19,.98))] text-center ' + (compact ? 'wall-camera-preview wall-camera-placeholder px-2' : 'px-6')}>
-          {status === 'OFFLINE' ? <XCircle size={23} className="text-rose-300" />
-            : status === 'DEGRADED' ? <AlertTriangle size={23} className="text-amber-300" />
-              : <Cctv size={23} className="text-slate-500" />}
-          <p className={compact ? 'mt-1 text-[10px] font-medium text-slate-200' : 'mt-3 text-sm font-medium text-slate-200'}>{failed ? 'Camera status unavailable' : status === 'DEGRADED' ? 'No current camera frames' : status === 'OFFLINE' ? 'Camera unavailable' : 'Camera state unknown'}</p>
+          {status === 'OFFLINE' ? <XCircle size={compact ? 40 : 23} className="text-rose-300" />
+            : status === 'DEGRADED' ? <AlertTriangle size={compact ? 40 : 23} className="text-amber-300" />
+              : <Cctv size={compact ? 40 : 23} className="text-slate-500" />}
+          <p className={compact ? 'mt-2 text-[15px] font-semibold uppercase tracking-wide ' + (status === 'OFFLINE' ? 'text-rose-200' : 'text-amber-200') : 'mt-3 text-sm font-medium text-slate-200'}>{failed ? 'Camera status unavailable' : status === 'DEGRADED' ? 'No current camera frames' : status === 'OFFLINE' ? 'Camera unavailable' : 'Camera state unknown'}</p>
           {!compact && <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-500">{hint}</p>}
-          {compact && <p className="text-[9px] text-slate-500">{hint}</p>}
+          {compact && <p className="mt-1 text-[11px] text-slate-400">{hint}</p>}
           {cam?.last_seen_at && <p className={compact ? 'text-[9px] text-slate-500' : 'mt-2 text-[11px] text-slate-500'}>Last seen {relative(cam.last_seen_at)} · frame {frameAge == null ? 'not measured' : Math.round(frameAge) + ' ms'}</p>}
         </div>
       )}
@@ -396,9 +396,10 @@ function EnvironmentPanel({ environment, loading, failed, labCode, compact = fal
                   : metric?.quality === 'STALE' ? 'text-amber-300'
                     : metric?.quality === 'OUT_OF_RANGE' ? 'text-rose-300' : 'text-slate-500'
                 return <div key={row.key} className="wall-environment-value" title={`${row.label}: ${metric ? formatValue(metric.value, metric.unit) + ' · ' + (metric.quality ?? 'No data') : 'No data'}`}>
-                  <span className="truncate text-[8px] font-semibold text-slate-400">{row.label}</span>
-                  <b className={'truncate text-[11px] tabular-nums ' + tone}>{metric ? formatValue(metric.value, metric.unit) : '—'}</b>
-                  <span className={'truncate text-[7px] font-semibold ' + tone}>{metric?.quality ? titleCase(metric.quality) : 'No data'}</span>
+                  <span className="truncate text-[10px] font-semibold text-slate-400">{row.label}</span>
+                  <b className={'truncate text-[19px] leading-tight tabular-nums ' + tone}>{metric ? formatValue(metric.value, metric.unit) : '—'}</b>
+                  <span className={'truncate text-[9.5px] font-semibold ' + tone}>{metric?.quality ? titleCase(metric.quality) : 'No data'}
+                    {metric?.at ? <span className="font-normal text-slate-500"> · {relative(metric.at)}</span> : null}</span>
                 </div>
               })}
             </div>
@@ -745,6 +746,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
   // while the dashboard showed camera 1 "offline"); the panel lists every camera's own state.
   const scopedCams = useMemo(() => (cams ?? []).filter(c => selectedLabId == null || c.lab_id === selectedLabId),
                              [cams, selectedLabId])
+  const [wallCamId, setWallCamId] = useState<number | null>(null)
   const currentCam = useMemo(() => scopedCams.find(c => c.online === true && c.source_ok === true) ?? scopedCams[0] ?? null,
                              [scopedCams])
   const currentTile = useMemo(() => {
@@ -763,6 +765,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
   const reportingRobots = currentRobots.filter(robot => robot.state === 'MOVING' || robot.state === 'STATIONARY').length
   const movingRobots = currentRobots.filter(robot => !robot.demo && robot.state === 'MOVING').length
   const simulatedRobots = currentRobots.filter(robot => robot.demo && (robot.state === 'MOVING' || robot.state === 'STATIONARY')).length
+  const wallCam = useMemo(() => scopedCams.find(c => c.device_id === wallCamId) ?? null, [scopedCams, wallCamId])
 
   const dashboardEvents = useMemo<DashboardEvent[]>(() => {
     const rows: DashboardEvent[] = [
@@ -846,27 +849,39 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
         </div>
       </header>
 
-      <section aria-label="Operational metrics" className="wall-metrics">
-        <MetricLink compact to="/admin/devices" label="Devices reporting"
-          value={serviceError || reportedDevices == null || expectedDevices == null ? '—' : reportedDevices + ' / ' + expectedDevices}
-          sub={serviceError ? 'Device status unavailable' : 'Configured devices'} tone={serviceError ? 'warn' : reportedDevices === expectedDevices && expectedDevices !== 0 ? 'good' : reportedDevices === 0 ? 'bad' : 'warn'} icon={<Database size={13} />} />
-        <MetricLink compact to="/admin/access" label="People inside" value={peopleInside == null ? '—' : peopleInside}
-          sub="Door access records" icon={<Users size={13} />} />
-        <MetricLink compact to="/robots" label="Robot telemetry"
-          value={robots === null ? '—' : reportingRobots + ' / ' + currentRobots.length}
-          sub={robots === null ? 'Movement unknown' : movingRobots + ' physical moving · ' + simulatedRobots + ' simulated'} tone={movingRobots ? 'good' : reportingRobots === 0 ? 'warn' : 'neutral'} icon={<Bot size={13} />} />
-        <MetricLink compact to="/admin/alerts" label="Open incidents" value={alerts === null ? '—' : scopedAlerts.length}
-          sub={alerts === null ? 'Alert source unavailable' : criticalAlerts + ' critical · ' + scopeName} tone={alertError ? 'warn' : criticalAlerts ? 'bad' : scopedAlerts.length ? 'warn' : 'good'} icon={<ShieldAlert size={13} />} />
-      </section>
-      <div><SafetyTriage labId={selectedLabId} compact /></div>
-
+      {/* 2026-10-27 owner layout: left 25 % camera + KPIs + safety + robots, centre 47 % digital twin, right 28 %
+          environment + incidents + events. Every panel keeps its own API / live source. */}
       <main className="wall-main">
-        <div className="wall-left-stack">
+        <div className="wall-left-col" aria-label="Camera and key figures">
+          {scopedCams.length > 1 && <div className="wall-cam-tabs" role="tablist" aria-label="Choose camera">
+            {[...scopedCams].sort((x, y) => x.device_uid.localeCompare(y.device_uid)).map((c, i) => (
+              <button key={c.device_id} type="button" role="tab" aria-selected={(wallCam ?? currentCam)?.device_id === c.device_id}
+                      onClick={() => setWallCamId(c.device_id)}
+                      className={(wallCam ?? currentCam)?.device_id === c.device_id ? 'is-on' : ''}>
+                Camera {i + 1}<span className={c.online === true && c.source_ok === true ? 'dot-ok' : c.online === false ? 'dot-bad' : 'dot-warn'} /></button>))}
+          </div>}
+          <CameraPanel cam={wallCam ?? currentCam} all={scopedCams} loading={cams === null && !cameraError} failed={cameraError} compact />
+          <section aria-label="Operational metrics" className="wall-metrics">
+            <MetricLink compact to="/admin/devices" label="Devices reporting"
+              value={serviceError || reportedDevices == null || expectedDevices == null ? '—' : reportedDevices + ' / ' + expectedDevices}
+              sub={serviceError ? 'Device status unavailable' : 'Configured devices'} tone={serviceError ? 'warn' : reportedDevices === expectedDevices && expectedDevices !== 0 ? 'good' : reportedDevices === 0 ? 'bad' : 'warn'} icon={<Database size={13} />} />
+            <MetricLink compact to="/admin/access" label="People inside" value={peopleInside == null ? '—' : peopleInside}
+              sub="Door access records" icon={<Users size={13} />} />
+            <MetricLink compact to="/robots" label="Robot telemetry"
+              value={robots === null ? '—' : reportingRobots + ' / ' + currentRobots.length}
+              sub={robots === null ? 'Movement unknown' : movingRobots + ' moving · ' + simulatedRobots + ' simulated'} tone={movingRobots ? 'good' : reportingRobots === 0 ? 'warn' : 'neutral'} icon={<Bot size={13} />} />
+            <MetricLink compact to="/admin/alerts" label="Open incidents" value={alerts === null ? '—' : scopedAlerts.length}
+              sub={alerts === null ? 'Alert source unavailable' : criticalAlerts + ' critical'} tone={alertError ? 'warn' : criticalAlerts ? 'bad' : scopedAlerts.length ? 'warn' : 'good'} icon={<ShieldAlert size={13} />} />
+          </section>
+          <div className="wall-triage"><SafetyTriage labId={selectedLabId} compact /></div>
+          <RobotPanel robots={robots} labId={selectedLabId} compact />
+        </div>
+
         <section className="wall-floor-card" aria-labelledby="wall-floor-heading">
           <div className="wall-panel-heading">
             <div className="min-w-0">
               <h2 id="wall-floor-heading" className="truncate text-sm font-semibold text-white">Laboratory digital twin</h2>
-              <p className="truncate text-[10px] text-slate-500">{currentTile?.code ?? scopeName} · approximate floor plan, not to scale</p>
+              <p className="truncate text-[10px] text-slate-500">{currentTile?.code ?? scopeName} · approximate floor plan, not to scale · click a robot or PC for its details</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {error && <span className="max-w-48 truncate text-[10px] text-amber-300" title={error}>Lab state unavailable</span>}
@@ -880,12 +895,8 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
                 : <div className="wall-floor-unavailable"><Radar size={20} /><span>No verified floor layout for {scopeName}.</span><Link to="/labs">Lab details</Link></div>}
           </div>
         </section>
-        <section className="wall-media" aria-label="Camera and robot fleet">
-          <CameraPanel cam={currentCam} all={scopedCams} loading={cams === null && !cameraError} failed={cameraError} compact />
-          <RobotPanel robots={robots} labId={selectedLabId} compact />
-        </section>
-        </div>
-        <aside className="wall-right-stack" aria-label="Incidents and laboratory summaries">
+
+        <aside className="wall-right-stack" aria-label="Environment, incidents and events">
           <EnvironmentPanel environment={environment} loading={environments === null && !environmentError}
             failed={environmentError} labCode={currentTile?.code ?? scopeName} compact />
           <AttentionPanel alerts={alerts} failed={alertError} scopeId={selectedLabId} compact />

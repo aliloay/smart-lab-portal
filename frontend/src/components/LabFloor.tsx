@@ -84,7 +84,8 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
     const gone = REMOVED.has(n)
     const lightFill = st === 'IN_USE' || st === 'MOTION'
     return (
-      <g>
+      <Link to="/admin/equipment?tab=noncons" aria-label={`${n} details`}><g className="cursor-pointer">
+        <title>{`${n}${st ? ' · ' + st.toLowerCase().replace('_', ' ') : ''} - open the PC details`}</title>
         <rect x={x} y={y} width={w} height={h} rx={0.6} fill={gone ? '#0b1220' : st ? PC_FILL[st] : '#1e293b'}
               stroke={gone ? '#f87171' : '#475569'} strokeWidth={0.2} strokeDasharray={gone ? '0.6 0.4' : undefined}>
           {st === 'IN_USE' && !gone && <animate attributeName="opacity" values="1;0.65;1" dur="2.4s" repeatCount="indefinite" />}
@@ -94,7 +95,7 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         <text x={x + w / 2} y={y + h / 2 + 0.45} textAnchor="middle" fontSize={1.25} fontWeight={600}
               fill={gone ? '#fca5a5' : lightFill ? '#0b1220' : '#cbd5e1'}>{gone ? '' : n}</text>
         {gone && <text x={x + w / 2} y={y + h + 1.6} textAnchor="middle" fontSize={1.1} fill="#fca5a5">{n} removed</text>}
-      </g>)
+      </g></Link>)
   }
   // A reachable vision service is not a live picture unless its source is
   // reporting frames as well.
@@ -126,11 +127,12 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         {[16, 30, 44, 58, 72, 86].map(x => <line key={x} x1={x} y1={4} x2={x + 8} y2={4} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
         <text x={80} y={6.4} textAnchor="middle" fontSize={1.5} fill="#64748b">windows</text>
         {/* Entrance on the same long side as FANUC and the security camera. */}
-        <g>
+        <Link to="/admin/access" aria-label="Door and access details"><g className="cursor-pointer">
+          <title>Door - open access and door details</title>
           <rect x={9} y={56.4} width={10} height={1.6} fill={doorOpen ? '#f87171' : doorOpen === false ? '#22c55e' : '#64748b'} />
           {doorOpen && <path d="M 19 56.4 A 10 10 0 0 0 29 46.4" fill="none" stroke="#f87171" strokeWidth={0.35} strokeDasharray="1 0.6" />}
           <text x={9} y={54.5} fontSize={2} fill="#cbd5e1">Door {doorOpen == null ? '· no data' : doorOpen ? '· OPEN' : '· closed'}</text>
-        </g>
+        </g></Link>
         {/* Security camera view is drawn behind furniture and status marks. */}
         <path d="M 95 57 L 9 11 L 16 47 Z" fill="url(#cone)" opacity={live ? 1 : 0.25} />
         {cam2 && <path d="M 4 5.5 L 92 38 L 70 55 Z" fill="url(#cone)" opacity={live2 ? 0.8 : 0.2} />}
@@ -158,11 +160,11 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         <text x={85} y={13.2} textAnchor="middle" fontSize={1.5} fill="#94a3b8">TA's desk</text>
         <Pc n="PC-16" x={82.7} y={14.6} />
         {/* Security camera at the lower-right corner, facing back across the room. */}
-        <path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
+        <Link to="/admin/security" aria-label="Camera 1 details"><path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} className="cursor-pointer" /></Link>
         <text x={96.8} y={51.6} textAnchor="end" fontSize={1.7} fill="#94a3b8">Camera{cam2 ? ' 1' : ''} · {cameraLabel}</text>
         {/* Camera 2, diagonally opposite camera 1 (docs/LAB_GO_NOGO_2026-10-18.md 1.3), facing back across the room. */}
         {cam2 && <g>
-          <path d="M 7.5 5.5 h-3.2 l-1.3 1.5 v2 h5.8 z" fill={live2 ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
+          <Link to="/admin/security" aria-label="Camera 2 details"><path d="M 7.5 5.5 h-3.2 l-1.3 1.5 v2 h5.8 z" fill={live2 ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} className="cursor-pointer" /></Link>
           <text x={9.2} y={8.4} fontSize={1.7} fill="#94a3b8">Camera 2 · {camLabel(cam2)}</text>
         </g>}
       </svg>
