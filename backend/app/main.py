@@ -65,10 +65,14 @@ async def lifespan(_: FastAPI):
     except Exception as e:                          # never block start-up; the robots stay in dry run anyway
         print(f"[robots] could not restore STOP latches: {e.__class__.__name__}: {e}")
     # Optional local AI: load the model now so the first question is quick.
+    import os
     from app.services import ai
     threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
+    # Markers page: every registered marker rendered once now, not on the first visit (2026-10-27).
+    if os.environ.get("MARKER_WARMUP", "1") != "0":
+        from app.services import marker_pack
+        threading.Thread(target=marker_pack.warm_all, name="marker-warm-up", daemon=True).start()
     # Service health checks run in the background; requests read the cache (never wait on a probe).
-    import os
     if os.environ.get("DEVICE_PROBES", "1") != "0":
         from app.services import health_monitor
         health_monitor.start()

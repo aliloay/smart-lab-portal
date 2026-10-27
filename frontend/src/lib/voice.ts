@@ -96,10 +96,32 @@ export function spokenSummary(answer: string, maxChars = 320): string {
 
 let current: HTMLAudioElement | null = null
 let generation = 0
+// 2026-10-27 (owner: "no sound comes out of the laptop"): a browser blocks sound that starts after an await unless
+// the element was started inside the click. One player is primed in the click (unlockAudio) and reused; a play
+// that is still refused raises 'smartlab:audio-blocked' so the page can offer a Play button instead of silence.
+let player: HTMLAudioElement | null = null
+let lastBlob: Blob | null = null
+const SILENT = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQIAAACAgA=='
+
+/** Call synchronously inside a click / tap handler before any await. */
+export function unlockAudio() {
+  try {
+    if (!player) player = new Audio()
+    player.src = SILENT
+    void player.play().catch(() => { /* still primed for the next play */ })
+    const AC = (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext
+    if (AC) { const c = new AC(); void c.resume().finally(() => c.close()) }
+  } catch { /* no audio on this device */ }
+}
+
+/** Play the last spoken answer again (from a user tap - always allowed). */
+export function replayLast(): Promise<void> {
+  return lastBlob ? play(lastBlob, ++generation) : Promise.resolve()
+}
 
 export function stopSpeaking() {
   generation++
-  if (current) { current.pause(); URL.revokeObjectURL(current.src); current = null }
+  if (current) { current.pause(); current = null }
   try { window.speechSynthesis?.cancel() } catch { /* no browser voice */ }
 }
 
@@ -108,6 +130,8 @@ export function speechChunks(text: string, max = 140): string[] {
   const parts = text.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) ?? [text]
   const out: string[] = []
   for (const p of parts.map(x => x.trim()).filter(Boolean)) {
+    // the FIRST piece is one short sentence (or its first clause) so the voice starts at once
+    if (!out.length && p.length > 90) { const k = p.lastIndexOf(',', 90); if (k > 30) { out.push(p.slice(0, k + 1)); out.push(p.slice(k + 1).trim()); continue } }
     if (out.length && out[out.length - 1].length + p.length + 1 <= max && out.length > 1) out[out.length - 1] += ' ' + p
     else out.push(p)
   }
@@ -125,11 +149,17 @@ async function fetchWav(text: string): Promise<Blob | null> {
 function play(blob: Blob, gen: number): Promise<void> {
   return new Promise(res => {
     if (gen !== generation) return res()
-    const a = new Audio(URL.createObjectURL(blob))
+    lastBlob = blob
+    const a = player ?? new Audio()
+    const url = URL.createObjectURL(blob)
+    a.src = url
     current = a
-    const done = () => { URL.revokeObjectURL(a.src); if (current === a) current = null; res() }
+    const done = () => { URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null; res() }
     a.onended = done; a.onerror = done
-    a.play().catch(done)
+    a.play().catch(e => {
+      if (e instanceof DOMException && e.name === 'NotAllowedError') window.dispatchEvent(new Event('smartlab:audio-blocked'))
+      done()
+    })
   })
 }
 

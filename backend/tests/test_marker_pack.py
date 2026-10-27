@@ -55,3 +55,12 @@ def test_routes_serve_svg_and_card_for_the_real_record(client, db, lab, staff):
     k = 640 / img.shape[1]
     assert cv2.QRCodeDetector().detectAndDecode(cv2.resize(img, None, fx=k, fy=k, interpolation=cv2.INTER_AREA))[0] == "SLAB:D:UR5E_01"
     assert client.get("/api/scan/marker.svg", params={"code": "SLAB:D:SEC_NODE_01"}, headers=h).status_code == 404
+
+
+def test_markers_page_in_one_response(client, db, lab, staff):
+    db.add(Device(device_uid="CAM_LAB01", name="Entry cam", device_type=DeviceType.CAMERA, lab_id=lab.id)); db.commit()
+    h = auth_headers(client, staff.email)
+    r = client.get("/api/scan/markers.json", headers=h).json()
+    m = {x["code"]: x for x in r["markers"]}["SLAB:D:CAM_LAB01"]
+    assert m["category"] == "camera" and m["source"] == "pack" and m["img"].startswith("data:image/svg+xml;base64,")
+    assert client.get("/api/scan/markers.json", params={"style": "shape"}, headers=h).json()["markers"][0]["img"].startswith("data:image/png")

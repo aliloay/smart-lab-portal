@@ -81,6 +81,16 @@ def marker_svg(code: str = Query(min_length=6, max_length=80), db: Session = Dep
                              "X-Marker-Category": cat})
 
 
+@router.get("/markers.json")
+def markers_page(kind: str = Query("all", pattern="^(all|device|bin|asset)$"),
+                 style: str = Query("pack", pattern="^(pack|shape)$"), db: Session = Depends(get_db),
+                 _: User = Depends(require_staff)):
+    """All markers of one kind for the markers page in one response (registry read once, artwork cached)."""
+    from app.services import marker_pack
+    items = [i for i in scan.registry(db) if kind == "all" or i["kind"] == kind]
+    return {"style": style, "markers": marker_pack.page_items(items, style)}
+
+
 @router.get("/markers.pdf")
 def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"), db: Session = Depends(get_db),
                 _: User = Depends(require_staff)):

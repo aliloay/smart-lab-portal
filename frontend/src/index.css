@@ -220,8 +220,9 @@ body {
   body.printing-markers * { visibility: hidden !important; }
   body.printing-markers #marker-sheet, body.printing-markers #marker-sheet * { visibility: visible !important; }
   body.printing-markers #marker-sheet { display: grid !important; position: absolute; left: 0; top: 0; width: 190mm;
-    grid-template-columns: repeat(2, 92mm); gap: 3mm 0; justify-content: space-around; }
-  body.printing-markers #marker-sheet img { width: 90mm; height: auto; break-inside: avoid; outline: 0.2mm dashed #94a3b8; }
+    grid-template-columns: repeat(2, 90mm); gap: 4mm 6mm; justify-content: center; }
+  body.printing-markers #marker-sheet .marker-card { break-inside: avoid; box-shadow: none; border: 0.3mm dashed #94a3b8;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* ---- Smart Lab motion system (Welcome page + intro) ----------------------

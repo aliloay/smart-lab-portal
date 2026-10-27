@@ -8,69 +8,47 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Download, Printer, ShieldAlert, XCircle } from 'lucide-react'
-import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkerSvg, scanMarkersPdf } from '../lib/api'
+import { getToken, scanMarkersPdf } from '../lib/api'
 import { Chip, Skeleton } from '../components/ui'
 
-// the owner's marker pack colours per category (presentation only - the registry and payloads come from the backend)
-const PACK: Record<string, [string, string]> = { camera: ['#6426a8', 'CAMERA'], server: ['#562099', 'SERVER'], door: ['#075f59', 'DOOR'],
-  pc: ['#1557ad', 'PC'], robot: ['#b84300', 'ROBOT'], inventory: ['#976000', 'INVENTORY'], security: ['#a71f31', 'SECURITY'],
-  reusable: ['#0e6e83', 'REUSABLES'], environment: ['#15803d', 'ENVIRONMENT'], equipment: ['#334155', 'EQUIPMENT'] }
+interface MarkerCard { code: string; key: string; kind: string; name: string; type: string; lab_code: string | null
+  category: string; color: string; label: string; source: string; img: string }
 
 export function ScanMarkers() {
-  // previews: vector QR (SVG) in an HTML card; printing: the 300-dpi PNG cards (loaded after the previews)
-  const [svgs, setSvgs] = useState<Record<string, { url: string; category: string; source: string }>>({})
-  const [items, setItems] = useState<ScanRegistryItem[] | null>(null)
-  const [urls, setUrls] = useState<Record<string, string>>({})
+  // ONE request for the whole page (2026-10-27, owner: "the markers are freezing and loading a lot"): the backend
+  // returns every marker with its artwork inline (cached, pre-rendered at start-up). Print prints these same cards.
+  const [style, setStyle] = useState<'pack' | 'shape'>(() => { try { return localStorage.getItem('smartlab.markerStyle') === 'shape' ? 'shape' : 'pack' } catch { return 'pack' } })
   const [kind, setKind] = useState<'all' | 'device' | 'bin' | 'asset'>('all')
+  const [cards, setCards] = useState<MarkerCard[] | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { api.scanRegistry().then(r => setItems(r.assets)).catch(e => setError(e.message)) }, [])
-  const shown = useMemo(() => (items ?? []).filter(i => kind === 'all' || i.kind === kind), [items, kind])
+  const [busy, setBusy] = useState(false)
   useEffect(() => {
     let live = true
-    const made: string[] = []
-    ;(async () => {
-      for (const i of shown) {                          // previews first, one at a time
-        if (!live || svgs[i.code]) continue
-        try {
-          const r = await scanMarkerSvg(i.code)
-          const u = URL.createObjectURL(r.blob)
-          if (live) setSvgs(m => ({ ...m, [i.code]: { url: u, category: r.category, source: r.source } }))
-        } catch { /* the card shows its name only */ }
-      }
-      for (const i of shown) {                          // then the print cards
-        if (!live || urls[i.code]) continue
-        try {
-          const u = URL.createObjectURL(await scanMarkerBlob(i.code)); made.push(u)
-          if (live) setUrls(m => ({ ...m, [i.code]: u }))
-        } catch { /* the card just shows no image */ }
-      }
-    })()
+    setCards(null); setError('')
+    const token = getToken()
+    fetch(`/api/scan/markers.json?kind=${kind}&style=${style}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`Markers could not load (${r.status})`)))
+      .then(d => { if (live) setCards(d.markers) }).catch(e => { if (live) setError(e.message) })
+    try { localStorage.setItem('smartlab.markerStyle', style) } catch { /* private mode */ }
     return () => { live = false }
-  }, [shown])                                           // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)); Object.values(svgs).forEach(v => URL.revokeObjectURL(v.url)) }, [])   // eslint-disable-line
-  // Print (2026-10-27, owner: Print did nothing, then a grey box): the portal's security policy does not allow a PDF
-  // viewer inside the page, so Print prints the marker sheet itself - the same print-resolution images, A4, three
-  // per row at 6.3 cm (index.css, body.printing-markers). Download PDF gives the file for any other printer/phone.
-  const [busy, setBusy] = useState<'' | 'print' | 'pdf'>('')
-  const allLoaded = shown.length > 0 && shown.every(i => urls[i.code])
+  }, [kind, style])
   const printNow = () => {
-    if (!allLoaded) { setError('Markers are still loading - try again in a moment.'); return }
     setError('')
     document.body.classList.add('printing-markers')
     const done = () => { document.body.classList.remove('printing-markers'); window.removeEventListener('afterprint', done) }
     window.addEventListener('afterprint', done)
     window.print()
-    setTimeout(done, 60_000)                               // browsers without afterprint
+    setTimeout(done, 60_000)
   }
   const downloadPdf = async () => {
-    setBusy('pdf'); setError('')
+    setBusy(true); setError('')
     try {
       const url = URL.createObjectURL(await scanMarkersPdf(kind))
       const a = document.createElement('a'); a.href = url; a.download = `smartlab_markers_${kind}.pdf`
       document.body.appendChild(a); a.click(); a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (e) { setError(e instanceof Error ? e.message : 'PDF failed') }
-    finally { setBusy('') }
+    finally { setBusy(false) }
   }
 
   return (
@@ -78,37 +56,32 @@ export function ScanMarkers() {
       <div className="flex items-center gap-2 flex-wrap print:hidden">
         <h1 className="text-[18px] font-semibold text-white">Asset markers</h1>
         <span className="text-[12px] text-slate-400">Print, cut out, stick on a flat visible face (≥ 6 cm wide). One marker = one record.</span>
-        <select className="input !w-auto ml-auto" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
+        <div className="ml-auto flex rounded-lg border border-ink-600 p-0.5" role="group" aria-label="Marker style">
+          {([['pack', 'Marker pack'], ['shape', 'Object shape']] as const).map(([k, t]) => (
+            <button key={k} type="button" aria-pressed={style === k} onClick={() => setStyle(k)}
+                    className={`rounded-md px-2.5 py-1 text-[12px] ${style === k ? 'bg-accent-500/25 text-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>))}
+        </div>
+        <select className="input !w-auto" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
           <option value="all">All</option><option value="device">Devices</option><option value="bin">Consumables bins</option>
           <option value="asset">Equipment / reusable items</option></select>
-        <button className="btn-primary btn-sm" disabled={!allLoaded} onClick={printNow}>
-          <Printer size={14} /> {allLoaded ? 'Print' : 'Loading…'}</button>
-        <button className="btn-ghost btn-sm" disabled={busy === 'pdf'} onClick={downloadPdf}>
-          <Download size={14} /> {busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
+        <button className="btn-primary btn-sm" disabled={!cards?.length} onClick={printNow}><Printer size={14} /> Print</button>
+        <button className="btn-ghost btn-sm" disabled={busy} onClick={downloadPdf}>
+          <Download size={14} /> {busy ? 'Preparing…' : 'Download PDF'}</button>
         <Link to="/scan" className="btn-ghost btn-sm">Back to scanning</Link>
       </div>
       {error && <p className="text-bad-soft text-[13px]">{error}</p>}
-      {/* the sheet that prints (hidden on screen) */}
-      <div id="marker-sheet" className="hidden" aria-hidden>
-        {shown.map(i => urls[i.code] && <img key={i.code} src={urls[i.code]} alt="" />)}
-      </div>
-      {!items ? <Skeleton className="h-60" /> : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {shown.map(i => {
-            const v = svgs[i.code]
-            const [color, label] = PACK[v?.category ?? 'equipment'] ?? PACK.equipment
-            return (
-              <div key={i.code} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-center shadow-sm">
-                <div className="h-2" style={{ background: color }} />
-                {v ? <img src={v.url} alt={`QR marker ${i.code} - ${i.name}`} className="mx-auto block w-[92%]" />
-                  : <div className="aspect-square grid place-items-center text-[12px] text-slate-400">loading…</div>}
-                <div className="px-2 pb-2.5">
-                  <div className="text-[13px] font-semibold text-slate-900 leading-tight">{i.name}</div>
-                  <div className="mt-0.5 text-[10.5px] font-medium" style={{ color }}>{i.key} · {label}{i.lab_code ? ` · ${i.lab_code}` : ''}</div>
-                  {v?.source === 'pack' && <div className="text-[9.5px] text-slate-400">from the marker pack (verified payload)</div>}
-                </div>
-              </div>)
-          })}
+      {!cards ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="aspect-[4/5] rounded-2xl" />)}</div> : (
+        <div id="marker-sheet" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {cards.map(c => (
+            <div key={c.code} className="marker-card overflow-hidden rounded-2xl border border-slate-200 bg-white text-center shadow-sm">
+              {style === 'pack' && <div className="h-2" style={{ background: c.color }} />}
+              <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={style === 'pack' ? 'mx-auto block w-[92%]' : 'block w-full'} />
+              {style === 'pack' && <div className="px-2 pb-2.5">
+                <div className="text-[13px] font-semibold text-slate-900 leading-tight">{c.name}</div>
+                <div className="mt-0.5 text-[10.5px] font-medium" style={{ color: c.color }}>{c.key} · {c.label}{c.lab_code ? ` · ${c.lab_code}` : ''}</div>
+              </div>}
+            </div>))}
         </div>)}
     </div>
   )

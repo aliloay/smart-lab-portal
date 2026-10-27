@@ -226,6 +226,7 @@ class Settings(BaseSettings):
     OLLAMA_MAX_CONCURRENT: int = 1
     # 2026-10-26: keyword tool router + bounded answers for the local model (docs/LOCAL_AI_BENCHMARK_2026-10-26.md)
     AI_ROUTER: bool = True
+    OLLAMA_THINK: bool = False          # reasoning models (qwen3 ...) answer directly; True = allow thinking
     AI_LOCAL_ONLY: bool = True          # never use a cloud model, even if a key is configured
     AI_MAX_ANSWER_TOKENS: int = 220
     AI_ROUTED_RESULT_CHARS: int = 3500

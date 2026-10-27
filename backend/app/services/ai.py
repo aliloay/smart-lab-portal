@@ -515,6 +515,15 @@ def _ollama_chat(model: str, messages: list[dict],
         slots.release()
 
 
+THINKING_FAMILIES = ("qwen3", "gemma4", "deepseek-r1", "lfm2.5-thinking", "magistral", "gpt-oss")
+
+
+def thinks(model: str) -> bool:
+    """Model families with a separate reasoning ('thinking') mode in Ollama (2026-10-27 model sweep)."""
+    m = (model or "").lower().split("/")[-1]
+    return any(m.startswith(f) for f in THINKING_FAMILIES)
+
+
 def _ollama_chat_unbounded(model: str, messages: list[dict],
                            tools: Optional[list[dict]] = None, num_predict: Optional[int] = None) -> dict:
     """
@@ -549,6 +558,8 @@ def _ollama_chat_unbounded(model: str, messages: list[dict],
         }
         if tools:
             body["tools"] = tools
+        if thinks(model) and not settings.OLLAMA_THINK:
+            body["think"] = False          # qwen3 / qwen3.5 / gemma4 ...: no hidden reasoning pass (seconds per answer)
         try:
             r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
         except httpx.ConnectError as exc:

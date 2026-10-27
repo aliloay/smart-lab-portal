@@ -271,3 +271,37 @@ def sheet_pdf(items: list[dict], cols: int = 2, rows: int = 4) -> bytes:
     buf = io.BytesIO()
     pages[0].save(buf, "PDF", resolution=300, save_all=True, append_images=pages[1:])
     return buf.getvalue()
+
+
+def page_items(items: list[dict], style: str = "pack") -> list[dict]:
+    """Everything the markers page needs in ONE response (2026-10-27, owner: "the markers are freezing and loading
+    a lot" - 78 requests, each re-reading the registry and rendering): per asset its category, colour, label, where
+    the artwork came from, and the image as a data URI (vector SVG for the pack style, PNG for the shaped style).
+    Rendering is cached per asset (lru_cache) and warmed at start-up (warm_all)."""
+    import base64
+    out = []
+    for it in items:
+        cat = category(it)
+        color, _, label = CATS[cat]
+        if style == "shape":
+            from app.services import marker_shapes
+            img = "data:image/png;base64," + base64.b64encode(marker_shapes.png(it)).decode()
+            src = "shape"
+        else:
+            svg = qr_svg(it["code"], cat)
+            img = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+            src = qr_png(it["code"], cat)[1]
+        out.append({**it, "category": cat, "color": color, "label": label, "source": src, "img": img})
+    return out
+
+
+def warm_all() -> None:
+    """Render every registered marker once in the background so the first page visit is instant."""
+    try:
+        from app.db.session import SessionLocal
+        from app.services import scan
+        with SessionLocal() as db:
+            items = scan.registry(db)
+        page_items(items, "pack")
+    except Exception as e:                                   # never blocks start-up
+        print(f"[markers] warm-up skipped: {e.__class__.__name__}")

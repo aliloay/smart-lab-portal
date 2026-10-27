@@ -21,6 +21,7 @@ os.environ["DATABASE_URL"] = _test_url
 # Everything the test suite writes is, by definition, a software test.
 os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
 os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device from a test
+os.environ["MARKER_WARMUP"] = "0"          # no background marker rendering during tests
 os.environ["LIVENESS_THROTTLE_S"] = "0"    # tests check outage transitions immediately
 # A device key of the suite's own: never the live one (the container's .env
 # holds the production key), and not the published default either.
