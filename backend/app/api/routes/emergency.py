@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, get_current_user, require_admin, require_device
+from app.api.deps import device_scope, get_current_user, require_admin, require_device, require_staff
 from app.db.session import get_db
 from app.models import AuditLog, Device, DeviceCommand, DeviceType, Lab, LabEmergency, User
 from app.services import commands as cmds
@@ -327,3 +327,11 @@ def for_controller(device_uid: str = Query(max_length=64), db: Session = Depends
     view = em.device_view(e, now)
     db.commit()
     return view
+
+
+@router.get("/safety/triage")
+def safety_triage(lab_id: Optional[int] = None, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Advisory safety triage (services/safety_triage.py): what to look at first, ranked, with evidence and ages.
+    Read-only; never actuates anything."""
+    from app.services.safety_triage import ADVISORY, triage
+    return {"items": triage(db, lab_id=lab_id), "advisory": ADVISORY}

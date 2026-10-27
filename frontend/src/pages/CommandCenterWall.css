@@ -4,7 +4,7 @@
   z-index: 20;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: minmax(48px, auto) minmax(56px, auto) minmax(0, 1fr);
+  grid-template-rows: minmax(48px, auto) minmax(56px, auto) auto minmax(0, 1fr);   /* 3rd = safety triage strip */
   gap: 8px;
   width: 100%;
   height: 100vh;
@@ -129,7 +129,7 @@
 }
 
 @media (max-width: 900px), (max-height: 640px) {
-  .command-wall { grid-template-rows: auto auto minmax(0, 1fr); }
+  .command-wall { grid-template-rows: auto auto auto minmax(0, 1fr); }
   .wall-media { display: none; }
   .wall-left-stack { grid-template-rows: minmax(0, 1fr); }
   .wall-right-stack { grid-template-rows: minmax(100px, .8fr) minmax(130px, 1.2fr) minmax(90px, .8fr); }

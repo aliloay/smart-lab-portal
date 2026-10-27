@@ -18,6 +18,7 @@ import {
 import { useLive, useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
 import BackToPortal from '../components/BackToPortal'
+import SafetyTriage from '../components/SafetyTriage'
 import LabFloor from '../components/LabFloor'
 import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, Skeleton, Tone } from '../components/ui'
@@ -857,6 +858,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
         <MetricLink compact to="/admin/alerts" label="Open incidents" value={alerts === null ? '—' : scopedAlerts.length}
           sub={alerts === null ? 'Alert source unavailable' : criticalAlerts + ' critical · ' + scopeName} tone={alertError ? 'warn' : criticalAlerts ? 'bad' : scopedAlerts.length ? 'warn' : 'good'} icon={<ShieldAlert size={13} />} />
       </section>
+      <div><SafetyTriage labId={selectedLabId} compact /></div>
 
       <main className="wall-main">
         <div className="wall-left-stack">
@@ -947,6 +949,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
         <MetricLink to="/admin/alerts" label="Open alerts" value={alerts === null ? '—' : scopedAlerts.length}
           sub={alerts === null ? 'Alert source unavailable' : criticalAlerts + ' critical · ' + scopeName} tone={alertError ? 'warn' : criticalAlerts ? 'bad' : scopedAlerts.length ? 'warn' : 'good'} icon={<ShieldAlert size={16} />} />
       </section>
+      <SafetyTriage labId={selectedLabId} />
 
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,.85fr)]">
         <section className="rounded-2xl border border-white/[.09] bg-[#121922] p-4 sm:p-5" aria-labelledby="floor-heading">
