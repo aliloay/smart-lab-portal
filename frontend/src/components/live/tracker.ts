@@ -87,7 +87,9 @@ export class PersonTracker {
 
   /** Which track to check next: the selected one first, then ones without a name, then the oldest re-check. */
   nextForFace(now: number, selected: number | null, everyMs = 5000): Track | null {
-    const live = this.tracks.filter(t => now - t.lastSeen < 400 && t.hits >= 2)
+    // a person is checked from their FIRST box (2026-10-27, owner: "takes too much time to detect me" - over a slow
+    // phone link waiting for a second box cost a whole extra round trip); the name still needs a clear face match
+    const live = this.tracks.filter(t => now - t.lastSeen < 400)
     const sel = live.find(t => t.id === selected && now - t.lastFaceCheck > 1200)
     if (sel) return sel
     const unnamed = live.filter(t => !t.identity && now - t.lastFaceCheck > 1500).sort((a, b) => a.lastFaceCheck - b.lastFaceCheck)

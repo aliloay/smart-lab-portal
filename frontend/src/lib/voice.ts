@@ -111,6 +111,8 @@ export function unlockAudio() {
     void player.play().catch(() => { /* still primed for the next play */ })
     const AC = (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext
     if (AC) { const c = new AC(); void c.resume().finally(() => c.close()) }
+    // iPhone Safari: the browser voice (fallback) also speaks later only if it was started once inside the tap
+    if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u) }
   } catch { /* no audio on this device */ }
 }
 

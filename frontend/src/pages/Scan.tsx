@@ -514,7 +514,10 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const rec = useRef<Recording | null>(null)
   const ac = useRef<AbortController | null>(null)
   const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (micSupported()) voiceStatus().then(setVoice).catch(() => setVoice(null)) }, [])
+  // the spoken answers need only the server voice, not a microphone: the status is read on every device (2026-10-27:
+  // on the iPhone it was read only when recording was possible, so answers fell to the browser voice = silence)
+  useEffect(() => { voiceStatus().then(setVoice).catch(() => setVoice(null)) }, [])
+  const [spokeWith, setSpokeWith] = useState<string | null>(null)
   useEffect(() => () => { rec.current?.cancel(); ac.current?.abort(); stopSpeaking() }, [])
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns])
   useEffect(() => {
@@ -527,7 +530,11 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const say = (text: string) => {
     if (muted) return
     setBlocked(false); setSpeaking(true)
-    void speak(spokenSummary(text), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
+    // status not known yet -> still try the lab's voice first (it falls back to the browser voice by itself)
+    void speak(spokenSummary(text), voice ? !!voice.tts : true).then(how => {
+      setSpokeWith(how === 'piper' ? 'lab voice (Piper)' : how === 'browser' ? 'browser voice' : 'no voice')
+      if (how !== 'browser') setSpeaking(false)
+    })
   }
   const ask = async (question: string) => {
     const text = question.trim()
@@ -576,7 +583,9 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const cancel = () => { rec.current?.cancel(); rec.current = null; ac.current?.abort(); stopSpeaking(); setSpeaking(false); setPhase('idle') }
   const submit = (e: FormEvent) => { e.preventDefault(); unlockAudio(); void ask(q) }
   const status = phase === 'recording' ? 'Listening… tap again to ask' : phase === 'transcribing' ? 'Transcribing (local)…'
-    : phase === 'thinking' ? 'Looking it up…' : speaking ? 'Speaking…' : 'Ask about what the camera shows'
+    : phase === 'thinking' ? 'Looking it up…' : speaking ? 'Speaking…'
+    : muted ? 'Spoken answers are OFF - tap the speaker to turn them on'
+    : spokeWith ? `Ask about what the camera shows · last answer spoken with the ${spokeWith}` : 'Ask about what the camera shows'
 
   return (
     <div className="card p-3 space-y-2">
