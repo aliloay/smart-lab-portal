@@ -4,12 +4,13 @@
   GET  /scan/registry          every asset that can carry a marker (devices, consumables bins, equipment)
   GET  /scan/asset?code=...    the live card of one scanned marker (404 = unidentified)
   GET  /scan/marker.png?code=  the printable QR marker for an asset (exact text = the asset's own key)
+  GET  /scan/markers.pdf       all markers (or one kind) on A4 sheets - prints from a phone too
+  POST /scan/identify          one phone frame -> the enrolled person on a clear face match (else unnamed)
   POST /scan/people            one phone frame (JPEG) -> person boxes from the lab's camera service detector
 
 Identification is ONLY by marker (app/services/scan.py); the people boxes are a generic class and never carry a
 name. No phone frame is stored: it is forwarded once and dropped.
 """
-import io
 import time
 from datetime import datetime, timezone
 
@@ -47,25 +48,26 @@ def asset(code: str = Query(min_length=6, max_length=80), db: Session = Depends(
 @router.get("/marker.png")
 def marker_png(code: str = Query(min_length=6, max_length=80), db: Session = Depends(get_db),
                _: User = Depends(require_staff)):
-    card = scan.asset_card(db, code, staff=True)
-    if card is None:
+    """The themed marker (2026-10-27): QR + an icon for what the asset is (camera, shield, robot, door ...)."""
+    item = next((i for i in scan.registry(db) if i["code"] == code), None)
+    if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown asset")
-    import qrcode
-    from qrcode.constants import ERROR_CORRECT_Q
-    from PIL import Image, ImageDraw
-    qr = qrcode.QRCode(error_correction=ERROR_CORRECT_Q, box_size=10, border=4)
-    qr.add_data(code)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-    w, h = img.size
-    sheet = Image.new("RGB", (w, h + 70), "white")
-    sheet.paste(img, (0, 0))
-    d = ImageDraw.Draw(sheet)
-    d.text((w // 2, h + 10), card["name"][:40], fill="black", anchor="mt")
-    d.text((w // 2, h + 38), code[:48], fill="black", anchor="mt")
-    buf = io.BytesIO()
-    sheet.save(buf, "PNG")
-    return Response(buf.getvalue(), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    from app.services import marker_art
+    return Response(marker_art.png(item), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/markers.pdf")
+def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"), db: Session = Depends(get_db),
+                _: User = Depends(require_staff)):
+    """Every marker of one kind on A4 sheets (3 x 4, cut lines). Printing a PDF works on phones, where
+    window.print() of the portal page often does nothing (owner, iPhone, 2026-10-27)."""
+    items = [i for i in scan.registry(db) if kind == "all" or i["kind"] == kind]
+    if not items:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No assets of this kind")
+    from app.services import marker_art
+    return Response(marker_art.sheet_pdf(items), media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="smartlab_markers_{kind}.pdf"',
+                             "Cache-Control": "no-store"})
 
 
 @router.get("/link.png")
@@ -109,4 +111,54 @@ async def people(request: Request, db: Session = Depends(get_db), _: User = Depe
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service could not detect on this frame")
     out = r.json()
     out["proxy_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+    return out
+
+
+# ------------------------------------------------------------------ who is this (face) - 2026-10-27 ---
+# Owner: "why does it say person and not USER1 Ali Loay - my face is enrolled". The phone frame goes to the lab's
+# own face server (/identify: the door's SFace templates, nothing logged there) and is named only on a CLEAR match:
+# the same rule as the fixed security cameras - score >= FACE_MIN and ahead of the next person by FACE_MARGIN.
+# Anything less stays "person". Staff only; every identification is written to the audit log; no frame is stored.
+FACE_MIN, FACE_MARGIN = 0.50, 0.08
+_face = httpx.Client(timeout=httpx.Timeout(3.0, connect=0.5))
+
+
+@router.post("/identify")
+async def identify(request: Request, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    body = await request.body()
+    if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
+    t0 = time.perf_counter()
+    try:
+        r = _face.post(settings.FACE_SERVER_URL.rstrip("/") + "/identify", content=body,
+                       headers={"X-Device-Key": settings.DEVICE_API_KEY, "Content-Type": "image/jpeg"})
+    except httpx.HTTPError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server is not reachable - people stay "
+                                                                 "unnamed")
+    if r.status_code in (409, 429, 503):
+        return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "1"})
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server could not check this frame")
+    res = r.json()
+    name, score, second = res.get("name"), res.get("score"), res.get("second")
+    out = {"face": bool(res.get("face")), "score": score, "second": second, "known": False,
+           "ms": round((time.perf_counter() - t0) * 1000, 1)}
+    clear = bool(name) and score is not None and score >= FACE_MIN and (second is None or score - second >= FACE_MARGIN)
+    if not clear:
+        out["reason"] = ("no face in the picture" if not res.get("face") else
+                         "no clear match - stays unnamed" if name or score else "not an enrolled person")
+        return out
+    from app.models import AccessSession, AuditLog
+    person = db.scalar(select(User).where(User.auth_subject == name))
+    if person is None:
+        out["reason"] = f"face label {name} has no portal account"
+        return out
+    inside = db.scalar(select(AccessSession).where(AccessSession.user_id == person.id,
+                                                   AccessSession.ended_at.is_(None))) is not None
+    db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
+                    entity_id=str(person.id), detail={"score": score, "second": second}))
+    db.commit()
+    out.update(known=True, person={"name": person.full_name, "auth_subject": person.auth_subject,
+                                   "role": person.role.value, "department": person.department,
+                                   "student_id": person.student_id, "inside_by_door": inside})
     return out

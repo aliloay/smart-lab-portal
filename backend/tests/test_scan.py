@@ -158,3 +158,57 @@ def test_equipment_with_a_device_shows_the_device_once(client, db, lab, staff, a
     assert "SLAB:A:RB-001" not in codes and "SLAB:D:UR5E_LAB01" in codes
     c = client.get("/api/scan/asset", params={"code": "SLAB:A:RB-001"}, headers=h).json()
     assert c["kind"] == "device" and c["key"] == "UR5E_LAB01" and c["code"] == "SLAB:A:RB-001"
+
+
+def test_themed_robot_marker_still_decodes_and_the_sheet_is_a_pdf(client, staff, assets):
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+    h = auth_headers(client, staff.email)
+    r = client.get("/api/scan/marker.png", params={"code": "SLAB:D:UR5E_LAB01"}, headers=h)
+    img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert cv2.QRCodeDetector().detectAndDecode(img)[0] == "SLAB:D:UR5E_LAB01"
+    pdf = client.get("/api/scan/markers.pdf", params={"kind": "device"}, headers=h)
+    assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF") and pdf.headers["content-type"] == "application/pdf"
+    assert client.get("/api/scan/markers.pdf", params={"kind": "x"}, headers=h).status_code == 422
+
+
+def test_every_theme_decodes_even_when_printed_small():
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+    from app.services import marker_art
+    for t in list(marker_art.THEMES) + ["Device", "Measurement"]:
+        item = {"code": "SLAB:D:A_LONGER_DEVICE_UID_01", "kind": "device", "name": "x", "type": t}
+        img = marker_art.render(item)
+        small = np.array(img.resize((img.width // 3, img.height // 3)))[:, :, ::-1]
+        assert cv2.QRCodeDetector().detectAndDecode(small)[0] == item["code"], t
+
+
+class FakeFace:
+    def __init__(self, name="USER1", score=0.71, second=0.30, face=True, status=200):
+        self.res, self.status, self.calls = {"name": name, "score": score, "second": second, "face": face}, status, 0
+
+    def post(self, url, content, headers):
+        self.calls += 1
+        assert url.endswith("/identify") and headers.get("X-Device-Key") is not None
+        return httpx.Response(self.status, json=self.res)
+
+
+def test_phone_face_names_only_a_clear_match_with_the_portal_record(monkeypatch, client, db, staff, alice):
+    from app.models import AuditLog
+    alice.department = "Engineering"; db.commit()
+    h = auth_headers(client, staff.email)
+    monkeypatch.setattr(scan_route, "_face", FakeFace())
+    r = client.post("/api/scan/identify", content=image_bytes(), headers=h).json()
+    assert r["known"] and r["person"]["name"] == "Alice" and r["person"]["auth_subject"] == "USER1"
+    assert r["person"]["department"] == "Engineering" and r["person"]["inside_by_door"] is False
+    assert db.query(AuditLog).filter_by(action="PHONE_FACE_IDENTIFIED").count() == 1
+    for weak in (FakeFace(score=0.45, second=0.1), FakeFace(score=0.62, second=0.58), FakeFace(name=None, score=None, face=False)):
+        monkeypatch.setattr(scan_route, "_face", weak)
+        r = client.post("/api/scan/identify", content=image_bytes(), headers=h).json()
+        assert not r["known"] and "person" not in r and r["reason"]
+    monkeypatch.setattr(scan_route, "_face", FakeFace(status=429))
+    assert client.post("/api/scan/identify", content=image_bytes(), headers=h).status_code == 429
+
+
+def test_students_cannot_identify_faces(client, alice):
+    assert client.post("/api/scan/identify", content=image_bytes(), headers=auth_headers(client, alice.email)).status_code == 403

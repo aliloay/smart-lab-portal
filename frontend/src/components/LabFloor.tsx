@@ -99,9 +99,9 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
           </linearGradient>
         </defs>
         <rect x={2} y={4} width={96} height={54} rx={2} fill="url(#grid)" stroke="#475569" strokeWidth={0.5} />
-        {/* windows along the far end wall */}
-        {[14, 23, 32, 41].map(y => <line key={y} x1={98} y1={y} x2={98} y2={y + 6} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
-        <text x={96.5} y={34} textAnchor="end" fontSize={1.8} fill="#64748b" transform="rotate(-90 96.5 34)">windows</text>
+        {/* windows along the wall opposite the door, behind the engineer desk and the UR5e (owner 2026-10-27) */}
+        {[16, 30, 44, 58, 72, 86].map(x => <line key={x} x1={x} y1={4} x2={x + 8} y2={4} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
+        <text x={94} y={6.6} textAnchor="end" fontSize={1.6} fill="#64748b">windows</text>
         {/* Entrance on the same long side as FANUC and the security camera. */}
         <g>
           <rect x={9} y={56.4} width={10} height={1.6} fill={doorOpen ? '#f87171' : doorOpen === false ? '#22c55e' : '#64748b'} />
@@ -113,7 +113,7 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         {cam2 && <path d="M 4 5.5 L 92 38 L 70 55 Z" fill="url(#cone)" opacity={live2 ? 0.8 : 0.2} />}
         {/* FANUC and UR5e sit along opposite long sides, near each other. */}
         <RobotCell x={63} y={43} w={9} h={10} label="FANUC" robot={fanuc} frame="cage" />
-        <RobotCell x={52} y={8} w={16} h={12} label="UR5e" robot={ur} frame="gantry" />
+        <RobotCell x={62} y={9} w={16} h={12} label="UR5e" robot={ur} frame="gantry" />
         {/* Lab workstations occupy the central tables. */}
         <rect x={25} y={27} width={39} height={9} rx={1} fill="#111827" stroke="#334155" strokeWidth={0.3} />
         {longTable.map((n, i) => {
@@ -133,24 +133,24 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         })}
         <text x={41.4} y={26} textAnchor="middle" fontSize={1.8} fill="#64748b">Central PC tables · 01–08</text>
         {/* The engineer workstation and its two PCs are turned 90 degrees into a vertical pair. */}
-        <rect x={5} y={7.5} width={16} height={19} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
-        <text x={13} y={9.5} textAnchor="middle" fontSize={1.8} fill="#94a3b8">Lab engineer</text>
+        <rect x={14} y={10.5} width={16} height={16.5} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
+        <text x={22} y={12.6} textAnchor="middle" fontSize={1.8} fill="#94a3b8">Lab engineer</text>
         {['PC-09', 'PC-10'].map((n, i) => {
           const st = pcState(cam1, n, cam2)
-          const y = 11 + i * 7.5
+          const y = 13.6 + i * 6.4
           return (
             <g key={n}>
-              <rect x={11} y={y} width={4} height={5} rx={0.6} fill={st ? PC_FILL[st] : '#1e293b'} stroke="#475569" strokeWidth={0.2} />
-              <text x={13} y={y + 6.8} textAnchor="middle" fontSize={1.4} fill="#94a3b8">{n}</text>
+              <rect x={20} y={y} width={4} height={4.2} rx={0.6} fill={st ? PC_FILL[st] : '#1e293b'} stroke="#475569" strokeWidth={0.2} />
+              <text x={22} y={y + 5.7} textAnchor="middle" fontSize={1.4} fill="#94a3b8">{n}</text>
             </g>)
         })}
         {/* Security camera at the lower-right corner, facing back across the room. */}
         <path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
-        <text x={94.5} y={50.5} textAnchor="end" fontSize={1.8} fill="#94a3b8">Camera{cam2 ? ' 1' : ''} · {cameraLabel}</text>
+        <text x={91.8} y={55.6} textAnchor="end" fontSize={1.8} fill="#94a3b8">Camera{cam2 ? ' 1' : ''} · {cameraLabel}</text>
         {/* Camera 2, diagonally opposite camera 1 (docs/LAB_GO_NOGO_2026-10-18.md 1.3), facing back across the room. */}
         {cam2 && <g>
           <path d="M 7.5 5.5 h-3.2 l-1.3 1.5 v2 h5.8 z" fill={live2 ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
-          <text x={22.5} y={6.4} fontSize={1.8} fill="#94a3b8">Camera 2 · {camLabel(cam2)}</text>
+          <text x={9.2} y={8.4} fontSize={1.8} fill="#94a3b8">Camera 2 · {camLabel(cam2)}</text>
         </g>}
       </svg>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">

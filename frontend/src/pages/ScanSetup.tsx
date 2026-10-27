@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Download, Printer, ShieldAlert, XCircle } from 'lucide-react'
-import { ScanRegistryItem, api, getToken, scanMarkerBlob } from '../lib/api'
+import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkersPdf } from '../lib/api'
 import { Chip, Skeleton } from '../components/ui'
 
 export function ScanMarkers() {
@@ -33,16 +33,31 @@ export function ScanMarkers() {
     return () => { live = false }
   }, [shown])                                           // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)) }, [])   // eslint-disable-line
+  // Print = an A4 PDF of the markers (3 x 4, cut lines), opened in its own tab: the browser's PDF viewer prints on a
+  // PC and offers Share > Print on a phone. window.print() of this page did nothing on the owner's iPhone.
+  const [printing, setPrinting] = useState(false)
+  const printSheet = async () => {
+    const tab = window.open('', '_blank')               // opened inside the tap, or a phone blocks it as a popup
+    setPrinting(true); setError('')
+    try {
+      const url = URL.createObjectURL(await scanMarkersPdf(kind))
+      if (tab) tab.location.href = url
+      else { const a = document.createElement('a'); a.href = url; a.download = `smartlab_markers_${kind}.pdf`; a.click() }
+      setTimeout(() => URL.revokeObjectURL(url), 120_000)
+    } catch (e) { tab?.close(); setError(e instanceof Error ? e.message : 'Print sheet failed') }
+    finally { setPrinting(false) }
+  }
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap print:hidden">
         <h1 className="text-[18px] font-semibold text-white">Asset markers</h1>
-        <span className="text-[12px] text-slate-400">Print, cut out, stick on a flat visible face (≥ 4 cm wide). One marker = one record.</span>
+        <span className="text-[12px] text-slate-400">Print, cut out, stick on a flat visible face (≥ 6 cm wide). One marker = one record.</span>
         <select className="input !w-auto ml-auto" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
           <option value="all">All</option><option value="device">Devices</option><option value="bin">Consumables bins</option>
           <option value="asset">Equipment / reusable items</option></select>
-        <button className="btn-primary btn-sm" onClick={() => window.print()}><Printer size={14} /> Print</button>
+        <button className="btn-primary btn-sm" disabled={printing} onClick={printSheet}>
+          <Printer size={14} /> {printing ? 'Preparing…' : 'Print'}</button>
         <Link to="/scan" className="btn-ghost btn-sm">Back to scanning</Link>
       </div>
       {error && <p className="text-bad-soft text-[13px]">{error}</p>}

@@ -329,6 +329,32 @@ export async function scanMarkerBlob(code: string): Promise<Blob> {
   return r.blob()
 }
 
+/** All markers of one kind as an A4 PDF (prints from a phone, where window.print() of the page does nothing). */
+export async function scanMarkersPdf(kind: string): Promise<Blob> {
+  const token = getToken()
+  const r = await fetch(`/api/scan/markers.pdf?kind=${encodeURIComponent(kind)}`,
+                        { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' })
+  if (!r.ok) throw new Error(r.status === 404 ? 'No assets of this kind to print' : `Print sheet failed (${r.status})`)
+  return r.blob()
+}
+
+export interface ScanPerson { name: string; auth_subject: string; role: string; department: string | null;
+  student_id: string | null; inside_by_door: boolean }
+export interface ScanIdentify { face: boolean; known: boolean; score: number | null; second: number | null; ms: number;
+  person?: ScanPerson; reason?: string }
+
+/** One phone frame -> the enrolled person on a CLEAR face match (null = the face server is busy, skip this frame). */
+export async function scanIdentify(jpeg: Blob, signal: AbortSignal): Promise<ScanIdentify | null> {
+  const token = getToken()
+  const r = await fetch('/api/scan/identify', {
+    method: 'POST', body: jpeg, signal, cache: 'no-store',
+    headers: { 'Content-Type': 'image/jpeg', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  })
+  if (r.status === 429) return null
+  if (!r.ok) throw new Error(r.status === 503 ? 'Face naming unavailable - the face server is not running' : `Face check failed (${r.status})`)
+  return r.json()
+}
+
 export async function uploadBroadcastFrame(jpeg: Blob): Promise<number> {
   const token = getToken()
   const r = await fetch('/api/equipment/broadcast/frame', {

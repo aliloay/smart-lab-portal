@@ -16,7 +16,7 @@ import { Link } from 'react-router-dom'
 import { Camera, CameraOff, FileVideo, MessageCircle, Mic, QrCode, RefreshCw, ScanLine, ShieldAlert, Smartphone, Square, Users, VolumeX } from 'lucide-react'
 import { Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
-import { ScanCard, ScanPeople, api, scanPeople } from '../lib/api'
+import { ScanCard, ScanIdentify, ScanPeople, ScanPerson, api, scanIdentify, scanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
 
 type Pt = { x: number; y: number }
@@ -28,6 +28,8 @@ const DECODE_EVERY_MS = 120           // ~8 marker checks a second
 const CARD_REFRESH_MS = 5000          // a card in view is re-read this often (its own timestamp shows age)
 const SEEN_HOLD_MS = 1500             // a marker outline stays this long after the last sighting
 const PEOPLE_HOLD_MS = 1200
+const FACE_EVERY_MS = 1500           // a face check at most this often (the door's face server keeps priority)
+const FACE_HOLD_MS = 4000             // a name stays on the box this long after the last clear match
 const W = 640                         // analysis width (decode + people frames)
 
 const fmtAge = (s: number | null) => s == null ? 'never' : s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago`
@@ -45,9 +47,12 @@ export default function Scan() {
   const session = useRef<{
     stream?: MediaStream; raf?: number; worker?: Worker; native?: BarcodeDetectorLike; decoding: boolean
     lastDecode: number; people?: AbortController; peopleBusy: boolean; fileUrl?: string; stopped: boolean
+    face?: AbortController; faceBusy?: boolean; lastFace?: number
   }>({ decoding: false, lastDecode: 0, peopleBusy: false, stopped: true })
   const seen = useRef(new Map<string, Seen>())
   const boxes = useRef<{ at: number; r: ScanPeople } | null>(null)
+  const face = useRef<{ at: number; r: ScanIdentify } | null>(null)
+  const [who, setWho] = useState<ScanPerson | null>(null)   // the person named by a clear face match (voice context)
   const [running, setRunning] = useState(false)
   const [starting, setStarting] = useState(false)
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
@@ -68,14 +73,14 @@ export default function Scan() {
     const s = session.current
     s.stopped = true
     if (s.raf) cancelAnimationFrame(s.raf)
-    s.people?.abort()
+    s.people?.abort(); s.face?.abort()
     s.worker?.terminate()
     s.stream?.getTracks().forEach(t => t.stop())
     if (s.fileUrl) URL.revokeObjectURL(s.fileUrl)
     const v = video.current
     if (v) { v.pause(); v.srcObject = null; v.removeAttribute('src'); v.load() }
     session.current = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: true }
-    seen.current.clear(); boxes.current = null
+    seen.current.clear(); boxes.current = null; face.current = null; setWho(null)
     setRunning(false); setInView([])
   }, [])
 
@@ -92,6 +97,30 @@ export default function Scan() {
       .then(card => setCards(c => ({ ...c, [code]: { card, fetchedAt: Date.now() } })))
       .catch(e => setCards(c => ({ ...c, [code]: { error: e instanceof Error ? e.message : 'unidentified', fetchedAt: Date.now() } })))
   }, [])
+
+  // ------------------------------------------------------------------ who is this: the face server, clear match only
+  const identify = useCallback((blob: Blob) => {
+    const s = session.current, now = Date.now()
+    if (s.faceBusy || now - (s.lastFace ?? 0) < FACE_EVERY_MS) return
+    s.faceBusy = true; s.lastFace = now
+    const ac = new AbortController(); s.face = ac
+    scanIdentify(blob, ac.signal)
+      .then(r => {
+        if (!r || session.current.stopped) return
+        face.current = { at: Date.now(), r }
+        if (r.known && r.person) { const p = r.person; setWho(w => (w?.auth_subject === p.auth_subject ? w : p)) }
+      })
+      .catch(() => { /* face server down: boxes stay "person" */ })
+      .finally(() => { s.faceBusy = false })
+  }, [])
+  useEffect(() => {                                     // the name is dropped once nobody known was seen for a while
+    if (!who) return
+    const t = setInterval(() => {
+      const f = face.current
+      if (!f || Date.now() - f.at > FACE_HOLD_MS * 2 || (!f.r.known && Date.now() - f.at > FACE_HOLD_MS)) setWho(null)
+    }, 1000)
+    return () => clearInterval(t)
+  }, [who])
 
   // ------------------------------------------------------------------ one marker decode (never two at once)
   const decode = useCallback(async (v: HTMLVideoElement) => {
@@ -142,13 +171,14 @@ export default function Scan() {
           if (r && !session.current.stopped) {
             boxes.current = { at: Date.now(), r }
             setStats(st => ({ ...st, peopleMs: r.ms, peopleRtt: Math.round(performance.now() - t1) }))
+            if (r.boxes.length) identify(blob)
           }
         } catch (e) {
           if (!(e instanceof DOMException && e.name === 'AbortError')) { setError(e instanceof Error ? e.message : String(e)); setPeopleOn(false) }
         } finally { s.peopleBusy = false }
       }, 'image/jpeg', 0.65)
     }
-  }, [loadCard])
+  }, [loadCard, identify])
 
   // ------------------------------------------------------------------ overlay (every display frame)
   const draw = useCallback(() => {
@@ -169,11 +199,25 @@ export default function Scan() {
       const b = boxes.current
       if (b && now - b.at < PEOPLE_HOLD_MS) {
         ctx.lineWidth = 2; ctx.strokeStyle = '#38bdf8'; ctx.fillStyle = '#38bdf8'; ctx.font = '12px Inter, sans-serif'
-        for (const p of b.r.boxes) {
+        // a clear face match names the largest box (the person nearest the phone); every other box stays "person"
+        const f = face.current
+        const named = f && f.r.known && f.r.person && now - f.at < FACE_HOLD_MS ? f.r : null
+        const big = named ? b.r.boxes.reduce((m, p, i, a) => (p.w * p.h > a[m].w * a[m].h ? i : m), 0) : -1
+        b.r.boxes.forEach((p, i) => {
           const x = ox + p.x * pw, y = oy + p.y * ph
-          ctx.strokeRect(x, y, p.w * pw, p.h * ph)
-          ctx.fillText(`person ${Math.round(p.score * 100)}%`, x + 3, Math.max(12, y - 4))
-        }
+          if (named && i === big) {
+            const label = `${named.person!.auth_subject} · ${named.person!.name} (${Math.round((named.score ?? 0) * 100)}%)`
+            ctx.lineWidth = 3; ctx.strokeStyle = '#10b981'; ctx.strokeRect(x, y, p.w * pw, p.h * ph)
+            ctx.font = '600 13px Inter, sans-serif'
+            const tw = ctx.measureText(label).width, ly = Math.max(16, y - 6)
+            ctx.fillStyle = 'rgba(2,6,23,0.8)'; ctx.fillRect(x - 2, ly - 15, tw + 8, 20)
+            ctx.fillStyle = '#a7f3d0'; ctx.fillText(label, x + 2, ly)
+            ctx.lineWidth = 2; ctx.strokeStyle = '#38bdf8'; ctx.fillStyle = '#38bdf8'; ctx.font = '12px Inter, sans-serif'
+          } else {
+            ctx.strokeRect(x, y, p.w * pw, p.h * ph)
+            ctx.fillText(`person ${Math.round(p.score * 100)}%`, x + 3, Math.max(12, y - 4))
+          }
+        })
       }
       for (const m of seen.current.values()) {
         if (now - m.at > SEEN_HOLD_MS) continue
@@ -272,13 +316,21 @@ export default function Scan() {
       </div>
       {error && <p className="text-[12.5px] text-bad-soft">{error}</p>}
       {running && <p className="text-[11px] text-slate-500">Markers: {stats.decoder}, {stats.decodeMs} ms per check
-        {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms (boxes are "person" only - never a name)`}</p>}
+        {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms - a box is named only on a clear face match with an enrolled person`}</p>}
 
       {inView.length > 1 && <div className="flex flex-wrap gap-1.5">{inView.map(c => (
         <button key={c} onClick={() => setSelected(c)} className={`text-[12px] px-2 py-1 rounded-md border ${shown === c ? 'border-accent-400 text-white' : 'border-ink-600 text-slate-400'}`}>
           {cards[c]?.card?.name ?? c}</button>))}</div>}
 
-      <ScanVoice card={cs?.card} />
+      {who && <div className="card p-3 flex items-center gap-2 flex-wrap text-[13px]">
+        <Users size={15} className="text-emerald-300" />
+        <span className="text-white font-semibold">{who.auth_subject} · {who.name}</span>
+        <span className="text-slate-400">{who.role.replace(/_/g, ' ').toLowerCase()}{who.department ? ` · ${who.department}` : ''}
+          {who.student_id ? ` · ID ${who.student_id}` : ''}</span>
+        <span className="ml-auto"><Chip tone={who.inside_by_door ? 'ok' : 'idle'}>{who.inside_by_door ? 'checked in at the door' : 'no open door session'}</Chip></span>
+      </div>}
+
+      <ScanVoice card={cs?.card} person={who} />
 
       {shown && <AssetCard code={shown} state={cs} onRefresh={() => loadCard(shown)} />}
       {!shown && running && <p className="text-[12.5px] text-slate-500">No marker in view. Unmarked equipment stays unidentified -
@@ -323,6 +375,14 @@ function AssetCard({ code, state, onRefresh }: { code: string; state?: CardState
   )
 }
 
+/** The person named by face, as plain text for the assistant (the portal's own account record only). */
+export function personContext(p: ScanPerson): string {
+  return `The person in front of the phone camera is identified by face as ${p.auth_subject} - ${p.name}, ` +
+    `${p.role.replace(/_/g, ' ').toLowerCase()}${p.department ? `, ${p.department}` : ''}${p.student_id ? `, student ID ${p.student_id}` : ''}. ` +
+    `${p.inside_by_door ? 'They checked in at the lab door and have an open session.' : 'They have no open door session right now.'} ` +
+    'If I ask "who is this", "who is there" or "what is this", answer with this person.'
+}
+
 /** What the camera shows right now, as plain text for the assistant (only the portal's own record, with its age). */
 export function cardContext(c: ScanCard): string {
   const parts = [`I am looking at ${c.name} (${c.type}${c.lab_code ? `, ${c.lab_code}` : ''}, marker ${c.code}) through the phone camera.`,
@@ -339,7 +399,7 @@ export function cardContext(c: ScanCard): string {
  * The context travels as an earlier turn, so the instant database answers and the tool router still see only the
  * question itself.
  */
-function ScanVoice({ card }: { card?: ScanCard }) {
+function ScanVoice({ card, person }: { card?: ScanCard; person?: ScanPerson | null }) {
   const [voice, setVoice] = useState<VoiceStatus | null>(null)
   const [phase, setPhase] = useState<'idle' | 'recording' | 'thinking'>('idle')
   const [q, setQ] = useState('')
@@ -348,6 +408,7 @@ function ScanVoice({ card }: { card?: ScanCard }) {
   const [speaking, setSpeaking] = useState(false)
   const rec = useRef<Recording | null>(null)
   const cardRef = useRef(card); cardRef.current = card
+  const personRef = useRef(person); personRef.current = person
   useEffect(() => { if (micSupported()) voiceStatus().then(setVoice) }, [])
   useEffect(() => () => { rec.current?.cancel(); stopSpeaking() }, [])
   if (!micSupported() || voice?.stt === false) return null
@@ -361,9 +422,11 @@ function ScanVoice({ card }: { card?: ScanCard }) {
       const t = await transcribe(await r.stop())
       if (!t.text || t.text.length < 2) { setErr('Did not catch that - try again a little closer.'); return }
       setQ(t.text)
-      const c = cardRef.current
-      const history = c ? [{ role: 'user' as const, content: cardContext(c) },
-                           { role: 'assistant' as const, content: `Understood - you are looking at ${c.name}.` }] : []
+      const c = cardRef.current, p = personRef.current
+      const seen = [c ? cardContext(c) : '', p ? personContext(p) : ''].filter(Boolean).join(' ')
+      const what = [c?.name, p ? `${p.auth_subject} ${p.name}` : ''].filter(Boolean).join(' and ')
+      const history = seen ? [{ role: 'user' as const, content: seen.slice(0, 3800) },
+                              { role: 'assistant' as const, content: `Understood - you are looking at ${what}.` }] : []
       const a = await api.aiAsk(t.text, history)
       setAnswer(a.answer)
       setSpeaking(true)
@@ -387,7 +450,8 @@ function ScanVoice({ card }: { card?: ScanCard }) {
           {phase === 'recording' ? <Square size={18} /> : <Mic size={20} />}</button>
         <div className="text-[13px] min-w-0">
           <div className="text-white">{phase === 'recording' ? 'Listening… tap again to ask' : phase === 'thinking' ? 'Thinking…'
-            : card ? <>Ask about <b>{card.name}</b> or anything in the lab</> : 'Ask anything about the lab by voice'}</div>
+            : card ? <>Ask about <b>{card.name}</b> or anything in the lab</>
+            : person ? <>Ask about <b>{person.name}</b> or anything in the lab</> : 'Ask anything about the lab by voice'}</div>
           {q && <div className="text-slate-400 truncate">You: {q}</div>}
         </div>
         {speaking && <button className="ml-auto btn-ghost btn-sm" onClick={() => { stopSpeaking(); setSpeaking(false) }}><VolumeX size={13} /> Stop</button>}
