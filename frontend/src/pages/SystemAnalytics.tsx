@@ -56,11 +56,21 @@ function Stacked({ title, sub, p, y, height = 240 }: { title: string; sub: strin
     </ChartCard>)
 }
 
+const SYS_CACHE = new Map<number, Sys>()
+
 export default function SystemAnalytics() {
   const [days, setDays] = useState(30)
   const [d, setD] = useState<Sys | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { setD(null); api.systemAnalytics<Sys>(days).then(setD).catch(e => setError(e.message)) }, [days])
+  // 2026-10-27 (click-through: switching 7/30/90 days blanked the page behind a spinner): the shown range stays on
+  // screen while the next one loads, and a range already loaded is shown at once from memory
+  useEffect(() => {
+    let live = true
+    const hit = SYS_CACHE.get(days)
+    if (hit) setD(hit)
+    api.systemAnalytics<Sys>(days).then(r => { SYS_CACHE.set(days, r); if (live) setD(r) }).catch(e => { if (live) setError(e.message) })
+    return () => { live = false }
+  }, [days])
 
   return (
     <div className="space-y-5">

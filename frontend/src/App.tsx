@@ -6,6 +6,7 @@ import HazardAlarm from './components/HazardAlarm'
 import WelcomeIntro from './components/WelcomeIntro'
 import { Spinner } from './components/ui'
 import { firstName, isAdmin, isStaff, useAuth } from './lib/auth'
+import { registerChunks } from './lib/warm'
 import { LiveProvider } from './lib/live'
 import { watchDeployments } from './lib/version'
 
@@ -83,8 +84,18 @@ function prefetchPages() {
     : globalThis.setTimeout(cb, 300))
   // One after another while the browser is idle: never competes with the page in use.
   const next = (i: number) => { if (i < PREFETCH.length) idle(() => { PREFETCH[i]().catch(() => {}).finally(() => next(i + 1)) }) }
-  window.setTimeout(() => next(0), 1500)
+  window.setTimeout(() => next(0), 400)
 }
+registerChunks({
+  '/labs': loadLabs, '/book': loadBook, '/bookings': loadMyBookings, '/admin/bookings': loadReservations,
+  '/admin/access': loadAccessMonitor, '/admin/devices': loadDevices, '/admin/equipment': loadEquipment,
+  '/admin/security': loadSecurity, '/admin/alerts': loadAlerts, '/admin/users': loadUsers, '/admin/settings': loadSettings,
+  '/admin/emergency': loadEmergency, '/issues': loadIssueList, '/notifications': loadNotifications, '/profile': loadProfile,
+  '/admin/reports': () => import('./pages/Reports'), '/admin/operations': () => import('./pages/Operations'),
+  '/command': () => import('./pages/CommandCenter'), '/robots': () => import('./pages/Robots'),
+  '/admin/incidents': () => import('./pages/Incidents'), '/admin/reliability': () => import('./pages/Reliability'),
+  '/admin/system': () => import('./pages/SystemAnalytics'), '/monitor': () => import('./pages/Monitor'),
+})
 
 // Charts pull in Recharts; load them only when a chart page is opened.
 const Reports = lazy(() => import('./pages/Reports'))

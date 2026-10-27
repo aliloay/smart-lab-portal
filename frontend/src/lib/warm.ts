@@ -57,8 +57,17 @@ const WARM: Record<Role, Record<string, string[]>> = {
   },
 }
 
-/** Start the first reads of `path` for this role (no-op when unknown). */
+// Page code per path (registered by App): pointing at a sidebar link also downloads that page's code, so the click
+// shows the page at once even before the idle prefetch reached it (2026-10-27 click-through: first /labs 4.7 s).
+const CHUNKS = new Map<string, () => Promise<unknown>>()
+export function registerChunks(m: Record<string, () => Promise<unknown>>) {
+  for (const [k, v] of Object.entries(m)) CHUNKS.set(k, v)
+}
+
+/** Start the first reads of `path` for this role (no-op when unknown), and its page code. */
 export function warmRoute(role: Role | undefined | null, path: string) {
-  const w = role ? WARM[role]?.[path.split('?')[0]] : undefined
+  const key = path.split('?')[0]
+  CHUNKS.get(key)?.().catch(() => {})
+  const w = role ? WARM[role]?.[key] : undefined
   if (w) warmGets(w)
 }
