@@ -15,8 +15,9 @@ interface MarkerCard { code: string; key: string; kind: string; name: string; ty
   category: string; color: string; label: string; source: string; img: string }
 
 // Illustrated markers (2026-10-27, owner: "a partially opened door with the QR on the door, a 3D 6-DOF robot, a camera whose
-// lens is the QR"): drawn by e2e/qr_art.mjs around the REAL flat QR (portal encoder, ECC H) and decode-checked (jsQR 80/80,
-// OpenCV 50/50). Only these registered assets have a drawing; every other marker keeps the pack artwork (fallback).
+// lens is the QR"): the owner's own object pictures with the REAL flat QR (portal encoder, ECC H) drawn into each white
+// panel by e2e/qr_place_on_images.py (door: a sticker below the handle), decode-checked (jsQR 80/80, OpenCV 48/50 - the
+// 2 misses only at 337 px thumbnail size). Only these registered assets have a picture; others keep the pack artwork.
 const ART: Record<string, string> = {
   'SLAB:D:CAM_LAB01': 'entry-camera', 'SLAB:D:FACESRV_01': 'face-server', 'SLAB:D:MASTER_LAB01': 'door-master',
   'SLAB:D:PC_ADMIN_LAPTOP': 'admin-laptop', 'SLAB:D:UR5E_01': 'ur5e-robot', 'SLAB:D:FANUC_01': 'fanuc-robot',

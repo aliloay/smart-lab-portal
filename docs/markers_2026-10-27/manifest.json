@@ -1,89 +1,13 @@
 [
  {
-  "file": "entry-camera.png",
-  "payload": "SLAB:D:CAM_LAB01",
-  "title": "Entry Camera",
-  "category": "CAMERA",
-  "jsqr": {
-   "w1600": true,
-   "w800": true,
-   "w480": true,
-   "w320": true,
-   "blur": true,
-   "rot12": true,
-   "dim": true,
-   "jpeg40": true
-  }
- },
- {
-  "file": "face-server.png",
-  "payload": "SLAB:D:FACESRV_01",
-  "title": "Face Recognition Server",
-  "category": "SERVER",
-  "jsqr": {
-   "w1600": true,
-   "w800": true,
-   "w480": true,
-   "w320": true,
-   "blur": true,
-   "rot12": true,
-   "dim": true,
-   "jpeg40": true
-  }
- },
- {
-  "file": "door-master.png",
-  "payload": "SLAB:D:MASTER_LAB01",
-  "title": "Master Door Controller",
-  "category": "DOOR",
-  "jsqr": {
-   "w1600": true,
-   "w800": true,
-   "w480": true,
-   "w320": true,
-   "blur": true,
-   "rot12": true,
-   "dim": true,
-   "jpeg40": true
-  }
- },
- {
   "file": "admin-laptop.png",
   "payload": "SLAB:D:PC_ADMIN_LAPTOP",
-  "title": "Admin Laptop",
-  "category": "LAB PC",
-  "jsqr": {
-   "w1600": true,
-   "w800": true,
-   "w480": true,
-   "w320": true,
-   "blur": true,
-   "rot12": true,
-   "dim": true,
-   "jpeg40": true
-  }
- },
- {
-  "file": "ur5e-robot.png",
-  "payload": "SLAB:D:UR5E_01",
-  "title": "UR5e Robot Arm",
-  "category": "ROBOT",
-  "jsqr": {
-   "w1600": true,
-   "w800": true,
-   "w480": true,
-   "w320": true,
-   "blur": true,
-   "rot12": true,
-   "dim": true,
-   "jpeg40": true
-  }
- },
- {
-  "file": "fanuc-robot.png",
-  "payload": "SLAB:D:FANUC_01",
-  "title": "FANUC Robot Arm",
-  "category": "ROBOT",
+  "source_image": "01_admin_laptop.png",
+  "module_px": 19,
+  "size": [
+   2022,
+   2532
+  ],
   "jsqr": {
    "w1600": true,
    "w800": true,
@@ -98,8 +22,12 @@
  {
   "file": "consumables-bin.png",
   "payload": "SLAB:D:BIN_NODE_1",
-  "title": "Consumables Bin",
-  "category": "CONSUMABLES",
+  "source_image": "02_consumables_bin.png",
+  "module_px": 19,
+  "size": [
+   2022,
+   2532
+  ],
   "jsqr": {
    "w1600": true,
    "w800": true,
@@ -112,10 +40,74 @@
   }
  },
  {
-  "file": "security-camera.png",
-  "payload": "SLAB:D:SECCAM_LAB01",
-  "title": "Security Camera",
-  "category": "SECURITY",
+  "file": "door-master.png",
+  "payload": "SLAB:D:MASTER_LAB01",
+  "source_image": "03_master_door_controller.png",
+  "module_px": 15,
+  "size": [
+   2016,
+   2532
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "entry-camera.png",
+  "payload": "SLAB:D:CAM_LAB01",
+  "source_image": "04_entry_camera.png",
+  "module_px": 19,
+  "size": [
+   2022,
+   2532
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "face-server.png",
+  "payload": "SLAB:D:FACESRV_01",
+  "source_image": "05_face_recognition_server.png",
+  "module_px": 16,
+  "size": [
+   2022,
+   2532
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "fanuc-robot.png",
+  "payload": "SLAB:D:FANUC_01",
+  "source_image": "06_fanuc_robot_arm.png",
+  "module_px": 16,
+  "size": [
+   2022,
+   2526
+  ],
   "jsqr": {
    "w1600": true,
    "w800": true,
@@ -130,8 +122,32 @@
  {
   "file": "reusable-bin.png",
   "payload": "SLAB:D:REUSE_BIN_1",
-  "title": "Reusable Items Bin",
-  "category": "REUSABLE",
+  "source_image": "07_reusable_items_bin.png",
+  "module_px": 17,
+  "size": [
+   2022,
+   2526
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "security-camera.png",
+  "payload": "SLAB:D:SECCAM_LAB01",
+  "source_image": "08_security_camera.png",
+  "module_px": 16,
+  "size": [
+   2016,
+   2526
+  ],
   "jsqr": {
    "w1600": true,
    "w800": true,
@@ -146,8 +162,32 @@
  {
   "file": "student-pc.png",
   "payload": "SLAB:D:PC_01",
-  "title": "Lab PC-01",
-  "category": "LAB PC",
+  "source_image": "09_lab_pc_01.png",
+  "module_px": 23,
+  "size": [
+   2022,
+   2526
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
+  "file": "ur5e-robot.png",
+  "payload": "SLAB:D:UR5E_01",
+  "source_image": "10_ur5e_robot_arm.png",
+  "module_px": 19,
+  "size": [
+   2022,
+   2526
+  ],
   "jsqr": {
    "w1600": true,
    "w800": true,
