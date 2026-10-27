@@ -334,6 +334,8 @@ def answer(db: Session, user: User, question: str, card: Optional[dict], person:
     t = live.get("type")
     name = card["name"]
     src = [{"label": card["type"], "quality": card["status"], "at": card.get("last_seen_at")}]
+    if intent == "problems" and t != "environment":      # environment: its own answer lists readings + alerts
+        return _done(intent, _problems(db, card, live, name), card, person, src)
     if t == "robot":
         return _done(intent, _robot_answer(intent, m, name, live), card, person, src)
     if t == "consumables":
@@ -376,6 +378,44 @@ def answer(db: Session, user: User, question: str, card: Optional[dict], person:
              f"{_fmt_age(card.get('seconds_since_seen'))}."]
     lines += [f"{f['label']}: {f['value']}" for f in card.get("facts", [])[:6]]
     return _done(intent, lines, card, person, src)
+
+
+def _problems(db: Session, card: dict, live: dict, name: str) -> list[str]:
+    """'What is wrong?' (2026-10-27): a verdict from the target's own live record - what is confirmed (offline, stale,
+    safety stop, open alerts, low stock) - and 'nothing found' only when every check passed. No guessed causes."""
+    from app.models import Alert, Device
+    found: list[str] = []
+    t = live.get("type")
+    if t == "robot":
+        if live["connection"] != "LIVE":
+            found.append({"STALE": f"telemetry is STALE (last {_fmt_age(live['telemetry_age_s'])})",
+                          "OFFLINE": f"not reporting (last telemetry {_fmt_age(live['telemetry_age_s'])})",
+                          "NO_TELEMETRY": "it has never sent telemetry"}[live["connection"]])
+        if live.get("safety_mode") not in (None, "NORMAL", "REDUCED"):
+            found.append(f"safety mode is {live['safety_mode']}")
+        if live.get("simulation"):
+            found.append("this record is a SIMULATION, not the physical robot")
+    elif "online" in live and not live["online"]:
+        found.append("it is NOT reporting to the portal")
+    for b in live.get("bins") or []:
+        if b.get("low"):
+            found.append(f"{b['item']} is LOW (about {b['qty_est']} left)")
+        if b.get("qty_est") is None:
+            found.append(f"{b['item']}: no count - the scale is not calibrated")
+    for r in live.get("readings") or []:
+        if r.get("quality") == "STALE":
+            found.append(f"{r['metric']} reading is STALE ({_fmt_age(r['age_s'])})")
+    dev = db.scalar(select(Device).where(Device.device_uid == card.get("key"))) if card.get("key") else None
+    alerts = db.scalars(select(Alert).where(Alert.device_id == dev.id, Alert.is_resolved.is_(False))
+                        .order_by(Alert.created_at.desc()).limit(3)).all() if dev else []
+    for a in alerts:
+        found.append(f"open {a.severity.value} alert: {a.title}")
+    if not found:
+        return [f"No problem found for {name}: it is reporting" + (", safety mode normal" if t == "robot" else "")
+                + ", and it has no open alert.", "Checked: connection, freshness"
+                + (", safety mode" if t == "robot" else "") + (", stock" if live.get("bins") else "") + ", open alerts."]
+    return [f"{name} - {len(found)} thing(s) to look at:"] + [f"- {f}" for f in found] + \
+           ["These are what its own records show; the cause is not known from them."]
 
 
 def _done(intent: str, lines: list[str], card: Optional[dict], person: Optional[dict], sources: list[dict]) -> dict:

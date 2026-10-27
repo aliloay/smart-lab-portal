@@ -332,6 +332,13 @@ def run_tool(db: Session, name: str, args: dict) -> tuple[str, bool]:
         return f"Unknown tool {name}", True
     try:
         args = args if isinstance(args, dict) else {}
+        # the model's arguments go through the same typed checks as MCP calls, clamped to the documented ranges
+        # (2026-10-27, services/tool_gateway.py) - a wrong type or missing required value is an error, not a crash
+        from app.services.tool_gateway import ToolRefused, validate
+        try:
+            args = validate(name, args, strict=False)
+        except ToolRefused as e:
+            return f"Tool error: {e}", True
         return _json(fn(db, **{k: v for k, v in args.items()
                               if k in fn.__code__.co_varnames})), False
     except Exception as exc:                        # noqa: BLE001

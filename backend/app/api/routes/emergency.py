@@ -335,3 +335,11 @@ def safety_triage(lab_id: Optional[int] = None, db: Session = Depends(get_db), _
     Read-only; never actuates anything."""
     from app.services.safety_triage import ADVISORY, triage
     return {"items": triage(db, lab_id=lab_id), "advisory": ADVISORY}
+
+
+@router.get("/insights/proactive")
+def proactive_insights(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Proactive suggestions (services/proactive.py): CONFIRMED findings and POSSIBLE anomalies with evidence and
+    timestamps, de-duplicated; recomputed only when the data changed (at most once a minute), not per request."""
+    from app.services import proactive
+    return proactive.current(db)

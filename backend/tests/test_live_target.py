@@ -175,3 +175,19 @@ def test_open_questions_go_to_the_model_with_the_live_data_as_context(monkeypatc
     r = _ask(client, auth_headers(client, staff.email), "Compare that with a typical cycle", "SLAB:D:UR5E_T").json()
     assert r["answer"] == "model answer" and r["deterministic"] is False
     assert "UR5e (physical)" in seen["h"][0]["content"] and '"joints"' in seen["h"][0]["content"]
+
+
+def test_what_is_wrong_is_a_verdict_from_the_record(client, db, lab, staff):
+    """2026-10-27: 'what is wrong?' names what the record shows (stale telemetry, open alert) - or says nothing was
+    found and what was checked; never a guessed cause."""
+    h = auth_headers(client, staff.email)
+    d = _robot(db, lab)
+    r = _ask(client, h, "what is wrong?", "SLAB:D:UR5E_T").json()
+    assert r["intent"] == "problems" and "No problem found for UR5e (physical)" in r["answer"]
+    db.add(Alert(lab_id=lab.id, device_id=d.id, severity=AlertSeverity.WARNING, title="Protective stop at 14:02"))
+    d.last_seen_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    cs = dict(d.component_state); cs["received_at"] = d.last_seen_at.isoformat(); d.component_state = cs
+    db.commit()
+    r = _ask(client, h, "is anything wrong with it", "SLAB:D:UR5E_T").json()
+    assert "telemetry is STALE" in r["answer"] and "Protective stop at 14:02" in r["answer"]
+    assert "the cause is not known" in r["answer"]

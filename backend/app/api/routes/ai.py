@@ -192,3 +192,27 @@ def student_ask(req: AskRequest, db: Session = Depends(get_db),
                               [t.model_dump() for t in req.history])
     except ai.AIUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+# ------------------------------------------------------------------ read-only lab tools (MCP front) - 2026-10-27 ---
+@router.get("/tools")
+def list_tools(user: User = Depends(require_staff)):
+    """The read-only lab tools with typed input schemas (what tools/mcp_server/server.py exposes over MCP)."""
+    from app.services import tool_gateway
+    return {"tools": tool_gateway.schemas(), "read_only": True,
+            "note": "Monitoring only. Door, relay and robot-motion actions are not tools and cannot be called here."}
+
+
+class ToolCallIn(BaseModel):
+    arguments: dict = Field(default_factory=dict)
+    via: Literal["api", "mcp", "portal"] = "api"
+
+
+@router.post("/tools/{name}")
+def call_tool(name: str, body: ToolCallIn, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """One validated, audited, time-limited read-only tool call. Refusals and timeouts come back as status, not 500."""
+    from app.services import tool_gateway
+    r = tool_gateway.call(db, user, name, body.arguments, via=body.via, strict=True)
+    if r["status"] == "refused":
+        raise HTTPException(422, r["result"])
+    return r

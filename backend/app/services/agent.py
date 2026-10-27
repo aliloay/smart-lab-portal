@@ -499,7 +499,7 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     ("report_weekly", r"\b(week(ly)?)\b.*\b(report|summary|usage|analysis|overview)\b|"
                       r"\b(report|summary|usage|analysis|overview)\b.*\bweek(ly)?\b", True),
     ("insights", r"\b(recurr\w*|repeat\w*|keeps? (happening|coming)|same (alert|error|problem)|"
-                 r"recommend\w*|suggest\w*|insights?|what should (we|i) (fix|do))\b", True),
+                 r"recommend\w*|suggest\w*|insights?|what should (we|i) (fix|do|check)|anything unusual|anomal\w*)\b", True),
     ("equipment", r"\b(robots?|pcs?|computers?|equipment|ur5e?|fanuc)\b.*\b(used|usage|use|hours|busiest|most)\b|"
                   r"\bmost used\b", True),
     ("inside", r"\b(who|how many)\b.*\b(inside|in the labs?|present|in lab)\b|\boccupancy\b", True),
@@ -672,11 +672,16 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
                        r["charts"])
 
     if intent == "insights":
+        # 2026-10-27: the proactive findings first (confirmed / possible, with evidence), then the 30-day plan
+        from app.services import proactive
+        pro = proactive.current(db)["items"]
+        head = ("**Right now** (confirmed = the records show it; possible = unusual, check first):\n" + _bullets(
+            [f"{i['level'].lower()}: {i['title']} - {i['suggestion']}" for i in pro[:6]]) + "\n\n") if pro else ""
         start = now - timedelta(days=30)
         found = insights(db, start, now)
         if not found:
-            return _answer("Nothing has repeated enough to flag in the last 30 days.", intent)
-        return _answer(plan_text(found, 30), intent,
+            return _answer(head + "Nothing has repeated enough to flag in the last 30 days.", intent)
+        return _answer(head + plan_text(found, 30), intent,
                        {"label": "Open the monthly report (PDF)", "to": "/report?period=monthly"})
 
     if intent == "system":
