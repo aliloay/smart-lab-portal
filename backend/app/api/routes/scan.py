@@ -93,14 +93,15 @@ def markers_page(kind: str = Query("all", pattern="^(all|device|bin|asset)$"),
 
 
 @router.get("/markers.pdf")
-def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"), db: Session = Depends(get_db),
+def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"),
+                style: str = Query("art", pattern="^(art|pack)$"), db: Session = Depends(get_db),
                 _: User = Depends(require_staff)):
     """Every marker of one kind on A4 sheets (the pack's 2 x 4 card layout, 300 dpi)."""
     items = [i for i in scan.registry(db) if kind == "all" or i["kind"] == kind]
     if not items:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No assets of this kind")
     from app.services import marker_pack
-    return Response(marker_pack.sheet_pdf(items), media_type="application/pdf",
+    return Response(marker_pack.sheet_pdf(items, style=style), media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="smartlab_markers_{kind}.pdf"',
                              "Cache-Control": "no-store"})
 

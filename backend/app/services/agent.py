@@ -482,6 +482,10 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     # 2026-10-27 instant categories (owner: "instant replies for common questions"): checked before the reports so
     # "compare this week with last week" / "daily summary" / "what is low" never reach the language model.
     # time periods only ("compare the robotics lab and the PLC lab" is about two labs - not this answer)
+    # "how to make the ur5e better" / "what's wrong with PC-05": that device's own records, instant (2026-10-27)
+    ("device_advice", r"\b(how (to|can (we|i)|do (we|i)|should (we|i)) (make|improve|optimi[sz]e|maintain|fix|speed up)|improv\w*|"
+                      r"better|optimi[sz]\w*|what('?s| is) wrong with|problems? with|issues? with|health of|check (the|on))\b"
+                      r".*\b(ur5e?|fanuc|robots?|pc[- ]?\d+|cameras?|door|bins?|environment|sensor node|scale)\b", True),
     ("compare", r"\b(compare\w*|comparison|versus|vs\.?)\b.*\b(week|month|yesterday|previous|before|last)\b|"
                 r"\bthan (last|the previous|previous) (week|month)\b|\b(this|last) (week|month)\b.*\b(last|previous|before)\b", True),
     ("report_daily", r"\b(daily|today'?s?|day)\b.*\b(report|summary|overview|recap)\b|"
@@ -562,6 +566,9 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
     if intent is None:
         return None
     now = datetime.now(timezone.utc)
+
+    if intent == "device_advice":
+        return _device_advice(db, question, now)
 
     if intent == "compare":
         period = "monthly" if re.search(r"\bmonth", question.lower()) else "weekly"
@@ -871,6 +878,68 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
                                              else " (free for the rest of today)") for f in free]),
             intent, {"label": "Book a lab", "to": "/book"})
     return None
+
+
+def _device_advice(db: Session, question: str, now: datetime) -> dict:
+    """One device's health and what its OWN records suggest - status, last 30 days of faults / alerts / telemetry
+    drops / use, open maintenance, proactive findings - with the playbook steps for its repeated alerts. Nothing is
+    advised that its records do not show."""
+    from app.models import RobotEvent
+    from app.services import proactive
+    from app.services.devices import device_out
+    q = question.lower()
+    want = {"ur5": ("ur5",), "fanuc": ("fanuc",), "robot": ("ur5", "fanuc", "robot"), "camera": ("cam",),
+            "door": ("master", "door"), "bin": ("bin",), "scale": ("bin",), "environment": ("env",), "sensor": ("env",)}
+    m = re.search(r"pc[- ]?(\d+)", q)
+    keys = (f"pc_{int(m.group(1)):02d}", f"pc-{int(m.group(1)):02d}", f"pc{int(m.group(1)):02d}") if m else next((v for k, v in want.items() if k in q), ())
+    devs = [d for d in refresh_liveness(db)
+            if any(k in f"{d.device_uid} {d.name}".lower() for k in keys)] if keys else []
+    if not devs:
+        return _answer("I could not find that device in the portal's registry - name it as it appears on the "
+                       "Devices page (e.g. UR5e, FANUC, PC-05, the door controller).", "device_advice")
+    since = now - timedelta(days=30)
+    usage = {u["device_uid"]: u for u in equipment_usage(db, since, now)}
+    pro = proactive.current(db)["items"]
+    blocks = []
+    for d in devs[:3]:
+        o = device_out(d, now=now)
+        lines, todo = [], []
+        lines.append(f"Status: **{o.state.lower()}**" + (f" - {o.state_note}" if o.state_note else "")
+                     + f", last report {_when(d.last_seen_at) if d.last_seen_at else 'never'}")
+        if o.state in ("OFFLINE", "NO_DATA"):
+            todo.append("Bring it back online first: power, network cable / Wi-Fi, and its collector or agent service.")
+        u = usage.get(d.device_uid)
+        if u:
+            lines.append(f"Last 30 days: {u['running_h']} h running, {u['idle_h']} h idle, {u['faults']} fault(s), {u['users']} user(s)")
+            if u["faults"]:
+                todo.append(f"{u['faults']} fault session(s) in 30 days - open the robot's event list and look for a pattern (same joint, same program, same time).")
+            if not u["running_h"] and d.device_type == DeviceType.ROBOT:
+                todo.append("Not used in 30 days - a short supervised test run confirms it still works.")
+        if d.device_type == DeviceType.ROBOT:
+            ev = Counter(e.kind for e in db.scalars(select(RobotEvent).where(RobotEvent.device_id == d.id,
+                                                                              RobotEvent.occurred_at >= since)).all())
+            if ev:
+                lines.append("Robot events (30 days): " + ", ".join(f"{k.replace('_', ' ').lower()} {n}" for k, n in ev.most_common(4)))
+            if ev.get("TELEMETRY_STALE"):
+                todo.append(f"Telemetry dropped {ev['TELEMETRY_STALE']} time(s) - check the robot's network cable and the collector PC (tools/robot_monitor).")
+        al = db.scalars(select(Alert).where(Alert.device_id == d.id, Alert.created_at >= since)).all()
+        if al:
+            open_n = sum(1 for a in al if not a.is_resolved)
+            top = Counter(_norm_title(a.title) for a in al).most_common(2)
+            lines.append(f"Alerts (30 days): {len(al)}, {open_n} still open - most common: "
+                         + "; ".join(f"{t} x{n}" for t, n in top))
+            for t, n in top:
+                plan = next((pl for pat, pl in PLAYBOOK if re.search(pat, t)), None)
+                if plan and n >= 2:
+                    todo.append(f"Repeated '{t}': " + " ".join(plan["steps"][:2]))
+        for i in pro:
+            if d.device_uid in i["key"]:
+                todo.append(f"{i['level'].lower()}: {i['title']} - {i['suggestion']}")
+        if not todo:
+            todo.append("Nothing in its records points to a problem - no open alert, no fault, reporting normally.")
+        blocks.append(f"**{d.name}** ({d.device_uid})\n" + _bullets(lines) + "\n*What its records suggest:*\n"
+                      + _bullets(list(dict.fromkeys(todo))[:5]))
+    return _answer("\n\n".join(blocks), "device_advice", {"label": "Open Devices", "to": "/admin/devices"})
 
 
 # -------------------------------------------- snapshot for the language model ---

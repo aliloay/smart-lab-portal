@@ -180,6 +180,26 @@
   }
  },
  {
+  "file": "security-camera-2.png",
+  "payload": "SLAB:D:SECCAM_LAB02",
+  "source_image": "08b_security_camera.png",
+  "module_px": 16,
+  "size": [
+   2016,
+   2526
+  ],
+  "jsqr": {
+   "w1600": true,
+   "w800": true,
+   "w480": true,
+   "w320": true,
+   "blur": true,
+   "rot12": true,
+   "dim": true,
+   "jpeg40": true
+  }
+ },
+ {
   "file": "ur5e-robot.png",
   "payload": "SLAB:D:UR5E_01",
   "source_image": "10_ur5e_robot_arm.png",

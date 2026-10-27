@@ -22,7 +22,7 @@ const ART: Record<string, string> = {
   'SLAB:D:CAM_LAB01': 'entry-camera', 'SLAB:D:FACESRV_01': 'face-server', 'SLAB:D:MASTER_LAB01': 'door-master',
   'SLAB:D:PC_ADMIN_LAPTOP': 'admin-laptop', 'SLAB:D:UR5E_01': 'ur5e-robot', 'SLAB:D:FANUC_01': 'fanuc-robot',
   'SLAB:D:BIN_NODE_1': 'consumables-bin', 'SLAB:D:SECCAM_LAB01': 'security-camera', 'SLAB:D:REUSE_BIN_1': 'reusable-bin',
-  'SLAB:D:PC_01': 'student-pc',
+  'SLAB:D:PC_01': 'student-pc', 'SLAB:D:SECCAM_LAB02': 'security-camera-2',
 }
 type Style = 'art' | 'pack' | 'shape'
 
@@ -55,7 +55,7 @@ export function ScanMarkers() {
   const downloadPdf = async () => {
     setBusy(true); setError('')
     try {
-      const url = URL.createObjectURL(await scanMarkersPdf(kind))
+      const url = URL.createObjectURL(await scanMarkersPdf(kind, style === 'art' ? 'art' : 'pack'))
       const a = document.createElement('a'); a.href = url; a.download = `smartlab_markers_${kind}.pdf`
       document.body.appendChild(a); a.click(); a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
@@ -94,6 +94,8 @@ export function ScanMarkers() {
               {look === 'pack' && <div className="h-2" style={{ background: c.color }} />}
               <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={look === 'pack' ? 'mx-auto block w-[92%]' : 'block w-full'}
                    loading="lazy" decoding="async" />
+              {look === 'art' && <div className="px-2 pb-2 text-[12.5px] font-semibold text-slate-900 leading-tight">
+                {c.name}{c.name.includes(c.key) ? '' : <span className="font-normal text-slate-500"> · {c.key}</span>}</div>}
               {look === 'pack' && <div className="px-2 pb-2.5">
                 <div className="text-[13px] font-semibold text-slate-900 leading-tight">{c.name}</div>
                 <div className="mt-0.5 text-[10.5px] font-medium" style={{ color: c.color }}>{c.key} · {c.label}{c.lab_code ? ` · ${c.lab_code}` : ''}</div>

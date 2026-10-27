@@ -64,3 +64,21 @@ def test_markers_page_in_one_response(client, db, lab, staff):
     m = {x["code"]: x for x in r["markers"]}["SLAB:D:CAM_LAB01"]
     assert m["category"] == "camera" and m["source"] == "pack" and m["img"].startswith("data:image/svg+xml;base64,")
     assert client.get("/api/scan/markers.json", params={"style": "shape"}, headers=h).json()["markers"][0]["img"].startswith("data:image/png")
+
+
+def test_pdf_prints_the_owner_pictures_and_they_scan():
+    """2026-10-27 (owner: 'when downloading the markers, where are the images?'): the PDF uses the asset's picture
+    with its QR; the printed card still decodes to the asset's own payload."""
+    import cv2
+    import numpy as np
+    from app.services import marker_pack
+    items = [{"code": "SLAB:D:UR5E_01", "name": "UR5e (physical)", "kind": "device", "type": "ROBOT"},
+             {"code": "SLAB:D:MASTER_LAB01", "name": "Door Controller", "kind": "device", "type": "DOOR_CONTROLLER"}]
+    for it in items:
+        card = marker_pack.art_card(it, 1100, 1000)
+        assert card is not None
+        a = cv2.cvtColor(np.array(card), cv2.COLOR_RGB2BGR)
+        assert cv2.QRCodeDetector().detectAndDecode(a)[0] == it["code"], it["code"]
+    assert marker_pack.art_card({"code": "SLAB:A:XYZ", "name": "x"}, 500, 500) is None     # no picture -> pack card
+    pdf = marker_pack.sheet_pdf(items, style="art")
+    assert pdf[:4] == b"%PDF" and len(pdf) > 50_000

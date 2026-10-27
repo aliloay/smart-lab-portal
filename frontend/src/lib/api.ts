@@ -391,9 +391,9 @@ export async function scanMarkerSvg(code: string): Promise<{ blob: Blob; categor
   return { blob: await r.blob(), category: r.headers.get('X-Marker-Category') ?? 'equipment', source: r.headers.get('X-Marker-Source') ?? '' }
 }
 /** All markers of one kind as an A4 PDF (prints from a phone, where window.print() of the page does nothing). */
-export async function scanMarkersPdf(kind: string): Promise<Blob> {
+export async function scanMarkersPdf(kind: string, style: "art" | "pack" = "art"): Promise<Blob> {
   const token = getToken()
-  const r = await fetch(`/api/scan/markers.pdf?kind=${encodeURIComponent(kind)}`,
+  const r = await fetch(`/api/scan/markers.pdf?kind=${encodeURIComponent(kind)}&style=${style}`,
                         { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: 'no-store' })
   if (!r.ok) throw new Error(r.status === 404 ? 'No assets of this kind to print' : `Print sheet failed (${r.status})`)
   return r.blob()

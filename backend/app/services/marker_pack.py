@@ -253,8 +253,46 @@ def card_png(item: dict, width: int = 760) -> bytes:
     return buf.getvalue()
 
 
-def sheet_pdf(items: list[dict], cols: int = 2, rows: int = 4) -> bytes:
-    """A4 at 300 dpi in the pack's sheet layout (2 x 4 cards)."""
+# The owner's object pictures with the real QR in their white panel (2026-10-27, docs/markers_2026-10-27/manifest.json,
+# decode-checked): the printed sheet uses them for these assets - every other asset keeps the pack card.
+ART = {"SLAB:D:CAM_LAB01": "entry-camera", "SLAB:D:FACESRV_01": "face-server", "SLAB:D:MASTER_LAB01": "door-master",
+       "SLAB:D:PC_ADMIN_LAPTOP": "admin-laptop", "SLAB:D:UR5E_01": "ur5e-robot", "SLAB:D:FANUC_01": "fanuc-robot",
+       "SLAB:D:BIN_NODE_1": "consumables-bin", "SLAB:D:SECCAM_LAB01": "security-camera",
+       "SLAB:D:REUSE_BIN_1": "reusable-bin", "SLAB:D:PC_01": "student-pc",
+       "SLAB:D:SECCAM_LAB02": "security-camera-2"}
+ART_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "marker_art")
+
+
+def art_card(it: dict, width: int, height: int) -> Optional[Image.Image]:
+    """The asset's picture (QR inside) with its name underneath, or None when it has no picture."""
+    slug = ART.get(it["code"])
+    path = os.path.join(ART_DIR, f"{slug}.jpg") if slug else None
+    if not path or not os.path.isfile(path):
+        return None
+    pic = Image.open(path).convert("RGB")
+    cap = 70
+    k = min(width / pic.width, (height - cap) / pic.height)
+    pic = pic.resize((int(pic.width * k), int(pic.height * k)), Image.LANCZOS)
+    card = Image.new("RGB", (pic.width, pic.height + cap), "white")
+    card.paste(pic, (0, 0))
+    d = ImageDraw.Draw(card)
+    name = str(it.get("name") or it["code"])
+    key = it["code"].split(":")[-1]
+    if key not in name:                                 # two cameras are both called "Security camera"
+        name = f"{name} - {key}"
+    name = name[:48]
+    f = _font(34)
+    tw = d.textlength(name, font=f)
+    d.text(((card.width - tw) / 2, pic.height + 14), name, font=f, fill=(13, 25, 43))
+    d.rectangle((0, 0, card.width - 1, card.height - 1), outline=(203, 213, 225), width=3)
+    return card
+
+
+def sheet_pdf(items: list[dict], cols: int = 2, rows: int = 4, style: str = "art") -> bytes:
+    """A4 at 300 dpi in the pack's sheet layout (2 x 4 cards). style=art: assets with a picture print as the picture
+    (QR inside it) - owner 2026-10-27: "when downloading the markers, where are the images?"."""
+    if style == "art":
+        rows = 3                                        # the pictures are taller than the pack cards
     PW, PH, mx, top, gx, gy = 2480, 3508, 80, 120, 55, 25
     cw = (PW - 2 * mx - gx) // cols
     ch = (PH - top - 80 - (rows - 1) * gy) // rows
@@ -263,7 +301,9 @@ def sheet_pdf(items: list[dict], cols: int = 2, rows: int = 4) -> bytes:
         page = Image.new("RGB", (PW, PH), "white")
         ImageDraw.Draw(page).text((mx, 40), "SMART LAB - ASSET QR MARKERS", font=_font(48), fill=(13, 25, 43))
         for k, it in enumerate(items[start:start + cols * rows]):
-            card = Image.open(io.BytesIO(card_png(it, width=min(cw, int(ch / 1.2)))))
+            card = art_card(it, cw, ch) if style == "art" else None
+            if card is None:
+                card = Image.open(io.BytesIO(card_png(it, width=min(cw, int(ch / 1.2)))))
             x = mx + (k % cols) * (cw + gx) + (cw - card.width) // 2
             y = top + (k // cols) * (ch + gy)
             page.paste(card, (x, y))

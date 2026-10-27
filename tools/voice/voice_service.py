@@ -175,4 +175,22 @@ if __name__ == "__main__":
     print(f"Voice service: STT {v.model_name} (CPU int8, {v.threads} threads), TTS "
           f"{'Piper ' + os.path.basename(v.voice_path) if v.tts else 'none (browser voice)'} | loaded in "
           f"{time.time() - t0:.1f} s | 127.0.0.1:5320")
+    # 2026-10-27 (owner: "a lot of time until I hear the answer"; audit: the first spoken answer after an idle spell took
+    # ~14 s, the next ones < 1 s): the voice is kept warm - one short silent synthesis now and every 3 minutes, so its
+    # model stays in memory. ~0.2 s of CPU each time; skipped while a real answer is being spoken.
+    import threading
+
+    def keep_warm():
+        while True:
+            if v.tts is not None and v.tts_slot.acquire(blocking=False):
+                try:
+                    buf = io.BytesIO()
+                    with wave.open(buf, "wb") as w:
+                        v.tts.synthesize_wav("Ready.", w)
+                except Exception:                            # noqa: BLE001 - warming must never stop the service
+                    pass
+                finally:
+                    v.tts_slot.release()
+            time.sleep(180)
+    threading.Thread(target=keep_warm, daemon=True, name="tts-warm").start()
     serve(v, key)

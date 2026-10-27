@@ -252,3 +252,20 @@ def test_new_instant_answers_come_from_the_records(client, db, staff, alice, lab
     assert r["tools_used"] == ["instant:compare"] and "Door entries: **1**" in r["answer"]
     r = ask("give me today's summary")
     assert r["tools_used"] == ["instant:report_daily"] and "Door entries: **1**" in r["answer"]
+
+
+def test_how_to_improve_a_device_is_instant_from_its_records(client, db, staff, lab):
+    """2026-10-27: 'how to make ur5e better' waited for the language model; now that device's own records answer."""
+    now = datetime.now(timezone.utc)
+    d = Device(device_uid="UR5E_ADV", name="UR5e", device_type=DeviceType.ROBOT, lab_id=lab.id, last_seen_at=now,
+               is_online=True, component_state={"q": [0.0] * 6})
+    db.add(d); db.commit()
+    for _ in range(3):
+        db.add(Alert(lab_id=lab.id, device_id=d.id, severity=AlertSeverity.WARNING, title="Robot telemetry stale"))
+    db.commit()
+    assert agent.detect("how to make ur5e better", staff=True) == "device_advice"
+    assert agent.detect("what is wrong with PC-05", staff=True) == "device_advice"
+    assert agent.detect("which robot was used most?", staff=True) == "equipment"
+    r = client.post("/api/ai/ask", headers=auth_headers(client, staff.email), json={"question": "how to make ur5e better"}).json()
+    assert r["instant"] and r["tools_used"] == ["instant:device_advice"]
+    assert "UR5E_ADV" in r["answer"] and "Alerts (30 days): 3" in r["answer"] and "What its records suggest" in r["answer"]
