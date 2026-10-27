@@ -68,6 +68,8 @@ export default function Scan() {
   const [source, setSource] = useState<'camera' | 'file'>('camera')
   const [cards, setCards] = useState<Record<string, CardState>>({})
   const [inView, setInView] = useState<string[]>([])
+  const inViewRef = useRef(inView)
+  inViewRef.current = inView
   const [selected, setSelected] = useState<Target | null>(null)
   const [sessionNo, setSessionNo] = useState(0)
   const [stats, setStats] = useState({ decodeMs: 0, peopleMs: 0, peopleRtt: 0, faceMs: 0, decoder: '' })
@@ -335,13 +337,16 @@ export default function Scan() {
 
   // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
   const [boxHint, setBoxHint] = useState<string>('')
-  const whichBox = () => {
+  const boxBusy = useRef(false)
+  const whichBox = (auto = false) => {
     const v = video.current
-    if (!v?.videoWidth) return
+    if (!v?.videoWidth || boxBusy.current) return
+    boxBusy.current = true
+    window.setTimeout(() => { boxBusy.current = false }, 2500)
     const g = document.createElement('canvas')
     const w = Math.min(W, v.videoWidth); g.width = w; g.height = Math.round(w * v.videoHeight / v.videoWidth)
     g.getContext('2d')!.drawImage(v, 0, 0, g.width, g.height)
-    setBoxHint('Comparing with the enclosure photos…')
+    if (!auto) setBoxHint('Comparing with the enclosure photos…')
     g.toBlob(b => {
       if (!b) return
       scanAppearance(b).then(r => {
@@ -352,6 +357,13 @@ export default function Scan() {
       }).catch(e => setBoxHint(e instanceof Error ? e.message : 'Box match failed'))
     }, 'image/jpeg', 0.85)
   }
+  // 2026-10-28 (owner: "it did not detect it - only the QR"): the box check also runs by itself every 3 s while no
+  // marker is in view, so a sharp frame gets its chance; still a hint only - live data needs the marker
+  useEffect(() => {
+    if (!running || paused) return
+    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0) whichBox(true) }, 3000)
+    return () => window.clearInterval(t)
+  })
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
@@ -460,6 +472,8 @@ export default function Scan() {
         {running && source === 'file' && <span className="absolute top-2 left-2"><Chip tone="warn">RECORDED TEST VIDEO</Chip></span>}
         {/* 2026-10-28 (owner: "the Tell me more button should be higher - I scroll down to press it"): the voice
             controls float on the picture itself, so the target stays in view while asking */}
+        {running && boxHint.startsWith('Looks like') && inView.length === 0 &&
+          <span className="absolute top-2 left-1/2 -translate-x-1/2 max-w-[90%] rounded-lg bg-sky-900/85 border border-sky-400/50 px-2.5 py-1 text-[12px] text-sky-100 text-center">{boxHint}</span>}
         {running && <div className="absolute bottom-2 inset-x-2 flex justify-center gap-2 pointer-events-none">
           <button type="button" className="pointer-events-auto btn-primary btn-sm shadow-lg"
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:tell-more')) }}>Tell me more</button>
@@ -477,7 +491,7 @@ export default function Scan() {
         <button className="btn-ghost" disabled={!secure || starting} onClick={flip}><RefreshCw size={15} /> {facing === 'environment' ? 'Back' : 'Front'} camera</button>
         <button className={`btn-ghost ${peopleOn ? 'border border-sky-400/60 text-sky-200' : ''}`} onClick={() => { setNote(''); setPeopleOn(p => !p) }}>
           <Users size={15} /> People {peopleOn ? 'on' : 'off'}</button>
-        {running && <button className="btn-ghost" onClick={whichBox}><Box size={15} /> Which box is this?</button>}
+        {running && <button className="btn-ghost" onClick={() => whichBox()}><Box size={15} /> Which box is this?</button>}
         <label className="btn-ghost cursor-pointer"><FileVideo size={15} /> Test video
           <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void begin({ file: f }); e.target.value = '' }} /></label>
       </div>

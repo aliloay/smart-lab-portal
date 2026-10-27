@@ -298,6 +298,12 @@ async def appearance_match(request: Request, _: User = Depends(require_staff)):
         m = appearance.matcher()
         if not any(r.views for r in m.refs):
             return {"decision": "UNKNOWN", "best": None, "candidates": [], "note": "no reference photos yet - scan the marker"}
-        return m.match(img)
+        r = m.match(img)
+        # verdict only, never the picture (2026-10-28: the owner's phone try could not be checked afterwards)
+        import logging
+        logging.getLogger("smartlab.appearance").warning(
+            "appearance %s best=%s cand=%s size=%sx%s", r.get("decision"), (r.get("best") or {}).get("code"),
+            [(c.get("code"), c.get("inliers")) for c in (r.get("candidates") or [])[:2]], img.shape[1], img.shape[0])
+        return r
 
     return await run_in_threadpool(_work)
