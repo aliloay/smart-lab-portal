@@ -206,6 +206,7 @@ export default function Scan() {
           const r = await scanPeople(blob, ac.signal)
           if (r && !session.current.stopped) {
             tracker.current.update(r.boxes, Date.now())
+            setNote(n => (n?.startsWith('People boxes') ? '' : n))
             objects.current = { at: Date.now(), list: r.objects ?? [] }
             syncTracks()
             setStats(st => ({ ...st, peopleMs: r.ms, peopleRtt: Math.round(performance.now() - t1) }))
@@ -214,7 +215,9 @@ export default function Scan() {
         } catch (e) {
           if (!(e instanceof DOMException && e.name === 'AbortError')) {
             const m = e instanceof Error ? e.message : String(e)
-            if (m.includes('unavailable')) { setNote(m); setPeopleOn(false) }
+            // 2026-10-27: one failed frame used to switch People boxes OFF for good ("no camera service is running"
+            // while both were up) - now it pauses and retries; only the user switches it off
+            if (m.includes('unavailable')) { setNote(`People boxes: ${m} - retrying in 5 s`); s.peopleBackoff = Date.now() + 5000 }
             else { setNote(`People boxes paused for 3 s: ${m}`); s.peopleBackoff = Date.now() + 3000 }   // network blip: retry
           }
         } finally { s.peopleBusy = false }

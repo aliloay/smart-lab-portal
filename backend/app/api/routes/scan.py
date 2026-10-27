@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -129,23 +130,30 @@ async def people(request: Request, db: Session = Depends(get_db), _: User = Depe
     """Person boxes for one phone frame. The camera service answers 429 while it is busy with another phone frame
     (one at a time - the fixed cameras keep priority); the phone then simply sends its NEXT frame."""
     body = await request.body()
-    if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
-    url = _vision_url(db)
-    t0 = time.perf_counter()
-    try:
-        r = _detect.post(url, content=body, headers={"X-Device-Key": settings.DEVICE_API_KEY,
-                                                     "Content-Type": "image/jpeg"})
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service is not reachable - people "
-                                                                 "boxes are unavailable (markers still work)")
-    if r.status_code == 429:
-        return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "0"})
-    if r.status_code != 200:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service could not detect on this frame")
-    out = r.json()
-    out["proxy_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-    return out
+    # 2026-10-27 (owner: "it takes a lot of time to detect and to hear the answer"): the blocking calls (camera /
+    # face / voice service, database) run on a worker thread - they used to hold the event loop, so every other
+    # request, the spoken answer included, queued behind the phone's back-to-back frames.
+
+    def _work():
+        if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
+        url = _vision_url(db)
+        t0 = time.perf_counter()
+        try:
+            r = _detect.post(url, content=body, headers={"X-Device-Key": settings.DEVICE_API_KEY,
+                                                         "Content-Type": "image/jpeg"})
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service is not reachable - people "
+                                                                     "boxes are unavailable (markers still work)")
+        if r.status_code == 429:
+            return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "0"})
+        if r.status_code != 200:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service could not detect on this frame")
+        out = r.json()
+        out["proxy_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return out
+
+    return await run_in_threadpool(_work)
 
 
 # ------------------------------------------------------------------ who is this (face) - 2026-10-27 ---
@@ -160,42 +168,49 @@ _face = httpx.Client(timeout=httpx.Timeout(3.0, connect=0.5))
 @router.post("/identify")
 async def identify(request: Request, db: Session = Depends(get_db), user: User = Depends(require_staff)):
     body = await request.body()
-    if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
-    t0 = time.perf_counter()
-    try:
-        r = _face.post(settings.FACE_SERVER_URL.rstrip("/") + "/identify", content=body,
-                       headers={"X-Device-Key": settings.DEVICE_API_KEY, "Content-Type": "image/jpeg"})
-    except httpx.HTTPError:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server is not reachable - people stay "
-                                                                 "unnamed")
-    if r.status_code in (409, 429, 503):
-        return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "1"})
-    if r.status_code != 200:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server could not check this frame")
-    res = r.json()
-    name, score, second = res.get("name"), res.get("score"), res.get("second")
-    out = {"face": bool(res.get("face")), "score": score, "second": second, "known": False,
-           "ms": round((time.perf_counter() - t0) * 1000, 1)}
-    clear = bool(name) and score is not None and score >= FACE_MIN and (second is None or score - second >= FACE_MARGIN)
-    if not clear:
-        out["reason"] = ("no face in the picture" if not res.get("face") else
-                         "no clear match - stays unnamed" if name or score else "not an enrolled person")
+    # 2026-10-27 (owner: "it takes a lot of time to detect and to hear the answer"): the blocking calls (camera /
+    # face / voice service, database) run on a worker thread - they used to hold the event loop, so every other
+    # request, the spoken answer included, queued behind the phone's back-to-back frames.
+
+    def _work():
+        if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
+        t0 = time.perf_counter()
+        try:
+            r = _face.post(settings.FACE_SERVER_URL.rstrip("/") + "/identify", content=body,
+                           headers={"X-Device-Key": settings.DEVICE_API_KEY, "Content-Type": "image/jpeg"})
+        except httpx.HTTPError:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server is not reachable - people stay "
+                                                                     "unnamed")
+        if r.status_code in (409, 429, 503):
+            return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "1"})
+        if r.status_code != 200:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The face server could not check this frame")
+        res = r.json()
+        name, score, second = res.get("name"), res.get("score"), res.get("second")
+        out = {"face": bool(res.get("face")), "score": score, "second": second, "known": False,
+               "ms": round((time.perf_counter() - t0) * 1000, 1)}
+        clear = bool(name) and score is not None and score >= FACE_MIN and (second is None or score - second >= FACE_MARGIN)
+        if not clear:
+            out["reason"] = ("no face in the picture" if not res.get("face") else
+                             "no clear match - stays unnamed" if name or score else "not an enrolled person")
+            return out
+        from app.models import AuditLog
+        person = db.scalar(select(User).where(User.auth_subject == name))
+        if person is None or not person.is_active:
+            out["reason"] = f"face label {name} has no active portal account"
+            return out
+        db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
+                        entity_id=str(person.id), detail={"score": score, "second": second}))
+        db.commit()
+        now_s = int(time.time())
+        # approved overlay fields only (masked student id); the ticket lets a voice question about "this person"
+        # be answered for the next TICKET_S seconds without the phone ever naming a user id itself
+        out.update(known=True, person=live_target.person_card(db, person.id, score, now_s),
+                   ticket=live_target.person_ticket(person.id, score, now_s))
         return out
-    from app.models import AuditLog
-    person = db.scalar(select(User).where(User.auth_subject == name))
-    if person is None or not person.is_active:
-        out["reason"] = f"face label {name} has no active portal account"
-        return out
-    db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
-                    entity_id=str(person.id), detail={"score": score, "second": second}))
-    db.commit()
-    now_s = int(time.time())
-    # approved overlay fields only (masked student id); the ticket lets a voice question about "this person"
-    # be answered for the next TICKET_S seconds without the phone ever naming a user id itself
-    out.update(known=True, person=live_target.person_card(db, person.id, score, now_s),
-               ticket=live_target.person_ticket(person.id, score, now_s))
-    return out
+
+    return await run_in_threadpool(_work)
 
 
 class AskIn(BaseModel):
@@ -266,15 +281,22 @@ async def appearance_match(request: Request, _: User = Depends(require_staff)):
     """One phone frame -> which enclosure it LOOKS like (PROBABLE / AMBIGUOUS / UNKNOWN). A hint only: identity and
     live data still come from the asset's QR marker. Run on request, not per frame; nothing is stored."""
     body = await request.body()
-    if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
-    import cv2
-    import numpy as np
-    img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
-    if img is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Not a decodable JPEG")
-    from app.services import appearance
-    m = appearance.matcher()
-    if not any(r.views for r in m.refs):
-        return {"decision": "UNKNOWN", "best": None, "candidates": [], "note": "no reference photos yet - scan the marker"}
-    return m.match(img)
+    # 2026-10-27 (owner: "it takes a lot of time to detect and to hear the answer"): the blocking calls (camera /
+    # face / voice service, database) run on a worker thread - they used to hold the event loop, so every other
+    # request, the spoken answer included, queued behind the phone's back-to-back frames.
+
+    def _work():
+        if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Not a decodable JPEG")
+        from app.services import appearance
+        m = appearance.matcher()
+        if not any(r.views for r in m.refs):
+            return {"decision": "UNKNOWN", "best": None, "candidates": [], "note": "no reference photos yet - scan the marker"}
+        return m.match(img)
+
+    return await run_in_threadpool(_work)

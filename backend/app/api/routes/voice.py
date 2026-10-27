@@ -13,6 +13,7 @@ import os
 import time
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -58,23 +59,30 @@ def voice_status(_: User = Depends(get_current_user)):
 @router.post("/transcribe")
 async def transcribe(request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     body = await request.body()
-    if not body:
-        raise HTTPException(422, "No recording")
-    if len(body) > MAX_AUDIO:
-        raise HTTPException(413, "Recording too long - keep a question under 30 s")
-    if not KEY:
-        raise HTTPException(503, "Voice is not set up on this portal")
-    _hourly(db, user, "AI_VOICE", settings.AI_QUESTIONS_PER_HOUR * 2)
-    try:
-        r = _client.post(URL + "/transcribe", content=body, headers={"X-Voice-Key": KEY,
-                         "Content-Type": request.headers.get("content-type", "application/octet-stream")})
-    except httpx.HTTPError:
-        raise HTTPException(503, "The voice service is not running - type the question instead")
-    if r.status_code == 429:
-        raise HTTPException(429, "Someone else is speaking to the assistant - try again in a moment")
-    if r.status_code != 200:
-        raise HTTPException(422 if r.status_code < 500 else 503, (r.json() if r.content else {}).get("error", "voice error"))
-    return r.json()
+    # 2026-10-27 (owner: "it takes a lot of time to detect and to hear the answer"): the blocking calls (camera /
+    # face / voice service, database) run on a worker thread - they used to hold the event loop, so every other
+    # request, the spoken answer included, queued behind the phone's back-to-back frames.
+
+    def _work():
+        if not body:
+            raise HTTPException(422, "No recording")
+        if len(body) > MAX_AUDIO:
+            raise HTTPException(413, "Recording too long - keep a question under 30 s")
+        if not KEY:
+            raise HTTPException(503, "Voice is not set up on this portal")
+        _hourly(db, user, "AI_VOICE", settings.AI_QUESTIONS_PER_HOUR * 2)
+        try:
+            r = _client.post(URL + "/transcribe", content=body, headers={"X-Voice-Key": KEY,
+                             "Content-Type": request.headers.get("content-type", "application/octet-stream")})
+        except httpx.HTTPError:
+            raise HTTPException(503, "The voice service is not running - type the question instead")
+        if r.status_code == 429:
+            raise HTTPException(429, "Someone else is speaking to the assistant - try again in a moment")
+        if r.status_code != 200:
+            raise HTTPException(422 if r.status_code < 500 else 503, (r.json() if r.content else {}).get("error", "voice error"))
+        return r.json()
+
+    return await run_in_threadpool(_work)
 
 
 class SpeakIn(BaseModel):
