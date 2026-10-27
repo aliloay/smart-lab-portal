@@ -55,8 +55,9 @@ def marker_png(code: str = Query(min_length=6, max_length=80), db: Session = Dep
     item = next((i for i in scan.registry(db) if i["code"] == code), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown asset")
-    from app.services import marker_art
-    return Response(marker_art.png(item), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    # asset-shaped QR (marker_shapes, decode-checked); a design that does not read back is served as a plain QR
+    from app.services import marker_shapes
+    return Response(marker_shapes.png(item), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/markers.pdf")
@@ -67,8 +68,8 @@ def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"), db
     items = [i for i in scan.registry(db) if kind == "all" or i["kind"] == kind]
     if not items:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No assets of this kind")
-    from app.services import marker_art
-    return Response(marker_art.sheet_pdf(items), media_type="application/pdf",
+    from app.services import marker_shapes
+    return Response(marker_shapes.sheet_pdf(items), media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="smartlab_markers_{kind}.pdf"',
                              "Cache-Control": "no-store"})
 
