@@ -269,3 +269,17 @@ def test_how_to_improve_a_device_is_instant_from_its_records(client, db, staff, 
     r = client.post("/api/ai/ask", headers=auth_headers(client, staff.email), json={"question": "how to make ur5e better"}).json()
     assert r["instant"] and r["tools_used"] == ["instant:device_advice"]
     assert "UR5E_ADV" in r["answer"] and "Alerts (30 days): 3" in r["answer"] and "What its records suggest" in r["answer"]
+
+
+def test_open_issues_phrasings_and_lab_info_are_instant(client, db, staff, alice, lab):
+    """2026-10-27 question mix: 'open maintenance issues' reached the model (it printed a raw tool call) and
+    'tell me about the PLC lab' waited 2.6 s - both from the records now; students get no names."""
+    for q in ("open maintenance issues", "Are any open maintenance issues critical?", "which tickets are still open"):
+        assert agent.detect(q, staff=True) == "open_issues", q
+    assert agent.detect(f"tell me about {lab.code}", staff=False) == "lab_info"
+    r = client.post("/api/ai/ask", headers=auth_headers(client, staff.email),
+                    json={"question": "Are any open maintenance issues critical?"}).json()
+    assert r["instant"] and ("0 critical" in r["answer"] or "No maintenance issue" in r["answer"])
+    r = client.post("/api/ai/student/ask", headers=auth_headers(client, alice.email),
+                    json={"question": f"tell me about {lab.code}"}).json()
+    assert r["tools_used"] == ["instant:lab_info"] and lab.code in r["answer"] and "Open alerts" not in r["answer"]

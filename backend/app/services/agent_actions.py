@@ -103,6 +103,9 @@ def _times(q: str) -> Optional[tuple[time, time]]:
 
 def _lab(db: Session, q: str) -> tuple[Optional[Lab], list[Lab]]:
     labs = db.scalars(select(Lab).where(Lab.is_active.is_(True)).order_by(Lab.code)).all()
+    exact = [l for l in labs if re.search(rf"\b{re.escape(l.code.lower())}\b", q)]
+    if exact:
+        return exact[0], []
     m = re.search(r"\blab[_ ]?(\d{1,2})\b", q)
     if m:
         code = f"LAB_{int(m.group(1)):02d}"

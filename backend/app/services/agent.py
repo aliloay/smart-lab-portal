@@ -28,7 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -526,7 +526,11 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     ("alerts_open", r"\b(open|active|unresolved|current|pending)\b.*\b(alerts?|alarms?|incidents?)\b|"
                     r"\b(alerts?|alarms?|incidents?)\b.*\b(open|active|unresolved|now|today)\b|"
                     r"\bany (alerts?|alarms?|incidents?)\b", True),
-    ("open_issues", r"\bopen (issues|tickets|reports)\b|\bmaintenance\b.*\b(open|pending|backlog)\b", True),
+    # "open maintenance issues" reached the model, which printed a raw tool call (2026-10-27 question mix)
+    ("open_issues", r"\bopen (maintenance )?(issues|tickets|reports|faults)\b|\bmaintenance\b.*\b(open|pending|backlog|issues|tickets)\b|"
+                    r"\b(issues|tickets)\b.*\b(open|pending|unresolved)\b", True),
+    # "tell me about the PLC lab" / "how is LAB_02": that lab's state now, from the records (2026-10-27)
+    ("lab_info", r"\b(tell me about|about|status of|state of|how is|what about|info(rmation)? (on|about)|describe)\b.*\blab(s|_\w+|\s?\d+)?\b", False),
     ("next_booking", r"\b(my )?(next|upcoming)\b.*\bbook\w*|\bwhen is my\b", False),
     ("my_bookings", r"\bmy bookings?\b|\bmy reservations?\b", False),
     # "what lab is ready now" went to the language model (212 s, 2026-10-19): ready / usable / bookable too.
@@ -569,6 +573,35 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
 
     if intent == "device_advice":
         return _device_advice(db, question, now)
+
+    if intent == "lab_info":
+        from app.services import agent_actions
+        from app.services import environment as env_svc
+        lab, several = agent_actions._lab(db, question.lower())
+        if lab is None:
+            return None if not several else _answer(
+                "Which lab do you mean? " + ", ".join(f"{l.code} {l.name}" for l in several[:5]), intent)
+        free = {f["code"]: f for f in free_labs(db, now)}
+        occ = next((o for o in occupancy(db) if o["lab_code"] == lab.code), None)
+        lines = [f"Capacity {lab.capacity}" + (", door controller installed" if lab.has_controller else ", no door controller"),
+                 ("Free now" + (f" until {free[lab.code]['free_until']}" if free[lab.code]["free_until"] else " for the rest of today"))
+                 if lab.code in free else "Booked right now"]
+        if occ:
+            lines.append(f"Inside now: {len(occ['people'])}" + (" - " + ", ".join(p["name"] for p in occ["people"]) if staff else ""))
+        else:
+            lines.append("Nobody inside (door records)")
+        v = env_svc.latest(db, lab, now)
+        if v["node"] is not None:
+            t, h = (v["metrics"].get("temperature") or {}), (v["metrics"].get("humidity") or {})
+            if t.get("value") is not None:
+                lines.append(f"Environment: {t['value']:.1f} °C" + (f", {h['value']:.0f} % humidity" if h.get("value") is not None else "")
+                             + ("" if t.get("quality") == "VALID" else f" ({str(t.get('quality')).lower().replace('_', ' ')})"))
+        if staff:
+            al = db.scalar(select(func.count(Alert.id)).where(Alert.lab_id == lab.id, Alert.is_resolved.is_(False))) or 0
+            iss = db.scalar(select(func.count(Issue.id)).where(Issue.lab_id == lab.id, Issue.status.in_(ISSUE_ACTIVE))) or 0
+            lines.append(f"Open alerts: {al}, open maintenance issues: {iss}")
+        return _answer(f"**{lab.code} - {lab.name}**\n" + _bullets(lines), intent,
+                       {"label": f"Open {lab.code}", "to": f"/labs/{lab.id}"})
 
     if intent == "compare":
         period = "monthly" if re.search(r"\bmonth", question.lower()) else "weekly"
@@ -844,7 +877,10 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
         if not issues:
             return _answer("No maintenance issue is open.", intent)
         sev = Counter(i.severity.value for i in issues)
-        return _answer(f"**{len(issues)} open** ("
+        crit = ""
+        if re.search(r"\b(critical|urgent|severe)\b", question.lower()):     # "are any open issues critical?"
+            crit = (f"**{sev['CRITICAL']} critical.** " if sev.get("CRITICAL") else "**No critical issue is open (0 critical).** ")
+        return _answer(crit + f"**{len(issues)} open** ("
                        + ", ".join(f"{n} {k.lower()}" for k, n in sev.most_common()) + "). Oldest:\n"
                        + _bullets([f"{i.ticket_number or i.id}: {i.title} - since {_when(i.created_at)}"
                                    for i in issues[:5]]), intent,
