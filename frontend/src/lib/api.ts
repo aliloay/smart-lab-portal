@@ -328,6 +328,16 @@ export interface ScanAnswer {
   target: { code?: string; name?: string; person?: string } | null
   sources?: { label: string; quality: string; at: string | null }[]; live?: LiveBlock | null
 }
+export interface AppearanceHint { decision: 'PROBABLE' | 'AMBIGUOUS' | 'UNKNOWN'; note: string
+  best: { code: string; class: string; inliers: number } | null; candidates: { code: string; inliers: number }[] }
+/** Which enclosure a frame LOOKS like - a hint only; identity and live data still need the asset's QR marker. */
+export async function scanAppearance(jpeg: Blob): Promise<AppearanceHint> {
+  const token = getToken()
+  const r = await fetch('/api/scan/appearance', { method: 'POST', body: jpeg, cache: 'no-store',
+    headers: { 'Content-Type': 'image/jpeg', ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+  if (!r.ok) throw new Error(`Box match failed (${r.status})`)
+  return r.json()
+}
 /** One target-aware question from the live camera: the server resolves the target from the marker / face ticket. */
 export async function scanAsk(question: string, target: { code?: string | null; ticket?: string | null },
                               history: { role: 'user' | 'assistant'; content: string }[], signal?: AbortSignal): Promise<ScanAnswer> {

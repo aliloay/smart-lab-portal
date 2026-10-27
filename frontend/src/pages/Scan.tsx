@@ -16,11 +16,11 @@
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Camera, CameraOff, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
+import { Box, Camera, CameraOff, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
   Square, Users, Volume2, VolumeX, X } from 'lucide-react'
 import { Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
-import { ScanAnswer, ScanCard, api, scanAsk, scanIdentify, scanPeople } from '../lib/api'
+import { ScanAnswer, ScanCard, api, scanAppearance, scanAsk, scanIdentify, scanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
 import LiveTargetPanel, { LiveSummary, RobotBars, fmtAge } from '../components/live/LiveTargetPanel'
 import { PersonTracker, Track, faceCrop } from '../components/live/tracker'
@@ -323,6 +323,25 @@ export default function Scan() {
     } finally { setStarting(false) }
   }, [draw, facing, stop])
 
+  // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
+  const [boxHint, setBoxHint] = useState<string>('')
+  const whichBox = () => {
+    const v = video.current
+    if (!v?.videoWidth) return
+    const g = document.createElement('canvas')
+    const w = Math.min(W, v.videoWidth); g.width = w; g.height = Math.round(w * v.videoHeight / v.videoWidth)
+    g.getContext('2d')!.drawImage(v, 0, 0, g.width, g.height)
+    setBoxHint('Comparing with the enclosure photos…')
+    g.toBlob(b => {
+      if (!b) return
+      scanAppearance(b).then(r => {
+        const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
+        setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
+          : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
+          : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
+      }).catch(e => setBoxHint(e instanceof Error ? e.message : 'Box match failed'))
+    }, 'image/jpeg', 0.85)
+  }
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
@@ -436,11 +455,13 @@ export default function Scan() {
         <button className="btn-ghost" disabled={!secure || starting} onClick={flip}><RefreshCw size={15} /> {facing === 'environment' ? 'Back' : 'Front'} camera</button>
         <button className={`btn-ghost ${peopleOn ? 'border border-sky-400/60 text-sky-200' : ''}`} onClick={() => { setNote(''); setPeopleOn(p => !p) }}>
           <Users size={15} /> People {peopleOn ? 'on' : 'off'}</button>
+        {running && <button className="btn-ghost" onClick={whichBox}><Box size={15} /> Which box is this?</button>}
         <label className="btn-ghost cursor-pointer"><FileVideo size={15} /> Test video
           <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void begin({ file: f }); e.target.value = '' }} /></label>
       </div>
       {error && <p className="text-[12.5px] text-bad-soft">{error}</p>}
       {note && <p className="text-[12px] text-warn-soft">{note}</p>}
+      {boxHint && <p className="text-[12.5px] text-sky-200">{boxHint}</p>}
       {running && <p className="text-[11px] text-slate-500">Markers: {stats.decoder}, {stats.decodeMs} ms per check
         {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms · face check ${stats.faceMs} ms`}
         {' '}- a person is named only on a clear face match of their own box; anything less stays "person".</p>}
