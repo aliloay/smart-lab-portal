@@ -110,9 +110,9 @@ export default function ProjectKnowledge() {
         {turns.map((t, i) => (
           <div key={i} className="space-y-2">
             <div className="text-[13.5px] text-white font-medium">{t.q}</div>
-            {t.route && (
+            {(t.route || t.status === 'running') && (
               <div className="text-[11.5px] text-slate-400" title={t.why}>
-                <span className="px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 mr-1.5">{ROUTE_TEXT[t.route] ?? t.route}</span>
+                {t.route && <span className="px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-200 mr-1.5">{ROUTE_TEXT[t.route] ?? t.route}</span>}
                 {t.status === 'running'
                   ? `working… ${((now - started.current) / 1000).toFixed(1)} s`
                   : `${t.status} · ${((t.ms ?? 0) / 1000).toFixed(1)} s${t.firstMs ? ` · first word ${(t.firstMs / 1000).toFixed(1)} s` : ''}`}

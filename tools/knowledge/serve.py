@@ -165,6 +165,9 @@ class Handler(BaseHTTPRequestHandler):
                 emit({"type": "token", "text": hit["done"]["answer"]})
             emit({**hit["done"], "cached": True, "total_ms": 0})
             return
+        # first sign of life at once (owner 2026-10-27: "no answer??" - the panel stayed blank while the
+        # document search waited for the busy AI engine)
+        emit({"type": "step", "text": "step: searching the project's documents and code"})
         captured: dict = {}
 
         def emit_and_keep(e):

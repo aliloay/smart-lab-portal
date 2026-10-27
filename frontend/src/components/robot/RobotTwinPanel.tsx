@@ -76,14 +76,22 @@ export default function RobotTwinPanels() {
 
 /** The lab's PCs: on / off from the LAN check (tools/lan_presence, nothing installed on the PC) and
  *  the PC agent's heartbeat; whether someone works at it comes from the security camera's PC boxes. */
+// Last answer kept for the page's lifetime (2026-10-27, owner: "the PCs disappear and then appear"): coming back
+// to the tab shows the list at once, and a first visit draws it in one go once BOTH sources answered (no tiles
+// popping in and re-sorting).
+const PC_CACHE: { cams: SecurityCamera[] | null; pcs: Awaited<ReturnType<typeof api.equipment>> | null } = { cams: null, pcs: null }
+
 function LabPcs() {
-  const [cams, setCams] = useState<SecurityCamera[] | null>(null)
-  const [pcs, setPcs] = useState<Awaited<ReturnType<typeof api.equipment>>>([])
+  const [cams, setCams0] = useState<SecurityCamera[] | null>(PC_CACHE.cams)
+  const [pcs, setPcs0] = useState<Awaited<ReturnType<typeof api.equipment>> | null>(PC_CACHE.pcs)
+  const setCams = (v: SecurityCamera[]) => { PC_CACHE.cams = v; setCams0(v) }
+  const setPcs = (v: Awaited<ReturnType<typeof api.equipment>>) => { PC_CACHE.pcs = v; setPcs0(v) }
   const staff = isStaff(useAuth().user)
   useEffect(() => {
     const load = () => {
-      api.securityCameras().then(setCams).catch(() => setCams([]))
-      if (staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => {})
+      api.securityCameras().then(setCams).catch(() => setCams(PC_CACHE.cams ?? []))
+      if (staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => setPcs(PC_CACHE.pcs ?? []))
+      else setPcs([])
     }
     load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
   }, [staff])
@@ -94,7 +102,7 @@ function LabPcs() {
   // when either camera sees someone at it.
   const isPc = (n: string) => /^PC-\d+$/i.test(n)
   const names = Array.from(new Set([...all.map(z => String(z.name).toUpperCase()).filter(isPc),
-                                    ...pcs.map(e => String(e.asset_tag ?? e.name).toUpperCase()).filter(isPc)]))
+                                    ...(pcs ?? []).map(e => String(e.asset_tag ?? e.name).toUpperCase()).filter(isPc)]))
     .sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)))
   const rank = (s: string) => (s === 'IN_USE' ? 3 : s === 'CHANGED' || s === 'MOTION' ? 2 : s === 'OK' ? 1 : 0)
   const zones = all.filter(z => isPc(String(z.name))).map(z => ({ ...z, name: String(z.name).toUpperCase() }))
@@ -114,9 +122,11 @@ function LabPcs() {
         <span className="text-[12px] text-slate-400">on / off over the lab LAN · details from the PC agent · use seen by the security camera</span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
-        {names.map(n => {
+        {(cams === null || pcs === null) && Array.from({ length: 12 }, (_, i) =>
+          <div key={i} className="h-[66px] rounded-lg border border-ink-600/50 bg-ink-900/40 animate-pulse" />)}
+        {cams !== null && pcs !== null && names.map(n => {
           const z = zones.find(x => x.name === n)
-          const d = pcs.find(e => (e.asset_tag ?? e.name) === n)
+          const d = (pcs ?? []).find(e => (e.asset_tag ?? e.name) === n)
           const st = d ? pcStatus(d) : null
           const stCls = !st ? 'text-slate-500' : st.tone === 'ok' ? 'text-ok-soft' : st.tone === 'warn' ? 'text-warn-soft'
             : st.tone === 'bad' ? 'text-bad-soft' : 'text-slate-300'
@@ -230,7 +240,11 @@ function PanelInner({ model, robot, onFull, big }: {
   // view starts as that picture and becomes live 3D only when it matters: the robot is LIVE (real motion),
   // or the user points at / clicks the view, or moves a joint. No still yet (first visit): 3D as before.
   const shotKey = `smartlab.twinShot.${model.key}`
-  const [shot, setShot] = useState<string | null>(() => { try { return localStorage.getItem(shotKey) } catch { return null } })
+  // 2026-10-27 (owner: "they disappear and then appear"): a browser that never saved its own still (first visit,
+  // another address such as smartlab.local vs 192.168.1.200, cleared storage) used to show a blank placeholder,
+  // then a stick arm, then the robot. A still of each robot now ships with the portal (public/twin/, rendered by
+  // the same 3D view), so the picture is instant everywhere; the browser's own newer still replaces it.
+  const [shot, setShot] = useState<string | null>(() => { try { return localStorage.getItem(shotKey) ?? `/twin/${model.key}.webp` } catch { return `/twin/${model.key}.webp` } })
   // A still is taken once and renewed weekly - not on every wake-up of the 3D view (each one cost a
   // ~250 ms freeze while the owner pointed at the robots, 2026-10-21).
   const [shotFresh] = useState(() => {
@@ -325,7 +339,7 @@ function PanelInner({ model, robot, onFull, big }: {
       : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
       <div className="relative">
       <Suspense fallback={still ? <div className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}>{still}</div>
-                                : <Skeleton className="h-72 rounded-none" />}>
+                                : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />}>
         <RobotTwin onReady={onReady} model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
                    onSnapshot={big || live || shotFresh ? undefined : saveShot}
                    gripper={live || replay ? null : grip}
@@ -335,7 +349,7 @@ function PanelInner({ model, robot, onFull, big }: {
                      const v = [...p], [lo, hi] = limits[j]
                      v[j] = Math.max(lo / DEG, Math.min(hi / DEG, v[j] + d)); return v })} />
       </Suspense>
-      {still && !big && <div aria-hidden className={`absolute inset-0 bg-ink-950/40 transition-opacity duration-300 ${ready3d ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>{still}</div>}
+      {still && <div aria-hidden className={`absolute inset-0 bg-ink-950/40 transition-opacity duration-300 ${ready3d ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>{still}</div>}
       </div>)
   const control = robot ? <RobotControlPanel robotId={robot.device_id} robotName={robot.name} /> : null
   return (
