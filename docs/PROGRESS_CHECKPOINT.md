@@ -1,5 +1,21 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-10-27 ~14:10 (live camera + markers deployed)
+Deployed, live (health 200, version bc843aa): commits 3634647, 6c6dc25, a70512f, b929c62, 1848fe3, bc843aa.
+- Live Smart Lab camera (/scan): pinned live chips per marker/person, tap to select, live panel (UR5e six joint bars +
+  velocity/TCP/modes LIVE/STALE/OFFLINE, bins, reusables, environment, door, PC); person tracker (names only from a
+  track's own face crop, never transferred: e2e/tracker_check.mjs 8/8); /scan/ask target-aware answers (voice +
+  typed; backend tests/test_live_target.py); equipment boxes from the camera service /detect (code changed in
+  tools/security_vision - NEEDS a camera-service restart to take effect). e2e/live_camera.mjs PASS (fake devices).
+- Voice STT tiny.en (tools/voice/voice.env + default): same transcripts on 5 recorded questions, RTF 0.51 -> 0.23;
+  tell-me-more stop->answer 0.8 s (fake mic, warm).
+- Markers: asset-shaped QR (backend/app/services/marker_shapes.py, fallback plain QR); OpenCV 220/220, jsQR 218/220
+  (frontend/e2e/qr_decode_jsqr.mjs over scratch renders). Print = the sheet itself (CSP blocks in-page PDF viewer).
+- Floor plan: owner numbering, TA's desk PC-16, UR5e middle, table from the left wall; Back-to-portal + Esc on /wall
+  and /monitor.
+NEXT: (1) start lab services (launch.bat) after the laptop restart; (2) AI model sweep / router bench (P1);
+(3) offline test checklist; (4) remaining backlog. Owner: real-phone tests, camera-service restart, passwords.
+
 ## RESUME HERE - 2026-10-27 ~02:00 (continuation mission, in progress)
 Done this session (UNCOMMITTED until the full backend suite passes):
 - Launcher: one process/port snapshot instead of 8x `tasklist /v` (10-60 s each); rebuild only when code changed
