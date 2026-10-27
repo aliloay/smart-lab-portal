@@ -1322,6 +1322,9 @@ export type ShareRequest = { id: number; user_id: number; name: string; device_i
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'; at: number }
 
 export const api = {
+  // answer feedback (2026-10-27): optional thumbs up / down, stored locally and anonymised for review
+  aiFeedback: (b: { question: string; answer: string; rating: 'up' | 'down'; route: 'instant' | 'model' | 'routed' | 'knowledge' | 'live'; intent?: string | null }) =>
+    post<{ ok: boolean }>('/ai/feedback', b),
   login: (email: string, password: string) =>
     post<{ access_token: string; role: Role; user_id: number; full_name: string }>(
       '/auth/login', { email, password }),

@@ -28,6 +28,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gpu_gate  # noqa: E402  (camera-first GPU admission)
@@ -78,15 +79,33 @@ def snippet(text: str, q: str, width: int) -> str:
 
 def evidence(cfg, q, k):
     t0 = time.perf_counter()
-    hits = kb.search(cfg, q, k)
-    for h in hits:
+    hits, seen = [], set()
+    for h in kb.search(cfg, q, k + 3):
+        # 2026-10-27: the same passage copied into several files (handoff copies, release READMEs) counts once
+        sig = re.sub(r"\W+", " ", h["text"].lower()).strip()[:400]
+        if sig in seen:
+            continue
+        seen.add(sig)
         h["snippet"] = snippet(h["text"], q, FAST["width"])
         h["label"] = LABEL.get(h["kind"], "UNKNOWN")
+        h["updated"] = source_date(cfg, h["source"])
+        hits.append(h)
+        if len(hits) == k:
+            break
     return hits, (time.perf_counter() - t0) * 1000
 
 
+def source_date(cfg, source):
+    """When the cited file last changed (its own timestamp), so an answer shows how current its evidence is."""
+    try:
+        p = os.path.join(cfg["repo"], source.split("#")[0])
+        return datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d") if os.path.isfile(p) else None
+    except (OSError, KeyError, ValueError):
+        return None
+
+
 def cite(h, n):
-    return f"[{n}] {h['source']} — {h['heading']}  ({h['label']})"
+    return f"[{n}] {h['source']} — {h['heading']}  ({h['label']}" + (f", updated {h['updated']}" if h.get("updated") else "") + ")"
 
 
 # --------------------------------------------------------------------- llm ---
@@ -218,6 +237,7 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
     hits, ms = evidence(cfg, q, FAST["k"] if r != "lookup" else 6)
     res["retrieval_ms"] = round(ms, 1)
     res["citations"] = [{"n": i + 1, "source": h["source"], "heading": h["heading"], "label": h["label"],
+                         "updated": h.get("updated"),
                          "snippet": re.sub(r"\s+", " ", h["snippet"])[:300]} for i, h in enumerate(hits)]
     out(f"route: {r} ({why}) · retrieval {ms:.0f} ms")
     emit({"type": "meta", "route": r, "why": why, "retrieval_ms": res["retrieval_ms"], "citations": res["citations"]})

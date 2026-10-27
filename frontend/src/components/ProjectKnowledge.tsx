@@ -9,7 +9,7 @@ import { BookOpen, Send, Square } from 'lucide-react'
 import { getToken } from '../lib/api'
 import MicButton from './MicButton'
 
-interface Cite { n: number; source: string; heading?: string; label: string; snippet?: string }
+interface Cite { n: number; source: string; heading?: string; label: string; snippet?: string; updated?: string | null }
 interface Turn {
   q: string; route?: string; why?: string; steps: string[]; text: string; cites: Cite[]
   status: 'running' | 'completed' | 'failed' | 'cancelled'; error?: string; ms?: number; firstMs?: number; note?: string
@@ -132,6 +132,7 @@ export default function ProjectKnowledge() {
                       <span className="mono text-slate-200">[{c.n}] {c.source}</span>
                       {c.heading && <span className="text-slate-400"> — {c.heading}</span>}
                       <span className="ml-1.5 text-[10.5px] px-1.5 py-0.5 rounded bg-ink-700/70 text-slate-300">{c.label}</span>
+                      {c.updated && <span className="ml-1.5 text-[10.5px] text-slate-500" title="When this source file last changed">updated {c.updated}</span>}
                       {c.snippet && t.route === 'lookup' && <div className="text-slate-400 mt-0.5">{c.snippet}</div>}
                     </li>))}
                 </ol>

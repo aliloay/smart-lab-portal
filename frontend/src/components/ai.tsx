@@ -12,7 +12,7 @@
 import { FormEvent, ReactNode, Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowUpRight, BookOpen, Bot, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, Square, TriangleAlert, Volume2, VolumeX, X, Zap } from 'lucide-react'
+import { ArrowUpRight, BookOpen, Bot, ThumbsDown, ThumbsUp, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, Square, TriangleAlert, Volume2, VolumeX, X, Zap } from 'lucide-react'
 import { MAX_RECORD_MS, Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
 import { AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
@@ -232,6 +232,8 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
                 <Link to={t.link.to}
                   className="mt-2 inline-flex items-center gap-1 text-[12.5px] text-accent-300 hover:text-accent-200">
                   {t.link.label} <ArrowUpRight size={13} /></Link>))}
+              <Feedback question={turns[i - 1]?.content ?? ''} answer={t.content} route={t.instant ? 'instant' : 'model'}
+                        intent={t.tools?.[0] ?? null} />
               {t.instant ? (
                 <div className="mt-2 text-[11px] text-slate-500 inline-flex items-center gap-1 ml-2">
                   <Zap size={11} className="text-ok-soft" /> Instant, from the records</div>
@@ -499,4 +501,21 @@ export function ChatBubble() {
       </button>
     </>,
     document.body)
+}
+
+
+/** Optional thumbs up / down under an answer (2026-10-27): one tap, sent once, never blocks the chat. */
+function Feedback({ question, answer, route, intent }: { question: string; answer: string; route: 'instant' | 'model'; intent: string | null }) {
+  const [sent, setSent] = useState<'up' | 'down' | null>(null)
+  const send = (rating: 'up' | 'down') => {
+    if (sent || !question) return
+    setSent(rating)
+    api.aiFeedback({ question, answer: answer.slice(0, 8000), rating, route, intent }).catch(() => setSent(null))
+  }
+  return (
+    <span className="float-right ml-2 inline-flex items-center gap-1 text-slate-500" aria-label="Rate this answer">
+      {sent ? <span className="text-[11px]">{sent === 'up' ? 'Thanks' : 'Noted - it helps us fix this'}</span> : <>
+        <button type="button" title="Good answer" aria-label="Good answer" onClick={() => send('up')} className="p-1 hover:text-ok-soft"><ThumbsUp size={12} /></button>
+        <button type="button" title="Wrong or unhelpful" aria-label="Wrong or unhelpful" onClick={() => send('down')} className="p-1 hover:text-bad-soft"><ThumbsDown size={12} /></button></>}
+    </span>)
 }

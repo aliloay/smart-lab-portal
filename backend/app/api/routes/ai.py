@@ -216,3 +216,54 @@ def call_tool(name: str, body: ToolCallIn, db: Session = Depends(get_db), user: 
     if r["status"] == "refused":
         raise HTTPException(422, r["result"])
     return r
+
+
+# ------------------------------------------------------------------ answer feedback - 2026-10-27 ---
+# Optional thumbs up / down on an answer. Stored locally in the audit log (no new table). The review shows the down-rated
+# answers per route (instant / model / document lookup) with personal details stripped, to find routing and retrieval
+# failures - the evaluation set grows from reviewed examples, nothing trains on them automatically.
+_ANON = [(re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "<email>"), (re.compile(r"\b\d{5,}\b"), "<id>"),
+         (re.compile(r"\bUSER\d+\b", re.I), "<user>")]
+
+
+def anonymize(text: str) -> str:
+    for rx, rep in _ANON:
+        text = rx.sub(rep, text)
+    return text[:600]
+
+
+class FeedbackIn(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    answer: str = Field(min_length=1, max_length=8000)
+    rating: Literal["up", "down"]
+    route: Literal["instant", "model", "routed", "knowledge", "live"] = "model"
+    intent: Optional[str] = Field(default=None, max_length=80)
+    comment: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.post("/feedback")
+def feedback(body: FeedbackIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    db.add(AuditLog(actor_user_id=user.id, action="AI_FEEDBACK", entity_type="ai_answer", entity_id=body.route,
+                    detail={"rating": body.rating, "route": body.route, "intent": body.intent,
+                            "question": anonymize(body.question), "answer": anonymize(body.answer)[:400],
+                            "comment": anonymize(body.comment) if body.comment else None}))
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/feedback/review")
+def feedback_review(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db),
+                    _: User = Depends(require_staff)):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.scalars(select(AuditLog).where(AuditLog.action == "AI_FEEDBACK", AuditLog.created_at >= since)
+                      .order_by(AuditLog.created_at.desc())).all()
+    by: dict[str, dict] = {}
+    for a in rows:
+        d = a.detail or {}
+        r = by.setdefault(d.get("route", "?"), {"up": 0, "down": 0, "examples": []})
+        r[d.get("rating", "down")] += 1
+        if d.get("rating") == "down" and len(r["examples"]) < 10:
+            r["examples"].append({"question": d.get("question"), "intent": d.get("intent"), "comment": d.get("comment"),
+                                  "at": a.created_at.isoformat() if a.created_at else None})
+    return {"days": days, "routes": by, "note": "Anonymised (emails, ids and user labels removed). Review before adding "
+                                                "an example to the evaluation set; nothing is trained automatically."}

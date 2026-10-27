@@ -1,5 +1,14 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-10-27 ~20:00 (agent upgrades + speed + owner's QR pictures)
+Full write-up: docs/AGENT_SPEED_REPORT_2026-10-27.md. Model kept qwen2.5:1.5b (e2e 86.5 %, unchanged after the
+upgrade: 13/13, 6/6, 10/10); 15 unused models removed. New: instant compare / daily / low stock / recent activity /
+today's bookings / who is where; phone "what is wrong?" verdict; proactive suggestions (/api/insights/proactive);
+read-only tool gateway (/api/ai/tools) + MCP server (tools/mcp_server, official SDK in .venv, e2e 8/8); citation dates
++ copy de-dup; answer feedback. Scroll: frame p95 33 -> 16.8 ms (no backdrop blur, fixed background layer, charts built
+on idle). Markers: owner's 10 pictures + real QR, jsQR 80/80. NEXT: owner real-phone test (markers, face, iPhone voice),
+both-camera sustained run, time-slider UI, offline test.
+
 ## RESUME HERE - 2026-10-27 ~14:10 (live camera + markers deployed)
 Deployed, live (health 200, version bc843aa): commits 3634647, 6c6dc25, a70512f, b929c62, 1848fe3, bc843aa.
 - Live Smart Lab camera (/scan): pinned live chips per marker/person, tap to select, live panel (UR5e six joint bars +
