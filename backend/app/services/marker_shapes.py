@@ -27,6 +27,7 @@ from qrcode.constants import ERROR_CORRECT_H
 NAVY = (11, 18, 32)
 GAP = 3                       # white modules between the code and the silhouette (quiet zone for the scanner)
 SS = 4                        # silhouette masks are drawn at 4x and averaged per cell
+DARK_TEXTURE = True          # 2026-10-27 owner's Canva reference: silhouette filled with dark module texture
 TINT = 0.45                   # silhouette texture: accent this far towards white (lighter = safer for decoders)
 MOD_SHADE = 0.55              # code modules: accent this far towards navy (dark enough for any decoder)
 
@@ -297,6 +298,8 @@ def shape_qr(code: str, cat: str, box: int = 16, tint: float = TINT, mod_shade: 
     img = Image.new("RGB", ((W + 2 * pad) * box, (H + 2 * pad) * box), "white")
     d = ImageDraw.Draw(img)
     tex_dark, tex_light, edge_c = _mix(acc, (255, 255, 255), tint), _mix(acc, (255, 255, 255), 0.86), _mix(acc, NAVY, 0.1)
+    if DARK_TEXTURE:                     # the reference look: dark modules on white inside a coloured outline
+        tex_dark, tex_light, edge_c = _mix(NAVY, acc, 0.22), (255, 255, 255), acc
     feat_c = _mix(acc, NAVY, 0.28)
     mod_c = _mix(acc, NAVY, mod_shade)
     seed = sum(ord(ch) for ch in code) * 2654435761 & 0xFFFFFFFF
