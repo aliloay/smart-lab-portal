@@ -8,10 +8,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircle2, Download, Printer, ShieldAlert, XCircle } from 'lucide-react'
-import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkersPdf } from '../lib/api'
+import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkerSvg, scanMarkersPdf } from '../lib/api'
 import { Chip, Skeleton } from '../components/ui'
 
+// the owner's marker pack colours per category (presentation only - the registry and payloads come from the backend)
+const PACK: Record<string, [string, string]> = { camera: ['#6426a8', 'CAMERA'], server: ['#562099', 'SERVER'], door: ['#075f59', 'DOOR'],
+  pc: ['#1557ad', 'PC'], robot: ['#b84300', 'ROBOT'], inventory: ['#976000', 'INVENTORY'], security: ['#a71f31', 'SECURITY'],
+  reusable: ['#0e6e83', 'REUSABLES'], environment: ['#15803d', 'ENVIRONMENT'], equipment: ['#334155', 'EQUIPMENT'] }
+
 export function ScanMarkers() {
+  // previews: vector QR (SVG) in an HTML card; printing: the 300-dpi PNG cards (loaded after the previews)
+  const [svgs, setSvgs] = useState<Record<string, { url: string; category: string; source: string }>>({})
   const [items, setItems] = useState<ScanRegistryItem[] | null>(null)
   const [urls, setUrls] = useState<Record<string, string>>({})
   const [kind, setKind] = useState<'all' | 'device' | 'bin' | 'asset'>('all')
@@ -22,7 +29,15 @@ export function ScanMarkers() {
     let live = true
     const made: string[] = []
     ;(async () => {
-      for (const i of shown) {                          // one at a time: no burst of image requests
+      for (const i of shown) {                          // previews first, one at a time
+        if (!live || svgs[i.code]) continue
+        try {
+          const r = await scanMarkerSvg(i.code)
+          const u = URL.createObjectURL(r.blob)
+          if (live) setSvgs(m => ({ ...m, [i.code]: { url: u, category: r.category, source: r.source } }))
+        } catch { /* the card shows its name only */ }
+      }
+      for (const i of shown) {                          // then the print cards
         if (!live || urls[i.code]) continue
         try {
           const u = URL.createObjectURL(await scanMarkerBlob(i.code)); made.push(u)
@@ -32,7 +47,7 @@ export function ScanMarkers() {
     })()
     return () => { live = false }
   }, [shown])                                           // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)) }, [])   // eslint-disable-line
+  useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)); Object.values(svgs).forEach(v => URL.revokeObjectURL(v.url)) }, [])   // eslint-disable-line
   // Print (2026-10-27, owner: Print did nothing, then a grey box): the portal's security policy does not allow a PDF
   // viewer inside the page, so Print prints the marker sheet itself - the same print-resolution images, A4, three
   // per row at 6.3 cm (index.css, body.printing-markers). Download PDF gives the file for any other printer/phone.
@@ -78,13 +93,22 @@ export function ScanMarkers() {
         {shown.map(i => urls[i.code] && <img key={i.code} src={urls[i.code]} alt="" />)}
       </div>
       {!items ? <Skeleton className="h-60" /> : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 print:grid-cols-3">
-          {shown.map(i => (
-            // the marker image already carries the name, record key, type and lab
-            <div key={i.code} className="break-inside-avoid">
-              {urls[i.code] ? <img src={urls[i.code]} alt={`Marker ${i.code} - ${i.name}`} className="w-full rounded-xl" />
-                : <div className="aspect-[880/1088] bg-ink-800 rounded-xl grid place-items-center text-[12px] text-slate-500">{i.name}</div>}
-            </div>))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {shown.map(i => {
+            const v = svgs[i.code]
+            const [color, label] = PACK[v?.category ?? 'equipment'] ?? PACK.equipment
+            return (
+              <div key={i.code} className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-center shadow-sm">
+                <div className="h-2" style={{ background: color }} />
+                {v ? <img src={v.url} alt={`QR marker ${i.code} - ${i.name}`} className="mx-auto block w-[92%]" />
+                  : <div className="aspect-square grid place-items-center text-[12px] text-slate-400">loading…</div>}
+                <div className="px-2 pb-2.5">
+                  <div className="text-[13px] font-semibold text-slate-900 leading-tight">{i.name}</div>
+                  <div className="mt-0.5 text-[10.5px] font-medium" style={{ color }}>{i.key} · {label}{i.lab_code ? ` · ${i.lab_code}` : ''}</div>
+                  {v?.source === 'pack' && <div className="text-[9.5px] text-slate-400">from the marker pack (verified payload)</div>}
+                </div>
+              </div>)
+          })}
         </div>)}
     </div>
   )

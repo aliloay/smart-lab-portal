@@ -49,27 +49,47 @@ def asset(code: str = Query(min_length=6, max_length=80), db: Session = Depends(
 
 
 @router.get("/marker.png")
-def marker_png(code: str = Query(min_length=6, max_length=80), db: Session = Depends(get_db),
+def marker_png(code: str = Query(min_length=6, max_length=80), qr_only: bool = False,
+               style: str = Query("pack", pattern="^(pack|shape)$"), db: Session = Depends(get_db),
                _: User = Depends(require_staff)):
-    """The themed marker (2026-10-27): QR + an icon for what the asset is (camera, shield, robot, door ...)."""
+    """The printable marker of a registered asset (exact text = its record key). style=pack (default): the owner's
+    marker pack - category motif in recoloured real modules (services/marker_pack.py); style=shape: the object-
+    shaped variant (marker_shapes.py). qr_only=1: the code alone. Every marker is decoded back before serving."""
     item = next((i for i in scan.registry(db) if i["code"] == code), None)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown asset")
-    # asset-shaped QR (marker_shapes, decode-checked); a design that does not read back is served as a plain QR
-    from app.services import marker_shapes
-    return Response(marker_shapes.png(item), media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    if style == "shape":
+        from app.services import marker_shapes
+        body = marker_shapes.png(item)
+    else:
+        from app.services import marker_pack
+        body = marker_pack.qr_png(code, marker_pack.category(item))[0] if qr_only else marker_pack.card_png(item)
+    return Response(body, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/marker.svg")
+def marker_svg(code: str = Query(min_length=6, max_length=80), db: Session = Depends(get_db),
+               _: User = Depends(require_staff)):
+    """Vector QR of a registered asset (responsive previews; the PNG card is for printing)."""
+    item = next((i for i in scan.registry(db) if i["code"] == code), None)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown asset")
+    from app.services import marker_pack
+    cat = marker_pack.category(item)
+    return Response(marker_pack.qr_svg(code, cat), media_type="image/svg+xml",
+                    headers={"Cache-Control": "private, max-age=3600", "X-Marker-Source": marker_pack.qr_png(code, cat)[1],
+                             "X-Marker-Category": cat})
 
 
 @router.get("/markers.pdf")
 def markers_pdf(kind: str = Query("all", pattern="^(all|device|bin|asset)$"), db: Session = Depends(get_db),
                 _: User = Depends(require_staff)):
-    """Every marker of one kind on A4 sheets (3 x 4, cut lines). Printing a PDF works on phones, where
-    window.print() of the portal page often does nothing (owner, iPhone, 2026-10-27)."""
+    """Every marker of one kind on A4 sheets (the pack's 2 x 4 card layout, 300 dpi)."""
     items = [i for i in scan.registry(db) if kind == "all" or i["kind"] == kind]
     if not items:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No assets of this kind")
-    from app.services import marker_shapes
-    return Response(marker_shapes.sheet_pdf(items), media_type="application/pdf",
+    from app.services import marker_pack
+    return Response(marker_pack.sheet_pdf(items), media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="smartlab_markers_{kind}.pdf"',
                              "Cache-Control": "no-store"})
 

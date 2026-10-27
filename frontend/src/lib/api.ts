@@ -382,6 +382,14 @@ export async function scanMarkerBlob(code: string): Promise<Blob> {
   return r.blob()
 }
 
+/** The vector QR of a marker (responsive preview) and its category (X-Marker-Category / X-Marker-Source). */
+export async function scanMarkerSvg(code: string): Promise<{ blob: Blob; category: string; source: string }> {
+  const token = getToken()
+  const r = await fetch(`/api/scan/marker.svg?code=${encodeURIComponent(code)}`,
+                        { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!r.ok) throw new Error(`Marker ${code}: ${r.status}`)
+  return { blob: await r.blob(), category: r.headers.get('X-Marker-Category') ?? 'equipment', source: r.headers.get('X-Marker-Source') ?? '' }
+}
 /** All markers of one kind as an A4 PDF (prints from a phone, where window.print() of the page does nothing). */
 export async function scanMarkersPdf(kind: string): Promise<Blob> {
   const token = getToken()
