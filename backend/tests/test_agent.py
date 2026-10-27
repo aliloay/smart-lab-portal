@@ -211,3 +211,44 @@ def test_live_state_questions_do_not_go_to_the_documents_lookup():
     assert _PROJECT_Q.search(live) and _LIVE_Q.search(live)
     doc = "why do we use a relay for the door lock?"
     assert _PROJECT_Q.search(doc) and not _LIVE_Q.search(doc)
+
+
+def test_new_instant_categories_2026_10_27():
+    """Owner 2026-10-27: comparisons, daily summary, low stock, recent activity, today's bookings and 'who is where'
+    are answered from the records with no model; a lab-vs-lab comparison is NOT a period comparison."""
+    d = lambda q: agent.detect(q, staff=True)
+    assert d("Compare door entries granted this week with the week before.") == "compare"
+    assert d("how does this month compare to last month") == "compare"
+    assert d("Compare the robotics lab and the PLC lab and tell me which one needs attention first") != "compare"
+    assert d("give me today's summary") == "report_daily" and d("what happened today") == "report_daily"
+    assert d("what is running low?") == "low_stock" and d("which parts should we reorder") == "low_stock"
+    assert d("show the recent activity") == "recent_activity" and d("what just happened") == "recent_activity"
+    assert d("bookings today") == "bookings_today" and d("who booked") == "bookings_today"
+    assert d("which lab is empty") == "empty_labs" and d("who is where") == "empty_labs"
+    assert d("which lab is free?") == "free_labs"                       # free = bookings, unchanged
+    for q in ("what is running low?", "who is where", "what happened today"):
+        assert agent.detect(q, staff=False) is None, q                   # staff only
+
+
+def test_new_instant_answers_come_from_the_records(client, db, staff, alice, lab):
+    from app.models import InventoryBin
+    now = datetime.now(timezone.utc)
+    db.add(AccessSession(user_id=alice.id, lab_id=lab.id, started_at=now - timedelta(minutes=20),
+                         entry_method=AuthMethod.RFID))
+    db.add(AccessEvent(event_type=EventType.ACCESS_GRANTED, lab_id=lab.id, user_id=alice.id, created_at=now - timedelta(minutes=20)))
+    db.add(InventoryBin(code="BIN-LOW", lab_id=lab.id, item_name="LEDs", tare_g=100.0, unit_mass_g=1.0,
+                        last_mass_g=103.0, last_measured_at=now, reorder_qty=10))
+    db.commit()
+    _booking(db, alice, lab, now + timedelta(minutes=5))
+    h = auth_headers(client, staff.email)
+    ask = lambda q: client.post("/api/ai/ask", headers=h, json={"question": q}).json()
+    r = ask("who is where")
+    assert r["tools_used"] == ["instant:empty_labs"] and alice.full_name in r["answer"]
+    r = ask("what is running low?")
+    assert r["tools_used"] == ["instant:low_stock"] and "LEDs (BIN-LOW): 3 pieces" in r["answer"]
+    r = ask("show the recent activity")
+    assert r["tools_used"] == ["instant:recent_activity"] and "access granted" in r["answer"]
+    r = ask("compare this week with last week")
+    assert r["tools_used"] == ["instant:compare"] and "Door entries: **1**" in r["answer"]
+    r = ask("give me today's summary")
+    assert r["tools_used"] == ["instant:report_daily"] and "Door entries: **1**" in r["answer"]

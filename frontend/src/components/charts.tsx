@@ -30,6 +30,33 @@ export const tooltipProps = {
   cursor: { fill: 'rgba(56,189,248,0.06)' },
 } as const
 
+// Charts below the fold are also built AHEAD of the scroll, one per idle moment and never while the page is being
+// scrolled (2026-10-27, owner: "scrolling fast does not respond immediately" - measured: a chart built mid-scroll was a
+// 55-63 ms long task = a visible stall). Each build is its own task, so input always gets in between.
+const idleQueue: (() => void)[] = []
+let pumping = false
+let lastScroll = 0
+if (typeof window !== 'undefined') {
+  const mark = () => { lastScroll = performance.now() }
+  window.addEventListener('scroll', mark, { passive: true, capture: true })
+  window.addEventListener('wheel', mark, { passive: true })
+  window.addEventListener('touchmove', mark, { passive: true })
+}
+const ric = (f: () => void) => {
+  const r = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback
+  if (r) r(f, { timeout: 1500 }); else setTimeout(f, 50)
+}
+function pumpIdle() {
+  if (pumping) return
+  pumping = true
+  const step = () => {
+    if (performance.now() - lastScroll < 400) { setTimeout(() => ric(step), 400); return }
+    idleQueue.shift()?.()
+    if (idleQueue.length) ric(step); else pumping = false
+  }
+  ric(step)
+}
+
 export function ChartCard({ title, sub, children, empty, height = 260, action }: {
   title: string; sub?: string; children: ReactNode; empty?: boolean; height?: number
   action?: ReactNode
@@ -45,7 +72,10 @@ export function ChartCard({ title, sub, children, empty, height = 260, action }:
     const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { setNear(true); io.disconnect() } },
                                         { rootMargin: '300px 0px' })
     io.observe(el)
-    return () => io.disconnect()
+    let alive = true
+    const job = () => { if (alive) setNear(true) }
+    const t = window.setTimeout(() => { idleQueue.push(job); pumpIdle() }, 700)
+    return () => { alive = false; window.clearTimeout(t); io.disconnect(); const i = idleQueue.indexOf(job); if (i >= 0) idleQueue.splice(i, 1) }
   }, [near])
   return (
     <div className="card p-5" ref={box}>

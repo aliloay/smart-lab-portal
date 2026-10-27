@@ -222,6 +222,21 @@ def get_evaluation(_: User = Depends(require_staff)):
 # ---------------------------------------------------------------- briefing ---
 @router.get("/briefing")
 def get_briefing(db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    # 2026-10-27 (owner: "opening anything in the portal must be fast"): measured 3.5 s per call (it probes every
+    # service, some offline = their timeouts). The briefing is kept 30 s per role; it is a summary, not a live gauge.
+    key = user.role.value
+    hit = _BRIEF.get(key)
+    if hit and time.monotonic() - hit[0] < 30:
+        return hit[1]
+    out = _briefing(db, user)
+    _BRIEF[key] = (time.monotonic(), out)
+    return out
+
+
+_BRIEF: dict[str, tuple[float, dict]] = {}
+
+
+def _briefing(db: Session, user: User):
     from app.services.backups import read_status
     try:
         dr = drift.check(db)

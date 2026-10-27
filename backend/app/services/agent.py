@@ -479,6 +479,21 @@ def _report_text(r: dict) -> str:
 
 _PATTERNS: list[tuple[str, str, bool]] = [
     # (intent, regex, staff only)
+    # 2026-10-27 instant categories (owner: "instant replies for common questions"): checked before the reports so
+    # "compare this week with last week" / "daily summary" / "what is low" never reach the language model.
+    # time periods only ("compare the robotics lab and the PLC lab" is about two labs - not this answer)
+    ("compare", r"\b(compare\w*|comparison|versus|vs\.?)\b.*\b(week|month|yesterday|previous|before|last)\b|"
+                r"\bthan (last|the previous|previous) (week|month)\b|\b(this|last) (week|month)\b.*\b(last|previous|before)\b", True),
+    ("report_daily", r"\b(daily|today'?s?|day)\b.*\b(report|summary|overview|recap)\b|"
+                     r"\b(report|summary|overview|recap)\b.*\b(today|daily)\b|\bwhat happened today\b", True),
+    ("low_stock", r"\b(running (low|out)|reorder|re-order|restock|need to (order|buy)|almost empty)\b|"
+                  r"\b(low)\b.*\b(stock|bins?|consumables?|parts?|items?|inventory)\b|\bwhat is low\b", True),
+    ("recent_activity", r"\b(recent|latest|last)\b.*\b(activity|events?|happen\w*|entries|logs?)\b|"
+                        r"\bwhat (just )?happened\b|\bactivity (log|feed)\b", True),
+    ("bookings_today", r"\b(bookings?|reservations?)\b.*\b(today|this (morning|afternoon))\b|"
+                       r"\btoday'?s? bookings?\b|\bwho (has )?booked\b", True),
+    ("empty_labs", r"\b(empty|unoccupied|nobody in|no one in|vacant)\b.*\blabs?\b|\blabs?\b.*\b(empty|unoccupied|vacant)\b|"
+                   r"\bwho is where\b", True),
     ("report_monthly", r"\bmonth(ly)?\b.*\b(report|summary|usage|analysis|overview)\b|"
                        r"\b(report|summary|usage|analysis|overview)\b.*\bmonth(ly)?\b", True),
     ("report_weekly", r"\b(week(ly)?)\b.*\b(report|summary|usage|analysis|overview)\b|"
@@ -532,7 +547,9 @@ def _answer(text: str, intent: str, link: Optional[dict] = None, charts: Optiona
 def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
     """An exact answer from the database, or None to let the language model answer."""
     staff = user.role in (Role.ADMIN, Role.LAB_STAFF)
-    if staff:
+    # the whole-lab answers added 2026-10-27 come before the door-only history (it read "today's summary" as a door report)
+    first = detect(question, staff)
+    if staff and first not in ("report_daily", "low_stock", "recent_activity", "bookings_today", "empty_labs"):
         # Door history, any period, charts: exact, from the records (agent_history).
         h = agent_history.answer(db, question)
         if h is not None:
@@ -541,10 +558,111 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
                 period = "monthly" if "last 30 days" in h["text"] else "weekly"
                 link = {"label": f"Open the full {period} report (PDF)", "to": f"/report?period={period}"}
             return _answer(h["text"], h["intent"], link, h["charts"])
-    intent = detect(question, staff)
+    intent = first
     if intent is None:
         return None
     now = datetime.now(timezone.utc)
+
+    if intent == "compare":
+        period = "monthly" if re.search(r"\bmonth", question.lower()) else "weekly"
+        r = management_report(db, period)
+        b, pb = r["bookings"], r["previous"]["bookings"]
+        a, pa = r["access"], r["previous"]["access"]
+        m, pm = r["maintenance"], r["previous"]["maintenance"]
+
+        def row(label, now_v, before_v):
+            ch = _change(now_v, before_v)
+            trend = "no earlier data" if ch is None else ("no change" if ch == 0 else f"{'+' if ch > 0 else ''}{ch} %")
+            return f"{label}: **{now_v}** (previous {before_v}; {trend})"
+        span = "30" if period == "monthly" else "7"
+        return _answer(f"**Last {span} days vs the {span} days before** ({r['period_label']}):\n" + _bullets([
+            row("Confirmed bookings", b["confirmed"], pb["confirmed"]),
+            row("Booked hours", b["booked_hours"], pb["booked_hours"]),
+            row("Door entries", a["granted"], pa["granted"]),
+            row("Refused at the door", a["denied"], pa["denied"]),
+            row("Maintenance opened", m["opened"], pm["opened"]),
+            row("Maintenance resolved", m["resolved"], pm["resolved"])]), intent,
+            {"label": f"Open the full {period} report (PDF)", "to": f"/report?period={period}"})
+
+    if intent == "report_daily":
+        local = datetime.now(_tz())
+        start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        r, prev = period_report(db, start, now), period_report(db, start - timedelta(days=1), now - timedelta(days=1))
+        alerts = db.scalars(select(Alert).where(Alert.created_at >= start)).all()
+        sev = Counter(x.severity.value for x in alerts)
+        occ = occupancy(db)
+        return _answer(f"**Today so far** ({local:%a %d %b}, until {local:%H:%M}; yesterday at the same time in brackets):\n" + _bullets([
+            f"Door entries: **{r['access']['granted']}** ({prev['access']['granted']}), refused: **{r['access']['denied']}** "
+            f"({prev['access']['denied']})",
+            f"Confirmed bookings: **{r['bookings']['confirmed']}** ({prev['bookings']['confirmed']})",
+            f"Alerts raised: **{len(alerts)}**" + (" (" + ", ".join(f"{n} {k.lower()}" for k, n in sev.most_common()) + ")" if alerts else ""),
+            f"Maintenance opened / resolved: **{r['maintenance']['opened']} / {r['maintenance']['resolved']}**",
+            "Inside now: " + (", ".join(f"{o['lab_code']} {len(o['people'])}" for o in occ) if occ else "nobody (door records)")]),
+            intent, {"label": "Open the weekly report", "to": "/report?period=weekly"})
+
+    if intent == "low_stock":
+        from app.models import InventoryBin
+        from app.services import inventory as inv
+        bins = db.scalars(select(InventoryBin).where(InventoryBin.is_active.is_(True)).order_by(InventoryBin.code)).all()
+        outs = [inv.bin_out(db, b, now) for b in bins]
+        if not outs:
+            return _answer("No consumables bin is set up yet.", intent)
+        low = [o for o in outs if o["low"]]
+        unknown = [o for o in outs if o["qty_est"] is None]
+        text = ("**Low - reorder:**\n" + _bullets([f"{o['item_name']} ({o['code']}): {o['qty_est']} pieces left, last reading "
+                                                 f"{_when(o['last_reading_at']) if o.get('last_reading_at') else 'never'}" for o in low])
+                if low else f"Nothing is low: all {len(outs) - len(unknown)} calibrated bin(s) are above their reorder level.")
+        if unknown:
+            text += "\nNo count (not calibrated / no reading): " + ", ".join(o["code"] for o in unknown)
+        return _answer(text, intent, {"label": "Open Consumables", "to": "/admin/equipment?tab=consumables"})
+
+    if intent == "recent_activity":
+        from app.models import RobotEvent
+        since = now - timedelta(hours=24)
+        rows = []
+        for e in db.scalars(select(AccessEvent).where(AccessEvent.created_at >= since)
+                            .order_by(AccessEvent.created_at.desc()).limit(8)).all():
+            u = db.get(User, e.user_id) if e.user_id else None
+            rows.append((_utc(e.created_at), f"Door: {e.event_type.value.replace('_', ' ').lower()}" + (f" - {u.full_name}" if u else "")))
+        for a in db.scalars(select(Alert).where(Alert.created_at >= since).order_by(Alert.created_at.desc()).limit(5)).all():
+            rows.append((_utc(a.created_at), f"Alert {a.severity.value}: {a.title}"))
+        for ev in db.scalars(select(RobotEvent).where(RobotEvent.occurred_at >= since)
+                             .order_by(RobotEvent.occurred_at.desc()).limit(5)).all():
+            d = db.get(Device, ev.device_id)
+            rows.append((_utc(ev.occurred_at), f"Robot {d.name if d else ev.device_id}: {ev.kind.replace('_', ' ').lower()}"))
+        if not rows:
+            return _answer("Nothing was recorded in the last 24 hours (door, alerts, robots).", intent)
+        rows.sort(key=lambda x: x[0], reverse=True)
+        return _answer("**Latest activity, last 24 h** (newest first):\n" + _bullets([f"{_when(t)} - {txt}" for t, txt in rows[:12]]),
+                       intent, {"label": "Open Access monitor", "to": "/admin/access"})
+
+    if intent == "bookings_today":
+        local = datetime.now(_tz())
+        start = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        labs_ = {l.id: l for l in db.scalars(select(Lab)).all()}
+        rows = db.scalars(select(Booking).where(Booking.status.in_((BookingStatus.CONFIRMED, BookingStatus.PENDING)),
+                                                Booking.start_time >= start, Booking.start_time < start + timedelta(days=1))
+                          .order_by(Booking.start_time)).all()
+        if not rows:
+            return _answer("No booking today.", intent, {"label": "Open Bookings", "to": "/admin/bookings"})
+
+        def who(b):
+            u = db.get(User, b.user_id)
+            return u.full_name if u else "?"
+        return _answer(f"**{len(rows)} booking(s) today:**\n" + _bullets([
+            f"{_hm(b.start_time)}-{_hm(b.end_time)} **{labs_[b.lab_id].code if b.lab_id in labs_ else b.lab_id}** - {who(b)}"
+            + (" (waiting for approval)" if b.status == BookingStatus.PENDING else "") for b in rows[:12]]),
+            intent, {"label": "Open Bookings", "to": "/admin/bookings"})
+
+    if intent == "empty_labs":
+        occ = {o["lab_code"]: o for o in occupancy(db)}
+        labs_all = db.scalars(select(Lab).where(Lab.is_active.is_(True)).order_by(Lab.code)).all()
+        empty = [l.code for l in labs_all if l.code not in occ]
+        role = {"ADMIN": "admin", "LAB_STAFF": "staff", "STUDENT": "student"}
+        lines = [f"**{c}**: " + ", ".join(f"{p['name']} ({role.get(p['role'], p['role'])})" for p in o["people"])
+                 for c, o in occ.items()]
+        lines.append("Empty: " + (", ".join(empty) if empty else "none"))
+        return _answer("**Who is where now** (open door sessions):\n" + _bullets(lines), intent)
 
     if intent in ("report_weekly", "report_monthly"):
         period = "monthly" if intent == "report_monthly" else "weekly"

@@ -56,13 +56,13 @@ export default function LabCard({ o, canBook = true }: { o: LabOverview; canBook
         <div className="absolute inset-0 bg-gradient-to-t from-ink-800 via-ink-800/20
                         to-transparent" />
         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1
-                        rounded-md bg-ink-900/75 backdrop-blur border border-white/10
+                        rounded-md bg-ink-900/85 border border-white/10
                         text-[11px] font-medium text-slate-100">
           <span style={{ color: meta.hue }}>{meta.icon}</span>
           {lab.category}
         </div>
         <div className="absolute top-3 right-3">
-          <Chip tone={status.tone} dot className="!bg-ink-900/80 backdrop-blur">
+          <Chip tone={status.tone} dot className="!bg-ink-900/90">
             {status.text}
           </Chip>
         </div>

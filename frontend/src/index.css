@@ -17,6 +17,19 @@ body {
     linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
   background-attachment: fixed;
 }
+/* 2026-10-27 (owner: "when scrolling fast it freezes and lags"; measured: frame p95 33 ms, worst 150 ms on the dashboard
+   with NO long JavaScript tasks = painting): a fixed body background is repainted on every scroll frame. The same light
+   now lives on its own fixed, composited layer, so scrolling only moves the content. */
+@supports (position: fixed) {
+  body { background-attachment: scroll; background-image: none; }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; transform: translateZ(0);
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(14,165,233,.10), transparent 60%),
+      radial-gradient(900px 520px at 100% 0%, rgba(139,92,246,.07), transparent 55%),
+      linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
+  }
+}
 
 /* Motion communicates state here, so with motion reduced the state must still
    read from colour and text alone - never from movement only. */
@@ -52,9 +65,9 @@ body {
   .card {
     @apply relative rounded-2xl shadow-card;
     border: 1px solid rgba(148,184,226,.13);
-    background: linear-gradient(180deg, rgba(36,58,92,.74) 0%, rgba(27,46,75,.70) 100%);
-    -webkit-backdrop-filter: blur(14px) saturate(135%);
-            backdrop-filter: blur(14px) saturate(135%);
+    /* 2026-10-27: no live blur behind every card (each one re-blurred the page on every scroll frame); what is
+       behind a card is the smooth page gradient, so a slightly denser glass colour looks the same. */
+    background: linear-gradient(180deg, rgba(36,58,92,.86) 0%, rgba(27,46,75,.84) 100%);
   }
   .card-pad { @apply card p-5; }
   .card-hover {
