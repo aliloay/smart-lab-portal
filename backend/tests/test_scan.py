@@ -212,3 +212,39 @@ def test_phone_face_names_only_a_clear_match_with_the_portal_record(monkeypatch,
 
 def test_students_cannot_identify_faces(client, alice):
     assert client.post("/api/scan/identify", content=image_bytes(), headers=auth_headers(client, alice.email)).status_code == 403
+
+
+def test_markers_survive_rotation_and_perspective_like_a_hand_held_phone():
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+    from app.services import marker_art
+    det = cv2.QRCodeDetector()
+    for t in ("Robot", "Door controller (master ESP32)", "Consumables bin node", "Reusable-items bin node"):
+        code = "SLAB:D:" + t.split()[0].upper() + "_LAB01"
+        img = np.array(marker_art.render({"code": code, "kind": "device", "name": t, "type": t}, box=10))[:, :, ::-1]
+        h, w = img.shape[:2]
+        img = cv2.copyMakeBorder(img, h // 2, h // 2, w // 2, w // 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+        H, W = img.shape[:2]
+        ok = 0
+        for ang, tilt in ((0, 0), (20, 0), (-30, 0), (0, 0.1), (12, 0.08)):
+            a = cv2.warpAffine(img, cv2.getRotationMatrix2D((W / 2, H / 2), ang, 1.0), (W, H), borderValue=(255, 255, 255))
+            if tilt:
+                src = np.float32([[0, 0], [W, 0], [W, H], [0, H]])
+                dst = np.float32([[W * tilt, 0], [W - W * tilt, 0], [W, H], [0, H]])
+                a = cv2.warpPerspective(a, cv2.getPerspectiveTransform(src, dst), (W, H), borderValue=(255, 255, 255))
+            ok += det.detectAndDecode(a)[0] == code
+        assert ok >= 4, (t, ok)
+
+
+def test_sensor_nodes_get_their_role_marker(client, db, lab, staff):
+    from app.models import InventoryBin
+    now = datetime.now(timezone.utc)
+    reuse = Device(device_uid="REUSE_X", name="Reusable bin", device_type=DeviceType.SENSOR_NODE, lab_id=lab.id,
+                   last_seen_at=now, component_state={"reusable_bin": True})
+    cons = Device(device_uid="BINNODE_X", name="Bin node", device_type=DeviceType.SENSOR_NODE, lab_id=lab.id)
+    env = Device(device_uid="ENV_X", name="Env", device_type=DeviceType.SENSOR_NODE, lab_id=lab.id)
+    db.add_all([reuse, cons, env]); db.commit()
+    db.add(InventoryBin(code="BIN-Q", lab_id=lab.id, device_id=cons.id, item_name="LEDs")); db.commit()
+    types = {a["key"]: a["type"] for a in client.get("/api/scan/registry", headers=auth_headers(client, staff.email)).json()["assets"]}
+    assert types["REUSE_X"] == "Reusable-items bin node" and types["BINNODE_X"] == "Consumables bin node"
+    assert types["ENV_X"] == "Environment node"

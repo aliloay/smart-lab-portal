@@ -5,9 +5,9 @@
  *   /phone-setup   open the portal on a phone over https:// (the camera and microphone need a secure page):
  *                  a self-check, the Smart Lab CA download and the trust steps, and a QR to hand over from a PC.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Download, Printer, ShieldAlert, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, ExternalLink, Printer, ShieldAlert, X, XCircle } from 'lucide-react'
 import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkersPdf } from '../lib/api'
 import { Chip, Skeleton } from '../components/ui'
 
@@ -33,19 +33,22 @@ export function ScanMarkers() {
     return () => { live = false }
   }, [shown])                                           // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)) }, [])   // eslint-disable-line
-  // Print = an A4 PDF of the markers (3 x 4, cut lines), opened in its own tab: the browser's PDF viewer prints on a
-  // PC and offers Share > Print on a phone. window.print() of this page did nothing on the owner's iPhone.
+  // Print = an A4 PDF of the markers (3 x 4, cut lines) shown IN the page: no pop-up tab to be blocked
+  // (owner 2026-10-27: Print did nothing on the iPhone, then on the laptop). Print / Download / Open are plain
+  // user clicks on the ready PDF, so every browser allows them.
   const [printing, setPrinting] = useState(false)
+  const [sheet, setSheet] = useState<string | null>(null)
+  const frame = useRef<HTMLIFrameElement>(null)
+  useEffect(() => () => { if (sheet) URL.revokeObjectURL(sheet) }, [sheet])
   const printSheet = async () => {
-    const tab = window.open('', '_blank')               // opened inside the tap, or a phone blocks it as a popup
     setPrinting(true); setError('')
-    try {
-      const url = URL.createObjectURL(await scanMarkersPdf(kind))
-      if (tab) tab.location.href = url
-      else { const a = document.createElement('a'); a.href = url; a.download = `smartlab_markers_${kind}.pdf`; a.click() }
-      setTimeout(() => URL.revokeObjectURL(url), 120_000)
-    } catch (e) { tab?.close(); setError(e instanceof Error ? e.message : 'Print sheet failed') }
+    try { setSheet(URL.createObjectURL(await scanMarkersPdf(kind))) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Print sheet failed') }
     finally { setPrinting(false) }
+  }
+  const printNow = () => {
+    try { frame.current?.contentWindow?.focus(); frame.current?.contentWindow?.print() }
+    catch { if (sheet) window.open(sheet, '_blank') }
   }
 
   return (
@@ -61,14 +64,24 @@ export function ScanMarkers() {
         <Link to="/scan" className="btn-ghost btn-sm">Back to scanning</Link>
       </div>
       {error && <p className="text-bad-soft text-[13px]">{error}</p>}
+      {sheet && <div className="fixed inset-0 z-[70] bg-ink-950/80 backdrop-blur-sm p-3 sm:p-6 flex flex-col" role="dialog" aria-label="Marker print sheet">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <span className="text-white font-semibold mr-auto">Print sheet · A4, 3 × 4 markers, cut along the lines</span>
+          <button className="btn-primary btn-sm" onClick={printNow}><Printer size={14} /> Print</button>
+          <a className="btn-ghost btn-sm" href={sheet} download={`smartlab_markers_${kind}.pdf`}><Download size={14} /> Download PDF</a>
+          <a className="btn-ghost btn-sm" href={sheet} target="_blank" rel="noopener"><ExternalLink size={14} /> Open in new tab</a>
+          <button className="btn-ghost btn-sm" onClick={() => setSheet(null)}><X size={14} /> Close</button>
+        </div>
+        <p className="text-[11.5px] text-slate-400 mb-2 sm:hidden">On a phone: Open in new tab, then Share → Print.</p>
+        <iframe ref={frame} src={sheet} title="Marker print sheet" className="flex-1 w-full rounded-lg bg-white" />
+      </div>}
       {!items ? <Skeleton className="h-60" /> : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 print:grid-cols-3">
           {shown.map(i => (
-            <div key={i.code} className="card p-2 text-center break-inside-avoid print:border print:border-black print:bg-white">
-              {urls[i.code] ? <img src={urls[i.code]} alt={`Marker ${i.code}`} className="w-full bg-white rounded" />
-                : <div className="aspect-square bg-ink-800 rounded" />}
-              <div className="text-[12px] text-slate-200 print:text-black mt-1">{i.name}</div>
-              <div className="text-[10.5px] text-slate-500">{i.type}{i.lab_code ? ` · ${i.lab_code}` : ''}</div>
+            // the marker image already carries the name, record key, type and lab
+            <div key={i.code} className="break-inside-avoid">
+              {urls[i.code] ? <img src={urls[i.code]} alt={`Marker ${i.code} - ${i.name}`} className="w-full rounded-xl" />
+                : <div className="aspect-[880/1088] bg-ink-800 rounded-xl grid place-items-center text-[12px] text-slate-500">{i.name}</div>}
             </div>))}
         </div>)}
     </div>

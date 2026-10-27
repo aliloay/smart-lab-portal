@@ -362,7 +362,7 @@ function AssetCard({ code, state, onRefresh }: { code: string; state?: CardState
           <div className="text-[11px] text-slate-400">{r.metric}</div>
           <div className="text-[15px] text-white tnum">{Number.isInteger(r.value) ? r.value : r.value.toFixed(1)} {r.unit}</div>
           <div className={`text-[10.5px] ${r.quality === 'LIVE' ? 'text-slate-500' : 'text-warn-soft'}`}>{fmtAge(r.age_s)}{r.quality === 'STALE' ? ' - stale' : ''}</div></li>)}</ul>}
-      {c.type === 'Sensor node' && c.readings.length === 0 &&
+      {c.type === 'Environment node' && c.readings.length === 0 &&
         <div className="text-[12.5px] text-warn-soft">No readings from this node in the last 24 h - nothing is shown instead of old values.</div>}
       <div className="text-[12px] text-slate-400">{c.open_alerts} open alert{c.open_alerts === 1 ? '' : 's'} on this device ·
         {' '}{c.open_issues_in_lab} open issue{c.open_issues_in_lab === 1 ? '' : 's'} in {c.lab_code ?? 'the lab'}</div>

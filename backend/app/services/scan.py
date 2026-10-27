@@ -34,6 +34,18 @@ TYPE_LABEL = {DeviceType.ROBOT: "Robot", DeviceType.PC: "Lab PC", DeviceType.SEN
               DeviceType.OTHER: "Device"}
 
 
+def node_label(d: Device, bin_nodes: set) -> str:
+    """What a device IS, for its marker: a sensor node is labelled by its role (from its own heartbeat flag or the
+    bins linked to it), not as a generic "sensor node"."""
+    if d.device_type == DeviceType.SENSOR_NODE:
+        if (d.component_state or {}).get("reusable_bin") is True:
+            return "Reusable-items bin node"
+        if d.id in bin_nodes:
+            return "Consumables bin node"
+        return "Environment node"
+    return TYPE_LABEL.get(d.device_type, d.device_type.value)
+
+
 def marker(kind: str, key: str) -> str:
     """The exact text printed in the QR marker."""
     return f"{PREFIX}:{kind}:{key}"
@@ -56,11 +68,12 @@ def registry(db: Session) -> list[dict]:
     """Every asset that can carry a marker, from the existing records (no separate asset list to keep in sync)."""
     labs = {lab.id: lab.code for lab in db.scalars(select(Lab)).all()}
     out = []
+    bin_nodes = set(db.scalars(select(InventoryBin.device_id).where(InventoryBin.device_id.is_not(None))).all())
     for d in db.scalars(select(Device).order_by(Device.lab_id, Device.device_type, Device.name)).all():
         if d.device_uid.upper().endswith("_SIM") or (d.component_state or {}).get("source") == "SIMULATION":
             continue                                        # simulators never get a physical marker
         out.append({"code": marker("D", d.device_uid), "kind": "device", "key": d.device_uid, "name": d.name,
-                    "type": TYPE_LABEL.get(d.device_type, d.device_type.value), "lab_code": labs.get(d.lab_id)})
+                    "type": node_label(d, bin_nodes), "lab_code": labs.get(d.lab_id)})
     for b in db.scalars(select(InventoryBin).where(InventoryBin.is_active.is_(True)).order_by(InventoryBin.code)).all():
         out.append({"code": marker("B", b.code), "kind": "bin", "key": b.code, "name": f"{b.item_name} bin",
                     "type": "Consumables bin", "lab_code": labs.get(b.lab_id)})
@@ -148,7 +161,8 @@ def asset_card(db: Session, code: str, staff: bool, now: Optional[datetime] = No
         lab = db.get(Lab, d.lab_id)
         o = device_out(d, lab.code if lab else None, now)
         card = {"code": code, "kind": "device", "key": key, "name": d.name,
-                "type": TYPE_LABEL.get(d.device_type, d.device_type.value), "lab_code": lab.code if lab else None,
+                "type": node_label(d, set(db.scalars(select(InventoryBin.device_id).where(
+                    InventoryBin.device_id == d.id)).all())), "lab_code": lab.code if lab else None,
                 "status": o.state, "last_seen_at": _utc(d.last_seen_at).isoformat() if d.last_seen_at else None,
                 "seconds_since_seen": o.seconds_since_seen, "facts": _facts_for_device(db, d, now, staff),
                 "readings": _readings(db, d.id, now) if d.device_type == DeviceType.SENSOR_NODE else [],
