@@ -13,9 +13,11 @@ name. No phone frame is stored: it is forwarded once and dropped.
 """
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,7 +25,7 @@ from app.api.deps import require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import Device, DeviceType, User
-from app.services import scan
+from app.services import live_target, scan
 from app.services.devices import is_fresh
 
 router = APIRouter(prefix="/scan", tags=["scan"])
@@ -42,6 +44,7 @@ def asset(code: str = Query(min_length=6, max_length=80), db: Session = Depends(
     card = scan.asset_card(db, code, staff=True)
     if card is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not a Smart Lab asset marker - shown as unidentified")
+    card["live"] = live_target.live_block(db, card, staff=True)
     return card
 
 
@@ -148,11 +151,65 @@ async def identify(request: Request, db: Session = Depends(get_db), user: User =
         out["reason"] = ("no face in the picture" if not res.get("face") else
                          "no clear match - stays unnamed" if name or score else "not an enrolled person")
         return out
-    from app.models import AccessSession, AuditLog
+    from app.models import AuditLog
     person = db.scalar(select(User).where(User.auth_subject == name))
-    if person is None:
-        out["reason"] = f"face label {name} has no portal account"
+    if person is None or not person.is_active:
+        out["reason"] = f"face label {name} has no active portal account"
         return out
+    db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
+                    entity_id=str(person.id), detail={"score": score, "second": second}))
+    db.commit()
+    now_s = int(time.time())
+    # approved overlay fields only (masked student id); the ticket lets a voice question about "this person"
+    # be answered for the next TICKET_S seconds without the phone ever naming a user id itself
+    out.update(known=True, person=live_target.person_card(db, person.id, score, now_s),
+               ticket=live_target.person_ticket(person.id, score, now_s))
+    return out
+
+
+class AskIn(BaseModel):
+    question: str = Field(min_length=2, max_length=500)
+    code: Optional[str] = Field(default=None, max_length=80)      # the selected/visible marker target
+    ticket: Optional[str] = Field(default=None, max_length=300)   # a face-match ticket from /scan/identify
+    history: list[dict] = Field(default_factory=list, max_length=8)
+
+
+@router.post("/ask")
+def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """One target-aware question from the live camera (typed or spoken). The target is resolved on the server
+    from the marker code / face ticket; intents with live data are answered exactly and instantly; anything
+    else goes to the local model with that live data as explicit context."""
+    from app.models import AuditLog
+    t0 = time.perf_counter()
+    card = None
+    if req.code:
+        card = scan.asset_card(db, req.code, staff=True)
+        if card is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown marker - the target is unidentified")
+        card["live"] = live_target.live_block(db, card, staff=True)
+    person = None
+    if req.ticket:
+        t = live_target.person_from_ticket(req.ticket)
+        if t is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The face match expired - point the camera at the face again")
+        person = live_target.person_card(db, t["u"], t["s"], t["t"])
+    out = live_target.answer(db, user, req.question, card, person)
+    if out is None:
+        from app.api.routes.ai import _knowledge_lookup, _run
+        hist = [{"role": "user", "content": live_target.context_text(card, person)},
+                {"role": "assistant", "content": "Understood - I will answer from that live data only."}]
+        hist += [h for h in req.history if h.get("role") in ("user", "assistant") and isinstance(h.get("content"), str)][-4:]
+        out = _knowledge_lookup(db, user, req.question) or _run(db, user, req.question, hist)
+        out = {**out, "deterministic": False, "intent": "model",
+               "target": {"code": card["code"], "name": card["name"]} if card else None}
+    else:
+        db.add(AuditLog(actor_user_id=user.id, action="SCAN_ASK", entity_type="scan",
+                        entity_id=(card or {}).get("code") or ("person" if person else "none"),
+                        detail={"question": req.question[:300], "intent": out["intent"]}))
+        db.commit()
+    out["live"] = card.get("live") if card else None
+    out["ms"] = round((time.perf_counter() - t0) * 1000, 1)
+    return out
     inside = db.scalar(select(AccessSession).where(AccessSession.user_id == person.id,
                                                    AccessSession.ended_at.is_(None))) is not None
     db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
