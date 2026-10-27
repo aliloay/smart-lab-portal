@@ -14,10 +14,21 @@ import { Chip, Skeleton } from '../components/ui'
 interface MarkerCard { code: string; key: string; kind: string; name: string; type: string; lab_code: string | null
   category: string; color: string; label: string; source: string; img: string }
 
+// Illustrated markers (2026-10-27, owner: "a partially opened door with the QR on the door, a 3D 6-DOF robot, a camera whose
+// lens is the QR"): drawn by e2e/qr_art.mjs around the REAL flat QR (portal encoder, ECC H) and decode-checked (jsQR 80/80,
+// OpenCV 50/50). Only these registered assets have a drawing; every other marker keeps the pack artwork (fallback).
+const ART: Record<string, string> = {
+  'SLAB:D:CAM_LAB01': 'entry-camera', 'SLAB:D:FACESRV_01': 'face-server', 'SLAB:D:MASTER_LAB01': 'door-master',
+  'SLAB:D:PC_ADMIN_LAPTOP': 'admin-laptop', 'SLAB:D:UR5E_01': 'ur5e-robot', 'SLAB:D:FANUC_01': 'fanuc-robot',
+  'SLAB:D:BIN_NODE_1': 'consumables-bin', 'SLAB:D:SECCAM_LAB01': 'security-camera', 'SLAB:D:REUSE_BIN_1': 'reusable-bin',
+  'SLAB:D:PC_01': 'student-pc',
+}
+type Style = 'art' | 'pack' | 'shape'
+
 export function ScanMarkers() {
   // ONE request for the whole page (2026-10-27, owner: "the markers are freezing and loading a lot"): the backend
   // returns every marker with its artwork inline (cached, pre-rendered at start-up). Print prints these same cards.
-  const [style, setStyle] = useState<'pack' | 'shape'>(() => { try { return localStorage.getItem('smartlab.markerStyle') === 'shape' ? 'shape' : 'pack' } catch { return 'pack' } })
+  const [style, setStyle] = useState<Style>(() => { try { const v = localStorage.getItem('smartlab.markerStyle'); return v === 'shape' || v === 'pack' ? v : 'art' } catch { return 'art' } })
   const [kind, setKind] = useState<'all' | 'device' | 'bin' | 'asset'>('all')
   const [cards, setCards] = useState<MarkerCard[] | null>(null)
   const [error, setError] = useState('')
@@ -26,7 +37,7 @@ export function ScanMarkers() {
     let live = true
     setCards(null); setError('')
     const token = getToken()
-    fetch(`/api/scan/markers.json?kind=${kind}&style=${style}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetch(`/api/scan/markers.json?kind=${kind}&style=${style === 'art' ? 'pack' : style}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`Markers could not load (${r.status})`)))
       .then(d => { if (live) setCards(d.markers) }).catch(e => { if (live) setError(e.message) })
     try { localStorage.setItem('smartlab.markerStyle', style) } catch { /* private mode */ }
@@ -57,7 +68,7 @@ export function ScanMarkers() {
         <h1 className="text-[18px] font-semibold text-white">Asset markers</h1>
         <span className="text-[12px] text-slate-400">Print, cut out, stick on a flat visible face (≥ 6 cm wide). One marker = one record.</span>
         <div className="ml-auto flex rounded-lg border border-ink-600 p-0.5" role="group" aria-label="Marker style">
-          {([['pack', 'Marker pack'], ['shape', 'Object shape']] as const).map(([k, t]) => (
+          {([['art', 'Illustrated'], ['pack', 'Marker pack'], ['shape', 'Object shape']] as const).map(([k, t]) => (
             <button key={k} type="button" aria-pressed={style === k} onClick={() => setStyle(k)}
                     className={`rounded-md px-2.5 py-1 text-[12px] ${style === k ? 'bg-accent-500/25 text-white' : 'text-slate-400 hover:text-white'}`}>{t}</button>))}
         </div>
@@ -73,15 +84,20 @@ export function ScanMarkers() {
       {!cards ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="aspect-[4/5] rounded-2xl" />)}</div> : (
         <div id="marker-sheet" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {cards.map(c => (
+          {cards.map(c0 => {
+            const art = style === 'art' ? ART[c0.code] : undefined
+            const look: Style = art ? 'art' : style === 'art' ? 'pack' : style
+            const c = art ? { ...c0, img: `/markers/art/${art}.webp` } : c0
+            return (
             <div key={c.code} className="marker-card overflow-hidden rounded-2xl border border-slate-200 bg-white text-center shadow-sm">
-              {style === 'pack' && <div className="h-2" style={{ background: c.color }} />}
-              <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={style === 'pack' ? 'mx-auto block w-[92%]' : 'block w-full'} />
-              {style === 'pack' && <div className="px-2 pb-2.5">
+              {look === 'pack' && <div className="h-2" style={{ background: c.color }} />}
+              <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={look === 'pack' ? 'mx-auto block w-[92%]' : 'block w-full'}
+                   loading="lazy" decoding="async" />
+              {look === 'pack' && <div className="px-2 pb-2.5">
                 <div className="text-[13px] font-semibold text-slate-900 leading-tight">{c.name}</div>
                 <div className="mt-0.5 text-[10.5px] font-medium" style={{ color: c.color }}>{c.key} · {c.label}{c.lab_code ? ` · ${c.lab_code}` : ''}</div>
               </div>}
-            </div>))}
+            </div>)})}
         </div>)}
     </div>
   )
