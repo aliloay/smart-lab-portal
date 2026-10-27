@@ -220,3 +220,31 @@ def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_
                                    "role": person.role.value, "department": person.department,
                                    "student_id": person.student_id, "inside_by_door": inside})
     return out
+
+
+# ------------------------------------------------------------------ enclosure appearance (hint only) - 2026-10-27 ---
+@router.get("/appearance/refs")
+def appearance_refs(_: User = Depends(require_staff)):
+    """Which registered enclosures have reference photos yet (data/asset_refs/manifest.json)."""
+    from app.services import appearance
+    m = appearance.matcher()
+    return {"assets": m.status(), "min_inliers": appearance.MIN_INLIERS, "margin": appearance.MARGIN}
+
+
+@router.post("/appearance")
+async def appearance_match(request: Request, _: User = Depends(require_staff)):
+    """One phone frame -> which enclosure it LOOKS like (PROBABLE / AMBIGUOUS / UNKNOWN). A hint only: identity and
+    live data still come from the asset's QR marker. Run on request, not per frame; nothing is stored."""
+    body = await request.body()
+    if not body.startswith(b"\xff\xd8") or len(body) > MAX_FRAME:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected one JPEG frame under 400 KB")
+    import cv2
+    import numpy as np
+    img = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Not a decodable JPEG")
+    from app.services import appearance
+    m = appearance.matcher()
+    if not any(r.views for r in m.refs):
+        return {"decision": "UNKNOWN", "best": None, "candidates": [], "note": "no reference photos yet - scan the marker"}
+    return m.match(img)

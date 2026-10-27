@@ -1,0 +1,9 @@
+{
+  "note": "Reference photos of the lab's own 3D-printed enclosures (see README.md). Codes = the assets' QR marker text.",
+  "assets": [
+    {"code": "SLAB:D:BIN_NODE_1", "class": "consumables_node", "views": []},
+    {"code": "SLAB:D:REUSE_BIN_1", "class": "reusable_items_dock", "views": []},
+    {"code": "SLAB:D:MASTER_LAB01", "class": "door_controller", "views": []},
+    {"code": "SLAB:D:ENV_LAB01", "class": "environment_node", "views": []}
+  ]
+}

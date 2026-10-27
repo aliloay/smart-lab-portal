@@ -101,3 +101,6 @@ tools/opcua/*.der
 # personal photos (2026-10-27 audit): never commit
 firmware/tools/ali.jpg.jpg
 firmware/tools/ali2.jpg
+
+# enclosure reference photos (owner) - kept local
+backend/data/asset_refs/*/
