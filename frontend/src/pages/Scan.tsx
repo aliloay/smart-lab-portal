@@ -1,41 +1,43 @@
 /**
- * "Scan the lab" - the phone camera in the AI assistant (2026-10-26). Staff only.
+ * Live Smart Lab camera ("Scan the lab", 2026-10-26; live overlays + target-aware voice 2026-10-27). Staff only.
  *
- * Three layers, never mixed (backend app/services/scan.py):
- *   1. DETECTION   people boxes from the lab's camera-service detector (optional; a generic class, never a name)
- *   2. IDENTIFICATION   a printed QR marker "SLAB:<kind>:<key>" = the asset's own record key - decoded ON THE PHONE
- *                       (native BarcodeDetector, else jsQR in a worker). No marker = unidentified, never guessed.
- *   3. LIVE DATA   the card of that exact record (heartbeat, readings, bin measurements, robot / PC state) with
- *                  its timestamp and quality.
- * Speed: nothing queues. One decode and one people request at a time; a busy detector (429) just skips the frame.
- * Stop (or hiding the tab / leaving the page) stops the camera tracks, loops, worker and requests at once.
- * No frame is stored anywhere.
+ * Layers, never mixed (backend app/services/scan.py + live_target.py):
+ *   1. DETECTION   people boxes from the lab's camera-service detector - a generic class
+ *   2. IDENTITY    an asset = a printed QR marker "SLAB:<kind>:<key>" decoded ON THE PHONE (its own record key);
+ *                  a person = a CLEAR face match of that person's own crop (server-signed ticket, per track).
+ *                  No marker / no clear match = unidentified, never guessed from looks or position.
+ *   3. LIVE DATA   the authoritative record of THAT key (robot telemetry, bin measurements, readings, door, PC)
+ *                  with its age and quality - pinned next to the target in the picture.
+ * Voice / typed questions go to ONE target-aware endpoint (/scan/ask) with the resolved target: an explicit tap
+ * first, else the only identified target in view, else the last one (20 s); two candidates = it asks which.
+ * Speed: nothing queues. One decode, one people request and one face check at a time; the voice path never blocks
+ * the camera loop. Stop / hiding the tab / leaving the page releases the camera, mic, loops, worker and requests.
+ * No frame and no recording is stored.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Camera, CameraOff, FileVideo, MessageCircle, Mic, QrCode, RefreshCw, ScanLine, ShieldAlert, Smartphone, Square, Users, VolumeX } from 'lucide-react'
+import { Camera, CameraOff, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
+  Square, Users, Volume2, VolumeX, X } from 'lucide-react'
 import { Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
-import { ScanCard, ScanIdentify, ScanPeople, ScanPerson, api, scanIdentify, scanPeople } from '../lib/api'
+import { ScanAnswer, ScanCard, api, scanAsk, scanIdentify, scanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
+import LiveTargetPanel, { LiveSummary, RobotBars, fmtAge } from '../components/live/LiveTargetPanel'
+import { PersonTracker, Track, faceCrop } from '../components/live/tracker'
 
 type Pt = { x: number; y: number }
-type Seen = { text: string; corners: Pt[]; at: number }
+type Seen = { text: string; corners: Pt[]; at: number; cx: number; cy: number; top: number }
 type CardState = { card?: ScanCard; error?: string; fetchedAt: number }
+type Target = { kind: 'marker'; code: string } | { kind: 'person'; track: number }
 interface BarcodeDetectorLike { detect(src: CanvasImageSource): Promise<{ rawValue: string; cornerPoints: Pt[] }[]> }
 
 const DECODE_EVERY_MS = 120           // ~8 marker checks a second
 const CARD_REFRESH_MS = 5000          // a card in view is re-read this often (its own timestamp shows age)
-const SEEN_HOLD_MS = 1500             // a marker outline stays this long after the last sighting
-const PEOPLE_HOLD_MS = 1200
-const FACE_EVERY_MS = 1500           // a face check at most this often (the door's face server keeps priority)
-const FACE_HOLD_MS = 4000             // a name stays on the box this long after the last clear match
+const SELECTED_ROBOT_MS = 1000        // the selected robot's joints: once a second (the backend keeps the 50 ms feed)
+const SELECTED_OTHER_MS = 3000
+const SEEN_HOLD_MS = 1500             // a marker stays pinned this long after the last sighting
+const LAST_TARGET_MS = 20000          // "it" may mean the last target for this long when nothing is in view
 const W = 640                         // analysis width (decode + people frames)
-
-const fmtAge = (s: number | null) => s == null ? 'never' : s < 90 ? `${s} s ago` : s < 5400 ? `${Math.round(s / 60)} min ago`
-  : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`
-const tone = (q: string) => (q === 'LIVE' || q === 'VALID' || q === 'ONLINE' || q === 'AVAILABLE') ? 'ok'
-  : (q === 'STALE' || q === 'NO_DATA' || q === 'MISSING') ? 'warn' : q === 'RECORD' ? 'idle' : 'bad'
 
 /** Ask the lab assistant about this asset (the chat bubble listens). */
 export const askLab = (q: string) => window.dispatchEvent(new CustomEvent('smartlab:ask-lab', { detail: q }))
@@ -44,29 +46,41 @@ export default function Scan() {
   const video = useRef<HTMLVideoElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const grab = useRef<HTMLCanvasElement | null>(null)
+  const cropC = useRef<HTMLCanvasElement | null>(null)
   const session = useRef<{
     stream?: MediaStream; raf?: number; worker?: Worker; native?: BarcodeDetectorLike; decoding: boolean
     lastDecode: number; people?: AbortController; peopleBusy: boolean; fileUrl?: string; stopped: boolean
-    face?: AbortController; faceBusy?: boolean; lastFace?: number
+    face?: AbortController; faceBusy?: boolean; paused?: boolean; peopleBackoff?: number
   }>({ decoding: false, lastDecode: 0, peopleBusy: false, stopped: true })
   const seen = useRef(new Map<string, Seen>())
-  const boxes = useRef<{ at: number; r: ScanPeople } | null>(null)
-  const face = useRef<{ at: number; r: ScanIdentify } | null>(null)
-  const [who, setWho] = useState<ScanPerson | null>(null)   // the person named by a clear face match (voice context)
+  const tracker = useRef(new PersonTracker())
+  const objects = useRef<{ at: number; list: NonNullable<import('../lib/api').ScanPeople['objects']> } | null>(null)
+  const pinEls = useRef(new Map<string, HTMLButtonElement>())
+  const [tracks, setTracks] = useState<{ id: number; name: string | null; conflict: boolean }[]>([])
   const [running, setRunning] = useState(false)
+  const [paused, setPaused] = useState(false)
   const [starting, setStarting] = useState(false)
   const [facing, setFacing] = useState<'environment' | 'user'>('environment')
   const [peopleOn, setPeopleOn] = useState(true)        // owner 2026-10-27: people boxes on by default (button turns them off)
   const [error, setError] = useState('')
+  const [note, setNote] = useState('')
   const [source, setSource] = useState<'camera' | 'file'>('camera')
   const [cards, setCards] = useState<Record<string, CardState>>({})
   const [inView, setInView] = useState<string[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [stats, setStats] = useState({ decodeMs: 0, peopleMs: 0, peopleRtt: 0, decoder: '' })
+  const [selected, setSelected] = useState<Target | null>(null)
+  const [sessionNo, setSessionNo] = useState(0)
+  const [stats, setStats] = useState({ decodeMs: 0, peopleMs: 0, peopleRtt: 0, faceMs: 0, decoder: '' })
   const cardsRef = useRef(cards); cardsRef.current = cards
   const peopleRef = useRef(peopleOn); peopleRef.current = peopleOn
+  const selectedRef = useRef(selected); selectedRef.current = selected
+  const lastTarget = useRef<{ t: Target; at: number } | null>(null)
 
   const secure = window.isSecureContext && !!navigator.mediaDevices?.getUserMedia
+
+  const syncTracks = useCallback(() => {
+    const v = tracker.current.tracks.map(t => ({ id: t.id, name: t.identity ? `${t.identity.auth_subject} · ${t.identity.name}` : null, conflict: t.conflict }))
+    setTracks(old => (JSON.stringify(old) === JSON.stringify(v) ? old : v))
+  }, [])
 
   // ------------------------------------------------------------------ stop: releases EVERYTHING
   const stop = useCallback(() => {
@@ -80,8 +94,8 @@ export default function Scan() {
     const v = video.current
     if (v) { v.pause(); v.srcObject = null; v.removeAttribute('src'); v.load() }
     session.current = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: true }
-    seen.current.clear(); boxes.current = null; face.current = null; setWho(null)
-    setRunning(false); setInView([])
+    seen.current.clear(); tracker.current.clear(); objects.current = null
+    setTracks([]); setRunning(false); setPaused(false); setInView([])
   }, [])
 
   useEffect(() => {
@@ -95,32 +109,47 @@ export default function Scan() {
     setCards(c => ({ ...c, [code]: { ...c[code], fetchedAt: Date.now() } }))
     api.scanAsset(code)
       .then(card => setCards(c => ({ ...c, [code]: { card, fetchedAt: Date.now() } })))
-      .catch(e => setCards(c => ({ ...c, [code]: { error: e instanceof Error ? e.message : 'unidentified', fetchedAt: Date.now() } })))
+      .catch(e => setCards(c => ({ ...c, [code]: { ...c[code], error: e instanceof Error ? e.message : 'unidentified', fetchedAt: Date.now() } })))
   }, [])
+  // the selected asset is refreshed on its own clock (robot joints every second), also while paused / out of view
+  const selCode = selected?.kind === 'marker' ? selected.code : null
+  const selIsRobot = selCode ? cards[selCode]?.card?.live?.type === 'robot' : false
+  useEffect(() => {
+    if (!selCode) return
+    const t = window.setInterval(() => { if (!document.hidden) loadCard(selCode) }, selIsRobot ? SELECTED_ROBOT_MS : SELECTED_OTHER_MS)
+    return () => window.clearInterval(t)
+  }, [selCode, selIsRobot, loadCard])
 
-  // ------------------------------------------------------------------ who is this: the face server, clear match only
-  const identify = useCallback((blob: Blob) => {
-    const s = session.current, now = Date.now()
-    if (s.faceBusy || now - (s.lastFace ?? 0) < FACE_EVERY_MS) return
-    s.faceBusy = true; s.lastFace = now
-    const ac = new AbortController(); s.face = ac
-    scanIdentify(blob, ac.signal)
-      .then(r => {
-        if (!r || session.current.stopped) return
-        face.current = { at: Date.now(), r }
-        if (r.known && r.person) { const p = r.person; setWho(w => (w?.auth_subject === p.auth_subject ? w : p)) }
-      })
-      .catch(() => { /* face server down: boxes stay "person" */ })
-      .finally(() => { s.faceBusy = false })
-  }, [])
-  useEffect(() => {                                     // the name is dropped once nobody known was seen for a while
-    if (!who) return
-    const t = setInterval(() => {
-      const f = face.current
-      if (!f || Date.now() - f.at > FACE_HOLD_MS * 2 || (!f.r.known && Date.now() - f.at > FACE_HOLD_MS)) setWho(null)
-    }, 1000)
-    return () => clearInterval(t)
-  }, [who])
+  // ------------------------------------------------------------------ who is this: one track's own crop, clear match only
+  const checkFace = useCallback(() => {
+    const s = session.current, v = video.current
+    if (s.faceBusy || s.stopped || !v?.videoWidth) return
+    const now = Date.now()
+    const sel = selectedRef.current
+    const t = tracker.current.nextForFace(now, sel?.kind === 'person' ? sel.track : null)
+    if (!t) return
+    s.faceBusy = true
+    const c = faceCrop(t.raw)
+    const cc = cropC.current ?? (cropC.current = document.createElement('canvas'))
+    const sx = c.x * v.videoWidth, sy = c.y * v.videoHeight, sw = c.w * v.videoWidth, sh = c.h * v.videoHeight
+    const k = Math.min(1, 480 / Math.max(1, sw))
+    cc.width = Math.max(1, Math.round(sw * k)); cc.height = Math.max(1, Math.round(sh * k))
+    cc.getContext('2d')!.drawImage(v, sx, sy, sw, sh, 0, 0, cc.width, cc.height)
+    const id = t.id
+    cc.toBlob(async blob => {
+      if (!blob || session.current.stopped) { s.faceBusy = false; return }
+      const ac = new AbortController(); s.face = ac
+      try {
+        const r = await scanIdentify(blob, ac.signal)
+        if (r && !session.current.stopped) {
+          tracker.current.applyFace(id, { known: r.known, ticket: r.ticket, score: r.score, person: r.person }, Date.now())
+          setStats(st => ({ ...st, faceMs: Math.round(r.ms) }))
+          syncTracks()
+        }
+      } catch { /* face server down: people stay "person" */ }
+      finally { s.faceBusy = false }
+    }, 'image/jpeg', 0.85)
+  }, [syncTracks])
 
   // ------------------------------------------------------------------ one marker decode (never two at once)
   const decode = useCallback(async (v: HTMLVideoElement) => {
@@ -151,16 +180,21 @@ export default function Scan() {
     const now = Date.now(), sx = 1 / w, sy = 1 / h
     for (const f of found) {
       if (!f.text.startsWith('SLAB:')) continue              // only our markers; any other QR is ignored
-      seen.current.set(f.text, { text: f.text, corners: f.corners.map(p => ({ x: p.x * sx, y: p.y * sy })), at: now })
+      const corners = f.corners.map(p => ({ x: p.x * sx, y: p.y * sy }))
+      const cx = corners.reduce((a, p) => a + p.x, 0) / corners.length, top = Math.min(...corners.map(p => p.y))
+      const old = seen.current.get(f.text)
+      const a = old && now - old.at < SEEN_HOLD_MS ? 0.5 : 1    // smoothed pin position (no jitter)
+      seen.current.set(f.text, { text: f.text, corners, at: now, cx: old ? old.cx + a * (cx - old.cx) : cx,
+                                 cy: 0, top: old ? old.top + a * (top - old.top) : top })
       const c = cardsRef.current[f.text]
       if (!c || (now - c.fetchedAt > CARD_REFRESH_MS)) loadCard(f.text)
     }
-    const visible = [...seen.current.values()].filter(m => now - m.at < SEEN_HOLD_MS).map(m => m.text)
+    const visible = [...seen.current.values()].filter(m => now - m.at < SEEN_HOLD_MS).map(m => m.text).sort()
     setInView(v0 => (v0.join() === visible.join() ? v0 : visible))
     setStats(st => ({ ...st, decodeMs: Math.round(ms) }))
     s.decoding = false
     // people: one request in flight at most, on the same 640-px frame
-    if (peopleRef.current && !s.peopleBusy) {
+    if (peopleRef.current && !s.peopleBusy && now >= (s.peopleBackoff ?? 0)) {
       s.peopleBusy = true
       g.toBlob(async blob => {
         if (!blob || session.current.stopped) { s.peopleBusy = false; return }
@@ -169,16 +203,22 @@ export default function Scan() {
         try {
           const r = await scanPeople(blob, ac.signal)
           if (r && !session.current.stopped) {
-            boxes.current = { at: Date.now(), r }
+            tracker.current.update(r.boxes, Date.now())
+            objects.current = { at: Date.now(), list: r.objects ?? [] }
+            syncTracks()
             setStats(st => ({ ...st, peopleMs: r.ms, peopleRtt: Math.round(performance.now() - t1) }))
-            if (r.boxes.length) identify(blob)
+            if (r.boxes.length) checkFace()
           }
         } catch (e) {
-          if (!(e instanceof DOMException && e.name === 'AbortError')) { setError(e instanceof Error ? e.message : String(e)); setPeopleOn(false) }
+          if (!(e instanceof DOMException && e.name === 'AbortError')) {
+            const m = e instanceof Error ? e.message : String(e)
+            if (m.includes('unavailable')) { setNote(m); setPeopleOn(false) }
+            else { setNote(`People boxes paused for 3 s: ${m}`); s.peopleBackoff = Date.now() + 3000 }   // network blip: retry
+          }
         } finally { s.peopleBusy = false }
       }, 'image/jpeg', 0.65)
     }
-  }, [loadCard, identify])
+  }, [loadCard, checkFace, syncTracks])
 
   // ------------------------------------------------------------------ overlay (every display frame)
   const draw = useCallback(() => {
@@ -196,45 +236,52 @@ export default function Scan() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, rect.width, rect.height)
       const now = Date.now()
-      const b = boxes.current
-      if (b && now - b.at < PEOPLE_HOLD_MS) {
-        ctx.lineWidth = 2; ctx.strokeStyle = '#38bdf8'; ctx.fillStyle = '#38bdf8'; ctx.font = '12px Inter, sans-serif'
-        // a clear face match names the largest box (the person nearest the phone); every other box stays "person"
-        const f = face.current
-        const named = f && f.r.known && f.r.person && now - f.at < FACE_HOLD_MS ? f.r : null
-        const big = named ? b.r.boxes.reduce((m, p, i, a) => (p.w * p.h > a[m].w * a[m].h ? i : m), 0) : -1
-        b.r.boxes.forEach((p, i) => {
-          const x = ox + p.x * pw, y = oy + p.y * ph
-          if (named && i === big) {
-            const label = `${named.person!.auth_subject} · ${named.person!.name} (${Math.round((named.score ?? 0) * 100)}%)`
-            ctx.lineWidth = 3; ctx.strokeStyle = '#10b981'; ctx.strokeRect(x, y, p.w * pw, p.h * ph)
-            ctx.font = '600 13px Inter, sans-serif'
-            const tw = ctx.measureText(label).width, ly = Math.max(16, y - 6)
-            ctx.fillStyle = 'rgba(2,6,23,0.8)'; ctx.fillRect(x - 2, ly - 15, tw + 8, 20)
-            ctx.fillStyle = '#a7f3d0'; ctx.fillText(label, x + 2, ly)
-            ctx.lineWidth = 2; ctx.strokeStyle = '#38bdf8'; ctx.fillStyle = '#38bdf8'; ctx.font = '12px Inter, sans-serif'
-          } else {
-            ctx.strokeRect(x, y, p.w * pw, p.h * ph)
-            ctx.fillText(`person ${Math.round(p.score * 100)}%`, x + 3, Math.max(12, y - 4))
-          }
-        })
+      const sel = selectedRef.current
+      const place = (key: string, x: number, y: number, show: boolean) => {
+        const el = pinEls.current.get(key)
+        if (!el) return
+        el.style.display = show ? '' : 'none'
+        if (show) el.style.transform = `translate(${Math.round(Math.max(60, Math.min(rect.width - 60, x)))}px, ${Math.round(Math.max(26, y))}px) translate(-50%, -100%)`
+      }
+      for (const t of tracker.current.tracks) {
+        const b = t.box, x = ox + b.x * pw, y = oy + b.y * ph
+        const fresh = now - t.lastSeen < 700
+        const isSel = sel?.kind === 'person' && sel.track === t.id
+        ctx.lineWidth = isSel ? 3.5 : 2
+        ctx.strokeStyle = t.identity ? '#10b981' : t.conflict ? '#f59e0b' : '#38bdf8'
+        ctx.globalAlpha = fresh ? 1 : 0.45
+        ctx.strokeRect(x, y, b.w * pw, b.h * ph)
+        ctx.globalAlpha = 1
+        place(`p:${t.id}`, x + (b.w * pw) / 2, y - 4, true)
+      }
+      // equipment (generic class): named only when one of OUR markers sits inside its box
+      const ob = objects.current
+      if (ob && now - ob.at < 1500) for (const o of ob.list) {
+        const x = ox + o.x * pw, y = oy + o.y * ph
+        const m = [...seen.current.values()].find(mk => now - mk.at <= SEEN_HOLD_MS && mk.cx >= o.x && mk.cx <= o.x + o.w
+                                                 && mk.top >= o.y - 0.05 && mk.top <= o.y + o.h)
+        const name = m ? cardsRef.current[m.text]?.card?.name : null
+        ctx.setLineDash(name ? [] : [6, 4]); ctx.lineWidth = 2; ctx.strokeStyle = name ? '#10b981' : '#94a3b8'
+        ctx.strokeRect(x, y, o.w * pw, o.h * ph); ctx.setLineDash([])
+        const label = name ? `${o.label} · ${name}` : `${o.label} · unidentified (scan its marker)`
+        ctx.font = '600 12px Inter, sans-serif'
+        const tw = ctx.measureText(label).width, ly = y + o.h * ph - 6
+        ctx.fillStyle = 'rgba(2,6,23,0.75)'; ctx.fillRect(x + 2, ly - 13, tw + 8, 18)
+        ctx.fillStyle = name ? '#a7f3d0' : '#cbd5e1'; ctx.fillText(label, x + 6, ly)
       }
       for (const m of seen.current.values()) {
-        if (now - m.at > SEEN_HOLD_MS) continue
-        const card = cardsRef.current[m.text]?.card
-        ctx.lineWidth = 3; ctx.strokeStyle = card ? '#10b981' : '#f59e0b'
-        ctx.beginPath()
-        m.corners.forEach((p, i) => { const x = ox + p.x * pw, y = oy + p.y * ph; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) })
-        ctx.closePath(); ctx.stroke()
-        const p0 = m.corners[0]
-        const label = card ? `${card.name} · ${card.status.toLowerCase()}` : cardsRef.current[m.text]?.error ? 'unidentified' : 'looking up…'
-        ctx.font = '600 13px Inter, sans-serif'
-        const tw = ctx.measureText(label).width
-        const lx = ox + p0.x * pw, ly = oy + p0.y * ph - 8
-        ctx.fillStyle = 'rgba(2,6,23,0.8)'; ctx.fillRect(lx - 3, ly - 15, tw + 8, 20)
-        ctx.fillStyle = card ? '#a7f3d0' : '#fde68a'; ctx.fillText(label, lx + 1, ly)
+        const vis = now - m.at <= SEEN_HOLD_MS
+        if (vis) {
+          const card = cardsRef.current[m.text]?.card
+          const isSel = sel?.kind === 'marker' && sel.code === m.text
+          ctx.lineWidth = isSel ? 4 : 3; ctx.strokeStyle = card ? '#10b981' : '#f59e0b'
+          ctx.beginPath()
+          m.corners.forEach((p, i) => { const x = ox + p.x * pw, y = oy + p.y * ph; if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) })
+          ctx.closePath(); ctx.stroke()
+        }
+        place(`m:${m.text}`, ox + m.cx * pw, oy + m.top * ph - 8, vis)
       }
-      if (now - s.lastDecode >= DECODE_EVERY_MS) { s.lastDecode = now; void decode(v) }
+      if (!s.paused && now - s.lastDecode >= DECODE_EVERY_MS) { s.lastDecode = now; void decode(v) }
     }
     s.raf = requestAnimationFrame(draw)
   }, [decode])
@@ -242,7 +289,7 @@ export default function Scan() {
   // ------------------------------------------------------------------ start (camera or a recorded test video)
   const begin = useCallback(async (opts: { facingMode?: 'environment' | 'user'; file?: File }) => {
     stop()
-    setError(''); setStarting(true)
+    setError(''); setNote(''); setStarting(true)
     const s = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: false } as typeof session.current
     try {
       const v = video.current!
@@ -264,7 +311,7 @@ export default function Scan() {
       if (!s.native) s.worker = new Worker(new URL('../lib/qrWorker.ts', import.meta.url), { type: 'module' })
       setStats(st => ({ ...st, decoder: s.native ? 'native BarcodeDetector' : 'jsQR (worker)' }))
       session.current = s
-      setRunning(true)
+      setRunning(true); setPaused(false); setSessionNo(n => n + 1)
       s.raf = requestAnimationFrame(draw)
     } catch (e) {
       s.stream?.getTracks().forEach(t => t.stop())
@@ -276,16 +323,77 @@ export default function Scan() {
     } finally { setStarting(false) }
   }, [draw, facing, stop])
 
+  const togglePause = () => {
+    const s = session.current, v = video.current
+    if (!running || !v) return
+    s.paused = !s.paused
+    if (s.paused) v.pause(); else void v.play()
+    setPaused(!!s.paused)
+  }
   const flip = () => { const f = facing === 'environment' ? 'user' : 'environment'; setFacing(f); if (running && source === 'camera') void begin({ facingMode: f }) }
-  const shown = selected ?? inView[0] ?? null
-  const cs = shown ? cards[shown] : undefined
+
+  // ------------------------------------------------------------------ targets
+  const select = (t: Target | null) => { setSelected(t); if (t) { lastTarget.current = { t, at: Date.now() }; if (t.kind === 'marker') loadCard(t.code) } }
+  const tapVideo = (e: React.MouseEvent) => {                 // tapping inside a person box selects that person
+    const v = video.current
+    if (!v?.videoWidth) return
+    const r = v.getBoundingClientRect()
+    const k = Math.min(r.width / v.videoWidth, r.height / v.videoHeight)
+    const pw = v.videoWidth * k, ph = v.videoHeight * k
+    const x = (e.clientX - r.left - (r.width - pw) / 2) / pw, y = (e.clientY - r.top - (r.height - ph) / 2) / ph
+    const hit = tracker.current.tracks.filter(t => x >= t.box.x && x <= t.box.x + t.box.w && y >= t.box.y && y <= t.box.y + t.box.h)
+      .sort((a, b) => a.box.w * a.box.h - b.box.w * b.box.h)[0]
+    if (hit) select({ kind: 'person', track: hit.id })
+  }
+  const trackById = (id: number): Track | undefined => tracker.current.tracks.find(t => t.id === id)
+  const label = (t: Target): string => t.kind === 'marker' ? (cards[t.code]?.card?.name ?? t.code)
+    : (trackById(t.track)?.identity?.name ?? `person #${t.track}`)
+
+  /** The target a question is about - fixed at the moment it is asked. */
+  const resolveTarget = (): { code?: string; ticket?: string; label: string } | { ambiguous: string[] } | { none: string } => {
+    const now = Date.now()
+    const asTarget = (t: Target) => {
+      if (t.kind === 'marker') return cards[t.code]?.card ? { code: t.code, label: label(t) } : null
+      const tr = trackById(t.track)
+      return tr?.identity ? { ticket: tr.identity.ticket, label: `${tr.identity.auth_subject} ${tr.identity.name}` } : null
+    }
+    const sel = selectedRef.current
+    if (sel) {
+      const r = asTarget(sel)
+      if (r) { lastTarget.current = { t: sel, at: now }; return r }
+      if (sel.kind === 'person') return { none: 'The selected person is not identified (no clear face match) - nothing about them can be looked up.' }
+    }
+    const cands: Target[] = [
+      ...inView.filter(c => cards[c]?.card).map(c => ({ kind: 'marker' as const, code: c })),
+      ...tracker.current.tracks.filter(t => t.identity && now - t.lastSeen < 1500).map(t => ({ kind: 'person' as const, track: t.id })),
+    ]
+    if (cands.length === 1) { lastTarget.current = { t: cands[0], at: now }; return asTarget(cands[0])! }
+    if (cands.length > 1) return { ambiguous: cands.map(label) }
+    if (lastTarget.current && now - lastTarget.current.at < LAST_TARGET_MS) {
+      const r = asTarget(lastTarget.current.t)
+      if (r) return r
+    }
+    return { none: '' }
+  }
+
+  // pins: one per marker in view and per tracked person (positions are set by draw(), not by React)
+  const pins = useMemo(() => [
+    ...inView.map(code => ({ key: `m:${code}`, t: { kind: 'marker', code } as Target, card: cards[code]?.card, err: cards[code]?.error })),
+    ...tracks.map(t => ({ key: `p:${t.id}`, t: { kind: 'person', track: t.id } as Target, name: t.name, conflict: t.conflict })),
+  ], [inView, tracks, cards])
+  const isSel = (t: Target) => !!selected && (selected.kind === t.kind && (t.kind === 'marker' ? (selected as { code: string }).code === t.code
+    : (selected as { track: number }).track === (t as { track: number }).track))
+  const selCard = selected?.kind === 'marker' ? cards[selected.code]?.card ?? null : null
+  const selPerson = selected?.kind === 'person' ? trackById(selected.track)?.identity?.person ?? null : null
+  // the panel below the picture: the selection, else the only target in view
+  const autoCard = !selected && inView.length === 1 ? cards[inView[0]]?.card ?? null : null
 
   return (
     <div className="space-y-3 max-w-5xl mx-auto">
       <div className="flex items-center gap-2 flex-wrap">
         <ScanLine className="text-accent-300" size={20} />
-        <h1 className="text-[18px] font-semibold text-white">Scan the lab</h1>
-        <span className="text-[12px] text-slate-400">Point at a Smart Lab marker - the card shows that asset's live record.</span>
+        <h1 className="text-[18px] font-semibold text-white">Live Smart Lab camera</h1>
+        <span className="text-[12px] text-slate-400">Point at a marker or a person - the live record appears on it. Tap to select, then ask.</span>
         <Link to="/scan/markers" className="ml-auto btn-ghost btn-sm"><QrCode size={14} /> Markers</Link>
         <Link to="/phone-setup" className="btn-ghost btn-sm"><Smartphone size={14} /> Phone setup</Link>
       </div>
@@ -295,11 +403,27 @@ export default function Scan() {
         <span>The camera needs a secure page (https://). Open the portal with <b>https://</b> on this device -
           <Link to="/phone-setup" className="underline ml-1">set up this phone</Link>. A recorded test video still works below.</span></div>}
 
-      <div className="relative rounded-xl overflow-hidden bg-black aspect-video">
+      <div className="relative rounded-xl overflow-hidden bg-black h-[58vh] sm:h-auto sm:aspect-video select-none" onClick={tapVideo}>
         <video ref={video} className="absolute inset-0 w-full h-full object-contain" muted playsInline />
         <canvas ref={overlay} className="absolute inset-0 w-full h-full pointer-events-none" />
+        {/* pinned live chips - positioned every frame by draw() */}
+        {running && pins.map(p => (
+          <button key={p.key} ref={el => { if (el) pinEls.current.set(p.key, el); else pinEls.current.delete(p.key) }}
+                  type="button" onClick={e => { e.stopPropagation(); select(isSel(p.t) ? null : p.t) }}
+                  style={{ display: 'none' }}
+                  className={`absolute left-0 top-0 max-w-[220px] rounded-lg border px-2 py-1 text-left text-[11.5px] leading-tight shadow-lg backdrop-blur
+                    ${isSel(p.t) ? 'border-white bg-ink-900/90 ring-2 ring-accent-400/70' : 'border-ink-500/70 bg-ink-950/75'}`}>
+            {'card' in p ? (p.card
+              ? <><span className="block font-semibold text-white truncate">{p.card.name}</span>
+                  <span className="block text-slate-300 truncate">{p.card.live ? <LiveSummary live={p.card.live} /> : p.card.status.toLowerCase()}</span>
+                  {p.card.live?.type === 'robot' && isSel(p.t) && <div className="mt-1 w-[200px]"><RobotBars live={p.card.live} compact /></div>}</>
+              : <span className="text-amber-200">{p.err ? 'unidentified marker' : 'looking up…'}</span>)
+              : <span className={p.name ? 'font-semibold text-emerald-200' : p.conflict ? 'text-amber-200' : 'text-sky-200'}>
+                  {p.name ?? (p.conflict ? 'person · identity unclear' : 'person')}</span>}
+          </button>))}
         {!running && <div className="absolute inset-0 grid place-items-center text-slate-400 text-[13px]">
           {starting ? 'Starting the camera…' : 'Camera off'}</div>}
+        {running && paused && <span className="absolute top-2 right-2"><Chip tone="warn">PAUSED</Chip></span>}
         {running && source === 'file' && <span className="absolute top-2 left-2"><Chip tone="warn">RECORDED TEST VIDEO</Chip></span>}
       </div>
 
@@ -308,156 +432,147 @@ export default function Scan() {
           ? <button className="inline-flex items-center gap-2 rounded-xl px-4 py-2 font-semibold text-white bg-red-600 hover:bg-red-500"
                     onClick={stop}><CameraOff size={15} /> Stop</button>
           : <button className="btn-primary" disabled={!secure || starting} onClick={() => begin({})}><Camera size={15} /> Start camera</button>}
+        {running && <button className="btn-ghost" onClick={togglePause}>{paused ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}
         <button className="btn-ghost" disabled={!secure || starting} onClick={flip}><RefreshCw size={15} /> {facing === 'environment' ? 'Back' : 'Front'} camera</button>
-        <button className={`btn-ghost ${peopleOn ? 'border border-sky-400/60 text-sky-200' : ''}`} onClick={() => setPeopleOn(p => !p)}>
-          <Users size={15} /> People boxes {peopleOn ? 'on' : 'off'}</button>
+        <button className={`btn-ghost ${peopleOn ? 'border border-sky-400/60 text-sky-200' : ''}`} onClick={() => { setNote(''); setPeopleOn(p => !p) }}>
+          <Users size={15} /> People {peopleOn ? 'on' : 'off'}</button>
         <label className="btn-ghost cursor-pointer"><FileVideo size={15} /> Test video
           <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void begin({ file: f }); e.target.value = '' }} /></label>
       </div>
       {error && <p className="text-[12.5px] text-bad-soft">{error}</p>}
+      {note && <p className="text-[12px] text-warn-soft">{note}</p>}
       {running && <p className="text-[11px] text-slate-500">Markers: {stats.decoder}, {stats.decodeMs} ms per check
-        {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms - a box is named only on a clear face match with an enrolled person`}</p>}
+        {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms · face check ${stats.faceMs} ms`}
+        {' '}- a person is named only on a clear face match of their own box; anything less stays "person".</p>}
 
-      {inView.length > 1 && <div className="flex flex-wrap gap-1.5">{inView.map(c => (
-        <button key={c} onClick={() => setSelected(c)} className={`text-[12px] px-2 py-1 rounded-md border ${shown === c ? 'border-accent-400 text-white' : 'border-ink-600 text-slate-400'}`}>
-          {cards[c]?.card?.name ?? c}</button>))}</div>}
-
-      {who && <div className="card p-3 flex items-center gap-2 flex-wrap text-[13px]">
-        <Users size={15} className="text-emerald-300" />
-        <span className="text-white font-semibold">{who.auth_subject} · {who.name}</span>
-        <span className="text-slate-400">{who.role.replace(/_/g, ' ').toLowerCase()}{who.department ? ` · ${who.department}` : ''}
-          {who.student_id ? ` · ID ${who.student_id}` : ''}</span>
-        <span className="ml-auto"><Chip tone={who.inside_by_door ? 'ok' : 'idle'}>{who.inside_by_door ? 'checked in at the door' : 'no open door session'}</Chip></span>
+      {pins.length > 1 && <div className="flex flex-wrap gap-1.5 items-center">
+        <span className="text-[12px] text-slate-400">In view:</span>
+        {pins.map(p => <button key={p.key} onClick={() => select(isSel(p.t) ? null : p.t)}
+          className={`text-[12px] px-2 py-1 rounded-md border ${isSel(p.t) ? 'border-accent-400 text-white bg-accent-500/15' : 'border-ink-600 text-slate-400'}`}>
+          {label(p.t)}</button>)}
+        {selected && <button className="text-[12px] text-slate-400 inline-flex items-center gap-1" onClick={() => select(null)}><X size={12} /> clear</button>}
       </div>}
 
-      <ScanVoice card={cs?.card} person={who} />
+      <LiveVoice key={sessionNo} resolve={resolveTarget} />
 
-      {shown && <AssetCard code={shown} state={cs} onRefresh={() => loadCard(shown)} />}
-      {!shown && running && <p className="text-[12.5px] text-slate-500">No marker in view. Unmarked equipment stays unidentified -
-        the camera never guesses which device it is from its look.</p>}
+      {(selCard || selPerson || autoCard) && <LiveTargetPanel card={selCard ?? autoCard} person={selPerson} />}
+      {selected?.kind === 'person' && !selPerson && <div className="card p-3 text-[13px] text-slate-400">
+        Person #{selected.track}: not identified - no clear face match yet (or the face is not visible). Nothing is shown about them.</div>}
+      {!selected && !autoCard && running && !inView.length && <p className="text-[12.5px] text-slate-500">No marker in view. Unmarked
+        equipment stays unidentified - the camera never guesses which device it is from its look.</p>}
     </div>
   )
-}
-
-function AssetCard({ code, state, onRefresh }: { code: string; state?: CardState; onRefresh: () => void }) {
-  const c = state?.card
-  if (!c) return <div className="card p-3 text-[13px]">{state?.error
-    ? <span className="text-warn-soft">Unidentified marker <span className="mono">{code}</span> - {state.error}</span>
-    : <span className="text-slate-400">Looking up <span className="mono">{code}</span>…</span>}</div>
-  return (
-    <div className="card p-3.5 space-y-2.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[15px] font-semibold text-white">{c.name}</span>
-        <span className="text-[12px] text-slate-400">{c.type}{c.lab_code ? ` · ${c.lab_code}` : ''}</span>
-        <span className="ml-auto"><Chip tone={tone(c.status)}>{c.status.replace(/_/g, ' ').toLowerCase()}</Chip></span>
-      </div>
-      <div className="text-[11.5px] text-slate-500">Last report: {fmtAge(c.seconds_since_seen)}
-        {c.last_seen_at ? ` (${new Date(c.last_seen_at).toLocaleString()})` : ''} · marker <span className="mono">{c.code}</span></div>
-      {c.facts.length > 0 && <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
-        {c.facts.map(f => <li key={f.label} className="flex gap-2"><span className="text-slate-400">{f.label}</span>
-          <span className="text-slate-100">{f.value}</span>
-          {f.quality !== 'RECORD' && <Chip tone={tone(f.quality)}>{f.quality.toLowerCase()}</Chip>}</li>)}</ul>}
-      {c.readings.length > 0 && <ul className="grid sm:grid-cols-3 gap-2">
-        {c.readings.map(r => <li key={r.metric} className="rounded-lg border border-ink-600 px-2.5 py-1.5">
-          <div className="text-[11px] text-slate-400">{r.metric}</div>
-          <div className="text-[15px] text-white tnum">{Number.isInteger(r.value) ? r.value : r.value.toFixed(1)} {r.unit}</div>
-          <div className={`text-[10.5px] ${r.quality === 'LIVE' ? 'text-slate-500' : 'text-warn-soft'}`}>{fmtAge(r.age_s)}{r.quality === 'STALE' ? ' - stale' : ''}</div></li>)}</ul>}
-      {c.type === 'Environment node' && c.readings.length === 0 &&
-        <div className="text-[12.5px] text-warn-soft">No readings from this node in the last 24 h - nothing is shown instead of old values.</div>}
-      <div className="text-[12px] text-slate-400">{c.open_alerts} open alert{c.open_alerts === 1 ? '' : 's'} on this device ·
-        {' '}{c.open_issues_in_lab} open issue{c.open_issues_in_lab === 1 ? '' : 's'} in {c.lab_code ?? 'the lab'}</div>
-      <div className="flex flex-wrap gap-2">
-        <button className="btn-primary btn-sm" onClick={() => askLab(c.ask)}><MessageCircle size={14} /> Ask the lab about it</button>
-        <Link to={c.link} className="btn-ghost btn-sm">Open in the portal</Link>
-        <button className="btn-ghost btn-sm" onClick={onRefresh}><RefreshCw size={13} /> Refresh</button>
-      </div>
-    </div>
-  )
-}
-
-/** The person named by face, as plain text for the assistant (the portal's own account record only). */
-export function personContext(p: ScanPerson): string {
-  return `The person in front of the phone camera is identified by face as ${p.auth_subject} - ${p.name}, ` +
-    `${p.role.replace(/_/g, ' ').toLowerCase()}${p.department ? `, ${p.department}` : ''}${p.student_id ? `, student ID ${p.student_id}` : ''}. ` +
-    `${p.inside_by_door ? 'They checked in at the lab door and have an open session.' : 'They have no open door session right now.'} ` +
-    'If I ask "who is this", "who is there" or "what is this", answer with this person.'
-}
-
-/** What the camera shows right now, as plain text for the assistant (only the portal's own record, with its age). */
-export function cardContext(c: ScanCard): string {
-  const parts = [`I am looking at ${c.name} (${c.type}${c.lab_code ? `, ${c.lab_code}` : ''}, marker ${c.code}) through the phone camera.`,
-    `Its record in the portal: status ${c.status.replace(/_/g, ' ').toLowerCase()}, last report ${fmtAge(c.seconds_since_seen)}.`]
-  if (c.facts.length) parts.push('Facts: ' + c.facts.map(f => `${f.label} ${f.value}${f.quality !== 'RECORD' ? ` (${f.quality.toLowerCase()})` : ''}`).join('; ') + '.')
-  if (c.readings.length) parts.push('Readings: ' + c.readings.map(r => `${r.metric} ${r.value} ${r.unit} (${fmtAge(r.age_s)}${r.quality === 'STALE' ? ', stale' : ''})`).join('; ') + '.')
-  parts.push(`${c.open_alerts} open alerts on it, ${c.open_issues_in_lab} open issues in ${c.lab_code ?? 'the lab'}.`)
-  return parts.join(' ').slice(0, 3500)
 }
 
 /**
- * Voice while scanning (owner 2026-10-27): ask by voice about the asset in view (its live card goes along as context)
- * or about anything in the lab. Same path as typing - /ai/ask with the same permissions; the camera keeps running.
- * The context travels as an earlier turn, so the instant database answers and the tool router still see only the
- * question itself.
+ * Voice and typed questions about what the camera shows (owner 2026-10-27). Push to talk -> the lab's local speech
+ * service -> the transcript (editable, re-send to correct a mishearing) -> /scan/ask with the target resolved at
+ * that moment -> the answer on screen and spoken by the local voice (mutable). The conversation is this camera
+ * session's only; nothing is recorded in the background; Cancel stops the request and the speech.
  */
-function ScanVoice({ card, person }: { card?: ScanCard; person?: ScanPerson | null }) {
+function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: string; label: string } | { ambiguous: string[] } | { none: string } }) {
   const [voice, setVoice] = useState<VoiceStatus | null>(null)
-  const [phase, setPhase] = useState<'idle' | 'recording' | 'thinking'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'recording' | 'transcribing' | 'thinking'>('idle')
   const [q, setQ] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [err, setErr] = useState('')
+  const [turns, setTurns] = useState<{ q: string; a: string; target: string | null; ms?: number; intent?: string; sources?: ScanAnswer['sources']; err?: boolean }[]>([])
+  const [muted, setMuted] = useState(() => { try { return localStorage.getItem('smartlab.liveMute') === '1' } catch { return false } })
   const [speaking, setSpeaking] = useState(false)
   const rec = useRef<Recording | null>(null)
-  const cardRef = useRef(card); cardRef.current = card
-  const personRef = useRef(person); personRef.current = person
-  useEffect(() => { if (micSupported()) voiceStatus().then(setVoice) }, [])
-  useEffect(() => () => { rec.current?.cancel(); stopSpeaking() }, [])
-  if (!micSupported() || voice?.stt === false) return null
+  const ac = useRef<AbortController | null>(null)
+  const end = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (micSupported()) voiceStatus().then(setVoice).catch(() => setVoice(null)) }, [])
+  useEffect(() => () => { rec.current?.cancel(); ac.current?.abort(); stopSpeaking() }, [])
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns])
+  const mic = micSupported() && voice?.stt !== false
 
-  const finish = async () => {
+  const say = (text: string) => {
+    if (muted) return
+    setSpeaking(true)
+    void speak(spokenSummary(text), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
+  }
+  const ask = async (question: string) => {
+    const text = question.trim()
+    if (text.length < 2 || phase === 'thinking') return
+    stopSpeaking(); setSpeaking(false)
+    const t = resolve()
+    if ('ambiguous' in t) {
+      const a = `I can see ${t.ambiguous.join(' and ')}. Tap the one you mean, then ask again.`
+      setTurns(ts => [...ts, { q: text, a, target: null }]); say(a); return
+    }
+    if ('none' in t && t.none) { setTurns(ts => [...ts, { q: text, a: t.none, target: null }]); say(t.none); return }
+    setPhase('thinking')
+    const c = new AbortController(); ac.current = c
+    const history = turns.slice(-3).flatMap(x => [{ role: 'user' as const, content: x.q }, { role: 'assistant' as const, content: x.a }])
+    try {
+      const r = await scanAsk(text, 'code' in t || 'ticket' in t ? { code: (t as { code?: string }).code, ticket: (t as { ticket?: string }).ticket } : {},
+                              history, c.signal)
+      setTurns(ts => [...ts, { q: text, a: r.answer, target: 'label' in t ? t.label : null, ms: r.ms, intent: r.intent, sources: r.sources }])
+      say(r.answer)
+    } catch (e) {
+      if (!c.signal.aborted) setTurns(ts => [...ts, { q: text, a: e instanceof Error ? e.message : 'The question failed', target: null, err: true }])
+    } finally { setPhase('idle'); ac.current = null }
+  }
+  const finishRec = async () => {
     const r = rec.current
     if (!r) return
     rec.current = null
-    setPhase('thinking')
+    setPhase('transcribing')
     try {
       const t = await transcribe(await r.stop())
-      if (!t.text || t.text.length < 2) { setErr('Did not catch that - try again a little closer.'); return }
-      setQ(t.text)
-      const c = cardRef.current, p = personRef.current
-      const seen = [c ? cardContext(c) : '', p ? personContext(p) : ''].filter(Boolean).join(' ')
-      const what = [c?.name, p ? `${p.auth_subject} ${p.name}` : ''].filter(Boolean).join(' and ')
-      const history = seen ? [{ role: 'user' as const, content: seen.slice(0, 3800) },
-                              { role: 'assistant' as const, content: `Understood - you are looking at ${what}.` }] : []
-      const a = await api.aiAsk(t.text, history)
-      setAnswer(a.answer)
-      setSpeaking(true)
-      void speak(spokenSummary(a.answer), !!voice?.tts).then(how => { if (how !== 'browser') setSpeaking(false) })
+      setPhase('idle')
+      if (!t.text || t.text.trim().length < 2) { setTurns(ts => [...ts, { q: '…', a: 'Did not catch that - try again a little closer.', target: null, err: true }]); return }
+      setQ(t.text.trim())
+      await ask(t.text)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Voice failed')
-    } finally { setPhase('idle') }
+      setPhase('idle')
+      setTurns(ts => [...ts, { q: '…', a: e instanceof Error ? e.message : 'Speech service unavailable', target: null, err: true }])
+    }
   }
   const startRec = async () => {
-    if (rec.current || phase === 'thinking') return
-    stopSpeaking(); setSpeaking(false); setErr(''); setAnswer('')
-    try { rec.current = await Recording.start(() => void finish()); setPhase('recording') }
-    catch { setErr('The microphone is blocked - allow it for this site.') }
+    if (rec.current || phase !== 'idle') return
+    stopSpeaking(); setSpeaking(false)
+    try { rec.current = await Recording.start(() => void finishRec()); setPhase('recording') }
+    catch { setTurns(ts => [...ts, { q: '…', a: 'The microphone is blocked - allow it for this site.', target: null, err: true }]) }
   }
+  const cancel = () => { rec.current?.cancel(); rec.current = null; ac.current?.abort(); stopSpeaking(); setSpeaking(false); setPhase('idle') }
+  const submit = (e: FormEvent) => { e.preventDefault(); void ask(q) }
+  const status = phase === 'recording' ? 'Listening… tap again to ask' : phase === 'transcribing' ? 'Transcribing (local)…'
+    : phase === 'thinking' ? 'Looking it up…' : speaking ? 'Speaking…' : 'Ask about what the camera shows'
+
   return (
     <div className="card p-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={() => phase === 'recording' ? void finish() : void startRec()} disabled={phase === 'thinking'}
+      <div className="flex items-center gap-2 flex-wrap">
+        {mic && <button type="button" onClick={() => phase === 'recording' ? void finishRec() : void startRec()}
+                disabled={phase === 'transcribing' || phase === 'thinking'}
                 aria-label={phase === 'recording' ? 'Stop and ask' : 'Ask by voice'}
                 className={`grid place-items-center w-12 h-12 rounded-full shrink-0 ${phase === 'recording' ? 'bg-red-600 text-white animate-pulse' : 'bg-accent-500/20 text-accent-200 border border-accent-400/50'}`}>
-          {phase === 'recording' ? <Square size={18} /> : <Mic size={20} />}</button>
-        <div className="text-[13px] min-w-0">
-          <div className="text-white">{phase === 'recording' ? 'Listening… tap again to ask' : phase === 'thinking' ? 'Thinking…'
-            : card ? <>Ask about <b>{card.name}</b> or anything in the lab</>
-            : person ? <>Ask about <b>{person.name}</b> or anything in the lab</> : 'Ask anything about the lab by voice'}</div>
-          {q && <div className="text-slate-400 truncate">You: {q}</div>}
-        </div>
-        {speaking && <button className="ml-auto btn-ghost btn-sm" onClick={() => { stopSpeaking(); setSpeaking(false) }}><VolumeX size={13} /> Stop</button>}
+          {phase === 'recording' ? <Square size={18} /> : phase === 'transcribing' || phase === 'thinking' ? <Loader2 size={20} className="animate-spin" /> : <Mic size={20} />}</button>}
+        <div className="text-[13px] text-white mr-auto">{status}</div>
+        <button type="button" className="btn-ghost btn-sm" disabled={phase !== 'idle'} onClick={() => void ask('Tell me more')}>Tell me more</button>
+        <button type="button" className="btn-ghost btn-sm" aria-pressed={muted} title={muted ? 'Spoken answers off' : 'Spoken answers on'}
+                onClick={() => { const m = !muted; setMuted(m); if (m) { stopSpeaking(); setSpeaking(false) } try { localStorage.setItem('smartlab.liveMute', m ? '1' : '0') } catch { /* private */ } }}>
+          {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+        {(phase !== 'idle' || speaking) && <button type="button" className="btn-ghost btn-sm" onClick={cancel}><X size={14} /> Cancel</button>}
       </div>
-      {answer && <AiText text={answer} />}
-      {err && <p className="text-[12px] text-bad-soft">{err}</p>}
+      <form onSubmit={submit} className="flex gap-2">
+        <input className="input flex-1" value={q} onChange={e => setQ(e.target.value)} maxLength={500}
+               placeholder='e.g. "Tell me more", "What is joint 3 doing?", "How much is left?", "Who is this?"' />
+        <button className="btn-primary" disabled={q.trim().length < 2 || phase === 'thinking'} aria-label="Ask"><Send size={15} /></button>
+      </form>
+      {turns.length > 0 && <div className="max-h-72 overflow-y-auto space-y-2.5 pr-1">
+        {turns.map((t, i) => <div key={i} className="space-y-1">
+          <div className="text-[12.5px] text-slate-400">You: <span className="text-slate-200">{t.q}</span>
+            {t.target && <span className="text-slate-500"> · about {t.target}</span>}</div>
+          <div className={t.err ? 'text-[13px] text-warn-soft' : ''}>{t.err ? t.a : <AiText text={t.a} />}</div>
+          {(t.ms != null || t.sources?.length) && <div className="text-[10.5px] text-slate-500">
+            {t.intent === 'model' ? 'local AI with the live record as context' : t.intent ? `from the live record (${t.intent})` : ''}
+            {t.ms != null ? ` · ${(t.ms / 1000).toFixed(2)} s` : ''}
+            {t.sources?.map((s, j) => <span key={j}> · {s.label}: {s.quality}{s.at ? ` @ ${new Date(s.at).toLocaleTimeString()}` : ''}</span>)}</div>}
+        </div>)}
+        <div ref={end} />
+      </div>}
     </div>
   )
 }
+
+export { fmtAge }

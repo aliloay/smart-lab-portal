@@ -63,6 +63,9 @@ from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
 from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, drop_slivers, head_crop, iou, zoom_people
+# Equipment classes the phone view shows as generic boxes (COCO ids of the same detector, see vision.EQUIPMENT_CLASSES)
+PHONE_OBJECTS = {62: "monitor", 63: "laptop", 66: "keyboard"}
+PHONE_OBJECT_MIN = 0.35
 from vision import make_detector, predicted, red_share
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1250,11 +1253,16 @@ def make_app(svc: Service) -> Flask:
             if img is None:
                 return Response("not a decodable JPEG", status=422)
             h, w = img.shape[:2]
-            dets = [d for d in svc.zoom_detector.detect(img) if d.cls == PERSON]
+            found = svc.zoom_detector.detect(img)
+            dets = [d for d in found if d.cls == PERSON]
+            # 2026-10-27 (owner: "the laptop is not detected"): lab equipment classes from the same pass - a GENERIC
+            # class ("laptop"), never which PC; the phone names it only from a Smart Lab marker inside the box
+            objs = [d for d in found if d.cls in PHONE_OBJECTS and d.score >= PHONE_OBJECT_MIN]
+            nb = lambda d: {"x": d.box[0] / w, "y": d.box[1] / h, "w": d.box[2] / w, "h": d.box[3] / h, "score": round(d.score, 3)}
             return jsonify({"w": w, "h": h, "ms": round((time.perf_counter() - t0) * 1000, 1),
                             "engine": svc.detector_engine(), "class": "person",
-                            "boxes": [{"x": d.box[0] / w, "y": d.box[1] / h, "w": d.box[2] / w, "h": d.box[3] / h,
-                                       "score": round(d.score, 3)} for d in dets]})
+                            "boxes": [nb(d) for d in dets],
+                            "objects": [{**nb(d), "label": PHONE_OBJECTS[d.cls]} for d in objs]})
         finally:
             phone_slot.release()
 

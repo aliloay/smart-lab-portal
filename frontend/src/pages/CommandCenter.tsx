@@ -17,6 +17,7 @@ import {
 } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
+import BackToPortal from '../components/BackToPortal'
 import LabFloor from '../components/LabFloor'
 import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, Skeleton, Tone } from '../components/ui'
@@ -820,6 +821,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
   if (wall) return (
     <div className="command-wall">
       <header className="wall-header">
+        <BackToPortal to="/command" />
         <div className="wall-title">
           <div className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[.16em] text-cyan-300"><Radar size={12} /> Smart Lab · Control room</div>
           <h1 className="truncate text-lg font-semibold leading-tight text-white">IoT Dashboard</h1>

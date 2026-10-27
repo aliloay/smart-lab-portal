@@ -213,6 +213,17 @@ body {
   .card { break-inside: avoid; box-shadow: none !important; }
 }
 
+/* Asset marker sheet (2026-10-27): only the sheet prints - A4, 3 per row, each marker 6.3 cm wide, cut gaps.
+   The marker images carry their own colours, so they print the same with or without "background graphics". */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+  body.printing-markers * { visibility: hidden !important; }
+  body.printing-markers #marker-sheet, body.printing-markers #marker-sheet * { visibility: visible !important; }
+  body.printing-markers #marker-sheet { display: grid !important; position: absolute; left: 0; top: 0; width: 190mm;
+    grid-template-columns: repeat(3, 63mm); gap: 1mm 0; justify-content: space-between; }
+  body.printing-markers #marker-sheet img { width: 62mm; height: auto; break-inside: avoid; outline: 0.2mm dashed #94a3b8; }
+}
+
 /* ---- Smart Lab motion system (Welcome page + intro) ----------------------
    Durations: reveal 650 ms, intro 2.4 s, exit 500 ms. Easing: --ease-out-lab.
    Only opacity/transform animate; each element once; nothing loops except the

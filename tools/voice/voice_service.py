@@ -169,7 +169,7 @@ if __name__ == "__main__":
     key = os.environ.get("VOICE_KEY", "")
     if not key:
         raise SystemExit("VOICE_KEY missing (tools/voice/voice.env) - refusing to start without a key")
-    v = Voice(os.environ.get("VOICE_STT_MODEL", "base.en"), int(os.environ.get("VOICE_THREADS", "2")))
+    v = Voice(os.environ.get("VOICE_STT_MODEL", "tiny.en"), int(os.environ.get("VOICE_THREADS", "2")))
     t0 = time.time()
     v.load()
     print(f"Voice service: STT {v.model_name} (CPU int8, {v.threads} threads), TTS "

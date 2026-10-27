@@ -26,6 +26,7 @@ import CameraFullScreen from '../components/CameraFullScreen'
 import LabDetails from '../components/LabDetails'
 import { useLive, useLiveMessages } from '../lib/live'
 import { fmtTime, relative } from '../lib/time'
+import BackToPortal from '../components/BackToPortal'
 import { InstitutionLogo } from '../components/Brand'
 import { Spinner } from '../components/ui'
 
@@ -121,8 +122,7 @@ export default function Monitor() {
   return (
     <div className="h-screen flex flex-col bg-ink-950 text-slate-100 overflow-hidden">
       <header className="shrink-0 flex items-center gap-5 px-6 py-3 border-b border-ink-600/60 bg-ink-900/80">
-        <Link to="/" title="Back to the portal" className="text-slate-500 hover:text-slate-200">
-          <ArrowLeft size={20} /></Link>
+        <BackToPortal to="/" />
         <InstitutionLogo strong className="!h-9" />
         <div className="text-[15px] font-extrabold tracking-[0.18em] whitespace-nowrap">
           SMART <span className="text-accent-300">LAB</span>

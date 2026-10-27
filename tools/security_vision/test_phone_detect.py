@@ -23,7 +23,8 @@ class SlowDet:
         self.calls += 1
         if self.gate:
             self.gate.wait(2)
-        return [Detection(0, 0.81, (64.0, 36.0, 64.0, 144.0)), Detection(56, 0.9, (0.0, 0.0, 10.0, 10.0))]
+        return [Detection(0, 0.81, (64.0, 36.0, 64.0, 144.0)), Detection(56, 0.9, (0.0, 0.0, 10.0, 10.0)),
+                Detection(63, 0.72, (320.0, 180.0, 128.0, 72.0)), Detection(62, 0.2, (0.0, 0.0, 64.0, 36.0))]
 
 
 def app(det):
@@ -59,3 +60,9 @@ def test_one_frame_at_a_time_second_gets_429():
     gate.set(); t.join()
     assert first["r"].status_code == 200
     assert c.post("/detect", data=jpeg(), headers={"X-Device-Key": "k"}).status_code == 200   # slot released
+
+
+def test_equipment_comes_as_a_generic_class_only():
+    r = app(SlowDet()).post("/detect", data=jpeg(), headers={"X-Device-Key": "k"}).get_json()
+    assert r["objects"] == [{"x": 0.5, "y": 0.5, "w": 0.2, "h": 0.2, "score": 0.72, "label": "laptop"}]   # weak monitor dropped
+    assert all("name" not in o for o in r["objects"])

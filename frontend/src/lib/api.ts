@@ -302,11 +302,54 @@ export interface ScanCard {
   facts: ScanFact[]
   readings: { metric: string; value: number; unit: string; at: string; age_s: number; quality: 'LIVE' | 'STALE' }[]
   open_alerts: number; open_issues_in_lab: number; link: string; ask: string
+  /** Structured live data of the resolved asset (backend services/live_target.py) - never estimated from the image. */
+  live?: LiveBlock | null
+}
+export interface LiveJoint { index: number; name: string; deg: number; vel_deg_s: number | null }
+export interface LiveBin { code: string; item: string; mass_g: number | null; qty_est: number | null; qty_err: number | null
+  calibrated: boolean; quality: string; reorder_qty: number | null; low: boolean; stock_max: number | null
+  measured_at: string | null; age_s: number | null; count_is: string }
+export type LiveBlock =
+  | { type: 'robot'; connection: 'LIVE' | 'STALE' | 'OFFLINE' | 'NO_TELEMETRY'; telemetry_age_s: number | null
+      received_at: string | null; model: string | null; state: string | null; control: string | null; home: string | null
+      robot_mode: string | number | null; safety_mode: string | number | null; program_state: string | null
+      joints: LiveJoint[]; tcp: { x_mm: number; y_mm: number; z_mm: number; rx: number; ry: number; rz: number; rotation: string } | null
+      rate_hz: number | null; simulation: boolean; note: string | null }
+  | { type: 'consumables'; online?: boolean; bins: LiveBin[] }
+  | { type: 'reusable_bin'; online: boolean; source: string
+      items: { tag: string; name: string; status: string; holder: string | null; nfc_tagged: boolean; since: string | null }[] }
+  | { type: 'environment'; online: boolean; readings: ScanCard['readings']
+      open_alerts: { title: string; severity: string; at: string | null }[] }
+  | { type: 'door'; online: boolean; age_s: number | null; door: 'OPEN' | 'CLOSED' | null }
+  | { type: 'pc'; online: boolean; age_s: number | null; agent_state: string | null; mode: string; os_user?: string | null }
+  | { type: 'device'; online: boolean; age_s: number | null }
+export interface ScanAnswer {
+  answer: string; intent: string; deterministic: boolean; ms: number; model?: string
+  target: { code?: string; name?: string; person?: string } | null
+  sources?: { label: string; quality: string; at: string | null }[]; live?: LiveBlock | null
+}
+/** One target-aware question from the live camera: the server resolves the target from the marker / face ticket. */
+export async function scanAsk(question: string, target: { code?: string | null; ticket?: string | null },
+                              history: { role: 'user' | 'assistant'; content: string }[], signal?: AbortSignal): Promise<ScanAnswer> {
+  const token = getToken()
+  const r = await fetch('/api/scan/ask', {
+    method: 'POST', signal, cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ question, code: target.code ?? null, ticket: target.ticket ?? null, history: history.slice(-6) }),
+  })
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({ detail: '' }))
+    throw new Error(r.status === 409 ? 'The face match expired - point the camera at the face again'
+      : r.status === 404 ? 'That marker is not a Smart Lab asset' : d.detail || `Question failed (${r.status})`)
+  }
+  return r.json()
 }
 export interface ScanRegistryItem { code: string; kind: string; key: string; name: string; type: string; lab_code: string | null }
 export interface ScanPeople {
   w: number; h: number; ms: number; proxy_ms: number; engine: string; class: 'person'
   boxes: { x: number; y: number; w: number; h: number; score: number }[]
+  /** Lab equipment in the same pass (monitor / laptop / keyboard) - a generic class, never which device. */
+  objects?: { x: number; y: number; w: number; h: number; score: number; label: string }[]
 }
 /** One phone frame -> person boxes (generic class, never a name). 429 = the detector is busy: skip this frame. */
 export async function scanPeople(jpeg: Blob, signal: AbortSignal): Promise<ScanPeople | null> {
@@ -339,9 +382,9 @@ export async function scanMarkersPdf(kind: string): Promise<Blob> {
 }
 
 export interface ScanPerson { name: string; auth_subject: string; role: string; department: string | null;
-  student_id: string | null; inside_by_door: boolean }
+  student_id: string | null; inside_by_door: boolean; score?: number | null; verified_at?: string | null }
 export interface ScanIdentify { face: boolean; known: boolean; score: number | null; second: number | null; ms: number;
-  person?: ScanPerson; reason?: string }
+  person?: ScanPerson; ticket?: string; reason?: string }
 
 /** One phone frame -> the enrolled person on a CLEAR face match (null = the face server is busy, skip this frame). */
 export async function scanIdentify(jpeg: Blob, signal: AbortSignal): Promise<ScanIdentify | null> {

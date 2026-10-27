@@ -5,9 +5,9 @@
  *   /phone-setup   open the portal on a phone over https:// (the camera and microphone need a secure page):
  *                  a self-check, the Smart Lab CA download and the trust steps, and a QR to hand over from a PC.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Download, ExternalLink, Printer, ShieldAlert, X, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, Printer, ShieldAlert, XCircle } from 'lucide-react'
 import { ScanRegistryItem, api, getToken, scanMarkerBlob, scanMarkersPdf } from '../lib/api'
 import { Chip, Skeleton } from '../components/ui'
 
@@ -33,22 +33,29 @@ export function ScanMarkers() {
     return () => { live = false }
   }, [shown])                                           // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)) }, [])   // eslint-disable-line
-  // Print = an A4 PDF of the markers (3 x 4, cut lines) shown IN the page: no pop-up tab to be blocked
-  // (owner 2026-10-27: Print did nothing on the iPhone, then on the laptop). Print / Download / Open are plain
-  // user clicks on the ready PDF, so every browser allows them.
-  const [printing, setPrinting] = useState(false)
-  const [sheet, setSheet] = useState<string | null>(null)
-  const frame = useRef<HTMLIFrameElement>(null)
-  useEffect(() => () => { if (sheet) URL.revokeObjectURL(sheet) }, [sheet])
-  const printSheet = async () => {
-    setPrinting(true); setError('')
-    try { setSheet(URL.createObjectURL(await scanMarkersPdf(kind))) }
-    catch (e) { setError(e instanceof Error ? e.message : 'Print sheet failed') }
-    finally { setPrinting(false) }
-  }
+  // Print (2026-10-27, owner: Print did nothing, then a grey box): the portal's security policy does not allow a PDF
+  // viewer inside the page, so Print prints the marker sheet itself - the same print-resolution images, A4, three
+  // per row at 6.3 cm (index.css, body.printing-markers). Download PDF gives the file for any other printer/phone.
+  const [busy, setBusy] = useState<'' | 'print' | 'pdf'>('')
+  const allLoaded = shown.length > 0 && shown.every(i => urls[i.code])
   const printNow = () => {
-    try { frame.current?.contentWindow?.focus(); frame.current?.contentWindow?.print() }
-    catch { if (sheet) window.open(sheet, '_blank') }
+    if (!allLoaded) { setError('Markers are still loading - try again in a moment.'); return }
+    setError('')
+    document.body.classList.add('printing-markers')
+    const done = () => { document.body.classList.remove('printing-markers'); window.removeEventListener('afterprint', done) }
+    window.addEventListener('afterprint', done)
+    window.print()
+    setTimeout(done, 60_000)                               // browsers without afterprint
+  }
+  const downloadPdf = async () => {
+    setBusy('pdf'); setError('')
+    try {
+      const url = URL.createObjectURL(await scanMarkersPdf(kind))
+      const a = document.createElement('a'); a.href = url; a.download = `smartlab_markers_${kind}.pdf`
+      document.body.appendChild(a); a.click(); a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (e) { setError(e instanceof Error ? e.message : 'PDF failed') }
+    finally { setBusy('') }
   }
 
   return (
@@ -59,22 +66,17 @@ export function ScanMarkers() {
         <select className="input !w-auto ml-auto" value={kind} onChange={e => setKind(e.target.value as typeof kind)}>
           <option value="all">All</option><option value="device">Devices</option><option value="bin">Consumables bins</option>
           <option value="asset">Equipment / reusable items</option></select>
-        <button className="btn-primary btn-sm" disabled={printing} onClick={printSheet}>
-          <Printer size={14} /> {printing ? 'Preparing…' : 'Print'}</button>
+        <button className="btn-primary btn-sm" disabled={!allLoaded} onClick={printNow}>
+          <Printer size={14} /> {allLoaded ? 'Print' : 'Loading…'}</button>
+        <button className="btn-ghost btn-sm" disabled={busy === 'pdf'} onClick={downloadPdf}>
+          <Download size={14} /> {busy === 'pdf' ? 'Preparing…' : 'Download PDF'}</button>
         <Link to="/scan" className="btn-ghost btn-sm">Back to scanning</Link>
       </div>
       {error && <p className="text-bad-soft text-[13px]">{error}</p>}
-      {sheet && <div className="fixed inset-0 z-[70] bg-ink-950/80 backdrop-blur-sm p-3 sm:p-6 flex flex-col" role="dialog" aria-label="Marker print sheet">
-        <div className="flex flex-wrap items-center gap-2 mb-2">
-          <span className="text-white font-semibold mr-auto">Print sheet · A4, 3 × 4 markers, cut along the lines</span>
-          <button className="btn-primary btn-sm" onClick={printNow}><Printer size={14} /> Print</button>
-          <a className="btn-ghost btn-sm" href={sheet} download={`smartlab_markers_${kind}.pdf`}><Download size={14} /> Download PDF</a>
-          <a className="btn-ghost btn-sm" href={sheet} target="_blank" rel="noopener"><ExternalLink size={14} /> Open in new tab</a>
-          <button className="btn-ghost btn-sm" onClick={() => setSheet(null)}><X size={14} /> Close</button>
-        </div>
-        <p className="text-[11.5px] text-slate-400 mb-2 sm:hidden">On a phone: Open in new tab, then Share → Print.</p>
-        <iframe ref={frame} src={sheet} title="Marker print sheet" className="flex-1 w-full rounded-lg bg-white" />
-      </div>}
+      {/* the sheet that prints (hidden on screen) */}
+      <div id="marker-sheet" className="hidden" aria-hidden>
+        {shown.map(i => urls[i.code] && <img key={i.code} src={urls[i.code]} alt="" />)}
+      </div>
       {!items ? <Skeleton className="h-60" /> : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 print:grid-cols-3">
           {shown.map(i => (

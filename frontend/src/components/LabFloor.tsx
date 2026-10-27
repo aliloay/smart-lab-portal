@@ -124,7 +124,7 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         <rect x={2} y={4} width={96} height={54} rx={2} fill="url(#grid)" stroke="#475569" strokeWidth={0.5} />
         {/* windows along the wall opposite the door, behind the engineer desk and the UR5e (owner 2026-10-27) */}
         {[16, 30, 44, 58, 72, 86].map(x => <line key={x} x1={x} y1={4} x2={x + 8} y2={4} stroke="#7dd3fc" strokeWidth={0.9} opacity={0.6} />)}
-        <text x={50} y={6.4} textAnchor="middle" fontSize={1.5} fill="#64748b">windows</text>
+        <text x={80} y={6.4} textAnchor="middle" fontSize={1.5} fill="#64748b">windows</text>
         {/* Entrance on the same long side as FANUC and the security camera. */}
         <g>
           <rect x={9} y={56.4} width={10} height={1.6} fill={doorOpen ? '#f87171' : doorOpen === false ? '#22c55e' : '#64748b'} />
@@ -136,13 +136,14 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         {cam2 && <path d="M 4 5.5 L 92 38 L 70 55 Z" fill="url(#cone)" opacity={live2 ? 0.8 : 0.2} />}
         {/* FANUC and UR5e sit along opposite long sides, near each other. */}
         <RobotCell x={50} y={45.5} w={9} h={8} label="FANUC" robot={fanuc} frame="cage" />
-        <RobotCell x={76} y={10} w={14} h={11} label="UR5e" robot={ur} frame="gantry" />
+        <RobotCell x={53} y={10} w={14} h={11} label="UR5e" robot={ur} frame="gantry" />
         {/* Central table: two rows facing each other (5 + 6 PCs). Names sit INSIDE their boxes - nothing below
             them to collide with the next row. */}
-        <text x={52} y={29.4} textAnchor="middle" fontSize={1.7} fill="#64748b">Central PC table · 05–15</text>
-        <rect x={32} y={30.6} width={40} height={10} rx={1} fill="#111827" stroke="#334155" strokeWidth={0.3} />
-        {rowA.map((n, i) => <Pc key={n} n={n} x={34.6 + i * 7} y={31.4} />)}
-        {rowB.map((n, i) => <Pc key={n} n={n} x={33.2 + i * 6.4} y={36.6} />)}
+        {/* from near the left wall, below the two desks (owner 2026-10-27) */}
+        <text x={4.5} y={32} fontSize={1.7} fill="#64748b">Central PC table · 05–15</text>
+        <rect x={4} y={33} width={44} height={10} rx={1} fill="#111827" stroke="#334155" strokeWidth={0.3} />
+        {rowA.map((n, i) => <Pc key={n} n={n} x={6.6 + i * 8.2} y={33.8} />)}
+        {rowB.map((n, i) => <Pc key={n} n={n} x={5.4 + i * 7} y={39} />)}
         {/* The engineer's desk (PC-01, PC-04) and the desk in front of it (PC-02, PC-03), across from the door. */}
         <rect x={6} y={12} width={10} height={17} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
         <text x={11} y={14.2} textAnchor="middle" fontSize={1.5} fill="#94a3b8">Lab engineer</text>
@@ -152,6 +153,10 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
         <text x={23.5} y={14.2} textAnchor="middle" fontSize={1.5} fill="#94a3b8">Front desk</text>
         <Pc n="PC-02" x={21.2} y={16} />
         <Pc n="PC-03" x={21.2} y={22.4} />
+        {/* The TA's desk with PC-16: top-right, a little away from the walls (owner 2026-10-27). */}
+        <rect x={79} y={11} width={12} height={9.5} rx={0.8} fill="#111827" stroke="#334155" strokeWidth={0.3} />
+        <text x={85} y={13.2} textAnchor="middle" fontSize={1.5} fill="#94a3b8">TA's desk</text>
+        <Pc n="PC-16" x={82.7} y={14.6} />
         {/* Security camera at the lower-right corner, facing back across the room. */}
         <path d="M 92.5 56.5 h3.2 l1.3 -1.5 v-2 h-5.8 z" fill={live ? '#38bdf8' : '#64748b'} stroke="#cbd5e1" strokeWidth={0.25} />
         <text x={96.8} y={51.6} textAnchor="end" fontSize={1.7} fill="#94a3b8">Camera{cam2 ? ' 1' : ''} · {cameraLabel}</text>
