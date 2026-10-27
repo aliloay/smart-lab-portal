@@ -222,18 +222,23 @@ def get_evaluation(_: User = Depends(require_staff)):
 # ---------------------------------------------------------------- briefing ---
 @router.get("/briefing")
 def get_briefing(db: Session = Depends(get_db), user: User = Depends(require_staff)):
-    # 2026-10-27 (owner: "opening anything in the portal must be fast"): measured 3.5 s per call (it probes every
-    # service, some offline = their timeouts). The briefing is kept 30 s per role; it is a summary, not a live gauge.
+    return _briefing(db, user)
+
+
+# 2026-10-27 (owner: "opening anything in the portal must be fast"): the briefing took 3.5 s per call - the service
+# probes (offline services wait for their timeouts). Only the probe results are kept 30 s per role; the briefing itself
+# is built per call (it marks items already shown as repeated).
+_PROBES: dict[str, tuple[float, list]] = {}
+
+
+def _services_cached(db: Session, user: User) -> list:
     key = user.role.value
-    hit = _BRIEF.get(key)
+    hit = _PROBES.get(key)
     if hit and time.monotonic() - hit[0] < 30:
         return hit[1]
-    out = _briefing(db, user)
-    _BRIEF[key] = (time.monotonic(), out)
+    out = _services(db, user)
+    _PROBES[key] = (time.monotonic(), out)
     return out
-
-
-_BRIEF: dict[str, tuple[float, dict]] = {}
 
 
 def _briefing(db: Session, user: User):
@@ -242,5 +247,5 @@ def _briefing(db: Session, user: User):
         dr = drift.check(db)
     except Exception:
         dr = None
-    return briefing.build(db, _services(db, user), dr, [r for r in perfmon.regressions() if r.get("new", True)],
+    return briefing.build(db, _services_cached(db, user), dr, [r for r in perfmon.regressions() if r.get("new", True)],
                           read_status(), _restore_status())
