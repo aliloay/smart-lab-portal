@@ -1,3 +1,5 @@
+/* 2026-10-27 scroll stutter: no backdrop blur and no colour filter on the big photos (re-filtered every frame while
+   the parallax moves them); the panels are already opaque, the photos dimmed by opacity on the dark page */
 /* Welcome story - transform/opacity animations only; everything static under reduced motion. */
 .wl-root{position:fixed;inset:0;z-index:60;overflow-y:auto;overflow-x:hidden;background:#071426;color:#cbd5e1;
   --wl-scroll:0;animation:wlIn .9s ease both;transition:opacity .38s ease,transform .38s ease}
@@ -14,7 +16,7 @@
 .wl-head{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 28px;
   background:linear-gradient(180deg,rgba(7,20,38,.94),rgba(7,20,38,0))}
 .wl-btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;border-radius:12px;border:1px solid #33507a;
-  background:rgba(7,20,38,.6);color:#fff;font-weight:500;backdrop-filter:blur(6px);transition:border-color .2s,background .2s}
+  background:rgba(7,20,38,.6);color:#fff;font-weight:500;transition:border-color .2s,background .2s}
 .wl-btn:hover{border-color:#24d4f2;background:rgba(36,212,242,.08)}
 .wl-btn-primary{display:inline-flex;align-items:center;gap:8px;min-height:52px;padding:0 30px;border-radius:14px;font-weight:700;color:#04131f;
   background:linear-gradient(180deg,#5ee6fb,#17a9c7);box-shadow:0 10px 40px -10px rgba(36,212,242,.7);transition:transform .2s,box-shadow .2s}
@@ -41,7 +43,7 @@
 /* 01 hero */
 .wl-hero{min-height:calc(100vh - 72px);display:flex;align-items:center;margin-top:-72px;padding-top:150px;overflow:hidden}
 .wl-hero-bg{position:absolute;inset:0;overflow:hidden;transform:translate3d(0,calc(var(--wl-scroll) * .25px),0)}
-.wl-hero-bg img{position:absolute;right:0;top:0;width:78%;height:100%;object-fit:cover;object-position:60% 35%;filter:saturate(.9) brightness(.85)}
+.wl-hero-bg img{position:absolute;right:0;top:0;width:78%;height:100%;object-fit:cover;object-position:60% 35%;opacity:.86}
 .wl-hero-shade{position:absolute;inset:0;background:linear-gradient(90deg,#071426 0,rgba(7,20,38,.95) 28%,rgba(7,20,38,.55) 58%,rgba(7,20,38,.25)),
   linear-gradient(0deg,#071426 0,transparent 30%),radial-gradient(ellipse at 75% 30%,rgba(36,212,242,.18),transparent 55%)}
 .wl-kb{animation:wlKb 28s ease-in-out infinite alternate;will-change:transform}
@@ -93,7 +95,7 @@
   border-radius:10px;overflow:hidden;border:1.5px solid rgba(36,212,242,.55);background:#0c203b;
   box-shadow:-10px 10px 0 -2px rgba(12,32,59,.95),-10px 10px 0 -.5px rgba(36,212,242,.35),0 0 24px rgba(36,212,242,.25);
   transition:transform .4s cubic-bezier(.22,1,.36,1),box-shadow .4s,border-color .4s}
-.wl-slab img{width:100%;height:100%;object-fit:cover;filter:saturate(.9) brightness(.9)}
+.wl-slab img{width:100%;height:100%;object-fit:cover;opacity:.92}
 .wl-slab-empty{display:grid;place-items:center;width:100%;height:100%;color:#24d4f2}
 .wl-cell:hover .wl-slab,.wl-cell.is-sel .wl-slab{transform:perspective(500px) rotateX(55deg) rotateZ(-45deg) translateZ(16px);border-color:#9ef3ff;
   box-shadow:-14px 14px 0 -2px rgba(12,32,59,.95),-14px 14px 0 -.5px rgba(255,181,71,.6),0 0 40px rgba(36,212,242,.6)}
@@ -102,7 +104,7 @@
 .wl-cell-label b{display:block;font:600 10.5px ui-monospace,monospace;color:#24d4f2;letter-spacing:.08em}
 .wl-cell.is-sel .wl-cell-label{border-color:#24d4f2}
 .wl-net-info{position:absolute;left:16px;bottom:16px;z-index:4;max-width:320px;padding:12px 14px;border-radius:14px;
-  background:rgba(7,20,38,.88);border:1px solid rgba(80,110,150,.45);backdrop-filter:blur(8px);transition:border-color .3s}
+  background:rgba(7,20,38,.88);border:1px solid rgba(80,110,150,.45);transition:border-color .3s}
 .wl-net-info.is-on{border-color:rgba(36,212,242,.7)}
 .wl-net-mobile{display:none}
 @media (max-width:860px){
@@ -129,7 +131,7 @@
 .wl-pipe{position:relative;display:grid;grid-template-columns:repeat(5,1fr);gap:14px;padding:24px;border-radius:22px;border:1px solid rgba(80,110,150,.35);background:rgba(10,26,48,.6)}
 .wl-pipe-svg{position:absolute;left:0;right:0;top:34px;height:110px;width:100%;pointer-events:none}
 .wl-stage{position:relative;display:flex;flex-direction:column;gap:6px;padding:16px;border-radius:16px;border:1px solid rgba(80,110,150,.4);
-  background:rgba(7,20,38,.8);backdrop-filter:blur(4px);font-size:12.5px;color:#94a3b8;
+  background:rgba(7,20,38,.8);font-size:12.5px;color:#94a3b8;
   opacity:0;transform:translateY(18px);transition:opacity .7s ease var(--d,0ms),transform .7s ease var(--d,0ms),border-color .3s}
 .wl-in .wl-stage{opacity:1;transform:none}
 .wl-stage:hover{border-color:#24d4f2}

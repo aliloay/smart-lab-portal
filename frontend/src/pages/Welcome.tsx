@@ -72,7 +72,10 @@ function Near({ children, leaving, className }: { children: ReactNode; leaving: 
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { rootMargin: '300px 0px' })
+    // 2026-10-27 (owner: "the welcome page freezes a bit"; measured: 14 frames > 50 ms, worst 267 ms): the scene was
+    // unmounted when it left the screen and rebuilt (WebGL + shader compile) every time it came back. It now stays once
+    // built - both scenes stop drawing by themselves while off screen (demand frameloop / own visibility check).
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setNear(true); io.disconnect() } }, { rootMargin: '600px 0px' })
     io.observe(el)
     return () => io.disconnect()
   }, [])

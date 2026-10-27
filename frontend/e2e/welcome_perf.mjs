@@ -7,7 +7,7 @@ const W = +(process.argv[3] || 1440), H = +(process.argv[4] || 900)
 const b = await chromium.launch({ channel: 'chrome', args: ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--use-angle=d3d11'] })
 const p = await (await b.newContext({ viewport: { width: W, height: H } })).newPage()
 await p.goto(`${BASE}/login`)
-await p.fill('#email', 'admin@giu-uni.de'); await p.fill('input[type=password]', 'Admin#2026')
+await p.fill('#email', process.env.E2E_EMAIL || 'admin@giu-uni.de'); await p.fill('input[type=password]', process.env.E2E_PASSWORD || 'Admin#2026')
 await p.click('form button[type=submit]'); await p.waitForSelector('#wl-end'); await p.waitForTimeout(2500)
 await p.evaluate(() => {
   window.__f = []; window.__lt = []
