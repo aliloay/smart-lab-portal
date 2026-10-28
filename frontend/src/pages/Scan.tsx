@@ -346,7 +346,7 @@ export default function Scan() {
   // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
   const [boxHint, setBoxHint0] = useState<string>('')
   const boxAt = useRef(0)
-  const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number } | null>(null)
+  const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number; cls: string } | null>(null)
   const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
   // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
   // "my face - it says looks like the reusable bin" = the bin's verdict still on screen)
@@ -369,7 +369,7 @@ export default function Scan() {
       if (!b) return
       scanAppearance(b).then(r => {
         const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
-        apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now() } : null
+        apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
           : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
@@ -440,6 +440,15 @@ export default function Scan() {
     if (lastTarget.current && now - lastTarget.current.at < LAST_TARGET_MS) {
       const r = asTarget(lastTarget.current.t)
       if (r) return r
+    }
+    // no marker, but the box look-up saw a known enclosure in the last 5 s (2026-10-28, owner: "Tell me more" said
+    // "nothing identified" under "looks like the reusable bin"): a CLASS-level answer - no asset ID, no live data
+    // (docs/VISUAL_AI_PLAN.md, identity rule 3)
+    const ab = apBox.current
+    if (ab && now - ab.at < 5000) {
+      const what = ab.cls === 'reusable_items_dock' ? 'the reusable items bin (the NFC check-out / return station)'
+        : ab.cls.replace(/_/g, ' ')
+      return { none: `This looks like ${what} - recognised from its appearance only, not confirmed. Scan its QR marker to see its live data (what is checked out and what is available).` }
     }
     return { none: '' }
   }
