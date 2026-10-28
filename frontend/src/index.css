@@ -6,6 +6,25 @@
 
 html, body, #root { min-height: 100%; }
 
+/* ---- responsive foundation (2026-10-28 audit: 8 device profiles x 3 roles) ---------------------------------- */
+/* form controls never push a row wider than the screen (iOS date inputs have a large intrinsic width) */
+input, select, textarea { max-width: 100%; min-width: 0; }
+/* long ids / URLs / device codes wrap instead of widening the page */
+main { min-width: 0; overflow-wrap: anywhere; }
+/* wide data tables scroll inside their card on narrow screens instead of the whole page */
+@media (max-width: 767px) {
+  main table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+/* touch screens: comfortable targets (WCAG 2.5.8 minimum 24 px; we aim for 40) for buttons, selects and inputs */
+@media (pointer: coarse) {
+  .btn, .btn-sm, .btn-ghost, .btn-primary, select, .input { min-height: 40px; }
+  .glass-control { min-height: 40px; min-width: 40px; }
+  /* small inline text links get a taller tap area without changing the layout */
+  main a.link, main a.text-xs, main a[class*="text-[12px]"] { display: inline-block; padding-block: 8px; margin-block: -8px; }
+}
+/* notch / home-indicator safe areas */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
 body {
   @apply bg-ink-900 text-slate-300 antialiased;
   font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
@@ -153,8 +172,9 @@ body {
   .chip {
     @apply inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md
            text-[10.5px] font-semibold tracking-[0.08em] uppercase
-           whitespace-nowrap;
+           whitespace-nowrap max-w-full;
   }
+  @media (max-width: 767px) { .chip { white-space: normal; } }
 
   /* --- tables -------------------------------------------------------------- */
   .th {

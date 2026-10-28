@@ -185,7 +185,7 @@ function NavItem({ item, badge, onNavigate }: {
     <NavLink to={item.to} end={item.end} onClick={onNavigate}
       onPointerEnter={warm} onFocus={warm} onTouchStart={warm}
       className={({ isActive }) =>
-        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 min-h-[40px] rounded-xl text-[13.5px]
          transition-colors ${isActive
           ? 'text-white bg-gradient-to-r from-accent-400/[0.14] to-transparent'
           : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'}`}>
@@ -312,7 +312,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Pinned inside the drawer: in the brand row it overflowed the
             264px column and showed through while the drawer was closed. */}
         <button onClick={() => setOpen(false)} aria-label="Close navigation"
-                className="lg:hidden absolute top-2 right-2 text-slate-400 hover:text-white p-1.5">
+                className="lg:hidden absolute top-2 right-2 grid place-items-center w-10 h-10 rounded-lg text-slate-400 hover:text-white">
           <X size={18} />
         </button>
       </div>

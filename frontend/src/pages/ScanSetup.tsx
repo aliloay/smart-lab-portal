@@ -92,7 +92,7 @@ export function ScanMarkers() {
             return (
             <div key={c.code} className="marker-card overflow-hidden rounded-2xl border border-slate-200 bg-white text-center shadow-sm">
               {look === 'pack' && <div className="h-2" style={{ background: c.color }} />}
-              <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={look === 'pack' ? 'mx-auto block w-[92%]' : 'block w-full'}
+              <img src={c.img} alt={`QR marker ${c.code} - ${c.name}`} className={look === 'pack' ? 'mx-auto block w-[92%] aspect-square object-contain' : look === 'art' ? 'block w-full aspect-[4/5] object-contain' : 'block w-full'}
                    loading="lazy" decoding="async" />
               {look === 'art' && <div className="px-2 pb-2 text-[12.5px] font-semibold text-slate-900 leading-tight">
                 {c.name}{c.name.includes(c.key) ? '' : <span className="font-normal text-slate-500"> · {c.key}</span>}</div>}

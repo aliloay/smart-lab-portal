@@ -37,14 +37,14 @@ export default function EnvironmentOverview() {
         const t = env.metrics.temperature, h = env.metrics.humidity
         return (
           <section key={lab.id} className="card p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0">
                 <div className="text-white font-semibold">{lab.code} · {lab.name}</div>
                 <div className="text-[12px] text-slate-400 mono">{env.node!.device_uid} ·{' '}
                   {env.node!.online === false ? <span className="text-bad-soft">offline</span> : 'online'}
                   {env.node!.last_seen_at && <> · {relative(env.node!.last_seen_at)}</>}</div>
               </div>
-              <div className="ml-auto flex gap-6">
+              <div className="ml-auto flex flex-wrap gap-x-6 gap-y-2">
                 <Value icon={<Thermometer size={15} />} label="Temperature"
                        v={t.quality === 'VALID' && t.value !== null ? `${t.value.toFixed(1)} °C` : t.quality.toLowerCase().replace('_', ' ')} />
                 <Value icon={<Droplets size={15} />} label="Humidity"

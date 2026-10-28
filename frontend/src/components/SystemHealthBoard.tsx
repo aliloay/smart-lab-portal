@@ -45,9 +45,9 @@ export default function SystemHealthBoard() {
         <div className="card p-4">
           <div className="label mb-2 flex items-center gap-1.5"><Database size={13} /> Data sources (last record)</div>
           <ul className="text-[12.5px] space-y-1">{Object.entries(h.data_sources).map(([k, f]) => (
-            <li key={k} className="flex items-center gap-2"><Chip tone={f.state === 'live' ? 'ok' : f.state === 'stale' ? 'warn' : f.state === 'never' ? 'idle' : 'bad'}>{f.state}</Chip>
-              <span className="text-slate-200">{k}</span><span className="mono text-[11px] text-slate-500">{f.source}</span>
-              <span className="ml-auto text-slate-400">{f.last ? relative(f.last) : 'never'}</span></li>))}</ul>
+            <li key={k} className="flex flex-wrap items-center gap-x-2 gap-y-0.5"><Chip tone={f.state === 'live' ? 'ok' : f.state === 'stale' ? 'warn' : f.state === 'never' ? 'idle' : 'bad'}>{f.state}</Chip>
+              <span className="text-slate-200">{k}</span><span className="mono text-[11px] text-slate-500 min-w-0 break-all">{f.source}</span>
+              <span className="ml-auto shrink-0 text-slate-400">{f.last ? relative(f.last) : 'never'}</span></li>))}</ul>
         </div>
         <div className="card p-4">
           <div className="label mb-2 flex items-center gap-1.5"><HardDrive size={13} /> Backups</div>
