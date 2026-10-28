@@ -32,6 +32,19 @@ type Target = { kind: 'marker'; code: string } | { kind: 'person'; track: number
 interface BarcodeDetectorLike { detect(src: CanvasImageSource): Promise<{ rawValue: string; cornerPoints: Pt[] }[]> }
 
 const DECODE_EVERY_MS = 120           // ~8 marker checks a second
+// Live history (2026-10-28, owner: "a small history of my live detections under the camera"): one line per NEW
+// detection (same thing again within 15 s is not repeated), newest first, max 30; kept across Refresh.
+type HistItem = { at: number; kind: 'person' | 'marker' | 'look' | 'answer'; text: string }
+const HIST: HistItem[] = []
+const histLast = new Map<string, number>()
+export function logHistory(kind: HistItem['kind'], key: string, text: string) {
+  const now = Date.now()
+  if (kind !== 'answer' && now - (histLast.get(key) ?? 0) < 15000) return
+  histLast.set(key, now)
+  HIST.unshift({ at: now, kind, text })
+  if (HIST.length > 30) HIST.length = 30
+  window.dispatchEvent(new Event('smartlab:history'))
+}
 const CARD_REFRESH_MS = 5000          // a card in view is re-read this often (its own timestamp shows age)
 const SELECTED_ROBOT_MS = 1000        // the selected robot's joints: once a second (the backend keeps the 50 ms feed)
 const SELECTED_OTHER_MS = 3000
@@ -84,6 +97,10 @@ export default function Scan() {
     const v = tracker.current.tracks.map(t => ({ id: t.id, name: t.identity ? `${t.identity.auth_subject} · ${t.identity.name}` : null, conflict: t.conflict,
       score: Math.round((t.box.score ?? 0) * 20) * 5, face: t.identity?.score != null ? Math.round(t.identity.score * 100) : null }))
     setTracks(old => (JSON.stringify(old) === JSON.stringify(v) ? old : v))
+    for (const t of v) {
+      if (t.name) logHistory('person', 'p:' + t.name, `${t.name.split(' · ')[1] ?? t.name} detected (face ${t.face ?? '?'} %)`)
+      else logHistory('person', 'person', `Person detected (${t.score} %)`)
+    }
   }, [])
 
   // ------------------------------------------------------------------ stop: releases EVERYTHING
@@ -195,6 +212,7 @@ export default function Scan() {
     }
     const visible = [...seen.current.values()].filter(m => now - m.at < SEEN_HOLD_MS).map(m => m.text).sort()
     setInView(v0 => (v0.join() === visible.join() ? v0 : visible))
+    for (const code of visible) logHistory('marker', 'm:' + code, `QR read: ${cardsRef.current[code]?.card?.name ?? code}`)
     setStats(st => ({ ...st, decodeMs: Math.round(ms) }))
     s.decoding = false
     // people: one request in flight at most, on the same 640-px frame
@@ -370,6 +388,8 @@ export default function Scan() {
       if (!b) return
       scanAppearance(b).then(r => {
         const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
+        if (r.decision === 'PROBABLE' && r.best) logHistory('look', 'a:' + r.best.code,
+          `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.inliers} points, unverified)`)
         apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
@@ -582,6 +602,7 @@ export default function Scan() {
         {selected && <button className="text-[12px] text-slate-400 inline-flex items-center gap-1" onClick={() => select(null)}><X size={12} /> clear</button>}
       </div>}
 
+      <LiveHistory />
       <LiveVoice key={sessionNo} resolve={resolveTarget} />
 
       {(selPerson || autoPerson) && <LiveTargetPanel person={selPerson ?? autoPerson} />}
@@ -663,6 +684,7 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
       const r = await scanAsk(text, 'code' in t || 'ticket' in t ? { code: (t as { code?: string }).code, ticket: (t as { ticket?: string }).ticket } : {},
                               history, c.signal)
       setTurns(ts => [...ts, { q: text, a: r.answer, target: 'label' in t ? t.label : null, ms: r.ms, intent: r.intent, sources: r.sources }])
+      logHistory('answer', 'q', `${text} → ${r.answer.replace(/\s+/g, ' ').slice(0, 140)}${r.answer.length > 140 ? '…' : ''}`)
       say(r.answer)
     } catch (e) {
       if (!c.signal.aborted) setTurns(ts => [...ts, { q: text, a: e instanceof Error ? e.message : 'The question failed', target: null, err: true }])
@@ -738,3 +760,30 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
 }
 
 export { fmtAge }
+
+
+function LiveHistory() {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const f = () => force(n => n + 1)
+    window.addEventListener('smartlab:history', f)
+    return () => window.removeEventListener('smartlab:history', f)
+  }, [])
+  if (!HIST.length) return null
+  const icon = { person: '🧍', marker: '🔳', look: '📦', answer: '🔊' } as const
+  return (
+    <div className="card p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="text-[13px] font-semibold text-white">Live history</div>
+        <button type="button" className="text-[11.5px] text-slate-400 hover:text-white"
+                onClick={() => { HIST.length = 0; histLast.clear(); force(n => n + 1) }}>Clear</button>
+      </div>
+      <ul className="space-y-1 max-h-56 overflow-y-auto">
+        {HIST.map((h, i) => (
+          <li key={h.at + ':' + i} className="text-[12.5px] text-slate-200 flex gap-2">
+            <span className="tnum text-slate-500 shrink-0">{new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            <span aria-hidden>{icon[h.kind]}</span><span className="min-w-0">{h.text}</span>
+          </li>))}
+      </ul>
+    </div>)
+}
