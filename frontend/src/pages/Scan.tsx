@@ -34,14 +34,25 @@ interface BarcodeDetectorLike { detect(src: CanvasImageSource): Promise<{ rawVal
 const DECODE_EVERY_MS = 120           // ~8 marker checks a second
 // Live history (2026-10-28, owner: "a small history of my live detections under the camera"): one line per NEW
 // detection (same thing again within 15 s is not repeated), newest first, max 30; kept across Refresh.
-type HistItem = { at: number; kind: 'person' | 'marker' | 'look' | 'answer'; text: string }
+type HistItem = { at: number; kind: 'person' | 'marker' | 'look' | 'answer'; text: string; icon?: string }
+// one symbol per kind of asset (registry type / look-alike class), owner 2026-10-28
+const TYPE_ICON: [RegExp, string][] = [
+  [/robot|manipulator/i, '🤖'], [/door/i, '🚪'], [/entry camera/i, '📷'], [/security camera/i, '📹'],
+  [/face server/i, '🧠'], [/lab pc/i, '💻'], [/reusable/i, '🧰'], [/consumables/i, '⚖️'],
+  [/environment/i, '🌡️'], [/plc|automation/i, '🎛️'], [/access/i, '🔐'], [/dev board/i, '🔌'],
+  [/instrument/i, '📟'], [/machine tool|machine|fabrication/i, '⚙️'], [/tool/i, '🔧'], [/vehicle/i, '🚗'],
+  [/textile/i, '🧵'],
+]
+export function iconFor(type: string | undefined | null): string | undefined {
+  return type ? TYPE_ICON.find(([rx]) => rx.test(type))?.[1] : undefined
+}
 const HIST: HistItem[] = []
 const histLast = new Map<string, number>()
-export function logHistory(kind: HistItem['kind'], key: string, text: string) {
+export function logHistory(kind: HistItem['kind'], key: string, text: string, icon?: string) {
   const now = Date.now()
   if (kind !== 'answer' && now - (histLast.get(key) ?? 0) < 15000) return
   histLast.set(key, now)
-  HIST.unshift({ at: now, kind, text })
+  HIST.unshift({ at: now, kind, text, icon })
   if (HIST.length > 30) HIST.length = 30
   window.dispatchEvent(new Event('smartlab:history'))
 }
@@ -98,7 +109,7 @@ export default function Scan() {
       score: Math.round((t.box.score ?? 0) * 20) * 5, face: t.identity?.score != null ? Math.round(t.identity.score * 100) : null }))
     setTracks(old => (JSON.stringify(old) === JSON.stringify(v) ? old : v))
     for (const t of v) {
-      if (t.name) logHistory('person', 'p:' + t.name, `${t.name.split(' · ')[1] ?? t.name} detected (face ${t.face ?? '?'} %)`)
+      if (t.name) logHistory('person', 'p:' + t.name, `${t.name.split(' · ')[1] ?? t.name} detected (face ${t.face ?? '?'} %)`, '🙂')
       else logHistory('person', 'person', `Person detected (${t.score} %)`)
     }
   }, [])
@@ -212,7 +223,7 @@ export default function Scan() {
     }
     const visible = [...seen.current.values()].filter(m => now - m.at < SEEN_HOLD_MS).map(m => m.text).sort()
     setInView(v0 => (v0.join() === visible.join() ? v0 : visible))
-    for (const code of visible) logHistory('marker', 'm:' + code, `QR read: ${cardsRef.current[code]?.card?.name ?? code}`)
+    for (const code of visible) logHistory('marker', 'm:' + code, `QR read: ${cardsRef.current[code]?.card?.name ?? code}`, iconFor(cardsRef.current[code]?.card?.type))
     setStats(st => ({ ...st, decodeMs: Math.round(ms) }))
     s.decoding = false
     // people: one request in flight at most, on the same 640-px frame
@@ -389,7 +400,8 @@ export default function Scan() {
       scanAppearance(b).then(r => {
         const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
         if (r.decision === 'PROBABLE' && r.best) logHistory('look', 'a:' + r.best.code,
-          `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.inliers} points, unverified)`)
+          `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.inliers} points, unverified)`,
+          iconFor(r.best.class.replace(/_/g, ' ')))
         apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
@@ -782,7 +794,7 @@ function LiveHistory() {
         {HIST.map((h, i) => (
           <li key={h.at + ':' + i} className="text-[12.5px] text-slate-200 flex gap-2">
             <span className="tnum text-slate-500 shrink-0">{new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-            <span aria-hidden>{icon[h.kind]}</span><span className="min-w-0">{h.text}</span>
+            <span aria-hidden>{h.icon ?? icon[h.kind]}</span><span className="min-w-0">{h.text}</span>
           </li>))}
       </ul>
     </div>)
