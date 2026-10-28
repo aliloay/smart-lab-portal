@@ -356,6 +356,7 @@ export default function Scan() {
     return () => window.clearTimeout(t)
   }, [boxHint])
   const boxBusy = useRef(false)
+  const boxQuietUntil = useRef(0)
   const whichBox = (auto = false) => {
     const v = video.current
     if (!v?.videoWidth || boxBusy.current) return
@@ -383,7 +384,7 @@ export default function Scan() {
   whichBoxRef.current = whichBox
   useEffect(() => {
     if (!running || paused) return
-    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0) whichBoxRef.current(true) }, 3000)
+    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0 && Date.now() > boxQuietUntil.current) whichBoxRef.current(true) }, 3000)
     return () => window.clearInterval(t)
   }, [running, paused])
   // 2026-10-28 (owner: "a refresh button - after it detects something and speaks, refresh so I can walk on faster"):
@@ -394,7 +395,11 @@ export default function Scan() {
     apBox.current = null; setBoxHint0('')
     tracker.current.clear(); seen.current.clear(); setInView([]); setTracks([])
     boxBusy.current = false                         // a check still counted as running blocked the new look
-    window.setTimeout(() => whichBoxRef.current(true), 250)
+    // the same object is still in front of the camera right after Refresh: the automatic check waits 6 s so the
+    // owner can turn to the next thing (2026-10-28, "when I refresh it is stuck, it does not move away")
+    boxQuietUntil.current = Date.now() + 6000
+    setNote('Refreshed - point at the next thing')
+    window.setTimeout(() => setNote(n => (n.startsWith('Refreshed') ? '' : n)), 3000)
   }
   const togglePause = () => {
     const s = session.current, v = video.current
