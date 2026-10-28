@@ -23,6 +23,13 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Frontend: `npx tsc --noEmit -p frontend` and `npx vite build` (in frontend/)
 - The running backend/frontend are baked images: code changes are live only after `docker compose build backend frontend` + `up -d --no-deps backend frontend` (owner OK).
 
+## Tools (MCP, user scope, set up 2026-10-28)
+- chrome-devtools (1.12.0, headless, isolated profile, no usage stats / CrUX): console, network, perf traces, emulation. Point it at the test copy (:5176 / :8100), never click door/robot/emergency controls.
+- context7 (4.4.4): current library docs. Ask for the version in package.json (Tailwind 3.4, React 18, Vite 6) - it defaults to the newest.
+- Repeatable e2e / devices: our Playwright scripts (frontend/e2e/click_everything.mjs, responsive_audit.mjs), not an MCP.
+- GitHub: `gh` CLI read-only (no push). DB: `docker compose exec db psql` read-only SELECTs, no DB MCP.
+- claude-mem: cross-session memory (search before re-deriving past work).
+
 ## Working style
 - Find answers with `py tools/knowledge/agent.py "<question>"` or `py tools/knowledge/graph.py related <path>` before rereading large files.
 - Label claims: verified / tested offline / live-verified / unverified. Hardware results only from real measurements.
