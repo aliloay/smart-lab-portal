@@ -125,9 +125,13 @@ export function replayLast(): Promise<void> {
 // (2026-10-28, owner: "pressing refresh freezes the screen" - a paused answer left the page stuck on "Speaking...")
 let currentDone: (() => void) | null = null
 
+/** True while a spoken answer is playing (the camera watchdog must not restart the video then - on iPhone that pauses
+ *  the speech mid-answer, 2026-10-28). */
+export function isSpeaking(): boolean { return !!current && !current.paused }
+
 export function stopSpeaking() {
   generation++
-  if (current) { current.pause(); current = null }
+  if (current) { const c = current; current = null; c.pause() }   // cleared first: our own stop is not "resumed"
   const d = currentDone; currentDone = null; d?.()
   window.dispatchEvent(new Event('smartlab:voice-stopped'))
   try { window.speechSynthesis?.cancel() } catch { /* no browser voice */ }
@@ -172,12 +176,14 @@ function play(blob: Blob, gen: number): Promise<void> {
     const done = () => {
       if (finished) return
       finished = true
-      URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null
+      URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null; a.onpause = null
       if (currentDone === done) currentDone = null
+      window.dispatchEvent(new Event('smartlab:voice-ended'))
       res()
     }
     currentDone = done
     a.onended = done; a.onerror = done
+    a.onpause = () => { if (current === a && !a.ended) window.setTimeout(() => { if (current === a) void a.play().catch(done) }, 120) }
     a.play().catch(e => {
       if (e instanceof DOMException && e.name === 'NotAllowedError') window.dispatchEvent(new Event('smartlab:audio-blocked'))
       done()

@@ -18,7 +18,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link } from 'react-router-dom'
 import { Box, Camera, CameraOff, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
   Square, Users, Volume2, VolumeX, X } from 'lucide-react'
-import { Recording, VoiceStatus, micSupported, replayLast, speak, spokenSummary, stopSpeaking, transcribe, unlockAudio, voiceStatus } from '../lib/voice'
+import { Recording, VoiceStatus, isSpeaking, micSupported, replayLast, speak, spokenSummary, stopSpeaking, transcribe, unlockAudio, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
 import { ScanAnswer, ScanCard, api, scanAppearance, scanAsk, scanIdentify, scanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
@@ -428,8 +428,13 @@ export default function Scan() {
     stopSpeaking()
     select(null); lastTarget.current = null
     apBox.current = null; setBoxHint0(''); boxBusy.current = false; setNote('')
-    if (source === 'camera') { stop(); window.setTimeout(() => { void begin({ facingMode: facing }) }, 150) }
+    tracker.current.clear(); seen.current.clear(); objects.current = null; setInView([]); setTracks([])
+    setSessionNo(n => n + 1)                       // the voice panel starts fresh
+    // the camera keeps running (restarting it made iPhone draw the selfie view small) - just make sure it is live
+    const v = video.current
+    if (v && !session.current.paused) void v.play().catch(() => {})
   }
+
 
   // 2026-10-28 (owner: "after it detects the bin and speaks, the picture stays stuck on the bin while I move the
   // phone"): iPhone Safari pauses the live camera <video> when the spoken answer starts playing. A watchdog resumes it
@@ -440,7 +445,7 @@ export default function Scan() {
     if (!v) return
     let lastT = -1, still = 0
     const kick = () => {
-      if (session.current.paused || session.current.stopped || document.hidden) return
+      if (session.current.paused || session.current.stopped || document.hidden || isSpeaking()) return
       if (v.paused || v.ended) { void v.play().catch(() => {}); return }
       if (v.srcObject && v.currentTime === lastT) {          // frozen frame although "playing"
         if (++still >= 2) { still = 0; void v.play().catch(() => {}) }
@@ -450,7 +455,9 @@ export default function Scan() {
     const onPause = () => { if (!session.current.paused) window.setTimeout(kick, 50) }
     v.addEventListener('pause', onPause)
     const t = window.setInterval(kick, 700)
-    return () => { window.clearInterval(t); v.removeEventListener('pause', onPause) }
+    const afterSpeech = () => window.setTimeout(() => { if (!session.current.paused && v.paused) void v.play().catch(() => {}) }, 150)
+    window.addEventListener('smartlab:voice-ended', afterSpeech)
+    return () => { window.clearInterval(t); v.removeEventListener('pause', onPause); window.removeEventListener('smartlab:voice-ended', afterSpeech) }
   }, [running])
   const togglePause = () => {
     const s = session.current, v = video.current
