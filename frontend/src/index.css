@@ -10,7 +10,10 @@ html, body, #root { min-height: 100%; }
 /* form controls never push a row wider than the screen (iOS date inputs have a large intrinsic width) */
 input, select, textarea { max-width: 100%; min-width: 0; }
 /* long ids / URLs / device codes wrap instead of widening the page */
-main { min-width: 0; overflow-wrap: anywhere; }
+/* break-word, NOT anywhere: "anywhere" also shrinks flex items to one letter wide ("N e t w o r k" on phones,
+   owner 2026-10-28); break-word only breaks a word that truly does not fit its line */
+main { min-width: 0; overflow-wrap: break-word; }
+main .mono, main code { overflow-wrap: anywhere; }
 /* wide data tables scroll inside their card on narrow screens instead of the whole page */
 @media (max-width: 767px) {
   main table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }

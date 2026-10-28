@@ -368,7 +368,7 @@ export default function Scan() {
     setError(''); setNote(''); setStarting(true)
     const s = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: false } as typeof session.current
     try {
-      const v = video.current!
+      let v = video.current!
       if (opts.file) {
         s.fileUrl = URL.createObjectURL(opts.file)
         v.srcObject = null; v.src = s.fileUrl; v.loop = true
@@ -377,10 +377,20 @@ export default function Scan() {
         // the back camera, ~720p: enough for a marker across a desk, light enough for a phone
         s.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
           facingMode: { ideal: opts.facingMode ?? facing }, width: { ideal: 1280 }, height: { ideal: 720 } } })
+        // iPhone Safari keeps drawing a re-used <video> at the previous stream's size (selfie view small after a
+        // switch, 2026-10-28): the stream goes into a FRESH element in the same place every time
+        if (v.srcObject) {
+          const nv = v.cloneNode(false) as HTMLVideoElement
+          nv.muted = true; nv.playsInline = true
+          v.replaceWith(nv)
+          ;(video as { current: HTMLVideoElement | null }).current = nv
+          v = nv
+        }
         v.srcObject = s.stream
         setSource('camera')
         const fm = s.stream.getVideoTracks()[0]?.getSettings().facingMode
         s.mirror = fm === 'user' || (!fm && !/Android|iPhone|iPad/i.test(navigator.userAgent))
+        v.style.transform = s.mirror ? 'scaleX(-1)' : ''      // the fresh element does not get React's style
       }
       v.muted = true; v.playsInline = true
       await v.play()

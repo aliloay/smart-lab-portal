@@ -266,7 +266,7 @@ function Tile({ t, size }: { t: MonitorTile; size: 'lg' | 'md' | 'sm' }) {
       <div className={`flex items-baseline gap-3 min-w-0 ${S.body}`}>
         <span className={`${S.count} font-extrabold leading-none tnum ${t.people.length ? 'text-white' : 'text-slate-600'}`}>
           {t.people.length}</span>
-        <span className="min-w-0">
+        <span className="min-w-[4.5rem] flex-1">
           <span className="block text-[11px] uppercase tracking-[0.16em] text-slate-400">inside</span>
           <span className={`block truncate ${t.people.length ? 'text-slate-100 font-semibold' : 'text-slate-500'}`}>
             {t.people.length ? roleBreakdown(t) || `${t.people.length} people` : 'Nobody'}</span>

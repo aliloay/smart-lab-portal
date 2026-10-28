@@ -91,12 +91,20 @@ for (const pname of want) {
           if (touch && r.right > 0 && r.left < W && el.matches('button, a[href], [role=button], input:not([type=hidden]), select') && r.top < innerHeight * 3
               && (r.width < 32 || r.height < 32) && tiny.length < 400) tiny.push(desc(el))
         }
-        return { overflow, wide, tiny: tiny.length, tinyEx: [...new Set(tiny)].slice(0, 4) }
+        // text squeezed to a letter or two per line ("N e t w o r k" - 2026-10-28 regression)
+        const stacked = []
+        for (const el of document.querySelectorAll('main *')) {
+          const txt = [...el.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')
+          if (txt.length < 5 || el.closest('svg')) continue            // chart axis titles are rotated on purpose
+          const r = el.getBoundingClientRect(), fs = parseFloat(getComputedStyle(el).fontSize) || 14
+          if (r.width > 0 && r.width < fs * 2.2 && r.height > fs * 4 && stacked.length < 5) stacked.push(desc(el) + ' "' + txt.slice(0, 20) + '"')
+        }
+        return { overflow, wide, stacked, tiny: tiny.length, tinyEx: [...new Set(tiny)].slice(0, 4) }
       }, !!prof.hasTouch)
       const perf = await page.evaluate(() => ({ lt: window.__lt, cls: Math.round(window.__cls * 1000) / 1000 }))
       const row = { href, open_ms, ...m, long_tasks: perf.lt.length, worst_task: Math.max(0, ...perf.lt), cls: perf.cls, errors: errs.slice(e0) }
       rows.push(row)
-      const flag = (m.overflow > 2 ? ` OVERFLOW+${m.overflow}` : '') + (m.wide.length ? ` WIDE(${m.wide.length})` : '') + (row.errors.length ? ' ERR' : '')
+      const flag = (m.overflow > 2 ? ` OVERFLOW+${m.overflow}` : '') + (m.wide.length ? ` WIDE(${m.wide.length})` : '') + (m.stacked.length ? ` STACKED ${m.stacked[0]}` : '') + (row.errors.length ? ' ERR' : '')
       console.log(`${pname.padEnd(16)} ${role.padEnd(7)} ${href.padEnd(22)} ${String(open_ms).padStart(5)} ms  tiny ${String(m.tiny).padStart(3)}  cls ${perf.cls}  lt ${perf.lt.length}${flag}`)
     }
     report.profiles[pname][role] = rows

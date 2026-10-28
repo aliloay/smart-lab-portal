@@ -9,7 +9,7 @@
  *   Flags: freezes (frames > 200 ms), long tasks, console errors, error screens, blank pages.
  *   E2E_PW=<pw> node e2e/click_everything.mjs <base> <out.json>      (accounts perf-admin / perf-staff / perf-student)
  */
-import { chromium } from 'playwright-core'
+import { chromium, devices } from 'playwright-core'
 import fs from 'node:fs'
 
 const BASE = process.argv[2] || 'http://127.0.0.1:5176'
@@ -19,7 +19,9 @@ const ROLES = [['admin', 'perf-admin@giu-uni.de', process.env.E2E_ADMIN_PW], ['s
 const UNSAFE = /delete|remove|cancel|reject|revoke|approve|confirm|send|save|submit|start|stop|home|unlock|lock|door|relay|emergency|sign out|log ?out|print|download|reset|disable|deactivate|enable|activate|run|move|jog|clear|resolve|acknowledge|assign|close issue|claim|release|book |create|add |new |upload|import|export|restore|backup|test alarm|mute|record|mic|camera|share|scan|enrol|play|replay|broadcast|apply|publish|generate/i
 const SAFE = /tab|details?|more|view|full|open|show|expand|collapse|hide|less|week|month|day|hours?|all|filter|next|prev|chart|table|list|grid|map|history|overview|summary|analytics|trend|live|robots?|pcs?|environment|consumables|reusable|events?|boxes|people|devices?|labs?/i
 
-const browser = await chromium.launch({ channel: 'chrome', headless: false, args: ['--window-size=1600,950'] })
+// DEVICE=<playwright device name> runs the same click-through as that phone / tablet (simulated, touch + its screen)
+const DEV = process.env.DEVICE ? devices[process.env.DEVICE] : null
+const browser = await chromium.launch({ channel: 'chrome', headless: !!process.env.HEADLESS, args: ['--window-size=1600,950'] })
 const report = { base: BASE, at: new Date().toISOString(), roles: {} }
 const pct = (a, p) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : 0 }
 
@@ -36,7 +38,7 @@ async function settle(page, t0, limit = 8000) {
 
 for (const [role, email, pw] of ROLES) {
   if (!pw) { console.log(`skip ${role}: no password`); continue }
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } })
+  const ctx = await browser.newContext(DEV ? { ...DEV } : { viewport: { width: +(process.env.VW || 1600), height: +(process.env.VH || 900) } })
   await ctx.addInitScript(() => {
     window.__lt = []; window.__fz = 0
     try { new PerformanceObserver(l => l.getEntries().forEach(e => window.__lt.push(Math.round(e.duration)))).observe({ type: 'longtask', buffered: true }) } catch {}

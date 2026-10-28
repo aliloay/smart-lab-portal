@@ -265,8 +265,10 @@ function PanelInner({ model, robot, onFull, big }: {
     warmTwins()
     if (mount3d) return
     const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback
-    const delay = shot && !live ? (model.key === 'FANUC' ? 2200 : 900) : (model.key === 'FANUC' ? 250 : 0)
-    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 600 }) : setMount3d(true), delay)
+    // 2026-10-28 (owner: "I cannot move the robots immediately"): UR5e builds its 3D at once, FANUC right after it
+    // 2026-10-28 (owner: "I cannot move the robots immediately"): UR5e builds its 3D at once, FANUC right after it
+    const delay = model.key === 'FANUC' ? 700 : 0
+    const t = window.setTimeout(() => ric ? ric(() => setMount3d(true), { timeout: 150 }) : setMount3d(true), delay)
     return () => window.clearTimeout(t)
   }, [mount3d, model.key, shot, live])
   // The 3D starts on a click only (or by itself when the robot is live). Starting it costs ~1 s of the

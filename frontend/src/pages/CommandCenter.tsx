@@ -190,9 +190,9 @@ function HealthPanel({ services, serviceError, connected, compact = false }: {
         <span>Needs attention: <b className={failures ? 'text-rose-300 tabular-nums' : 'text-slate-200 tabular-nums'}>{services === null ? '—' : failures}</b></span>
         <span>Unknown: <b className="text-slate-200 tabular-nums">{services === null ? '—' : unknown}</b></span>
         {serviceError && <span className="text-amber-300">Service check failed; state is unknown.</span>}
-        <details className="ml-auto">
+        <details className="ml-auto max-lg:ml-0 max-lg:w-full open:w-full">
           <summary className="cursor-pointer select-none text-cyan-300 hover:text-cyan-200">Subsystem details</summary>
-          <div className="mt-3 grid w-full gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-3 grid w-full gap-2 grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))]">
             {services?.map(service => (
               <div key={service.key} className="rounded-lg border border-white/[.07] bg-black/20 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">

@@ -79,7 +79,7 @@ function Briefing() {
           <div className="flex flex-wrap items-center gap-2">
             <Chip tone={i.priority === 1 ? 'bad' : i.priority === 2 ? 'warn' : 'idle'}>{i.priority === 1 ? 'now' : i.priority === 2 ? 'soon' : 'plan'}</Chip>
             <Chip tone="idle">{i.kind}</Chip>
-            <b className="text-slate-100 text-[13.5px]">{i.title}</b>
+            <b className="text-slate-100 text-[13.5px] min-w-0 break-words">{i.title}</b>
             {i.repeated && <span className="text-[11px] text-slate-500">(unchanged since the last briefing)</span>}
             <Link to={i.link} className="ml-auto text-[12px] text-accent-300 hover:underline">evidence →</Link>
           </div>
