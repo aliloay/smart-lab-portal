@@ -59,6 +59,15 @@ body {
 }
 
 @layer components {
+  /* glass buttons on the live camera picture (2026-10-28) */
+  .glass-btn {
+    @apply grid place-items-center w-11 h-11 rounded-full text-white shadow-lg transition active:scale-95;
+    border: 1px solid rgba(255,255,255,.3);
+    background: rgba(255,255,255,.14);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+            backdrop-filter: blur(12px) saturate(140%);
+  }
+  .glass-btn:hover { background: rgba(255,255,255,.24); }
   /* --- surfaces ----------------------------------------------------------- */
   /* Glass: translucent blue-grey, a light blur, one thin border, a soft
      shadow. Opaque enough that text never competes with what is behind. */

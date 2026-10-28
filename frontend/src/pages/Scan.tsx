@@ -16,7 +16,7 @@
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Box, Camera, CameraOff, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
+import { Box, Camera, CameraOff, SwitchCamera, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
   Square, Users, Volume2, VolumeX, X } from 'lucide-react'
 import { Recording, VoiceStatus, isSpeaking, micSupported, replayLast, speak, spokenSummary, stopSpeaking, transcribe, unlockAudio, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
@@ -588,24 +588,39 @@ export default function Scan() {
           </button>))}
         {!running && <div className="absolute inset-0 grid place-items-center text-slate-400 text-[13px]">
           {starting ? 'Starting the camera…' : 'Camera off'}</div>}
-        {running && paused && <span className="absolute top-2 right-2"><Chip tone="warn">PAUSED</Chip></span>}
+        {running && paused && <span className="absolute top-2 left-2"><Chip tone="warn">PAUSED</Chip></span>}
         {running && source === 'file' && <span className="absolute top-2 left-2"><Chip tone="warn">RECORDED TEST VIDEO</Chip></span>}
         {/* 2026-10-28 (owner: "the Tell me more button should be higher - I scroll down to press it"): the voice
             controls float on the picture itself, so the target stays in view while asking */}
         {running && boxHint.startsWith('Looks like') && inView.length === 0 &&
           <span className="absolute top-2 left-1/2 -translate-x-1/2 max-w-[90%] rounded-lg bg-sky-900/85 border border-sky-400/50 px-2.5 py-1 text-[12px] text-sky-100 text-center">{boxHint}</span>}
-        {running && (caption || vPhase !== 'idle') && <div className="absolute bottom-16 inset-x-3 flex justify-center pointer-events-none">
-          <div className="max-w-full rounded-lg bg-black/70 px-3 py-1.5 text-center text-[14px] leading-snug text-white">
-            {vPhase === 'recording' ? '🎙️ Listening… tap the mic again to ask' : vPhase === 'transcribing' ? 'Turning speech into text…'
-              : vPhase === 'thinking' ? 'Looking it up…' : caption}</div></div>}
-        {running && <div className="absolute bottom-2 inset-x-2 flex justify-center gap-2 pointer-events-none">
-          <button type="button" className="pointer-events-auto btn-primary btn-sm shadow-lg"
+        {/* 2026-10-28 (owner): glass controls ON the live picture + a centred glass caption with who is speaking */}
+        {running && (caption || vPhase !== 'idle') && <div className="absolute bottom-[76px] inset-x-3 flex justify-center pointer-events-none">
+          <div className="max-w-[92%] rounded-2xl border border-white/25 bg-white/10 px-4 py-2.5 text-center shadow-xl"
+               style={{ WebkitBackdropFilter: 'blur(14px) saturate(140%)', backdropFilter: 'blur(14px) saturate(140%)' }}>
+            {vPhase === 'recording' ? <span className="text-[15px] font-bold text-white">🎙️ Listening… tap the mic again to ask</span>
+              : vPhase === 'transcribing' ? <span className="text-[15px] font-bold text-white">Turning your voice into text…</span>
+              : vPhase === 'thinking' ? <span className="text-[15px] font-bold text-white">Lab assistant is looking it up…</span>
+              : <>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-sky-200">{caption.startsWith('You: ') ? 'You' : 'Lab assistant'}</div>
+                  <div className="text-[15px] font-bold leading-snug text-white">{caption.replace(/^You: /, '')}</div>
+                </>}
+          </div></div>}
+        {running && <div className="absolute top-2 right-2 flex flex-col gap-2">
+          <button type="button" aria-label={`Switch to ${facing === 'environment' ? 'front' : 'back'} camera`} title={`Switch to ${facing === 'environment' ? 'front' : 'back'} camera`}
+                  className="glass-btn" onClick={flip}><SwitchCamera size={18} /></button>
+          <button type="button" aria-label={paused ? 'Resume' : 'Pause'} className="glass-btn" onClick={togglePause}>{paused ? <Play size={18} /> : <Pause size={18} />}</button>
+          <button type="button" aria-label="Which box is this?" title="Which box is this?" className="glass-btn" onClick={() => whichBox()}><Box size={18} /></button>
+          <button type="button" aria-label="Stop camera" className="glass-btn !text-red-300" onClick={stop}><CameraOff size={18} /></button>
+        </div>}
+        {running && <div className="absolute bottom-3 inset-x-2 flex justify-center items-center gap-3 pointer-events-none">
+          <button type="button" aria-label="Refresh - start fresh" title="Refresh: start fresh"
+                  className="glass-btn pointer-events-auto" onClick={refreshView}><RefreshCw size={18} /></button>
+          <button type="button" className="glass-btn pointer-events-auto !w-auto !px-5 font-bold"
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:tell-more')) }}>Tell me more</button>
-          <button type="button" aria-label="Refresh - forget what was seen and look again" title="Refresh: forget what was seen, stop speaking, look again"
-                  className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-ink-800/90 border border-white/20 text-white shadow-lg"
-                  onClick={refreshView}><RefreshCw size={16} /></button>
-          <button type="button" aria-label="Ask by voice" className={`pointer-events-auto grid place-items-center w-9 h-9 rounded-full text-white shadow-lg ${vPhase === 'recording' ? 'bg-red-600 animate-pulse' : 'bg-accent-500'}`}
-                  onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:mic')) }}><Mic size={16} /></button>
+          <button type="button" aria-label="Ask by voice"
+                  className={`glass-btn pointer-events-auto ${vPhase === 'recording' ? '!bg-red-600/80 animate-pulse' : ''}`}
+                  onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:mic')) }}><Mic size={18} /></button>
         </div>}
       </div>
 
@@ -736,6 +751,7 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
       setPhase('idle')
       if (!t.text || t.text.trim().length < 2) { setTurns(ts => [...ts, { q: '…', a: 'Did not catch that - try again a little closer.', target: null, err: true }]); return }
       setQ(t.text.trim())
+      window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: 'You: ' + t.text.trim() }))
       await ask(t.text)
     } catch (e) {
       setPhase('idle')
