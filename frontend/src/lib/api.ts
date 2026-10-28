@@ -329,7 +329,7 @@ export interface ScanAnswer {
   sources?: { label: string; quality: string; at: string | null }[]; live?: LiveBlock | null
 }
 export interface AppearanceHint { decision: 'PROBABLE' | 'AMBIGUOUS' | 'UNKNOWN'; note: string
-  best: { code: string; class: string; inliers: number } | null; candidates: { code: string; inliers: number }[] }
+  best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number } } | null; candidates: { code: string; inliers: number }[] }
 /** Which enclosure a frame LOOKS like - a hint only; identity and live data still need the asset's QR marker. */
 export async function scanAppearance(jpeg: Blob): Promise<AppearanceHint> {
   const token = getToken()

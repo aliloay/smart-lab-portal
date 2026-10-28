@@ -104,19 +104,27 @@ class Matcher:
         src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
         _, mask = cv2.findHomography(src, dst, cv2.RANSAC, 6.0)
-        return int(mask.sum()) if mask is not None else 0
+        if mask is None:
+            return 0
+        self._last_pts = src.reshape(-1, 2)[mask.ravel() == 1]     # where the match sits in the phone frame
+        return int(mask.sum())
+
+    _last_pts = None
 
     def match(self, img, exclude: Optional[tuple[str, str]] = None) -> dict:
         """img: BGR array. exclude=(code, view) leaves one reference out (evaluation)."""
         kp, des = self._features(img)
         scores = []
         for r in self.refs:
-            best = 0
+            best, pts = 0, None
             for name, rkp, rdes in r.views:
                 if exclude and exclude == (r.code, name):
                     continue
-                best = max(best, self._inliers(kp, des, rkp, rdes))
-            scores.append({"code": r.code, "class": r.cls, "inliers": best})
+                self._last_pts = None
+                n = self._inliers(kp, des, rkp, rdes)
+                if n > best:
+                    best, pts = n, self._last_pts
+            scores.append({"code": r.code, "class": r.cls, "inliers": best, "_pts": pts})
         scores.sort(key=lambda s: -s["inliers"])
         if not scores or scores[0]["inliers"] < MIN_INLIERS:
             decision = "UNKNOWN"
@@ -124,6 +132,17 @@ class Matcher:
             decision = "AMBIGUOUS"
         else:
             decision = "PROBABLE"
+        # 2026-10-28 (owner: "the message appeared but there was no frame around the bin"): the frame around the
+        # matched points (5th-95th percentile, so stray matches do not stretch it), 0..1 of the frame
+        np = _cv()[1]
+        h, w = img.shape[:2]
+        k = min(1.0, 640 / max(h, w))
+        for sc in scores:
+            p = sc.pop("_pts")
+            if decision == "PROBABLE" and sc is scores[0] and p is not None and len(p) >= 8:
+                x1, y1 = np.percentile(p, 5, axis=0); x2, y2 = np.percentile(p, 95, axis=0)
+                sc["box"] = {"x": round(float(x1) / (w * k), 4), "y": round(float(y1) / (h * k), 4),
+                             "w": round(float(x2 - x1) / (w * k), 4), "h": round(float(y2 - y1) / (h * k), 4)}
         return {"decision": decision, "best": scores[0] if scores and decision == "PROBABLE" else None,
                 "candidates": scores[:3], "min_inliers": MIN_INLIERS, "margin": MARGIN,
                 "note": "appearance only - verify with the asset's QR marker before trusting its live data"}

@@ -104,3 +104,9 @@ firmware/tools/ali2.jpg
 
 # enclosure reference photos (owner) - kept local
 backend/data/asset_refs/*/
+
+# local training environment + data (2026-10-28)
+tools/vision_train/.venv/
+tools/vision_train/data/
+tools/vision_train/runs/
+*.pt

@@ -263,6 +263,14 @@ export default function Scan() {
         ctx.globalAlpha = 1
         place(`p:${t.id}`, x + (b.w * pw) / 2, y - 4, true)
       }
+      // the box look-up's frame (2026-10-28, owner: "the message appeared but no frame around the bin"): around the
+      // matched points, dashed = unverified, for 5 s after the check
+      const ab = apBox.current
+      if (ab && now - ab.at < 5000) {
+        const x = s.mirror ? mx(ox + (ab.x + ab.w) * pw) : ox + ab.x * pw, y = oy + ab.y * ph
+        ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 3; ctx.strokeStyle = '#38bdf8'; ctx.globalAlpha = 1
+        ctx.strokeRect(x, y, ab.w * pw, ab.h * ph); ctx.restore()
+      }
       // equipment (generic class): named only when one of OUR markers sits inside its box
       const ob = objects.current
       if (ob && now - ob.at < 1500) for (const o of ob.list) {
@@ -338,6 +346,7 @@ export default function Scan() {
   // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
   const [boxHint, setBoxHint0] = useState<string>('')
   const boxAt = useRef(0)
+  const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number } | null>(null)
   const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
   // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
   // "my face - it says looks like the reusable bin" = the bin's verdict still on screen)
@@ -360,6 +369,7 @@ export default function Scan() {
       if (!b) return
       scanAppearance(b).then(r => {
         const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
+        apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now() } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
           : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
