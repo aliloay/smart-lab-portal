@@ -336,7 +336,16 @@ export default function Scan() {
   }, [draw, facing, stop])
 
   // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
-  const [boxHint, setBoxHint] = useState<string>('')
+  const [boxHint, setBoxHint0] = useState<string>('')
+  const boxAt = useRef(0)
+  const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
+  // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
+  // "my face - it says looks like the reusable bin" = the bin's verdict still on screen)
+  useEffect(() => {
+    if (!boxHint) return
+    const t = window.setTimeout(() => { if (Date.now() - boxAt.current >= 5000) setBoxHint0('') }, 5100)
+    return () => window.clearTimeout(t)
+  }, [boxHint])
   const boxBusy = useRef(false)
   const whichBox = (auto = false) => {
     const v = video.current
@@ -359,11 +368,14 @@ export default function Scan() {
   }
   // 2026-10-28 (owner: "it did not detect it - only the QR"): the box check also runs by itself every 3 s while no
   // marker is in view, so a sharp frame gets its chance; still a hint only - live data needs the marker
+  // (the timer used to be re-created on every render - it never fired; the latest whichBox is read through a ref)
+  const whichBoxRef = useRef(whichBox)
+  whichBoxRef.current = whichBox
   useEffect(() => {
     if (!running || paused) return
-    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0) whichBox(true) }, 3000)
+    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0) whichBoxRef.current(true) }, 3000)
     return () => window.clearInterval(t)
-  })
+  }, [running, paused])
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
@@ -492,7 +504,7 @@ export default function Scan() {
                     onClick={stop}><CameraOff size={15} /> Stop</button>
           : <button className="btn-primary" disabled={!secure || starting} onClick={() => begin({})}><Camera size={15} /> Start camera</button>}
         {running && <button className="btn-ghost" onClick={togglePause}>{paused ? <><Play size={15} /> Resume</> : <><Pause size={15} /> Pause</>}</button>}
-        <button className="btn-ghost" disabled={!secure || starting} onClick={flip}><RefreshCw size={15} /> {facing === 'environment' ? 'Back' : 'Front'} camera</button>
+        <button className="btn-ghost" disabled={!secure || starting} onClick={flip} title={`Now: ${facing === 'environment' ? 'back' : 'front'} camera`}><RefreshCw size={15} /> Switch to {facing === 'environment' ? 'front' : 'back'} camera</button>
         <button className={`btn-ghost ${peopleOn ? 'border border-sky-400/60 text-sky-200' : ''}`} onClick={() => { setNote(''); setPeopleOn(p => !p) }}>
           <Users size={15} /> People {peopleOn ? 'on' : 'off'}</button>
         {running && <button className="btn-ghost" onClick={() => whichBox()}><Box size={15} /> Which box is this?</button>}
