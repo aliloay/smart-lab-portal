@@ -121,9 +121,15 @@ export function replayLast(): Promise<void> {
   return lastBlob ? play(lastBlob, ++generation) : Promise.resolve()
 }
 
+// the pending play()'s finish - called on stop so the speaking chain ends instead of waiting forever for 'ended'
+// (2026-10-28, owner: "pressing refresh freezes the screen" - a paused answer left the page stuck on "Speaking...")
+let currentDone: (() => void) | null = null
+
 export function stopSpeaking() {
   generation++
   if (current) { current.pause(); current = null }
+  const d = currentDone; currentDone = null; d?.()
+  window.dispatchEvent(new Event('smartlab:voice-stopped'))
   try { window.speechSynthesis?.cancel() } catch { /* no browser voice */ }
 }
 
@@ -162,7 +168,15 @@ function play(blob: Blob, gen: number): Promise<void> {
     const url = URL.createObjectURL(blob)
     a.src = url
     current = a
-    const done = () => { URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null; res() }
+    let finished = false
+    const done = () => {
+      if (finished) return
+      finished = true
+      URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null
+      if (currentDone === done) currentDone = null
+      res()
+    }
+    currentDone = done
     a.onended = done; a.onerror = done
     a.play().catch(e => {
       if (e instanceof DOMException && e.name === 'NotAllowedError') window.dispatchEvent(new Event('smartlab:audio-blocked'))

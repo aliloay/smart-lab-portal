@@ -393,6 +393,7 @@ export default function Scan() {
     select(null); lastTarget.current = null
     apBox.current = null; setBoxHint0('')
     tracker.current.clear(); seen.current.clear(); setInView([]); setTracks([])
+    boxBusy.current = false                         // a check still counted as running blocked the new look
     window.setTimeout(() => whichBoxRef.current(true), 250)
   }
   const togglePause = () => {
@@ -599,6 +600,11 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
     const t = () => askRef.current('Tell me more'), m = () => micRef.current()
     window.addEventListener('smartlab:tell-more', t); window.addEventListener('smartlab:mic', m)
     return () => { window.removeEventListener('smartlab:tell-more', t); window.removeEventListener('smartlab:mic', m) }
+  }, [])
+  useEffect(() => {
+    const st = () => setSpeaking(false)                // stopped from elsewhere (Refresh): not "Speaking..." any more
+    window.addEventListener('smartlab:voice-stopped', st)
+    return () => window.removeEventListener('smartlab:voice-stopped', st)
   }, [])
   useEffect(() => {
     const b = () => { setBlocked(true); setSpeaking(false) }
