@@ -89,6 +89,18 @@ export default function Scan() {
   const [peopleOn, setPeopleOn] = useState(true)        // owner 2026-10-27: people boxes on by default (button turns them off)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [caption, setCaption] = useState('')
+  const [vPhase, setVPhase] = useState('idle')
+  useEffect(() => {
+    let t = 0
+    const c = (e: Event) => { setCaption((e as CustomEvent<string>).detail || ''); window.clearTimeout(t) }
+    const end = () => { window.clearTimeout(t); t = window.setTimeout(() => setCaption(''), 2500) }
+    const ph = (e: Event) => setVPhase((e as CustomEvent<string>).detail)
+    window.addEventListener('smartlab:caption', c); window.addEventListener('smartlab:voice-ended', end)
+    window.addEventListener('smartlab:voice-stopped', end); window.addEventListener('smartlab:voice-phase', ph)
+    return () => { window.removeEventListener('smartlab:caption', c); window.removeEventListener('smartlab:voice-ended', end)
+      window.removeEventListener('smartlab:voice-stopped', end); window.removeEventListener('smartlab:voice-phase', ph); window.clearTimeout(t) }
+  }, [])
   const [source, setSource] = useState<'camera' | 'file'>('camera')
   const [cards, setCards] = useState<Record<string, CardState>>({})
   const [inView, setInView] = useState<string[]>([])
@@ -555,7 +567,7 @@ export default function Scan() {
         <span>The camera needs a secure page (https://). Open the portal with <b>https://</b> on this device -
           <Link to="/phone-setup" className="underline ml-1">set up this phone</Link>. A recorded test video still works below.</span></div>}
 
-      <div className="relative rounded-xl overflow-hidden bg-black h-[58vh] sm:h-auto sm:aspect-video select-none" onClick={tapVideo}>
+      <div className="relative rounded-xl overflow-hidden bg-black h-[78vh] sm:h-auto sm:aspect-video select-none" onClick={tapVideo}>
         <video ref={video} className="absolute inset-0 w-full h-full object-contain" style={mirror ? { transform: 'scaleX(-1)' } : undefined} muted playsInline />
         <canvas ref={overlay} className="absolute inset-0 w-full h-full pointer-events-none" />
         {/* pinned live chips - positioned every frame by draw() */}
@@ -582,13 +594,17 @@ export default function Scan() {
             controls float on the picture itself, so the target stays in view while asking */}
         {running && boxHint.startsWith('Looks like') && inView.length === 0 &&
           <span className="absolute top-2 left-1/2 -translate-x-1/2 max-w-[90%] rounded-lg bg-sky-900/85 border border-sky-400/50 px-2.5 py-1 text-[12px] text-sky-100 text-center">{boxHint}</span>}
+        {running && (caption || vPhase !== 'idle') && <div className="absolute bottom-16 inset-x-3 flex justify-center pointer-events-none">
+          <div className="max-w-full rounded-lg bg-black/70 px-3 py-1.5 text-center text-[14px] leading-snug text-white">
+            {vPhase === 'recording' ? '🎙️ Listening… tap the mic again to ask' : vPhase === 'transcribing' ? 'Turning speech into text…'
+              : vPhase === 'thinking' ? 'Looking it up…' : caption}</div></div>}
         {running && <div className="absolute bottom-2 inset-x-2 flex justify-center gap-2 pointer-events-none">
           <button type="button" className="pointer-events-auto btn-primary btn-sm shadow-lg"
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:tell-more')) }}>Tell me more</button>
           <button type="button" aria-label="Refresh - forget what was seen and look again" title="Refresh: forget what was seen, stop speaking, look again"
                   className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-ink-800/90 border border-white/20 text-white shadow-lg"
                   onClick={refreshView}><RefreshCw size={16} /></button>
-          <button type="button" aria-label="Ask by voice" className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-accent-500 text-white shadow-lg"
+          <button type="button" aria-label="Ask by voice" className={`pointer-events-auto grid place-items-center w-9 h-9 rounded-full text-white shadow-lg ${vPhase === 'recording' ? 'bg-red-600 animate-pulse' : 'bg-accent-500'}`}
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:mic')) }}><Mic size={16} /></button>
         </div>}
       </div>
@@ -656,7 +672,7 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   useEffect(() => { voiceStatus().then(setVoice).catch(() => setVoice(null)) }, [])
   const [spokeWith, setSpokeWith] = useState<string | null>(null)
   useEffect(() => () => { rec.current?.cancel(); ac.current?.abort(); stopSpeaking() }, [])
-  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }) }, [turns])
+  // no page scroll on a new answer (owner 2026-10-28: "keep seeing the live screen"); the caption shows it on the picture
   // the floating buttons on the camera picture (2026-10-28) drive the same actions as the buttons below
   const askRef = useRef<(q: string) => void>(() => {})
   const micRef = useRef<() => void>(() => {})
@@ -678,6 +694,7 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const mic = micSupported() && voice?.stt !== false
 
   const say = (text: string) => {
+    window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: spokenSummary(text) }))
     if (muted) return
     setBlocked(false); setSpeaking(true)
     // status not known yet -> still try the lab's voice first (it falls back to the browser voice by itself)
@@ -729,12 +746,20 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
     if (rec.current || phase !== 'idle') return
     stopSpeaking(); setSpeaking(false)
     try { rec.current = await Recording.start(() => void finishRec()); setPhase('recording') }
-    catch { setTurns(ts => [...ts, { q: '…', a: 'The microphone is blocked - allow it for this site.', target: null, err: true }]) }
+    catch {
+      setTurns(ts => [...ts, { q: '…', a: 'The microphone is blocked - allow it for this site.', target: null, err: true }])
+      window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: 'The microphone is blocked - allow it for this site (aA → Website settings → Microphone).' }))
+    }
   }
   const cancel = () => { rec.current?.cancel(); rec.current = null; ac.current?.abort(); stopSpeaking(); setSpeaking(false); setPhase('idle') }
   const submit = (e: FormEvent) => { e.preventDefault(); unlockAudio(); void ask(q) }
   askRef.current = q => { if (phase === 'idle') void ask(q) }
-  micRef.current = () => { if (phase === 'recording') void finishRec(); else if (phase === 'idle' && mic) void startRec() }
+  micRef.current = () => {
+    if (phase === 'recording') { void finishRec(); return }
+    if (!mic) { window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: 'Voice input is not available in this browser - type the question below.' })); return }
+    if (phase === 'idle') void startRec()
+  }
+  useEffect(() => { window.dispatchEvent(new CustomEvent('smartlab:voice-phase', { detail: phase })) }, [phase])
   const status = phase === 'recording' ? 'Listening… tap again to ask' : phase === 'transcribing' ? 'Transcribing (local)…'
     : phase === 'thinking' ? 'Looking it up…' : speaking ? 'Speaking…'
     : muted ? 'Spoken answers are OFF - tap the speaker to turn them on'
