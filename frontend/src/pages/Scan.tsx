@@ -191,7 +191,7 @@ export default function Scan() {
       seen.current.set(f.text, { text: f.text, corners, at: now, cx: old ? old.cx + a * (cx - old.cx) : cx,
                                  cy: 0, top: old ? old.top + a * (top - old.top) : top })
       const c = cardsRef.current[f.text]
-      if (!c || (now - c.fetchedAt > CARD_REFRESH_MS)) loadCard(f.text)
+      if (!c || (now - c.fetchedAt > (c.error ? 2000 : CARD_REFRESH_MS))) loadCard(f.text)   // a failed lookup (e.g. 502 while the portal restarts) retries after 2 s
     }
     const visible = [...seen.current.values()].filter(m => now - m.at < SEEN_HOLD_MS).map(m => m.text).sort()
     setInView(v0 => (v0.join() === visible.join() ? v0 : visible))
