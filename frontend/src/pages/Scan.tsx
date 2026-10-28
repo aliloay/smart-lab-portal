@@ -471,6 +471,15 @@ export default function Scan() {
     window.addEventListener('smartlab:voice-ended', afterSpeech)
     return () => { window.clearInterval(t); v.removeEventListener('pause', onPause); window.removeEventListener('smartlab:voice-ended', afterSpeech) }
   }, [running])
+  // 2026-10-28 (owner: "when switching the camera it is not filled"): iPhone Safari keeps drawing a new camera stream
+  // at the old element size. On every new size / stream the element is laid out again (one frame of 99.9 % width).
+  useEffect(() => {
+    const v = video.current
+    if (!v) return
+    const relayout = () => { v.style.width = '99.9%'; requestAnimationFrame(() => requestAnimationFrame(() => { v.style.width = '' })) }
+    v.addEventListener('loadedmetadata', relayout); v.addEventListener('resize', relayout); v.addEventListener('playing', relayout)
+    return () => { v.removeEventListener('loadedmetadata', relayout); v.removeEventListener('resize', relayout); v.removeEventListener('playing', relayout) }
+  }, [])
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
@@ -597,7 +606,7 @@ export default function Scan() {
         {/* 2026-10-28 (owner): glass controls ON the live picture + a centred glass caption with who is speaking */}
         {running && (caption || vPhase !== 'idle') && <div className="absolute bottom-[76px] inset-x-3 flex justify-center pointer-events-none">
           <div className="max-w-[92%] rounded-2xl border border-white/25 bg-white/10 px-4 py-2.5 text-center shadow-xl"
-               style={{ WebkitBackdropFilter: 'blur(14px) saturate(140%)', backdropFilter: 'blur(14px) saturate(140%)' }}>
+               style={{ WebkitBackdropFilter: 'blur(8px)', backdropFilter: 'blur(8px)', background: 'rgba(15,23,42,.55)' }}>
             {vPhase === 'recording' ? <span className="text-[15px] font-bold text-white">🎙️ Listening… tap the mic again to ask</span>
               : vPhase === 'transcribing' ? <span className="text-[15px] font-bold text-white">Turning your voice into text…</span>
               : vPhase === 'thinking' ? <span className="text-[15px] font-bold text-white">Lab assistant is looking it up…</span>
