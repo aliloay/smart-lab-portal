@@ -1,9 +1,190 @@
 {
-  "note": "Reference photos of the lab's own 3D-printed enclosures (see README.md). Codes = the assets' QR marker text.",
-  "assets": [
-    {"code": "SLAB:D:BIN_NODE_1", "class": "consumables_node", "views": []},
-    {"code": "SLAB:D:REUSE_BIN_1", "class": "reusable_items_dock", "views": []},
-    {"code": "SLAB:D:MASTER_LAB01", "class": "door_controller", "views": []},
-    {"code": "SLAB:D:ENV_LAB01", "class": "environment_node", "views": []}
-  ]
+ "note": "Reference photos of the lab's own 3D-printed enclosures (see README.md). Codes = the assets' QR marker text.",
+ "assets": [
+  {
+   "code": "SLAB:D:BIN_NODE_1",
+   "class": "consumables_node",
+   "views": []
+  },
+  {
+   "code": "SLAB:D:REUSE_BIN_1",
+   "class": "reusable_items_dock",
+   "views": [],
+   "boxes": {
+    "reuse_bin_01.jpg": [
+     0.0,
+     0.02,
+     1.0,
+     0.85
+    ],
+    "reuse_bin_02.jpg": [
+     0.17,
+     0.15,
+     0.9,
+     0.93
+    ],
+    "reuse_bin_03.jpg": [
+     0.02,
+     0.15,
+     0.93,
+     0.76
+    ],
+    "reuse_bin_04.jpg": [
+     0.08,
+     0.15,
+     1.0,
+     0.7
+    ],
+    "reuse_bin_05.jpg": [
+     0.12,
+     0.12,
+     1.0,
+     0.73
+    ],
+    "reuse_bin_06.jpg": [
+     0.15,
+     0.12,
+     0.95,
+     0.83
+    ],
+    "reuse_bin_07.jpg": [
+     0.2,
+     0.25,
+     0.97,
+     0.84
+    ],
+    "reuse_bin_08.jpg": [
+     0.05,
+     0.18,
+     0.95,
+     0.75
+    ],
+    "reuse_bin_09.jpg": [
+     0.1,
+     0.2,
+     0.85,
+     0.92
+    ],
+    "reuse_bin_10.jpg": [
+     0.0,
+     0.25,
+     1.0,
+     0.82
+    ],
+    "reuse_bin_11.jpg": [
+     0.0,
+     0.25,
+     1.0,
+     0.82
+    ],
+    "reuse_bin_12.jpg": [
+     0.0,
+     0.0,
+     1.0,
+     0.9
+    ],
+    "reuse_bin_13.jpg": [
+     0.0,
+     0.12,
+     0.92,
+     0.88
+    ],
+    "reuse_bin_14.jpg": [
+     0.0,
+     0.0,
+     1.0,
+     1.0
+    ],
+    "reuse_bin_15.jpg": [
+     0.05,
+     0.25,
+     1.0,
+     0.82
+    ],
+    "reuse_bin_16.jpg": [
+     0.0,
+     0.0,
+     0.75,
+     1.0
+    ],
+    "reuse_bin_17.jpg": [
+     0.1,
+     0.12,
+     0.95,
+     0.8
+    ],
+    "reuse_bin_18.jpg": [
+     0.0,
+     0.08,
+     1.0,
+     0.88
+    ],
+    "reuse_bin_19.jpg": [
+     0.0,
+     0.12,
+     1.0,
+     0.85
+    ],
+    "reuse_bin_20.jpg": [
+     0.0,
+     0.12,
+     0.95,
+     0.85
+    ],
+    "reuse_bin_21.jpg": [
+     0.0,
+     0.0,
+     1.0,
+     0.88
+    ],
+    "reuse_bin_22.jpg": [
+     0.0,
+     0.08,
+     1.0,
+     0.88
+    ],
+    "reuse_bin_23.jpg": [
+     0.0,
+     0.08,
+     1.0,
+     0.75
+    ],
+    "reuse_bin_24.jpg": [
+     0.0,
+     0.0,
+     1.0,
+     0.75
+    ],
+    "reuse_bin_25.jpg": [
+     0.1,
+     0.2,
+     0.95,
+     0.92
+    ],
+    "reuse_bin_26.jpg": [
+     0.25,
+     0.25,
+     0.97,
+     0.86
+    ],
+    "reuse_bin_27.jpg": [
+     0.0,
+     0.22,
+     0.95,
+     0.86
+    ]
+   },
+   "box_rule": "whole station: the bin AND its control box (owner-checked, tools/vision_train/make_dataset.py)"
+  },
+  {
+   "code": "SLAB:D:MASTER_LAB01",
+   "class": "door_controller",
+   "views": []
+  },
+  {
+   "code": "SLAB:D:ENV_LAB01",
+   "class": "environment_node",
+   "views": []
+  }
+ ]
 }

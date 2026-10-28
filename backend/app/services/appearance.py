@@ -37,7 +37,7 @@ def _cv():
 class RefSet:
     code: str
     cls: str
-    views: list = field(default_factory=list)       # [(name, keypoints, descriptors)]
+    views: list = field(default_factory=list)       # [(name, keypoints, descriptors, whole-object box px | None)]
 
 
 class Matcher:
@@ -80,7 +80,13 @@ class Matcher:
                             continue
                         kp, des = self._features(img)
                         if des is not None and len(kp) >= 20:
-                            rs.views.append((f, kp, des))
+                            # the owner-checked box around the WHOLE object in this photo (manifest "boxes", 0..1),
+                            # in the same resized pixels as its keypoints
+                            b = (a.get("boxes") or {}).get(f)
+                            k = min(1.0, 640 / max(img.shape[:2]))
+                            bpx = None if not b else (b[0] * img.shape[1] * k, b[1] * img.shape[0] * k,
+                                                      b[2] * img.shape[1] * k, b[3] * img.shape[0] * k)
+                            rs.views.append((f, kp, des, bpx))
             refs.append(rs)
         with self._lock:
             self.refs = refs
@@ -103,28 +109,30 @@ class Matcher:
             return len(good) // 2
         src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
-        _, mask = cv2.findHomography(src, dst, cv2.RANSAC, 6.0)
+        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 6.0)
         if mask is None:
             return 0
         self._last_pts = src.reshape(-1, 2)[mask.ravel() == 1]     # where the match sits in the phone frame
+        self._last_H = H                                             # phone frame -> reference photo
         return int(mask.sum())
 
     _last_pts = None
+    _last_H = None
 
     def match(self, img, exclude: Optional[tuple[str, str]] = None) -> dict:
         """img: BGR array. exclude=(code, view) leaves one reference out (evaluation)."""
         kp, des = self._features(img)
         scores = []
         for r in self.refs:
-            best, pts = 0, None
-            for name, rkp, rdes in r.views:
+            best, pts, proj = 0, None, None
+            for name, rkp, rdes, bpx in r.views:
                 if exclude and exclude == (r.code, name):
                     continue
-                self._last_pts = None
+                self._last_pts, self._last_H = None, None
                 n = self._inliers(kp, des, rkp, rdes)
                 if n > best:
-                    best, pts = n, self._last_pts
-            scores.append({"code": r.code, "class": r.cls, "inliers": best, "_pts": pts})
+                    best, pts, proj = n, self._last_pts, (self._last_H, bpx)
+            scores.append({"code": r.code, "class": r.cls, "inliers": best, "_pts": pts, "_proj": proj})
         scores.sort(key=lambda s: -s["inliers"])
         if not scores or scores[0]["inliers"] < MIN_INLIERS:
             decision = "UNKNOWN"
@@ -139,13 +147,45 @@ class Matcher:
         k = min(1.0, 640 / max(h, w))
         for sc in scores:
             p = sc.pop("_pts")
-            if decision == "PROBABLE" and sc is scores[0] and p is not None and len(p) >= 8:
+            proj = sc.pop("_proj")
+            if decision != "PROBABLE" or sc is not scores[0]:
+                continue
+            # 2026-10-28 (owner: "the frame is a small square on the bin, not a big frame with the bin inside"): the
+            # reference photo's whole-object box carried into the phone frame through the same match (homography);
+            # the matched-points box only when that projection is missing or implausible
+            whole = _project(proj, w * k, h * k)
+            if whole:
+                sc["box"], sc["box_kind"] = whole, "whole_object"
+                continue
+            if p is not None and len(p) >= 8:
                 x1, y1 = np.percentile(p, 5, axis=0); x2, y2 = np.percentile(p, 95, axis=0)
+                sc["box_kind"] = "matched_points"
                 sc["box"] = {"x": round(float(x1) / (w * k), 4), "y": round(float(y1) / (h * k), 4),
                              "w": round(float(x2 - x1) / (w * k), 4), "h": round(float(y2 - y1) / (h * k), 4)}
         return {"decision": decision, "best": scores[0] if scores and decision == "PROBABLE" else None,
                 "candidates": scores[:3], "min_inliers": MIN_INLIERS, "margin": MARGIN,
                 "note": "appearance only - verify with the asset's QR marker before trusting its live data"}
+
+
+def _project(proj, qw: float, qh: float) -> Optional[dict]:
+    """Whole-object box of the matched reference -> phone frame (0..1), or None when it would not make sense."""
+    if not proj or proj[0] is None or proj[1] is None:
+        return None
+    cv2, np = _cv()
+    H, (x1, y1, x2, y2) = proj
+    try:
+        inv = np.linalg.inv(H)
+    except np.linalg.LinAlgError:
+        return None
+    pts = cv2.perspectiveTransform(np.float32([[x1, y1], [x2, y1], [x2, y2], [x1, y2]]).reshape(-1, 1, 2), inv).reshape(-1, 2)
+    bx1, by1 = max(0.0, float(pts[:, 0].min())), max(0.0, float(pts[:, 1].min()))
+    bx2, by2 = min(qw, float(pts[:, 0].max())), min(qh, float(pts[:, 1].max()))
+    bw, bh = bx2 - bx1, by2 - by1
+    if bw < 0.05 * qw or bh < 0.05 * qh or bw * bh > 0.98 * qw * qh * 1.0001 and (bw > qw * 1.5):
+        return None
+    if not np.all(np.isfinite(pts)) or (pts[:, 0].max() - pts[:, 0].min()) > 3 * qw:   # wild homography
+        return None
+    return {"x": round(bx1 / qw, 4), "y": round(by1 / qh, 4), "w": round(bw / qw, 4), "h": round(bh / qh, 4)}
 
 
 _MATCHER: Optional[Matcher] = None
@@ -165,7 +205,7 @@ def evaluate(m: Matcher) -> dict:
     out = {"views": 0, "correct": 0, "wrong": 0, "unknown": 0, "ambiguous": 0, "wrong_cases": []}
     for r in m.refs:
         d = os.path.join(m.root, r.code.replace(":", "_"))
-        for name, _, _ in r.views:
+        for name, *_ in r.views:
             img = cv2.imread(os.path.join(d, name))
             res = m.match(img, exclude=(r.code, name))
             out["views"] += 1
