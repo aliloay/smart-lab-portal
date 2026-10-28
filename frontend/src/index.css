@@ -20,7 +20,9 @@ main { min-width: 0; overflow-wrap: anywhere; }
   .btn, .btn-sm, .btn-ghost, .btn-primary, select, .input { min-height: 40px; }
   .glass-control { min-height: 40px; min-width: 40px; }
   /* small inline text links get a taller tap area without changing the layout */
-  main a.link, main a.text-xs, main a[class*="text-[12px]"] { display: inline-block; padding-block: 8px; margin-block: -8px; }
+  main a.link, main a.text-xs, main a[class*="text-[12px]"], main .link, main a.underline,
+  main a[class*="hover:text-accent"] { display: inline-block; padding-block: 10px; margin-block: -10px; }
+  header a, header button { min-height: 40px; }
 }
 /* notch / home-indicator safe areas */
 body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
