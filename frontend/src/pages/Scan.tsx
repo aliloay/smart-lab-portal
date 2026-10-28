@@ -386,6 +386,15 @@ export default function Scan() {
     const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0) whichBoxRef.current(true) }, 3000)
     return () => window.clearInterval(t)
   }, [running, paused])
+  // 2026-10-28 (owner: "a refresh button - after it detects something and speaks, refresh so I can walk on faster"):
+  // forget the selection, the last target, the box verdict and the tracks, stop speaking, then look again at once
+  const refreshView = () => {
+    stopSpeaking()
+    select(null); lastTarget.current = null
+    apBox.current = null; setBoxHint0('')
+    tracker.current.clear(); seen.current.clear(); setInView([]); setTracks([])
+    window.setTimeout(() => whichBoxRef.current(true), 250)
+  }
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
@@ -512,6 +521,9 @@ export default function Scan() {
         {running && <div className="absolute bottom-2 inset-x-2 flex justify-center gap-2 pointer-events-none">
           <button type="button" className="pointer-events-auto btn-primary btn-sm shadow-lg"
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:tell-more')) }}>Tell me more</button>
+          <button type="button" aria-label="Refresh - forget what was seen and look again" title="Refresh: forget what was seen, stop speaking, look again"
+                  className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-ink-800/90 border border-white/20 text-white shadow-lg"
+                  onClick={refreshView}><RefreshCw size={16} /></button>
           <button type="button" aria-label="Ask by voice" className="pointer-events-auto grid place-items-center w-9 h-9 rounded-full bg-accent-500 text-white shadow-lg"
                   onClick={() => { unlockAudio(); window.dispatchEvent(new Event('smartlab:mic')) }}><Mic size={16} /></button>
         </div>}

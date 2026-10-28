@@ -141,11 +141,17 @@ export function speechChunks(text: string, max = 140): string[] {
 }
 
 async function fetchWav(text: string): Promise<Blob | null> {
-  try {
-    const r = await fetch('/api/voice/speak', { method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ text }) })
-    return r.ok ? r.blob() : null
-  } catch { return null }
+  // a busy voice (429) or a blip is retried twice - one refusal used to end the answer mid-sentence (2026-10-28)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch('/api/voice/speak', { method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json', ...auth() }, body: JSON.stringify({ text }) })
+      if (r.ok) return r.blob()
+      if (r.status !== 429 && r.status < 500) return null
+    } catch { /* network blip: retry */ }
+    await new Promise(res => setTimeout(res, 400 * (attempt + 1)))
+  }
+  return null
 }
 
 function play(blob: Blob, gen: number): Promise<void> {

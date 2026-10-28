@@ -86,6 +86,13 @@ class Matcher:
                             k = min(1.0, 640 / max(img.shape[:2]))
                             bpx = None if not b else (b[0] * img.shape[1] * k, b[1] * img.shape[0] * k,
                                                       b[2] * img.shape[1] * k, b[3] * img.shape[0] * k)
+                            if bpx is not None:
+                                # learn ONLY the object (2026-10-28: the owner's face matched the bin at 58 points -
+                                # the photos share the room's ceiling / walls / chandelier with his camera view)
+                                keep = [i for i, q in enumerate(kp) if bpx[0] <= q.pt[0] <= bpx[2] and bpx[1] <= q.pt[1] <= bpx[3]]
+                                if len(keep) >= 20:
+                                    kp = tuple(kp[i] for i in keep)
+                                    des = des[keep]
                             rs.views.append((f, kp, des, bpx))
             refs.append(rs)
         with self._lock:

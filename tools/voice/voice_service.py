@@ -103,7 +103,9 @@ class Voice:
             return 422, {"error": "no text"}
         if self.tts is None:
             return 503, {"error": "no Piper voice installed - the browser speaks instead"}
-        if not self.tts_slot.acquire(blocking=False):
+        # wait our turn (up to 8 s) instead of refusing: the phone asks for the NEXT sentence while one is being made /
+        # the keep-warm runs - a refusal there cut the spoken answer mid-way (owner 2026-10-28)
+        if not self.tts_slot.acquire(timeout=8):
             self.stats["busy"] += 1
             return 429, {"error": "busy"}
         try:
