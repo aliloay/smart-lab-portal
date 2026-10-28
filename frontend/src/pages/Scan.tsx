@@ -389,20 +389,16 @@ export default function Scan() {
   }, [running, paused])
   // 2026-10-28 (owner: "a refresh button - after it detects something and speaks, refresh so I can walk on faster"):
   // forget the selection, the last target, the box verdict and the tracks, stop speaking, then look again at once
+  // Refresh = a clean restart, exactly as pressing Stop then Start camera (owner 2026-10-28: "as if I have just
+  // started the camera"): speech stops, every frame / verdict / track / selection is gone, a new camera session starts
+  // with the same camera (the voice panel starts fresh too - it is keyed by the session)
   const refreshView = () => {
     stopSpeaking()
     select(null); lastTarget.current = null
-    apBox.current = null; setBoxHint0('')
-    tracker.current.clear(); seen.current.clear(); setInView([]); setTracks([])
-    boxBusy.current = false                         // a check still counted as running blocked the new look
-    // the same object is still in front of the camera right after Refresh: the automatic check waits 6 s so the
-    // owner can turn to the next thing (2026-10-28, "when I refresh it is stuck, it does not move away")
-    const vv = video.current
-    if (vv && !session.current.paused) void vv.play().catch(() => {})   // un-freeze the picture
-    boxQuietUntil.current = Date.now() + 6000
-    setNote('Refreshed - point at the next thing')
-    window.setTimeout(() => setNote(n => (n.startsWith('Refreshed') ? '' : n)), 3000)
+    apBox.current = null; setBoxHint0(''); boxBusy.current = false; setNote('')
+    if (source === 'camera') { stop(); window.setTimeout(() => { void begin({ facingMode: facing }) }, 150) }
   }
+
   // 2026-10-28 (owner: "after it detects the bin and speaks, the picture stays stuck on the bin while I move the
   // phone"): iPhone Safari pauses the live camera <video> when the spoken answer starts playing. A watchdog resumes it
   // whenever it is stopped (or its picture stops advancing) without the user pressing Pause; Refresh forces it too.
