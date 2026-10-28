@@ -371,7 +371,7 @@ export default function Scan() {
     if (s.paused) v.pause(); else void v.play()
     setPaused(!!s.paused)
   }
-  const flip = () => { const f = facing === 'environment' ? 'user' : 'environment'; setFacing(f); if (running && source === 'camera') void begin({ facingMode: f }) }
+  const flip = () => { const f = facing === 'environment' ? 'user' : 'environment'; setFacing(f); select(null); lastTarget.current = null; if (running && source === 'camera') void begin({ facingMode: f }) }
 
   // ------------------------------------------------------------------ targets
   const select = (t: Target | null) => { setSelected(t); if (t) { lastTarget.current = { t, at: Date.now() }; if (t.kind === 'marker') loadCard(t.code) } }
@@ -403,7 +403,11 @@ export default function Scan() {
     if (sel) {
       const r = asTarget(sel)
       if (r) { lastTarget.current = { t: sel, at: now }; return r }
-      if (sel.kind === 'person') return { none: 'The selected person is not identified (no clear face match) - nothing about them can be looked up.' }
+      // 2026-10-28 (owner: back camera on the bin's QR, but every answer was about "person #5"): a selected person
+      // who has left the picture no longer blocks the target that IS in view
+      const gone = sel.kind === 'person' && !(trackById(sel.track) && now - trackById(sel.track)!.lastSeen < 1500)
+      if (gone) { setSelected(null); selectedRef.current = null }
+      else if (sel.kind === 'person') return { none: 'The selected person is not identified (no clear face match) - nothing about them can be looked up.' }
     }
     const cands: Target[] = [
       ...inView.filter(c => cards[c]?.card).map(c => ({ kind: 'marker' as const, code: c })),
