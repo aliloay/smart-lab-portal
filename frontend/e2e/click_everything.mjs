@@ -29,7 +29,8 @@ async function settle(page, t0, limit = 8000) {
   // drawn = main has text, no spinner/skeleton/"Loading" left, and two quiet animation frames
   await page.waitForFunction(() => {
     const m = document.querySelector('main') || document.body
-    const busy = m.querySelector('.animate-pulse, .animate-spin, [aria-busy="true"]')
+    // skeletons / spinners count as loading; small pulsing status dots and alarm badges (always on) do not
+    const busy = [...m.querySelectorAll('.animate-pulse, .animate-spin, [aria-busy="true"]')].some(e => { const r = e.getBoundingClientRect(); return r.width > 40 && r.height > 12 && !e.matches('svg, .rounded-full, [class*=border-bad]') })
     return (m.innerText || '').trim().length > 40 && !busy
   }, null, { timeout: limit }).catch(() => {})
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -57,6 +58,7 @@ for (const [role, email, pw] of ROLES) {
     const skip = page.locator('button:has-text("Skip")').first()
     const t0 = Date.now(); await skip.click(); report.roles[role] = { welcome_skip_ms: await settle(page, t0) }
   } else report.roles[role] = {}
+  await page.waitForSelector("aside nav a[href]", { state: "attached", timeout: 15000 }).catch(() => {})
   const R = report.roles[role]
   const links = [...new Set(await page.$$eval('aside nav a[href]', as => as.map(a => a.getAttribute('href')).filter(h => h && h.startsWith('/'))))]
   R.pages = []
@@ -64,9 +66,12 @@ for (const [role, email, pw] of ROLES) {
     const errs0 = errors.length
     await page.evaluate(() => { window.__lt = []; window.__fz = 0 })
     const t0 = Date.now()
-    await page.click(`aside nav a[href="${href}"]`).catch(() => page.goto(BASE + href))
+    // phones / tablets: the sidebar menu is closed, so pages are opened by address (a link click would wait 30 s)
+    if (DEV?.hasTouch) await page.goto(BASE + href)
+    else await page.click(`aside nav a[href="${href}"]`, { timeout: 3000 }).catch(() => page.goto(BASE + href))
     const open_ms = await settle(page, t0)
-    const blank = await page.evaluate(() => ((document.querySelector('main') || document.body).innerText || '').trim().length < 20)
+    // blank = still no text 1.5 s after the page settled (not just slow to fill)
+    const blank = await page.waitForFunction(() => ((document.querySelector('main') || document.body).innerText || '').trim().length >= 20, null, { timeout: 1500 }).then(() => false, () => true)
     const crashed = await page.locator('text=/Something went wrong|This page crashed|Unexpected Application Error/i').count()
     // every safe control on the page
     const clicks = []
