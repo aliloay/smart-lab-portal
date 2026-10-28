@@ -93,12 +93,30 @@ export default function Scan() {
   const [vPhase, setVPhase] = useState('idle')
   useEffect(() => {
     let t = 0
-    const c = (e: Event) => { setCaption((e as CustomEvent<string>).detail || ''); window.clearTimeout(t) }
-    const end = () => { window.clearTimeout(t); t = window.setTimeout(() => setCaption(''), 2500) }
+    let raf = 0
+    // a plain caption (your question, a notice) shows at once; while the assistant speaks, its current sentence types
+    // along with the audio (letters revealed by playback position), like film / video subtitles
+    const c = (e: Event) => { cancelAnimationFrame(raf); window.clearTimeout(t); setCaption((e as CustomEvent<string>).detail || '') }
+    const chunk = (e: Event) => {
+      const d = (e as CustomEvent<{ text: string; audio?: HTMLAudioElement; upto?: number }>).detail
+      cancelAnimationFrame(raf); window.clearTimeout(t)
+      if (d.upto != null) { setCaption(d.text.slice(0, Math.max(1, d.upto))); return }
+      const a = d.audio!
+      const tick = () => {
+        const dur = isFinite(a.duration) && a.duration > 0 ? a.duration : d.text.length / 14
+        const n = Math.min(d.text.length, Math.ceil(d.text.length * Math.min(1, (a.currentTime + 0.15) / dur)))
+        setCaption(d.text.slice(0, Math.max(1, n)))
+        if (n < d.text.length && !a.paused) raf = requestAnimationFrame(tick)
+      }
+      tick()
+    }
+    const end = () => { cancelAnimationFrame(raf); window.clearTimeout(t); t = window.setTimeout(() => setCaption(''), 1800) }
+    window.addEventListener('smartlab:speech-chunk', chunk); window.addEventListener('smartlab:speech-done', end)
     const ph = (e: Event) => setVPhase((e as CustomEvent<string>).detail)
-    window.addEventListener('smartlab:caption', c); window.addEventListener('smartlab:voice-ended', end)
+    window.addEventListener('smartlab:caption', c)
     window.addEventListener('smartlab:voice-stopped', end); window.addEventListener('smartlab:voice-phase', ph)
-    return () => { window.removeEventListener('smartlab:caption', c); window.removeEventListener('smartlab:voice-ended', end)
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('smartlab:speech-chunk', chunk); window.removeEventListener('smartlab:speech-done', end)
+      window.removeEventListener('smartlab:caption', c)
       window.removeEventListener('smartlab:voice-stopped', end); window.removeEventListener('smartlab:voice-phase', ph); window.clearTimeout(t) }
   }, [])
   const [source, setSource] = useState<'camera' | 'file'>('camera')
@@ -718,8 +736,8 @@ function LiveVoice({ resolve }: { resolve: () => { code?: string; ticket?: strin
   const mic = micSupported() && voice?.stt !== false
 
   const say = (text: string) => {
-    window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: spokenSummary(text) }))
-    if (muted) return
+    if (muted) { window.dispatchEvent(new CustomEvent('smartlab:caption', { detail: spokenSummary(text) }))
+      window.setTimeout(() => window.dispatchEvent(new Event('smartlab:speech-done')), 4000); return }
     setBlocked(false); setSpeaking(true)
     // status not known yet -> still try the lab's voice first (it falls back to the browser voice by itself)
     void speak(spokenSummary(text), voice ? !!voice.tts : true).then(how => {

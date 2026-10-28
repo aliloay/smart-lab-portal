@@ -164,7 +164,7 @@ async function fetchWav(text: string): Promise<Blob | null> {
   return null
 }
 
-function play(blob: Blob, gen: number): Promise<void> {
+function play(blob: Blob, gen: number, text = ''): Promise<void> {
   return new Promise(res => {
     if (gen !== generation) return res()
     lastBlob = blob
@@ -176,13 +176,15 @@ function play(blob: Blob, gen: number): Promise<void> {
     const done = () => {
       if (finished) return
       finished = true
-      URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null; a.onpause = null
+      URL.revokeObjectURL(url); if (current === a) current = null; a.onended = null; a.onerror = null; a.onpause = null; a.onplaying = null
       if (currentDone === done) currentDone = null
       window.dispatchEvent(new Event('smartlab:voice-ended'))
       res()
     }
     currentDone = done
     a.onended = done; a.onerror = done
+    // live captions (2026-10-28): the caption types this sentence in step with the audio playing it
+    a.onplaying = () => { if (text) window.dispatchEvent(new CustomEvent('smartlab:speech-chunk', { detail: { text, audio: a } })) }
     a.onpause = () => { if (current === a && !a.ended) window.setTimeout(() => { if (current === a) void a.play().catch(done) }, 120) }
     a.play().catch(e => {
       if (e instanceof DOMException && e.name === 'NotAllowedError') window.dispatchEvent(new Event('smartlab:audio-blocked'))
@@ -206,13 +208,17 @@ export async function speak(text: string, localTts: boolean): Promise<'piper' | 
       if (!blob) { if (!ok) break; return 'piper' }
       ok = true
       next = i + 1 < chunks.length ? fetchWav(chunks[i + 1]) : Promise.resolve(null)
-      await play(blob, gen)
+      await play(blob, gen, chunks[i])
     }
-    if (ok) return 'piper'
+    if (ok) { if (gen === generation) window.dispatchEvent(new Event('smartlab:speech-done')); return 'piper' }
   }
   if ('speechSynthesis' in window && gen === generation) {
     const u = new SpeechSynthesisUtterance(text)
     u.lang = 'en-US'; u.rate = 1.05
+    // browser voice: words are reported as they are spoken - the caption follows them
+    u.onboundary = e => window.dispatchEvent(new CustomEvent('smartlab:speech-chunk', { detail: { text, upto: e.charIndex + (e.charLength || 0) } }))
+    u.onend = () => window.dispatchEvent(new Event('smartlab:speech-done'))
+    window.dispatchEvent(new CustomEvent('smartlab:speech-chunk', { detail: { text, upto: 0 } }))
     window.speechSynthesis.speak(u)
     return 'browser'
   }
