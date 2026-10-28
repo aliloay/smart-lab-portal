@@ -397,10 +397,33 @@ export default function Scan() {
     boxBusy.current = false                         // a check still counted as running blocked the new look
     // the same object is still in front of the camera right after Refresh: the automatic check waits 6 s so the
     // owner can turn to the next thing (2026-10-28, "when I refresh it is stuck, it does not move away")
+    const vv = video.current
+    if (vv && !session.current.paused) void vv.play().catch(() => {})   // un-freeze the picture
     boxQuietUntil.current = Date.now() + 6000
     setNote('Refreshed - point at the next thing')
     window.setTimeout(() => setNote(n => (n.startsWith('Refreshed') ? '' : n)), 3000)
   }
+  // 2026-10-28 (owner: "after it detects the bin and speaks, the picture stays stuck on the bin while I move the
+  // phone"): iPhone Safari pauses the live camera <video> when the spoken answer starts playing. A watchdog resumes it
+  // whenever it is stopped (or its picture stops advancing) without the user pressing Pause; Refresh forces it too.
+  useEffect(() => {
+    if (!running) return
+    const v = video.current
+    if (!v) return
+    let lastT = -1, still = 0
+    const kick = () => {
+      if (session.current.paused || session.current.stopped || document.hidden) return
+      if (v.paused || v.ended) { void v.play().catch(() => {}); return }
+      if (v.srcObject && v.currentTime === lastT) {          // frozen frame although "playing"
+        if (++still >= 2) { still = 0; void v.play().catch(() => {}) }
+      } else still = 0
+      lastT = v.currentTime
+    }
+    const onPause = () => { if (!session.current.paused) window.setTimeout(kick, 50) }
+    v.addEventListener('pause', onPause)
+    const t = window.setInterval(kick, 700)
+    return () => { window.clearInterval(t); v.removeEventListener('pause', onPause) }
+  }, [running])
   const togglePause = () => {
     const s = session.current, v = video.current
     if (!running || !v) return
