@@ -12,7 +12,7 @@ from typing import Optional
 
 MODEL = os.path.join(os.path.dirname(__file__), "..", "..", "data", "models", "bin_detector.onnx")
 CODE = "SLAB:D:REUSE_BIN_1"
-CONF = float(os.getenv("BIN_DETECTOR_CONF", "0.6"))   # from the no-bin test (tools/vision_train/eval_bin.py)
+CONF = float(os.getenv("BIN_DETECTOR_CONF", "0.4"))   # round 4: no-bin pictures top out at 0.19 (eval_bin.py)
 SIZE = 640
 
 _RT = None          # ("ort", session, input name) | ("cv2", net)
