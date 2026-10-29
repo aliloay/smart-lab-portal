@@ -1,5 +1,20 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-10-29 ~14:30 (bin detector live, round 4 training)
+- Windows Update restarted the laptop at 08:37 and 13:54 (event 1074) - training died, Docker + lab services were down
+  until 14:15; restarted with launch.bat (face 5000, cameras 5100/5101, voice 5320, knowledge 5199, Ollama).
+- LIVE: reusable-bin detector behind /scan/appearance (only when the photo matcher says UNKNOWN):
+  backend/data/models/bin_detector.onnx = round-3 YOLO26n, ONNX Runtime CPU 2 threads, conf 0.6. Unseen scenes 14/15,
+  no-bin 5/429 (lab frames 0/221, COCO 5/200, patches 0/8); live container 14/15, 130 ms warm. Commits a962057, 7075d8e.
+- Matcher 421 -> 333 ms (4 cores), warm-up at startup; phone-local YOLO26s in ONNX Runtime Web rejected (2.7-13.4 s/frame
+  simulated vs ~37 ms server).
+- Data (git-ignored): tools/vision_train/data - owner_set (113 photos), bin_r2/r3/r4, coco_val/negtest, lab_neg(_test).
+- RUNNING: tools/vision_train/run_r4.cmd (detached): YOLO11n resume -> YOLO26n, writes data/bin_r4/r4_done.txt.
+  NEXT: eval_bin.py + eval_deployed.py on all 6 (r2/r3/r4 x 11n/26n), deploy the best, retest live.
+- Weak spot: only indoor home photos - outdoor (street, car, roof, pool) untested; owner to shoot ~30-40 outdoor.
+- Owner photo list for round one (13 + controllers, network devices, optional PLC); Colab notebook ready
+  (tools/vision_train/colab_train_bin.ipynb). n8n: cloud instance gone, local MCP needs owner token.
+
 ## RESUME HERE - 2026-10-27 ~20:00 (agent upgrades + speed + owner's QR pictures)
 Full write-up: docs/AGENT_SPEED_REPORT_2026-10-27.md. Model kept qwen2.5:1.5b (e2e 86.5 %, unchanged after the
 upgrade: 13/13, 6/6, 10/10); 15 unused models removed. New: instant compare / daily / low stock / recent activity /
