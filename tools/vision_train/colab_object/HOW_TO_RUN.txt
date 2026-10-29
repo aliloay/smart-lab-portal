@@ -1,7 +1,8 @@
 Smart Lab - train an object detector on Google Colab (free GPU)
 
 1. Upload the photos to the Smart Lab Drive folder as ONE zip with "switch" in its name (e.g. tplink_switch.zip).
-   60-100 photos: near / far, all sides, from above and low, lights on and dimmed, with other things around it.
+   Photos and / or videos (.mov / .mp4 - 2 frames a second are used), the more the better: near / far, all sides,
+   from above and low, lights on and dimmed, with other things around it.
 2. Open https://colab.research.google.com -> File -> Upload notebook -> SmartLab_train_object.ipynb
 3. Runtime -> Change runtime type -> T4 GPU -> Save
 4. Runtime -> Run all. Allow Google Drive access when asked. Wait ~15-25 min until the last cell prints DONE.

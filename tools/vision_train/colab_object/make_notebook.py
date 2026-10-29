@@ -33,12 +33,24 @@ print('zips found:', zips); assert zips, f'No zip with "{ZIP_NAME_HAS}" in its n
 for z in zips: zipfile.ZipFile(z).extractall('/content/unzipped')"""),
 (code, """from PIL import Image, ImageOps
 import pillow_heif; pillow_heif.register_heif_opener()
-os.makedirs('/content/photos', exist_ok=True); n = 0
+import cv2
+os.makedirs('/content/photos', exist_ok=True); n = v = 0
 for p in sorted(glob.glob('/content/unzipped/**/*', recursive=True)):
-    if '__MACOSX' in p or not p.lower().endswith(('.heic', '.jpg', '.jpeg', '.png')): continue
-    im = ImageOps.exif_transpose(Image.open(p)).convert('RGB'); im.thumbnail((1280, 1280))
-    im.save(f'/content/photos/{n:04d}.jpg', quality=90); n += 1      # saved without EXIF -> no GPS
-print(n, 'photos')"""),
+    if '__MACOSX' in p: continue
+    if p.lower().endswith(('.heic', '.jpg', '.jpeg', '.png')):
+        im = ImageOps.exif_transpose(Image.open(p)).convert('RGB'); im.thumbnail((1280, 1280))
+        im.save(f'/content/photos/{n:04d}.jpg', quality=90); n += 1      # saved without EXIF -> no GPS
+    elif p.lower().endswith(('.mov', '.mp4', '.m4v', '.avi')):
+        # videos: 2 frames a second (neighbouring frames are near-copies), kept in shooting order
+        c = cv2.VideoCapture(p); fps = c.get(cv2.CAP_PROP_FPS) or 30; step = max(1, round(fps / 2)); i = 0
+        while True:
+            ok, f = c.read()
+            if not ok: break
+            if i % step == 0:
+                im = Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)); im.thumbnail((1280, 1280))
+                im.save(f'/content/photos/{n:04d}.jpg', quality=90); n += 1; v += 1
+            i += 1
+print(n, 'images,', v, 'of them video frames')"""),
 (code, """# automatic boxes + contact sheets (saved to Drive: green = the box used for training)
 from ultralytics import YOLOWorld
 from PIL import ImageDraw
@@ -101,7 +113,8 @@ print('DONE - results in', OUT, 'and', OUT + '.zip')"""),
 HOW = """Smart Lab - train an object detector on Google Colab (free GPU)
 
 1. Upload the photos to the Smart Lab Drive folder as ONE zip with "switch" in its name (e.g. tplink_switch.zip).
-   60-100 photos: near / far, all sides, from above and low, lights on and dimmed, with other things around it.
+   Photos and / or videos (.mov / .mp4 - 2 frames a second are used), the more the better: near / far, all sides,
+   from above and low, lights on and dimmed, with other things around it.
 2. Open https://colab.research.google.com -> File -> Upload notebook -> SmartLab_train_object.ipynb
 3. Runtime -> Change runtime type -> T4 GPU -> Save
 4. Runtime -> Run all. Allow Google Drive access when asked. Wait ~15-25 min until the last cell prints DONE.
