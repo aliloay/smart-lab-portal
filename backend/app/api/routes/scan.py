@@ -312,7 +312,8 @@ async def appearance_match(request: Request, _: User = Depends(require_staff)):
         # verdict only, never the picture (2026-10-28: the owner's phone try could not be checked afterwards)
         import logging
         logging.getLogger("smartlab.appearance").warning(
-            "appearance %s best=%s cand=%s size=%sx%s", r.get("decision"), (r.get("best") or {}).get("code"),
+            "appearance %s by=%s conf=%s best=%s cand=%s size=%sx%s", r.get("decision"), r.get("by", "matcher"),
+            (r.get("best") or {}).get("confidence"), (r.get("best") or {}).get("code"),
             [(c.get("code"), c.get("inliers")) for c in (r.get("candidates") or [])[:2]], img.shape[1], img.shape[0])
         return r
 

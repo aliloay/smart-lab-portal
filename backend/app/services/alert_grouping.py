@@ -39,8 +39,11 @@ def _sev(s: Any) -> str:
 
 
 def _lock(db: Session, fp: str) -> None:
+    # One lock for all alert writes (2026-10-29): a lock per fingerprint deadlocked when two requests each raised two
+    # alerts in opposite order ("security camera: no picture" x2 cameras) - the backend then stalled and n8n's retries
+    # piled up. Alert writes are rare and short, so one queue costs nothing and can never deadlock with itself.
     if db.get_bind().dialect.name == "postgresql":
-        db.execute(text("select pg_advisory_xact_lock(hashtext(:k))"), {"k": "alert:" + fp})
+        db.execute(text("select pg_advisory_xact_lock(:ns, 0)"), {"ns": 51_002})
 
 
 def raise_or_group(db: Session, *, lab_id: Optional[int], device_id: Optional[int],
