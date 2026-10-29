@@ -440,10 +440,10 @@ export default function Scan() {
       scanAppearance(b).then(r => {
         const name = (code: string) => cardsRef.current[code]?.card?.name ?? code
         if (r.decision === 'PROBABLE' && r.best) logHistory('look', 'a:' + r.best.code,
-          `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.inliers} points, unverified)`,
+          `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}%` : `${r.best.inliers} points`}, unverified)`,
           iconFor(r.best.class.replace(/_/g, ' ')))
         apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
-        setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.inliers} matching points) - scan its marker to see its live data.`
+        setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}% sure` : `${r.best.inliers} matching points`}) - scan its marker to see its live data.`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
           : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
       }).catch(e => setBoxHint(e instanceof Error ? e.message : 'Box match failed'))

@@ -77,3 +77,23 @@ def test_route_without_references_says_scan_the_marker(client, staff, monkeypatc
     r = client.post("/api/scan/appearance", content=image_bytes(), headers=h).json()
     assert r["decision"] == "UNKNOWN" and "scan the marker" in r["note"]
     assert client.get("/api/scan/appearance/refs", headers=h).json()["assets"] == []
+
+
+def test_detector_names_the_bin_when_the_matcher_finds_nothing(client, staff, monkeypatch, refs):
+    """2026-10-28: far / side views the matcher cannot place go to the trained bin detector."""
+    from app.services import bin_detector
+    from tests.conftest import auth_headers, image_bytes
+    monkeypatch.setattr(appearance, "_MATCHER", refs)
+    monkeypatch.setattr(bin_detector, "detect", lambda img: {"confidence": 0.81, "box": {"x": .1, "y": .2, "w": .3, "h": .4}})
+    r = client.post("/api/scan/appearance", content=image_bytes(), headers=auth_headers(client, staff.email)).json()
+    assert r["decision"] == "PROBABLE" and r["by"] == "detector"
+    assert r["best"]["code"] == "SLAB:D:REUSE_BIN_1" and r["best"]["box_kind"] == "detector" and r["best"]["confidence"] == 0.81
+
+
+def test_no_detection_stays_unknown(client, staff, monkeypatch, refs):
+    from app.services import bin_detector
+    from tests.conftest import auth_headers, image_bytes
+    monkeypatch.setattr(appearance, "_MATCHER", refs)
+    monkeypatch.setattr(bin_detector, "detect", lambda img: None)
+    r = client.post("/api/scan/appearance", content=image_bytes(), headers=auth_headers(client, staff.email)).json()
+    assert r["decision"] == "UNKNOWN" and r.get("by") is None

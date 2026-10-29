@@ -19,10 +19,12 @@ from __future__ import annotations
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Optional
 
 MIN_INLIERS = 25
+_POOL = ThreadPoolExecutor(max_workers=max(1, min(4, (os.cpu_count() or 2) - 1)), thread_name_prefix="appearance")
 MARGIN = 1.6
 ROOT = os.environ.get("ASSET_REFS_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data", "asset_refs"))
 
@@ -104,24 +106,29 @@ class Matcher:
 
     # --------------------------------------------------------------------------------------- matching ---
     def _inliers(self, kp1, des1, kp2, des2) -> int:
+        n, self._last_pts, self._last_H = self._match_view(kp1, des1, kp2, des2)
+        return n
+
+    def _match_view(self, kp1, des1, kp2, des2):
+        """(inliers, matched points in the phone frame, homography) for one reference photo - no shared state, so
+        the photos can be compared on several cores at once (2026-10-29: 28 photos one after another took ~420 ms)."""
         cv2, np = _cv()
         if des1 is None or des2 is None or len(des1) < 8 or len(des2) < 8:
-            return 0
+            return 0, None, None
         bf = cv2.BFMatcher(cv2.NORM_HAMMING)
         good = []
         for pair in bf.knnMatch(des1, des2, k=2):
             if len(pair) == 2 and pair[0].distance < 0.75 * pair[1].distance:
                 good.append(pair[0])
         if len(good) < 8:
-            return len(good) // 2
+            return len(good) // 2, None, None
         src = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
         dst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
         H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 6.0)
         if mask is None:
-            return 0
-        self._last_pts = src.reshape(-1, 2)[mask.ravel() == 1]     # where the match sits in the phone frame
-        self._last_H = H                                             # phone frame -> reference photo
-        return int(mask.sum())
+            return 0, None, None
+        # where the match sits in the phone frame; H: phone frame -> reference photo
+        return int(mask.sum()), src.reshape(-1, 2)[mask.ravel() == 1], H
 
     _last_pts = None
     _last_H = None
@@ -129,16 +136,17 @@ class Matcher:
     def match(self, img, exclude: Optional[tuple[str, str]] = None) -> dict:
         """img: BGR array. exclude=(code, view) leaves one reference out (evaluation)."""
         kp, des = self._features(img)
+        jobs = [(r, name, bpx, _POOL.submit(self._match_view, kp, des, rkp, rdes))
+                for r in self.refs for name, rkp, rdes, bpx in r.views if not (exclude and exclude == (r.code, name))]
         scores = []
         for r in self.refs:
             best, pts, proj = 0, None, None
-            for name, rkp, rdes, bpx in r.views:
-                if exclude and exclude == (r.code, name):
+            for rr, name, bpx, fut in jobs:          # same order as before: the first photo with the most inliers wins
+                if rr is not r:
                     continue
-                self._last_pts, self._last_H = None, None
-                n = self._inliers(kp, des, rkp, rdes)
+                n, p, H = fut.result()
                 if n > best:
-                    best, pts, proj = n, self._last_pts, (self._last_H, bpx)
+                    best, pts, proj = n, p, (H, bpx)
             scores.append({"code": r.code, "class": r.cls, "inliers": best, "_pts": pts, "_proj": proj})
         scores.sort(key=lambda s: -s["inliers"])
         if not scores or scores[0]["inliers"] < MIN_INLIERS:

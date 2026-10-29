@@ -78,6 +78,11 @@ async def lifespan(_: FastAPI):
     if os.environ.get("MARKER_WARMUP", "1") != "0":
         from app.services import marker_pack
         threading.Thread(target=marker_pack.warm_all, name="marker-warm-up", daemon=True).start()
+    # Phone "which box?": reference photos + bin detector loaded now - the first look took ~6 s more (2026-10-29).
+    if os.environ.get("APPEARANCE_WARMUP", "1") != "0":
+        from app.services import appearance, bin_detector
+        threading.Thread(target=lambda: (appearance.matcher(), bin_detector.available()), name="appearance-warm-up",
+                         daemon=True).start()
     # Service health checks run in the background; requests read the cache (never wait on a probe).
     if os.environ.get("DEVICE_PROBES", "1") != "0":
         from app.services import health_monitor

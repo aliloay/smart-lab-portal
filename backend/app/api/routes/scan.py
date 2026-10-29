@@ -299,6 +299,16 @@ async def appearance_match(request: Request, _: User = Depends(require_staff)):
         if not any(r.views for r in m.refs):
             return {"decision": "UNKNOWN", "best": None, "candidates": [], "note": "no reference photos yet - scan the marker"}
         r = m.match(img)
+        # 2026-10-28 (owner's 116 photos: floor / table / near / far): the matcher needs the textured front up close;
+        # when it finds nothing, the trained bin detector gets a look (far away, side views, QR turned away)
+        if r.get("decision") == "UNKNOWN":
+            from app.services import bin_detector
+            d = bin_detector.detect(img)
+            if d:
+                cls = next((x.cls for x in m.refs if x.code == bin_detector.CODE), "reusable_items_dock")
+                best = {"code": bin_detector.CODE, "class": cls, "inliers": 0, "box": d["box"], "box_kind": "detector",
+                        "confidence": d["confidence"]}
+                r = {**r, "decision": "PROBABLE", "best": best, "by": "detector"}
         # verdict only, never the picture (2026-10-28: the owner's phone try could not be checked afterwards)
         import logging
         logging.getLogger("smartlab.appearance").warning(
