@@ -1,5 +1,12 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-10-29 ~17:10 (round 4 done - best model deployed)
+- Six models compared (eval_bin.py, 15 unseen bins + 429 no-bin): WINNER round-4 YOLO11n (+237 lab-camera negatives):
+  14/15 found, 0/429 false at 0.3-0.6 (top no-bin 0.19). Deployed at conf 0.4 (commit 7fe4e9d); live container
+  14/15, 0/44, 86 ms. Round-4 YOLO26n early-stopped (1-8/15) - rejected. Report PDF:
+  docs/reports/SmartLab_Project_Report_2026-10-29.pdf (untracked). Windows Update paused until 2026-11-05.
+- NEXT: owner phone test; outdoor bin photos; round-one lab photo sessions (Colab notebook ready).
+
 ## RESUME HERE - 2026-10-29 ~14:30 (bin detector live, round 4 training)
 - Windows Update restarted the laptop at 08:37 and 13:54 (event 1074) - training died, Docker + lab services were down
   until 14:15; restarted with launch.bat (face 5000, cameras 5100/5101, voice 5320, knowledge 5199, Ollama).
