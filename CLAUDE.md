@@ -29,6 +29,9 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Repeatable e2e / devices: our Playwright scripts (frontend/e2e/click_everything.mjs, responsive_audit.mjs), not an MCP.
 - GitHub: `gh` CLI read-only (no push). DB: `docker compose exec db psql` read-only SELECTs, no DB MCP.
 - claude-mem: cross-session memory (search before re-deriving past work).
+- n8n-lab (local n8n MCP, 2026-10-29): READ ONLY - search_workflows / get_workflow_details / executions. Its 18 write /
+  run tools are denied in ~/.claude/settings.json; never run, edit or (un)publish a workflow. The claude.ai n8n connector
+  points at an expired n8n Cloud trial (404) - kept, unused.
 
 ## Working style
 - Find answers with `py tools/knowledge/agent.py "<question>"` or `py tools/knowledge/graph.py related <path>` before rereading large files.
