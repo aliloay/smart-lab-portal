@@ -16,7 +16,7 @@
  */
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Box, Camera, CameraOff, SwitchCamera, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
+import { Box, Camera, CameraOff, SwitchCamera, ZoomIn, ZoomOut, FileVideo, Loader2, Mic, Pause, Play, QrCode, RefreshCw, ScanLine, Send, ShieldAlert, Smartphone,
   Square, Users, Volume2, VolumeX, X } from 'lucide-react'
 import { Recording, VoiceStatus, isSpeaking, micSupported, replayLast, speak, spokenSummary, stopSpeaking, transcribe, unlockAudio, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
@@ -75,9 +75,48 @@ export default function Scan() {
     stream?: MediaStream; raf?: number; worker?: Worker; native?: BarcodeDetectorLike; decoding: boolean
     lastDecode: number; people?: AbortController; peopleBusy: boolean; fileUrl?: string; stopped: boolean
     face?: AbortController; faceBusy?: boolean; paused?: boolean; peopleBackoff?: number; mirror?: boolean
+    dz?: number          // digital zoom (1..4) when the camera has no zoom of its own (2026-11-02)
   }>({ decoding: false, lastDecode: 0, peopleBusy: false, stopped: true })
   const seen = useRef(new Map<string, Seen>())
   const tracker = useRef(new PersonTracker())
+  // 2026-11-02 (owner: "zoom in for the camera up in the corner and small QR codes, zoom out for the big door"):
+  // the camera's own zoom when it has one (Android Chrome; may go below 1x = ultra-wide), else a digital zoom: the
+  // picture is scaled about its centre and every analysed frame is the same centre crop, so all boxes stay aligned.
+  const [zoom, setZoom] = useState(1)
+  const zoomCaps = useRef<{ min: number; max: number; step: number } | null>(null)
+  // the analysed crop = exactly the part of the zoomed picture that is on screen (Gemini review 2026-11-02: in portrait
+  // a 16:9 picture zoomed 2x still fits the screen's height, so cropping the height too ignored what the user saw)
+  const crop = () => {
+    const v = video.current, z = session.current.dz || 1
+    if (!v || !v.videoWidth || z <= 1) return { x: 0, y: 0, w: 1, h: 1 }
+    const k = Math.min(v.offsetWidth / v.videoWidth, v.offsetHeight / v.videoHeight)
+    const w = Math.min(1, v.offsetWidth / (v.videoWidth * k * z)), h = Math.min(1, v.offsetHeight / (v.videoHeight * k * z))
+    return { x: (1 - w) / 2, y: (1 - h) / 2, w, h }
+  }
+  // where the analysed crop sits on screen (element px); at 1x this is the plain object-contain picture
+  const cropOnScreen = (v: HTMLVideoElement, W: number, H: number) => {
+    const z = session.current.dz || 1, c = crop(), k = Math.min(W / v.videoWidth, H / v.videoHeight)
+    const pw = v.videoWidth * k * z * c.w, ph = v.videoHeight * k * z * c.h
+    return { pw, ph, ox: (W - pw) / 2, oy: (H - ph) / 2 }
+  }
+  const viewTransform = () => `${session.current.mirror ? 'scaleX(-1) ' : ''}${(session.current.dz || 1) > 1 ? `scale(${session.current.dz})` : ''}`.trim()
+  const applyZoom = useCallback(async (z: number) => {
+    const s = session.current, tr = s.stream?.getVideoTracks()[0], caps = zoomCaps.current
+    if (caps && tr) {
+      const v = Math.min(caps.max, Math.max(caps.min, caps.min + Math.round((z - caps.min) / caps.step) * caps.step))
+      try {
+        await tr.applyConstraints({ advanced: [{ zoom: v } as MediaTrackConstraintSet] })
+        s.dz = 1; setZoom(+v.toFixed(2))
+        if (video.current) video.current.style.transform = viewTransform()
+        return
+      } catch {
+        zoomCaps.current = null                                    // digital from now on, 1-4x
+        try { await tr.applyConstraints({ advanced: [{ zoom: caps.min <= 1 && caps.max >= 1 ? 1 : caps.min } as MediaTrackConstraintSet] }) } catch { /* ignore */ }
+      }
+    }
+    s.dz = Math.min(4, Math.max(1, z)); setZoom(s.dz)
+    if (video.current) video.current.style.transform = viewTransform()
+  }, [])
   const objects = useRef<{ at: number; list: NonNullable<import('../lib/api').ScanPeople['objects']> } | null>(null)
   const pinEls = useRef(new Map<string, HTMLButtonElement>())
   const [tracks, setTracks] = useState<{ id: number; name: string | null; conflict: boolean; score: number; face: number | null }[]>([])
@@ -156,6 +195,8 @@ export default function Scan() {
     const v = video.current
     if (v) { v.pause(); v.srcObject = null; v.removeAttribute('src'); v.load() }
     session.current = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: true }
+    zoomCaps.current = null; setZoom(1)
+    if (v) v.style.transform = ''
     seen.current.clear(); tracker.current.clear(); objects.current = null
     setTracks([]); setRunning(false); setPaused(false); setInView([])
   }, [])
@@ -193,7 +234,8 @@ export default function Scan() {
     s.faceBusy = true
     const c = faceCrop(t.raw)
     const cc = cropC.current ?? (cropC.current = document.createElement('canvas'))
-    const sx = c.x * v.videoWidth, sy = c.y * v.videoHeight, sw = c.w * v.videoWidth, sh = c.h * v.videoHeight
+    const z = crop()
+    const sx = (z.x + c.x * z.w) * v.videoWidth, sy = (z.y + c.y * z.h) * v.videoHeight, sw = c.w * z.w * v.videoWidth, sh = c.h * z.h * v.videoHeight
     const k = Math.min(1, 480 / Math.max(1, sw))
     cc.width = Math.max(1, Math.round(sw * k)); cc.height = Math.max(1, Math.round(sh * k))
     cc.getContext('2d')!.drawImage(v, sx, sy, sw, sh, 0, 0, cc.width, cc.height)
@@ -219,10 +261,12 @@ export default function Scan() {
     if (s.decoding || !v.videoWidth) return
     s.decoding = true
     const g = grab.current ?? (grab.current = document.createElement('canvas'))
-    const w = Math.min(W, v.videoWidth), h = Math.round(w * v.videoHeight / v.videoWidth)
+    const cz = crop()                                   // the frame keeps the on-screen crop's own shape
+    const w = Math.min(W, Math.round(v.videoWidth * cz.w)), h = Math.round(w * (v.videoHeight * cz.h) / (v.videoWidth * cz.w))
     g.width = w; g.height = h
     const ctx = g.getContext('2d', { willReadFrequently: true })!
-    ctx.drawImage(v, 0, 0, w, h)
+    const z = crop()
+    ctx.drawImage(v, z.x * v.videoWidth, z.y * v.videoHeight, z.w * v.videoWidth, z.h * v.videoHeight, 0, 0, w, h)
     const t0 = performance.now()
     let found: { text: string; corners: Pt[] }[] = []
     try {
@@ -292,12 +336,11 @@ export default function Scan() {
     if (s.stopped) return
     const v = video.current, c = overlay.current
     if (v && c && v.videoWidth) {
-      const rect = v.getBoundingClientRect()
+      const rect = { width: v.offsetWidth, height: v.offsetHeight }     // unscaled: boxes are in zoom-crop coordinates
       const dpr = Math.min(2, window.devicePixelRatio || 1)
       if (c.width !== Math.round(rect.width * dpr)) { c.width = Math.round(rect.width * dpr); c.height = Math.round(rect.height * dpr) }
       // object-contain: where the picture actually sits inside the element
-      const k = Math.min(rect.width / v.videoWidth, rect.height / v.videoHeight)
-      const pw = v.videoWidth * k, ph = v.videoHeight * k, ox = (rect.width - pw) / 2, oy = (rect.height - ph) / 2
+      const { pw, ph, ox, oy } = cropOnScreen(v, rect.width, rect.height)      // boxes are in analysed-crop coordinates
       const ctx = c.getContext('2d')!
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, rect.width, rect.height)
@@ -368,7 +411,7 @@ export default function Scan() {
     setError(''); setNote(''); setStarting(true)
     const s = { decoding: false, lastDecode: 0, peopleBusy: false, stopped: false } as typeof session.current
     try {
-      let v = video.current!
+      const v = video.current!
       if (opts.file) {
         s.fileUrl = URL.createObjectURL(opts.file)
         v.srcObject = null; v.src = s.fileUrl; v.loop = true
@@ -377,20 +420,17 @@ export default function Scan() {
         // the back camera, ~720p: enough for a marker across a desk, light enough for a phone
         s.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: {
           facingMode: { ideal: opts.facingMode ?? facing }, width: { ideal: 1280 }, height: { ideal: 720 } } })
-        // iPhone Safari keeps drawing a re-used <video> at the previous stream's size (selfie view small after a
-        // switch, 2026-10-28): the stream goes into a FRESH element in the same place every time
-        if (v.srcObject) {
-          const nv = v.cloneNode(false) as HTMLVideoElement
-          nv.muted = true; nv.playsInline = true
-          v.replaceWith(nv)
-          ;(video as { current: HTMLVideoElement | null }).current = nv
-          v = nv
-        }
+        // iPhone Safari's small picture after a camera switch is handled by the relayout effect below (2026-10-28);
+        // a cloned element here never ran (stop() clears srcObject first) and would have lost those listeners
         v.srcObject = s.stream
         setSource('camera')
         const fm = s.stream.getVideoTracks()[0]?.getSettings().facingMode
         s.mirror = fm === 'user' || (!fm && !/Android|iPhone|iPad/i.test(navigator.userAgent))
         v.style.transform = s.mirror ? 'scaleX(-1)' : ''      // the fresh element does not get React's style
+        const tr = s.stream.getVideoTracks()[0]
+        const zc = (tr?.getCapabilities?.() as { zoom?: { min: number; max: number; step?: number } } | undefined)?.zoom
+        zoomCaps.current = zc && zc.max > zc.min ? { min: zc.min, max: zc.max, step: zc.step || 0.1 } : null
+        s.dz = 1; setZoom((tr?.getSettings() as { zoom?: number } | undefined)?.zoom ?? 1)
       }
       v.muted = true; v.playsInline = true
       await v.play()
@@ -432,8 +472,10 @@ export default function Scan() {
     boxBusy.current = true
     window.setTimeout(() => { boxBusy.current = false }, 2500)
     const g = document.createElement('canvas')
-    const w = Math.min(W, v.videoWidth); g.width = w; g.height = Math.round(w * v.videoHeight / v.videoWidth)
-    g.getContext('2d')!.drawImage(v, 0, 0, g.width, g.height)
+    const cz = crop()
+    const w = Math.min(W, Math.round(v.videoWidth * cz.w)); g.width = w; g.height = Math.round(w * (v.videoHeight * cz.h) / (v.videoWidth * cz.w))
+    const zc = crop()
+    g.getContext('2d')!.drawImage(v, zc.x * v.videoWidth, zc.y * v.videoHeight, zc.w * v.videoWidth, zc.h * v.videoHeight, 0, 0, g.width, g.height)
     if (!auto) setBoxHint('Comparing with the enclosure photos…')
     g.toBlob(b => {
       if (!b) return
@@ -471,6 +513,7 @@ export default function Scan() {
     apBox.current = null; setBoxHint0(''); boxBusy.current = false; setNote('')
     tracker.current.clear(); seen.current.clear(); objects.current = null; setInView([]); setTracks([])
     setSessionNo(n => n + 1)                       // the voice panel starts fresh
+    void applyZoom(1)                              // a fresh start is 1x
     // the camera keeps running (restarting it made iPhone draw the selfie view small) - just make sure it is live
     const v = video.current
     if (v && !session.current.paused) void v.play().catch(() => {})
@@ -523,10 +566,9 @@ export default function Scan() {
   const tapVideo = (e: React.MouseEvent) => {                 // tapping inside a person box selects that person
     const v = video.current
     if (!v?.videoWidth) return
-    const r = v.getBoundingClientRect()
-    const k = Math.min(r.width / v.videoWidth, r.height / v.videoHeight)
-    const pw = v.videoWidth * k, ph = v.videoHeight * k
-    const x0 = (e.clientX - r.left - (r.width - pw) / 2) / pw, y = (e.clientY - r.top - (r.height - ph) / 2) / ph
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()      // the container: the video may be zoomed
+    const { pw, ph, ox, oy } = cropOnScreen(v, r.width, r.height)
+    const x0 = (e.clientX - r.left - ox) / pw, y = (e.clientY - r.top - oy) / ph
     const x = session.current.mirror ? 1 - x0 : x0
     const hit = tracker.current.tracks.filter(t => x >= t.box.x && x <= t.box.x + t.box.w && y >= t.box.y && y <= t.box.y + t.box.h)
       .sort((a, b) => a.box.w * a.box.h - b.box.w * b.box.h)[0]
@@ -606,7 +648,7 @@ export default function Scan() {
           <Link to="/phone-setup" className="underline ml-1">set up this phone</Link>. A recorded test video still works below.</span></div>}
 
       <div className="relative rounded-xl overflow-hidden bg-black h-[78vh] sm:h-auto sm:aspect-video select-none" onClick={tapVideo}>
-        <video ref={video} className="absolute inset-0 w-full h-full object-contain" style={mirror ? { transform: 'scaleX(-1)' } : undefined} muted playsInline />
+        <video ref={video} className="absolute inset-0 w-full h-full object-contain" style={{ transform: viewTransform() || undefined }} muted playsInline />
         <canvas ref={overlay} className="absolute inset-0 w-full h-full pointer-events-none" />
         {/* pinned live chips - positioned every frame by draw() */}
         {running && pins.map(p => (
@@ -644,14 +686,23 @@ export default function Scan() {
                   <div className="text-[15px] font-bold leading-snug text-white">{caption.replace(/^You: /, '')}</div>
                 </>}
           </div></div>}
-        {running && <div className="absolute top-2 right-2 flex flex-col gap-2">
+        {running && <div className="absolute top-2 right-2 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
           <button type="button" aria-label={`Switch to ${facing === 'environment' ? 'front' : 'back'} camera`} title={`Switch to ${facing === 'environment' ? 'front' : 'back'} camera`}
                   className="glass-btn" onClick={flip}><SwitchCamera size={18} /></button>
           <button type="button" aria-label={paused ? 'Resume' : 'Pause'} className="glass-btn" onClick={togglePause}>{paused ? <Play size={18} /> : <Pause size={18} />}</button>
           <button type="button" aria-label="Which box is this?" title="Which box is this?" className="glass-btn" onClick={() => whichBox()}><Box size={18} /></button>
           <button type="button" aria-label="Stop camera" className="glass-btn !text-red-300" onClick={stop}><CameraOff size={18} /></button>
+          {/* zoom: the camera's own when it has one (may go below 1x), else digital 1-4x */}
+          <button type="button" aria-label="Zoom in" title="Zoom in" className="glass-btn"
+                  disabled={zoom >= (zoomCaps.current?.max ?? 4)}
+                  onClick={e => { e.stopPropagation(); void applyZoom(+(zoom * 1.5).toFixed(2)) }}><ZoomIn size={18} /></button>
+          <button type="button" aria-label={`Zoom ${zoom.toFixed(1)}x - tap for 1x`} title="Back to 1x" className="glass-btn !text-[11px] font-bold"
+                  onClick={e => { e.stopPropagation(); void applyZoom(1) }}>{zoom.toFixed(1)}x</button>
+          <button type="button" aria-label="Zoom out" title="Zoom out" className="glass-btn"
+                  disabled={zoom <= (zoomCaps.current?.min ?? 1)}
+                  onClick={e => { e.stopPropagation(); void applyZoom(+(zoom / 1.5).toFixed(2)) }}><ZoomOut size={18} /></button>
         </div>}
-        {running && <div className="absolute bottom-3 inset-x-2 flex justify-center items-center gap-3 pointer-events-none">
+        {running && <div className="absolute bottom-3 inset-x-2 flex justify-center items-center gap-3 pointer-events-none" onClick={e => e.stopPropagation()}>
           <button type="button" aria-label="Refresh - start fresh" title="Refresh: start fresh"
                   className="glass-btn pointer-events-auto" onClick={refreshView}><RefreshCw size={18} /></button>
           <button type="button" className="glass-btn pointer-events-auto !w-auto !px-5 font-bold"

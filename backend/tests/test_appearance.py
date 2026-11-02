@@ -84,7 +84,7 @@ def test_detector_names_the_bin_when_the_matcher_finds_nothing(client, staff, mo
     from app.services import bin_detector
     from tests.conftest import auth_headers, image_bytes
     monkeypatch.setattr(appearance, "_MATCHER", refs)
-    monkeypatch.setattr(bin_detector, "detect", lambda img: {"confidence": 0.81, "box": {"x": .1, "y": .2, "w": .3, "h": .4}})
+    monkeypatch.setattr(bin_detector, "detect", lambda img, *a: {"confidence": 0.81, "box": {"x": .1, "y": .2, "w": .3, "h": .4}})
     monkeypatch.setattr(bin_detector, "extras", lambda: [])
     r = client.post("/api/scan/appearance", content=image_bytes(), headers=auth_headers(client, staff.email)).json()
     assert r["decision"] == "PROBABLE" and r["by"] == "detector"
@@ -95,7 +95,7 @@ def test_no_detection_stays_unknown(client, staff, monkeypatch, refs):
     from app.services import bin_detector
     from tests.conftest import auth_headers, image_bytes
     monkeypatch.setattr(appearance, "_MATCHER", refs)
-    monkeypatch.setattr(bin_detector, "detect", lambda img: None)
+    monkeypatch.setattr(bin_detector, "detect", lambda img, *a: None)
     monkeypatch.setattr(bin_detector, "extras", lambda: [])
     r = client.post("/api/scan/appearance", content=image_bytes(), headers=auth_headers(client, staff.email)).json()
     assert r["decision"] == "UNKNOWN" and r.get("by") is None
@@ -106,9 +106,9 @@ def test_an_unregistered_object_is_named_by_type(client, staff, monkeypatch, ref
     from app.services import bin_detector
     from tests.conftest import auth_headers, image_bytes
     monkeypatch.setattr(appearance, "_MATCHER", refs)
-    monkeypatch.setattr(bin_detector, "detect", lambda img: {"confidence": 0.45, "box": {"x": 0, "y": 0, "w": .5, "h": .5}})
+    monkeypatch.setattr(bin_detector, "detect", lambda img, *a: {"confidence": 0.45, "box": {"x": 0, "y": 0, "w": .5, "h": .5}})
     monkeypatch.setattr(bin_detector, "extras", lambda: [({"class": "network_switch", "label": "Network switch", "conf": 0.5}, "rt")])
-    monkeypatch.setattr(bin_detector, "_infer", lambda rt, c, img: {"confidence": 0.9, "box": {"x": .2, "y": .2, "w": .3, "h": .3}})
+    monkeypatch.setattr(bin_detector, "_infer", lambda rt, c, img, *a: {"confidence": 0.9, "box": {"x": .2, "y": .2, "w": .3, "h": .3}})
     r = client.post("/api/scan/appearance", content=image_bytes(), headers=auth_headers(client, staff.email)).json()
     b = r["best"]
     assert r["decision"] == "PROBABLE" and b["code"] == "type:network_switch" and b["label"] == "Network switch"

@@ -107,9 +107,9 @@ def test_multi_class_transposed_and_own_thresholds():
 
 
 def test_detect_all_keeps_every_hit_and_the_bin_stays(monkeypatch):
-    monkeypatch.setattr(bd, "detect", lambda img: {"confidence": 0.8, "box": {"x": 0, "y": 0, "w": 1, "h": 1}})
+    monkeypatch.setattr(bd, "detect", lambda img, *a: {"confidence": 0.8, "box": {"x": 0, "y": 0, "w": 1, "h": 1}})
     monkeypatch.setattr(bd, "extras", lambda: [(SPEC, "rt")])
-    monkeypatch.setattr(bd, "_infer_multi", lambda rt, spec, img: [
+    monkeypatch.setattr(bd, "_infer_multi", lambda rt, spec, img, *a: [
         {"code": "type:network_router", "class": "network_router", "label": "Smart Lab router", "confidence": 0.7,
          "box": {"x": 0, "y": 0, "w": 0.2, "h": 0.2}}])
     hits = bd.detect_all(np.zeros((480, 640, 3), np.uint8))
@@ -125,3 +125,36 @@ def test_detectors_json_lists_more_models(monkeypatch, tmp_path):
     monkeypatch.setattr(bd, "_EXTRA", None)
     monkeypatch.setattr(bd, "_load", lambda p: "rt" if p.endswith("sw.onnx") else None)
     assert [s["class"] for s, rt in bd.extras()] == ["network_switch"]      # a listed file that is missing is skipped
+
+
+# ---------------------------------------------------------------- Gemini review fixes (2026-11-02) ---
+def test_a_box_in_the_padding_never_gets_a_negative_size():
+    # 640x480 frame letterboxed: 80 px grey above / below; a box entirely in the bottom bar
+    b = bd._box(320, 600, 100, 20, 1.0, 0, 80, (480, 640))
+    assert b["w"] >= 0 and b["h"] >= 0 and 0 <= b["y"] <= 1
+
+
+def test_a_spec_may_list_only_some_classes_of_a_bigger_model():
+    out = np.zeros((1, 7, 8400), np.float32)            # 3-class file
+    out[0, :4, 5] = (320, 320, 64, 64)
+    out[0, 5, 5] = 0.8                                   # class 1 only is listed below
+    only_switch = {"classes": [{"index": 1, "name": "network_switch", "conf": 0.5}]}
+    hits = bd._parse_multi(out, only_switch, (640, 640), 1.0, 0, 0)
+    assert [h["class"] for h in hits] == ["network_switch"]
+
+
+def test_the_one_class_reader_refuses_a_multi_class_model(monkeypatch):
+    class Net:
+        def setInput(self, x): pass
+        def forward(self): return np.full((1, 7, 8400), 320.0, np.float32)   # would look like huge "scores"
+    assert bd._infer(("cv2", Net()), 0.5, np.zeros((480, 640, 3), np.uint8)) is None
+
+
+def test_detect_all_prepares_the_frame_once(monkeypatch):
+    calls = []
+    real = bd.letterbox
+    monkeypatch.setattr(bd, "letterbox", lambda img: calls.append(1) or real(img))
+    monkeypatch.setattr(bd, "_runtime", lambda: None)
+    monkeypatch.setattr(bd, "extras", lambda: [({"classes": [{"index": 1, "name": "x"}]}, None)])
+    bd.detect_all(np.zeros((480, 640, 3), np.uint8))
+    assert calls == [1]
