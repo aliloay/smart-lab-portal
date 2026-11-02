@@ -39,6 +39,8 @@ P = '/content/lab_r2'
 if os.path.exists(P): shutil.rmtree(P)
 shutil.copytree(D, P)
 teacher = YOLO(R1['s']); added = 0
+# the owner's multi-box photos join training here, boxed only by the teacher (no hand labels exist for them)
+for img in glob.glob(f'{P}/images/multi_train/*'): shutil.move(img, f'{P}/images/train/')
 for img in glob.glob(f'{P}/images/train/*'):
     lab = img.replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt'
     have = [l.split() for l in open(lab).read().splitlines() if l.strip()] if os.path.exists(lab) else []
@@ -92,6 +94,19 @@ for k, v in REPORT.items():
     print(k, 'mAP50', v['mAP50'], 'mAP50-95', v['mAP50_95'], '| multi-object photos all found', v['multi_object_all_found'], '/', v['multi_object_photos'])
     print('   ', ' '.join(f"{n}:{c['found']}/{c['test_objects']}({c['false_on_no_object']}fp)" for n, c in v['per_class'].items()))
 json.dump(REPORT, open(f'{OUT}/test_report.json', 'w'), indent=1)"""),
+(code, """# multi-object check on the owner's held-back multi-box photos (never trained on): every detection drawn and counted,
+# saved to Drive for checking by eye - there are no hand labels for these, so this is a count, not an accuracy figure
+os.makedirs(f'{OUT}/multi_check', exist_ok=True); MULTI = {}
+for key, w in (('r1_n', R1['n']), ('r1_s', R1['s']), ('r2_n', R2['n']), ('r2_s', R2['s'])):
+    m = YOLO(w); per = []
+    for p in sorted(glob.glob(f'{D}/images/multi_test/*')):
+        r = m.predict(p, conf=0.5, verbose=False)[0]
+        per.append(sorted(NAMES[int(k)] for k in r.boxes.cls.tolist()))
+        if key == 'r2_s': r.save(filename=f"{OUT}/multi_check/{os.path.basename(p)}")
+    MULTI[key] = {'photos': len(per), 'avg_objects_found': round(sum(map(len, per)) / max(1, len(per)), 2),
+                  'photos_with_2_or_more': sum(len(x) >= 2 for x in per), 'per_photo': per}
+    print(key, 'avg objects found per multi-box photo', MULTI[key]['avg_objects_found'], '| photos with 2+:', MULTI[key]['photos_with_2_or_more'], '/', len(per))
+json.dump(MULTI, open(f'{OUT}/multi_check.json', 'w'), indent=1)"""),
 (code, """# best = highest mAP50-95 (ties -> the faster n); export it and save everything
 best_key = max(REPORT, key=lambda k: (REPORT[k]['mAP50_95'], k.endswith('_n')))
 best_w = {**{f'r1_{s}': w for s, w in R1.items()}, **{f'r2_{s}': w for s, w in R2.items()}}[best_key]

@@ -37,7 +37,14 @@ CLASSES = [
     ("security_camera_1", "Security_Camera_1", ["security camera", "small white camera", "camera"]),
     ("security_camera_2", "Security_Camera_2", ["security camera", "small white camera", "camera"]),
 ]
-NAMES = [c[0] for c in CLASSES]
+# 2026-11-02 review of every contact sheet:
+#  - bin / switch / router: these zips repeat photos already boxed BY HAND in rounds 1-5 (data/all_r1); those checked
+#    boxes are used instead (a second copy would also leak the same photos into both train and test)
+#  - security cameras: the automatic boxes held the lens or the door closer, and both cameras are the same Mercusys
+#    model - no detector can tell 1 from 2 by appearance. Left out until close-up videos exist; identity by mount place.
+FROM_OLD = {"reusable_bin", "network_switch", "network_router"}
+DROP = {"security_camera_1", "security_camera_2"}
+NAMES = [c[0] for c in CLASSES if c[0] not in DROP]
 SRC, BOXES, SHEETS, OUT = (os.path.join(D, p) for p in ("lab_src", "lab_boxes.json", "lab_sheets", "lab_r1"))
 
 
@@ -118,7 +125,10 @@ def build():
         for k in ("images", "labels"):
             os.makedirs(os.path.join(OUT, k, sp), exist_ok=True)
     cnt = {}
-    for ci, (name, _, _) in enumerate(CLASSES):
+    for name, _, _ in CLASSES:
+        if name in DROP or name in FROM_OLD:
+            continue
+        ci = NAMES.index(name)
         fs = sorted(glob.glob(os.path.join(SRC, name, "*.jpg")))
         bad = set(rej.get(name, []))
         keep = [f for i, f in enumerate(fs) if i not in bad and res.get(os.path.relpath(f, SRC).replace("\\", "/"), [None])[0]]
@@ -133,16 +143,38 @@ def build():
             cnt.setdefault(name, {}).setdefault(sp, 0); cnt[name][sp] += 1
     # earlier box-checked photos (bin rounds, switch, router) as extra training data, class ids remapped
     old = {0: NAMES.index("reusable_bin"), 1: NAMES.index("network_switch"), 2: NAMES.index("network_router")}
-    for p in glob.glob(os.path.join(D, "all_r1", "images", "train", "*")):
-        lab = p.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
-        base = "old__" + os.path.basename(p)
-        shutil.copy(p, os.path.join(OUT, "images", "train", base))
-        if os.path.exists(lab):
-            lines = [l.split() for l in open(lab).read().splitlines() if l.strip()]
-            open(os.path.join(OUT, "labels", "train", base.rsplit(".", 1)[0] + ".txt"), "w").write(
-                "".join(f"{old[int(l[0])]} {' '.join(l[1:])}\n" for l in lines))
+    # (their own train / val / test split is kept, so their test scenes stay unseen)
+    for sp in ("train", "val", "test"):
+        for p in glob.glob(os.path.join(D, "all_r1", "images", sp, "*")):
+            lab = p.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+            if sp != "train" and not os.path.exists(lab):
+                continue                     # their no-object test photos are the same COCO / lab files added below
+            if os.path.basename(p).startswith("lab_"):
+                continue                     # lab-camera frames show PCs / FANUC / UR5e - not "no object" any more
+            base = "old__" + os.path.basename(p)
+            shutil.copy(p, os.path.join(OUT, "images", sp, base))
+            if os.path.exists(lab):
+                lines = [l.split() for l in open(lab).read().splitlines() if l.strip()]
+                open(os.path.join(OUT, "labels", sp, base.rsplit(".", 1)[0] + ".txt"), "w").write(
+                    "".join(f"{old[int(l[0])]} {' '.join(l[1:])}\n" for l in lines))
+                for l in lines:
+                    n = NAMES[old[int(l[0])]]; cnt.setdefault(n, {}).setdefault(sp, 0); cnt[n][sp] += 1
+    # several boxes in one photo (owner's Multi_Boxes, 2026-11-02): no hand labels - the Colab round-2 teacher boxes
+    # multi_train before round 2; multi_test is never trained on and is drawn + counted for checking by eye
+    ms = sorted(glob.glob(os.path.join(D, "lab_src_multi", "*.jpg")))
+    for i, p in enumerate(ms):
+        sp = "multi_train" if i < .75 * len(ms) else "multi_test"
+        os.makedirs(os.path.join(OUT, "images", sp), exist_ok=True)
+        shutil.copy(p, os.path.join(OUT, "images", sp, "multi__" + os.path.basename(p)))
+    cnt["multi"] = {"multi_train": sum(1 for i in range(len(ms)) if i < .75 * len(ms)), "multi_test": sum(1 for i in range(len(ms)) if i >= .75 * len(ms))}
     # no-object test photos: held-out COCO + lab-camera frames from before any box existed
-    for p in glob.glob(os.path.join(D, "coco_val", "negtest", "*.jpg")) + glob.glob(os.path.join(D, "lab_neg_test", "*.jpg")):
+    # lab-camera frames (2026-10-12, before any box existed) show the FANUC, ~15 lab PCs and the UR5e from the real
+    # camera viewpoint: every 4th one goes to multi_train so the round-2 teacher boxes those objects (no longer negatives)
+    lab = sorted(glob.glob(os.path.join(D, "lab_neg", "*.jpg")) + glob.glob(os.path.join(D, "lab_neg_test", "*.jpg")))[::4]
+    for p in lab:
+        shutil.copy(p, os.path.join(OUT, "images", "multi_train", "labcam__" + os.path.basename(p)))
+    cnt["multi"]["multi_train"] += len(lab)
+    for p in glob.glob(os.path.join(D, "coco_val", "negtest", "*.jpg")):
         shutil.copy(p, os.path.join(OUT, "images", "test", "neg__" + os.path.basename(p)))
     names = "".join(f"  {i}: {n}\n" for i, n in enumerate(NAMES))
     open(os.path.join(OUT, "data.yaml"), "w").write(f"path: /content/lab_r1\ntrain: images/train\nval: images/val\ntest: images/test\nnames:\n{names}")
