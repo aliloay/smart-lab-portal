@@ -23,6 +23,7 @@ os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
 os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device from a test
 os.environ["MARKER_WARMUP"] = "0"          # no background marker rendering during tests
 os.environ["APPEARANCE_WARMUP"] = "0"      # no background reference loading during tests
+os.environ["ROBOT_CONTROL"] = "dry_run"           # production is "off" (monitoring only, 2026-10-29); the control tests keep checking the parked code
 os.environ["TTL_CACHE"] = "0"              # every read fresh in tests (app/core/ttl.py)
 os.environ["LIVENESS_THROTTLE_S"] = "0"    # tests check outage transitions immediately
 # A device key of the suite's own: never the live one (the container's .env

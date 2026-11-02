@@ -119,7 +119,7 @@ services:
       # OPC UA feed (tools/opcua/opcua_server.py): read-only; empty = off.
       OPCUA_KEY: ${OPCUA_KEY:-}
       # Robot control (docs/ROBOT_CONTROL.md): dry_run until the owner signs off a commissioning step.
-      ROBOT_CONTROL: ${ROBOT_CONTROL:-dry_run}
+      ROBOT_CONTROL: ${ROBOT_CONTROL:-off}     # 2026-10-29 owner: monitoring only
       UR5E_CONTROL_PATH: ${UR5E_CONTROL_PATH:-local_agent}
       UR_AGENT_URL: ${UR_AGENT_URL:-http://host.docker.internal:5310}
       UR_AGENT_KEY: ${UR_AGENT_KEY:-}

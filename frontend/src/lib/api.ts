@@ -329,7 +329,7 @@ export interface ScanAnswer {
   sources?: { label: string; quality: string; at: string | null }[]; live?: LiveBlock | null
 }
 export interface AppearanceHint { decision: 'PROBABLE' | 'AMBIGUOUS' | 'UNKNOWN'; note: string
-  best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number }; box_kind?: string; confidence?: number } | null; candidates: { code: string; inliers: number }[] }
+  best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number }; box_kind?: string; confidence?: number; label?: string | null; registered?: boolean } | null; candidates: { code: string; inliers: number }[] }
 /** Which enclosure a frame LOOKS like - a hint only; identity and live data still need the asset's QR marker. */
 export async function scanAppearance(jpeg: Blob): Promise<AppearanceHint> {
   const token = getToken()
@@ -1449,15 +1449,7 @@ export const api = {
     request<{ name: string; data: import('../components/robot/workcell').Workcell; saved_at: string; version_id: number }[]>(`/workcell/${key}`),
   saveWorkcell: (key: 'UR5E' | 'FANUC', name: string, data: import('../components/robot/workcell').Workcell) =>
     request<{ name: string; version_id: number }>(`/workcell/${key}/${encodeURIComponent(name)}`, { method: 'PUT', body: JSON.stringify(data) }),
-  robotControl: (id: number) => request<RobotControl>(`/robots/${id}/control`),
-  robotControlRequest: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/request`),
-  robotGlobalStop: (id: number, command_id: string) =>
-    post<RobotCommandResult & RobotControl>(`/robots/${id}/control/stop`, { command_id }),
-  robotStopRecover: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/recover`),
-  robotAutoHomeCancel: (id: number) => post<RobotControl & { message: string }>(`/robots/${id}/control/auto-home/cancel`),
-  robotControlRelease: (id: number) => post<RobotControl & { released: boolean }>(`/robots/${id}/control/release`),
-  robotCommand: (id: number, body: { action: 'home' | 'routine' | 'stop'; routine?: string; command_id: string; confirmed: boolean }) =>
-    post<RobotCommandResult>(`/robots/${id}/control/command`, body),
+  // 2026-10-29 (owner): monitoring only - the robot control calls (request / home / stop / recover / release) were removed
   robotEvents: (id: number, limit = 100) => request<RobotEventRow[]>(`/robots/${id}/events?limit=${limit}`),
   robotMovements: (id: number, limit = 30) => request<RobotEventRow[]>(`/robots/${id}/movements?limit=${limit}`),
   robotMovement: (id: number, eventId: number) =>

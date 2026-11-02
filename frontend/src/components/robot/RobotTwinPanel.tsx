@@ -8,7 +8,7 @@
  *            and the panel says PREVIEW so it is never mistaken for the robot.
  */
 import Replay, { ReplayFrame } from './Replay'
-import RobotControlPanel from './RobotControlPanel'
+import { MonitoringOnly } from './MonitoringOnly'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import WorkcellEditor from './WorkcellEditor'
 import { Workcell, collisions, defaultWorkcell, tableBox } from './workcell'
@@ -333,16 +333,16 @@ function PanelInner({ model, robot, onFull, big }: {
   const still = shot ? <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} /> : null
   const twinView = !mount3d ? (shot
       ? <button type="button" onClick={wake}
-                className="relative block w-full h-72 bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
+                className="relative block w-full h-[26rem] bg-ink-950/40 group" aria-label={`${model.key === 'UR5E' ? 'UR5e' : 'FANUC'} - open the 3D view`}>
           <img src={shot} alt="" className="w-full h-full object-contain" draggable={false} />
           <span className="absolute bottom-2 right-2 rounded-md border border-ink-600 bg-ink-900/80 px-2 py-0.5 text-[11px] text-slate-300 group-hover:text-white">
             Click for the 3D view</span>
         </button>
-      : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />) : (
+      : <Skeleton className={`${big ? 'h-[78vh]' : 'h-[26rem]'} rounded-none`} />) : (
       <div className="relative">
-      <Suspense fallback={still ? <div className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}>{still}</div>
-                                : <Skeleton className={`${big ? 'h-[78vh]' : 'h-72'} rounded-none`} />}>
-        <RobotTwin onReady={onReady} model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-72'} bg-ink-950/40`}
+      <Suspense fallback={still ? <div className={`${big ? 'h-[78vh]' : 'h-[26rem]'} bg-ink-950/40`}>{still}</div>
+                                : <Skeleton className={`${big ? 'h-[78vh]' : 'h-[26rem]'} rounded-none`} />}>
+        <RobotTwin onReady={onReady} model={model} q={q} homeQ={live && refPose ? refPose.q : null} moving={moving} compact={!big} views workcell={shown} hits={hits} selectedObstacle={selObs} className={`${big ? 'h-[78vh]' : 'h-[26rem]'} bg-ink-950/40`}
                    onSnapshot={big || live || shotFresh ? undefined : saveShot}
                    gripper={live || replay ? null : grip}
                    trail={replay ? replay.path.map(p => tipPosition(urdf, p)) : undefined} trailColor="#a78bfa"
@@ -353,7 +353,8 @@ function PanelInner({ model, robot, onFull, big }: {
       </Suspense>
       {still && <div aria-hidden className={`absolute inset-0 bg-ink-950/40 transition-opacity duration-300 ${ready3d ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>{still}</div>}
       </div>)
-  const control = robot ? <RobotControlPanel robotId={robot.device_id} robotName={robot.name} /> : null
+  // 2026-10-29 (owner): monitoring and analysis only - the twin shows the robot, it never commands it
+  const control = robot ? <MonitoringOnly compact /> : null
   return (
     <div className="card overflow-hidden">
       <div className="p-4 flex flex-wrap items-center gap-2 border-b border-ink-700/60">

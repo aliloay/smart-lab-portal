@@ -1,0 +1,10 @@
+[
+ {
+  "file": "all_detector.onnx",
+  "note": "2026-10-30: one YOLO trained in tools/vision_train on data/all_r1 (reusable_bin + network_switch + network_router). The bin is still answered by bin_detector.onnx (the deployed round-4 model, 14/15 unseen, 0/429 false), so class 0 is deliberately NOT listed here; these two only come from this model.",
+  "classes": [
+   {"index": 1, "name": "network_switch", "label": "Network switch (TP-Link)", "conf": 0.5, "code": null},
+   {"index": 2, "name": "network_router", "label": "Smart Lab router (Vodafone)", "conf": 0.5, "code": null}
+  ]
+ }
+]

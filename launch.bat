@@ -130,13 +130,14 @@ if exist "%~dp0tools\voice\voice.env" (
 
 rem ---- UR5e Local-mode control agent (2026-10-26): Home / Stop / automatic Home through the pendant-started
 rem program. DRY RUN unless robot.env says UR_CONTROL_MODE=live (owner sign-off). Starts once robot.env has UR_AGENT_KEY.
-if exist "%~dp0tools\robot_monitor\robot.env" (
-  findstr /r /c:"^UR_AGENT_KEY=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
-    findstr /i /c:"ur_local_control.py" "%RUN%" >nul || (
-      start "Smart Lab - UR5e control agent" /min /belownormal cmd /k py -3.12 "%~dp0tools\ur5e_control\ur_local_control.py"
-    )
-  )
-)
+rem 2026-10-29 (owner): monitoring only - the control agent is no longer started (code kept in tools\ur5e_control).
+rem if exist "%~dp0tools\robot_monitor\robot.env" (
+rem   findstr /r /c:"^UR_AGENT_KEY=..*" "%~dp0tools\robot_monitor\robot.env" >nul && (
+rem     findstr /i /c:"ur_local_control.py" "%RUN%" >nul || (
+rem       start "Smart Lab - UR5e control agent" /min /belownormal cmd /k py -3.12 "%~dp0tools\ur5e_control\ur_local_control.py"
+rem     )
+rem   )
+rem )
 
 rem ---- OPC UA server (2026-10-26, read-only, opc.tcp://127.0.0.1:4840/smartlab/). Starts once tools\opcua\opcua.env exists.
 if exist "%~dp0tools\opcua\opcua.env" (

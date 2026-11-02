@@ -1,5 +1,14 @@
 # Robot control (Home / approved routines / software stop)
 
+> **2026-10-29 - scope decision (owner): MONITORING ONLY.** The project is monitoring and analysis; the portal never moves
+> or stops a robot. `ROBOT_CONTROL` defaults to `off` (docker-compose.yml), the Home / STOP panels are replaced by a
+> "Monitoring only" note (frontend `MonitoringOnly`), and launch.bat no longer starts the UR5e control agent. Twin, live
+> joints, robot alerts and the "running without a booking" checks are unchanged. The control code below stays in the
+> repository as *designed and tested offline, deliberately not commissioned*. Future work (not built): a stop request
+> wired by the lab's qualified person into the robot's own configurable safety inputs (UR safeguard / protective stop,
+> FANUC external stop) - never into the E-stop chain, never described as an emergency stop.
+
+
 Status 2026-10-14: **ownership, checks, audit and UI are implemented and tested with mocked adapters.
 Every real adapter answers UNAVAILABLE. Nothing can reach a robot controller from the portal.**
 Update 2026-10-18: the UR5e adapter has Home + STOP behind `ROBOT_CONTROL=dry_run` (nothing is sent until the owner
