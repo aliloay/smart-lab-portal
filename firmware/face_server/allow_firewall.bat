@@ -29,7 +29,9 @@ if not defined FACEPY (
 )
 
 set "PYEXE="
-for /f "usebackq delims=" %%i in (`"%FACEPY%" -c "import sys; print(sys.executable)"`) do set "PYEXE=%%i"
+rem 2026-11-03: no quotes around %FACEPY% here - "py" -c "..." inside for /f was mangled by cmd ('py" -c "import'
+rem is not recognized) and the script stopped before any rule was written. FACEPY never contains spaces.
+for /f "usebackq delims=" %%i in (`%FACEPY% -c "import sys; print(sys.executable)"`) do set "PYEXE=%%i"
 if not defined PYEXE (
   echo Could not locate the Python program.
   pause & exit /b 1
