@@ -66,6 +66,14 @@ def _status_bits(rx):
         return None
 
 
+def _target_qd_max(rx):
+    """Largest commanded joint speed (rad/s), or None when this ur_rtde / controller does not report it."""
+    try:
+        return round(max(abs(v) for v in rx.getTargetQd()), 4)
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------- sources ---
 class URSource:
     """UR RTDE receive-only."""
@@ -88,7 +96,10 @@ class URSource:
                       extra={"robot_mode": rx.getRobotMode(), "safety_mode": rx.getSafetyMode(),
                              "runtime_state": rx.getRuntimeState(),
                              "speed_scaling": round(float(rx.getSpeedScaling()), 3),
-                             "robot_status_bits": _status_bits(rx)})
+                             "robot_status_bits": _status_bits(rx),
+                             # read-only (Gemini ACT-07): the controller's COMMANDED joint speeds - > 0 when the
+                             # pendant / a program drives the arm, 0 when it moves under a hand (freedrive)
+                             "target_qd_max": _target_qd_max(rx)})
 
     def close(self):
         try:

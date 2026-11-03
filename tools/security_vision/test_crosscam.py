@@ -1,7 +1,7 @@
 """Cross-camera name sharing (SIMULATED: synthetic tracks and a synthetic floor map)."""
 import time
 
-from crosscam import STABLE_PASSES, CrossCam, FloorMap
+from crosscam import ELIM_PASSES, STABLE_PASSES, CrossCam, FloorMap
 from vision import Labeler, Track
 
 W, H = 1000, 1000
@@ -37,6 +37,23 @@ def test_confirmed_name_crosses_after_stable_passes_only():
     assert t.label == "USER1" and t.source == "peer"
 
 
+def test_last_unnamed_person_gets_the_last_free_name():
+    # 2026-11-03 lab: Nour named on both cameras; Ali named by face on camera 2 but sitting at its bottom
+    # edge (no floor position) - camera 1 names him by elimination, after the same stable passes.
+    cc, lab = CrossCam(None, "k", FLOOR), Labeler()
+    nour, ali = Track(1, box_at(3, 4), 0, 0, hits=10), Track(2, box_at(7, 8), 0, 0, hits=10)
+    nour.label = "USER6"
+    pf = lambda now: {"t": now, "calibrated": True, "tracks": [
+        {"id": 8, "floor": [3.05, 4.0], "label": "USER6", "name": "USER6", "role": "STUDENT", "source": "face",
+         "state": "CONFIRMED", "crowded": False},
+        {"id": 9, "floor": None, "label": "USER1", "name": "USER1", "role": "STUDENT", "source": "face",
+         "state": "CONFIRMED", "crowded": False}]}
+    run(cc, [nour, ali], lab, pf, ELIM_PASSES - 1)
+    assert ali.label is None
+    run(cc, [nour, ali], lab, pf, 1, t0=2000.0)
+    assert ali.label == "USER1" and nour.label == "USER6"
+
+
 def test_not_shared_without_floor_map_or_when_stale():
     lab = Labeler()
     t = Track(1, box_at(3, 4), 0, 0, hits=10)
@@ -56,14 +73,15 @@ def test_unconfirmed_or_guessed_names_do_not_travel():
         assert t.label is None, (src, st)
 
 
-def test_two_people_side_by_side_get_their_own_names():
+def test_two_people_side_by_side_are_not_named_by_the_floor_alone():
+    # 2026-11-03 lab: with two people in view and no measured look, the floor moved Nour's name onto Ali.
+    # Now nobody gets a name that way - each person's own face (or a clear look) must name them.
     cc, lab = CrossCam(None, "k", FLOOR), Labeler()
     a, b = Track(1, box_at(3.0, 4), 0, 0, hits=10), Track(2, box_at(3.6, 4), 0, 0, hits=10)
-    # the other camera reports them in the opposite order
     pf = lambda now: peer(now, (8, 3.62, 4.0, "USER2", "face", "CONFIRMED", False),
                           (7, 3.02, 4.0, "USER1", "door", "CONFIRMED", False))
     run(cc, [b, a], lab, pf, 10)
-    assert a.label == "USER1" and b.label == "USER2"
+    assert a.label is None and b.label is None
 
 
 def test_crowded_or_conflicting_or_face_contradicted_never_changes():
@@ -110,3 +128,15 @@ def test_states_the_identity_ledger_really_produces_are_shared_and_doubtful_ones
         t = Track(1, box_at(3.0, 4.0), 0.0, 0.0)
         run(cc, [t], lab, lambda now: peer(now, (7, 3.0, 4.0, "USER1", "door", st, False)), 10)
         assert (t.label == "USER1") is shared, st
+
+
+def test_elimination_refuses_people_far_apart_on_the_floor():
+    # Gemini ACT-06: same head count, but the free person here stands 7 m from the free name there -
+    # two different people in each camera's blind spot; no name by elimination.
+    cc, lab = CrossCam(None, "k", FLOOR), Labeler()
+    nour, other = Track(1, box_at(3, 4), 0, 0, hits=10), Track(2, box_at(7, 8), 0, 0, hits=10)
+    nour.label = "USER6"
+    pf = lambda now: peer(now, (8, 3.05, 4.0, "USER6", "face", "CONFIRMED", False),
+                          (9, 2.0, 2.0, "USER1", "face", "CONFIRMED", False))
+    run(cc, [nour, other], lab, pf, ELIM_PASSES + 2)
+    assert other.label is None

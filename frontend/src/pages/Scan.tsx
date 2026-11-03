@@ -62,6 +62,7 @@ const SELECTED_OTHER_MS = 3000
 const SEEN_HOLD_MS = 1500             // a marker stays pinned this long after the last sighting
 const LAST_TARGET_MS = 20000          // "it" may mean the last target for this long when nothing is in view
 const W = 640                         // analysis width (decode + people frames)
+const QR_W = 1280                     // native BarcodeDetector decode width (hardware; small far stickers)
 
 /** Ask the lab assistant about this asset (the chat bubble listens). */
 export const askLab = (q: string) => window.dispatchEvent(new CustomEvent('smartlab:ask-lab', { detail: q }))
@@ -70,6 +71,7 @@ export default function Scan() {
   const video = useRef<HTMLVideoElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
   const grab = useRef<HTMLCanvasElement | null>(null)
+  const hqGrab = useRef<HTMLCanvasElement | null>(null)
   const cropC = useRef<HTMLCanvasElement | null>(null)
   const session = useRef<{
     stream?: MediaStream; raf?: number; worker?: Worker; native?: BarcodeDetectorLike; decoding: boolean
@@ -271,7 +273,15 @@ export default function Scan() {
     let found: { text: string; corners: Pt[] }[] = []
     try {
       if (s.native) {
-        found = (await s.native.detect(g)).map(b => ({ text: b.rawValue, corners: b.cornerPoints }))
+        // 2026-11-03 lab (Gemini ACT-08, verified): the lab's QR stickers are ~2 cm - at 640 px a far one is
+        // below 1 px per module. The phone's own (hardware) decoder gets the crop at up to QR_W px; corners are
+        // scaled back to the 640-px frame. jsQR (CPU) and the people frames stay at 640 px (phone heat).
+        const hw = Math.min(QR_W, Math.round(v.videoWidth * z.w))
+        const hq = hqGrab.current ?? (hqGrab.current = document.createElement('canvas'))
+        const f = hw / w
+        hq.width = hw; hq.height = Math.round(h * f)
+        hq.getContext('2d')!.drawImage(v, z.x * v.videoWidth, z.y * v.videoHeight, z.w * v.videoWidth, z.h * v.videoHeight, 0, 0, hq.width, hq.height)
+        found = (await s.native.detect(hq)).map(b => ({ text: b.rawValue, corners: b.cornerPoints.map(p => ({ x: p.x / f, y: p.y / f })) }))
       } else if (s.worker) {
         const img = ctx.getImageData(0, 0, w, h)
         found = await new Promise(res => {

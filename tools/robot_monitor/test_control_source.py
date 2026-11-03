@@ -42,3 +42,12 @@ def test_reader_refuses_commands():
     for cmd in ("play", "stop", "load home.urp", "power off", "unlock protective stop"):
         with pytest.raises(ValueError):
             r.ask(cmd)
+
+
+def test_commanded_speed_separates_pendant_linear_jog_from_freedrive():
+    # Gemini ACT-07 (2026-11-03): a Base/Tool linear jog turns several joints - it was "Move / Home or other".
+    local = {"remote_control": False, "robot_status_bits": 1, "program_state": "STOPPED"}
+    assert classify({**local, "target_qd_max": 0.3}, True, 4)[0] == "PENDANT"
+    assert classify({**local, "target_qd_max": 0.0}, True, 2)[0] == "HAND_GUIDING"
+    assert classify({**local, "target_qd_max": None}, True, 3)[0] == "MULTI_JOINT"   # not reported: as before
+    assert classify({**local, "target_qd_max": 0.0}, False, 0)[0] == "PENDANT"       # still: idle

@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Bot, Crown, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
 import { api, type PcMode } from '../lib/api'
-import { isAdmin, useAuth } from '../lib/auth'
+import { isAdmin, isStaff, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
 import { pcStatus } from '../lib/pcStatus'
 import { relative } from '../lib/time'
@@ -41,7 +41,13 @@ export default function NetworkedEquipment() {
   const [busy, setBusy] = useState(false)
   const [wall, setWall] = useState(false)
   const closeWall = useCallback(() => setWall(false), [])
-  const admin = isAdmin(useAuth().user)
+  const me = useAuth().user
+  const admin = isAdmin(me)
+  // Owner 2026-11-03: the lab engineer (staff) is a master too - share screen, view, modes, messages on every
+  // lab PC - except the admin's own PC (the portal laptop runs every service) and the current master PC.
+  const staff = isStaff(me)
+  const adminPc = (e: Equip) => /ADMIN/i.test(e.device_uid ?? '')
+  const canCtl = (e: Equip) => admin || (staff && !adminPc(e))      // ACT-02: the engineer controls his own master PC too
   const closeViewer = useCallback(() => setViewing(null), [])
   const load = useCallback(() => {
     // Robots have their own panels above (live twin); this list is the PCs' agents.
@@ -60,7 +66,7 @@ export default function NetworkedEquipment() {
   })
 
   // No PC agent yet: the Lab PCs card says so; the admin can still share their screen.
-  if (!items || !items.length) return admin ? <section className="mb-6"><SharePanel hasMasterPc={false} /></section> : null
+  if (!items || !items.length) return staff ? <section className="mb-6"><SharePanel hasMasterPc={false} /></section> : null
   async function setMode(id: number, mode: PcMode) {
     let url: string | undefined
     if (mode === 'EXAM') {
@@ -69,7 +75,7 @@ export default function NetworkedEquipment() {
       let last = ''
       try { last = localStorage.getItem('smartlab.examUrl') ?? '' } catch { /* ignore */ }
       const answer = window.prompt('Exam page for the lockdown (the PC closes other programs and opens only this page). '
-        + 'Leave empty for exam mode without lockdown.', last)
+        + 'Leave empty to lock the PC down on the portal page.', last)
       if (answer === null) return
       url = answer.trim() || undefined
       if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url
@@ -87,7 +93,7 @@ export default function NetworkedEquipment() {
     load()
   }
   // Bulk actions never touch the master PC.
-  const pcs = items.filter(e => e.kind === 'PC' && !e.is_master_pc)
+  const pcs = items.filter(e => e.kind === 'PC' && !e.is_master_pc && !adminPc(e))
   async function setAll(mode: 'LOCKED' | 'NORMAL') {
     const what = mode === 'LOCKED' ? 'Remove access on ALL lab PCs? They lock now and stay locked.'
       : 'Give access back on all locked PCs?'
@@ -154,10 +160,11 @@ export default function NetworkedEquipment() {
                     {e.lan.ip ? <span className="mono"> · {e.lan.ip}</span> : null} ({e.lan.via === 'ping' ? 'ping' : 'ARP'})</div>}
                   <div className="text-slate-500">Last agent report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>
                 </div>
-                {e.kind === 'PC' && e.is_master_pc && !admin && (
+                {e.kind === 'PC' && !canCtl(e) && (
                   <div className="text-[12px] text-slate-400 pt-1">
-                    The lab engineer's master PC: controlled by an administrator.</div>)}
-                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
+                    {adminPc(e) ? "The administrator's PC (it runs the portal's services): controlled by an administrator only."
+                      : 'The current master PC: controlled by an administrator.'}</div>)}
+                {e.kind === 'PC' && canCtl(e) && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="text-[11.5px] text-slate-400">Mode</span>
                     {e.mode === 'LOCKED'
@@ -168,7 +175,7 @@ export default function NetworkedEquipment() {
                           <option value="MAINTENANCE">Maintenance</option></select>}
                     {e.open_violations > 0 && <Chip tone="warn">{e.open_violations} violation{e.open_violations > 1 ? 's' : ''}</Chip>}
                   </div>)}
-                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
+                {e.kind === 'PC' && canCtl(e) && (
                   <div className="flex flex-wrap gap-1.5 pt-1">
                     {e.mode === 'LOCKED'
                       ? <button className="btn-ghost btn-sm" onClick={() => setMode(e.device_id, 'NORMAL')}>
@@ -181,10 +188,10 @@ export default function NetworkedEquipment() {
                       <MonitorPlay size={13} /> View screen</button>
                     <button className="btn-ghost btn-sm" disabled={!usable} onClick={() => setMessaging(e)}>
                       <MessageSquare size={13} /> Message</button>
-                    {admin && <button className="btn-ghost btn-sm" onClick={() => setMaster(e)}>
+                    {staff && <button className="btn-ghost btn-sm" onClick={() => setMaster(e)}>
                       <Crown size={13} /> {e.is_master_pc ? 'Not master PC' : 'Make master PC'}</button>}
                   </div>)}
-                {e.kind === 'PC' && (admin || !e.is_master_pc) && (
+                {e.kind === 'PC' && canCtl(e) && (
                   <PcActions deviceId={e.device_id} name={e.name} admin={admin} online={usable} />)}
               </div>)
           })}
@@ -205,7 +212,7 @@ export default function NetworkedEquipment() {
           <p className="mt-2 text-[11px] text-slate-500">A report is what the agent saw running; staff decide what it means.</p>
         </div>
       )}
-      {admin && <div className="mt-4"><SharePanel hasMasterPc={items.some(e => e.kind === 'PC' && e.is_master_pc)}
+      {staff && <div className="mt-4"><SharePanel hasMasterPc={items.some(e => e.kind === 'PC' && e.is_master_pc)}
         pcs={pcs.map(e => ({ id: e.device_id, name: e.name, online: pcStatus(e).agent }))} /></div>}
       {wall && <ScreenWall pcs={admin ? items.filter(e => e.kind === 'PC') : pcs} onClose={closeWall} />}
       {viewing && <PcScreenViewer deviceId={viewing.device_id} name={viewing.name} onClose={closeViewer}

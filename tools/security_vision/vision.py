@@ -1689,6 +1689,8 @@ class ZoneWatcher:
                                        # (walking past in front of it is not use)
     NEAR_MARGIN = 0.3                  # a person this close (share of their size) hides / shakes the box
     NEAR_GRACE_S = 1.5                 # ... and for this long after they left (the detector lags)
+    OCCUPIED_GRACE_S = 3.0             # a detector miss shorter than this does not restart the IN_USE warm-up
+    ROBOT_HOLD_S = 20.0                # a robot stays IN_USE this long after its operator was last seen
     ROBOT_WORK_AREA = 1.0              # robots: a person within the box grown by this (each side, share
                                        # of the box) is working at the robot - the arm box sits high, people below
     ROBOT_RUN = 2                      # robots: faster
@@ -1701,6 +1703,7 @@ class ZoneWatcher:
         self.prev: dict[int, np.ndarray] = {}
         self._prev_at: dict[int, float] = {}
         self._occupied_since: dict[int, float] = {}
+        self._last_occupied_at: dict[int, float] = {}
         self._near_at: dict[int, float] = {}
         self._seated_near_at: dict[int, float] = {}   # last time a SEATED person was near (keeps IN_USE)
         self.states: dict[int, ZoneState] = {}
@@ -1846,11 +1849,23 @@ class ZoneWatcher:
                 self.prev[zid], self._prev_at[zid] = patch, now
             # In use = a person STAYS at the box (sitting at the PC, working at
             # the robot); someone walking past only pauses the checks.
+            # 2026-11-03 lab (Gemini ACT-05, verified): the UR5e "in use" flickered - one missed detection (~0.16 s)
+            # wiped the 5 s warm-up, and "near" looked at the high arm box instead of its working area. A miss
+            # shorter than OCCUPIED_GRACE_S no longer resets the warm-up; a robot keeps IN_USE ROBOT_HOLD_S after
+            # the person was last seen in its working area.
+            robot = z.get("alert_on_motion", True) is False
             if occupied:
                 self._occupied_since.setdefault(zid, now)
-            else:
-                self._occupied_since.pop(zid, None)
-            near = self._near(rect, person_rects_norm)
+                self._last_occupied_at[zid] = now
+            elif not robot or now - self._last_occupied_at.get(zid, -1e9) > self.OCCUPIED_GRACE_S:
+                self._occupied_since.pop(zid, None)            # PCs: standing up ends "in use" at once (2026-10-21)
+            if robot and st.status == "IN_USE" and now - self._last_occupied_at.get(zid, -1e9) < self.ROBOT_HOLD_S:
+                self._set(st, "IN_USE", now)
+                self._pending.pop(zid, None)
+                out.append(st)
+                continue
+            occupied = occupied or (robot and zid in self._occupied_since)    # robot, inside the grace: warming up
+            near = self._near(area if robot else rect, person_rects_norm)
             if near:
                 self._near_at[zid] = now
             # Owner 2026-10-21: PC-16 (behind the UR5e) stayed "in use" while he STOOD next to it - the

@@ -70,6 +70,12 @@ TIE_W = 0.3
 GATE_WIDE_M = 2.0
 APPEAR_MAX, APPEAR_MARGIN, APPEAR_VETO = 0.40, 0.20, 0.65
 SHARE_TOUCHING_IF_CLEAR = True
+# 2026-11-03 lab: Ali and Nour in the room, no appearance measured yet - the floor alone moved Nour's name
+# (confirmed by face on camera 2) onto Ali on camera 1. With 2+ people in my view a name now crosses only
+# when the look was measured and sits on the same-person side (between the medians 0.31 / 0.79).
+APPEAR_NAME_MAX = 0.55
+ELIM_COOLDOWN_S = 2.5                         # no name by elimination this soon after two people crossed
+ELIM_PASSES = 8                               # elimination holds longer than a floor pairing (STABLE_PASSES)
 OBS_EVERY = 7                                 # log observations about once a second
 # 2026-10-21: SAME DESK. Seated at a desk the feet are hidden (no floor position), so the floor never
 # paired people there. anchors/desk_map.json (deskmap.py, owner-verified: PC boxes named by the real lab
@@ -279,6 +285,8 @@ class CrossCam:
                 continue                           # only a confirmed door / face name travels
             if (t.crowded or p.get("crowded")) and not (SHARE_TOUCHING_IF_CLEAR and clear[i][j]):
                 continue                           # touching someone in either view: not now (unless the look is clear)
+            if len(mine) > 1 and (ad[i][j] is None or ad[i][j] > APPEAR_NAME_MAX):
+                continue                           # several people here: the floor alone does not name anyone
             if p["label"] in held:
                 continue                           # that name is on someone else here
             said = labeler._agreed(t)
@@ -290,7 +298,52 @@ class CrossCam:
             how = (f"seated alone at {desk_of(t.box, w, h, self.desks)} on both cameras (other camera's track"
                    if (t.id, p["id"]) in self.by_desk else "same floor spot as the other camera's track (")
             self._note("CROSSCAM_NAME", t.id, p["label"], f"{how} {p['id']}) for {STABLE_PASSES}+ passes")
+        self._by_elimination(mine, peer["tracks"], held, labeler, theirs, dist, ad, now)   # everyone there
         return self.notes
+
+    def _by_elimination(self, mine, theirs, held: set, labeler, placed=(), dist=(), ad=(), now: float = 0.0) -> None:
+        """Owner 2026-11-03 (lab, Ali + Nour): Ali sat at camera 2's bottom edge (feet cut = no floor position)
+        and stayed Unknown on camera 1 although everyone else was named. Same head count on both cameras,
+        exactly one person unnamed here, exactly one CONFIRMED name there that nobody here holds: that name is
+        this person's - once it held for STABLE_PASSES passes in a row, and never against their own face."""
+        free = [t for t in mine if not t.label]
+        names = {p["label"] for p in theirs if p.get("label") and p.get("state") in SHARE_STATES
+                 and p.get("source") in SHARE_SOURCES} - held
+        streak = getattr(self, "elim_streak", {})
+        # 2+ people: the others' names already prove the two views hold the same people (one person per view
+        # can be two different people in two corners); crowded = not now, as for the floor.
+        if not (len(mine) == len(theirs) >= 2 and len(free) == 1 and len(names) == 1 and not free[0].crowded):
+            self.elim_streak = {}
+            return
+        t, name = free[0], next(iter(names))
+        said = labeler._agreed(t)
+        if said is not None and said != name:
+            self.elim_streak = {}
+            return
+        # Gemini ACT-06 (2026-11-03, verified): equal head counts can be DIFFERENT people in each camera's blind
+        # spot. So: the names held here must be exactly the other names there; a measured look must not say
+        # "different person"; two known floor positions must not be far apart; not right after a crossing.
+        others_there = {p["label"] for p in theirs if p.get("label")} - {name}
+        if {x.label for x in mine if x.label} != others_there:
+            self.elim_streak = {}
+            return
+        i = mine.index(t)
+        j = next((k for k, p in enumerate(placed) if p.get("label") == name), None)
+        a = ad[i][j] if j is not None and i < len(ad) and j < len(ad[i]) else None
+        d = dist[i][j] if j is not None and i < len(dist) and j < len(dist[i]) else None
+        if (a is not None and a > APPEAR_NAME_MAX) or (d is not None and d > GATE_WIDE_M) \
+                or now - getattr(t, "separated_at", -1e9) < ELIM_COOLDOWN_S:
+            self.elim_streak = {}
+            return
+        n = streak.get((t.id, name), 0) + 1
+        self.elim_streak = {(t.id, name): n}
+        if n < ELIM_PASSES:
+            return
+        p = next(p for p in theirs if p.get("label") == name)
+        labeler._give(t, {"auth_subject": name, "name": p.get("name"), "role": p.get("role")}, "peer", how="other camera")
+        held.add(name)
+        self._note("CROSSCAM_NAME", t.id, name, f"the only unnamed person here and the only name there not on anyone "
+                                                f"here, {len(mine)} people on both cameras, for {ELIM_PASSES}+ passes")
 
     @staticmethod
     def _clear(ad: list, i: int, j: int) -> bool:

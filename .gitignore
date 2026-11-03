@@ -110,3 +110,9 @@ tools/vision_train/.venv/
 tools/vision_train/data/
 tools/vision_train/runs/
 *.pt
+
+# USB kit (2026-11-03): the device key and the portable Python are never committed
+lab_usb_kit/device.key
+lab_usb_kit/python/
+lab_usb_kit/pc_agent/wheels/
+lab_usb_kit/smartlab-ca.crt

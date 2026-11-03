@@ -83,10 +83,70 @@ def test_shared_lab_key_also_proves_a_pc(client, db, admin, lab, device_headers)
     assert r.status_code == 200 and _masters(db) == ["PC_03"]
 
 
-def test_staff_cannot_claim_but_can_see_the_master(client, db, admin, staff):
+def test_staff_claim_master_and_can_see_the_master(client, db, admin, staff):
+    # Owner 2026-11-03: the lab engineer (staff) gains master access at sign-in, like an admin.
     hs = auth_headers(client, staff.email)
-    assert client.get("/api/equipment/master/nonce", headers=hs).status_code == 403
-    assert client.post("/api/equipment/master/claim", headers=hs, json={"device_label": "x"}).status_code == 403
+    assert client.get("/api/equipment/master/nonce", headers=hs).status_code == 200
+    assert client.post("/api/equipment/master/claim", headers=hs, json={"device_label": "x"}).status_code == 200
     client.post("/api/equipment/master/claim", headers=auth_headers(client, admin.email), json={"device_label": "Windows · Edge"})
     m = client.get("/api/equipment/master", headers=hs).json()
     assert m["user_name"] == "Admin" and m["device"] == "Windows · Edge"
+
+
+def test_staff_never_control_the_admins_pc(client, db, admin, staff, lab, device_headers):
+    # Owner 2026-11-03: the lab engineer controls every lab PC except the admin's portal laptop.
+    _pc(client, lab, device_headers, "PC_ADMIN_LAPTOP")
+    _pc(client, lab, device_headers, "PC_06")
+    laptop = db.query(Device).filter_by(device_uid="PC_ADMIN_LAPTOP").one()
+    pc6 = db.query(Device).filter_by(device_uid="PC_06").one()
+    hs, ha = auth_headers(client, staff.email), auth_headers(client, admin.email)
+    assert client.put(f"/api/equipment/{laptop.id}/mode", headers=hs, json={"mode": "EXAM"}).status_code == 403
+    assert client.post(f"/api/equipment/{laptop.id}/screen/start", headers=hs).status_code == 403
+    assert client.put(f"/api/equipment/{pc6.id}/mode", headers=hs, json={"mode": "NORMAL"}).status_code == 200
+    assert client.put(f"/api/equipment/{laptop.id}/mode", headers=ha, json={"mode": "NORMAL"}).status_code == 200
+
+
+def test_a_lab_pc_watches_a_share_without_signing_in(client, db, admin, device_headers):
+    # Owner 2026-11-03: the shared screen asked the lab PC to sign in again - now the agent's watch link.
+    assert client.get("/api/equipment/broadcast/watch/status", params={"t": "nope"}).status_code == 401
+    t = client.get("/api/equipment/pc/watch-token", headers=device_headers).json()["token"]
+    assert client.get("/api/equipment/pc/watch-token").status_code == 401             # device key needed
+    assert client.get("/api/equipment/broadcast/watch/status", params={"t": t}).json()["active"] is False
+    ha = auth_headers(client, admin.email)
+    assert client.post("/api/equipment/broadcast/start", headers=ha, json={"source": "browser"}).status_code == 200
+    assert client.get("/api/equipment/broadcast/watch/status", params={"t": t}).json()["active"] is True
+    assert client.get("/api/equipment/broadcast/watch/frame.jpg", params={"t": t}).status_code in (200, 204)
+    client.post("/api/equipment/broadcast/stop", headers=ha)
+
+
+def test_admin_is_master_of_the_master(client, db, admin, staff, lab, device_headers):
+    # Owner 2026-11-03: staff shares never reach the admin's PC; staff cannot stop an admin's share; an admin's
+    # share reaches the lab engineer's master PC.
+    for uid in ("PC_ADMIN_LAPTOP", "PC_ENG", "PC_06"):
+        _pc(client, lab, device_headers, uid)
+    ids = {d.device_uid: d.id for d in db.query(Device).filter(Device.device_uid.in_(["PC_ADMIN_LAPTOP", "PC_ENG", "PC_06"]))}
+    hs, ha = auth_headers(client, staff.email), auth_headers(client, admin.email)
+    poll = lambda uid: client.get("/api/equipment/pc/poll", params={"device_uid": uid}, headers=device_headers).json()
+    assert client.put(f"/api/equipment/{ids['PC_ENG']}/master", headers=hs, json={"is_master": True}).status_code == 200
+    assert client.post("/api/equipment/broadcast/start", headers=hs,
+                       json={"source": "browser", "targets": [ids["PC_ADMIN_LAPTOP"]]}).status_code == 403
+    assert client.post("/api/equipment/broadcast/start", headers=hs, json={"source": "browser"}).status_code == 200
+    assert poll("PC_06")["broadcast"]["active"] is True
+    assert not (poll("PC_ADMIN_LAPTOP")["broadcast"] or {}).get("active")
+    client.post("/api/equipment/broadcast/stop", headers=hs)
+    assert client.post("/api/equipment/broadcast/start", headers=ha, json={"source": "browser"}).status_code == 200
+    assert poll("PC_ENG")["broadcast"]["active"] is True                       # the master PC sees the admin
+    assert client.post("/api/equipment/broadcast/stop", headers=hs).status_code == 403
+    assert client.post("/api/equipment/broadcast/start", headers=hs, json={"source": "browser"}).status_code == 409
+    assert client.post("/api/equipment/broadcast/stop", headers=ha).status_code == 200
+    assert client.put(f"/api/equipment/{ids['PC_ENG']}/mode", headers=ha, json={"mode": "NORMAL"}).status_code == 200
+
+
+def test_admin_pc_is_never_locked_or_in_exam(client, db, admin, lab, device_headers):
+    # Gemini ACT-02: the portal laptop runs every service - no exam / lock on it, even by an admin.
+    _pc(client, lab, device_headers, "PC_ADMIN_LAPTOP")
+    pid = db.query(Device).filter_by(device_uid="PC_ADMIN_LAPTOP").one().id
+    ha = auth_headers(client, admin.email)
+    for mode in ("EXAM", "LOCKED"):
+        assert client.put(f"/api/equipment/{pid}/mode", headers=ha, json={"mode": mode}).status_code == 409
+    assert client.put(f"/api/equipment/{pid}/mode", headers=ha, json={"mode": "NORMAL"}).status_code == 200

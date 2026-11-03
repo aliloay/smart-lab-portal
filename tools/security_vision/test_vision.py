@@ -828,3 +828,20 @@ def test_robot_home_hidden_label():
     tags = vision.zone_tags([{"id": 1, "name": "Fanuc", "x": .1, "y": .1, "w": .1, "h": .1}],
                             {1: SimpleNamespace(status="OK", home="HIDDEN")}, 960, 540, [])
     assert tags[0]["text"] == "Fanuc - home hidden by a person"
+
+
+ROBOT = [{"id": 9, "name": "UR5e", "x": 80 / 640, "y": 80 / 360, "w": 160 / 640, "h": 140 / 360, "alert_on_motion": False}]
+
+
+def test_robot_in_use_survives_a_missed_frame_and_holds_20_s():
+    """Gemini ACT-05 (2026-11-03 lab): the UR5e 'in use' flickered - one missed detection wiped the warm-up."""
+    zw = ZoneWatcher()
+    zw.update(ROBOT, _scene(), [], 0.0)
+    op = [(0.2, 0.2, 0.2, 0.5)]                                # the operator in the working area
+    zw.update(ROBOT, _scene(), op, 1.0)
+    zw.update(ROBOT, _scene(), [], 2.0)                       # one missed frame during the warm-up
+    st = zw.update(ROBOT, _scene(), op, 1.0 + ZoneWatcher.IN_USE_AFTER_S)[0]
+    assert st.status == "IN_USE"                              # the miss did not restart the 5 s warm-up
+    last = 1.0 + ZoneWatcher.IN_USE_AFTER_S
+    assert zw.update(ROBOT, _scene(), [], last + 10.0)[0].status == "IN_USE"      # stepped away 10 s: held
+    assert zw.update(ROBOT, _scene(), [], last + ZoneWatcher.ROBOT_HOLD_S + 1.0)[0].status != "IN_USE"

@@ -222,7 +222,8 @@ def test_pc_action_not_taken_is_reported_unreachable(client, db, staff, lab, dev
 def test_admin_shares_screen_from_browser_students_watch_and_pcs_are_told(client, db, staff, admin, alice, lab, device_headers):
     d = _pc(client, db, lab, device_headers)
     ha, hs, hst = auth_headers(client, admin.email), auth_headers(client, staff.email), auth_headers(client, alice.email)
-    assert client.post("/api/equipment/broadcast/start", headers=hs, json={"source": "browser"}).status_code == 403
+    # 2026-11-03: staff may share too (lab engineer = master); a student never.
+    assert client.post("/api/equipment/broadcast/start", headers=hst, json={"source": "browser"}).status_code == 403
     assert _poll(client, device_headers)["broadcast"]["active"] is False
     r = client.post("/api/equipment/broadcast/start", headers=ha, json={"source": "browser", "title": "PLC demo"})
     assert r.status_code == 200 and r.json()["active"] is True
@@ -230,7 +231,7 @@ def test_admin_shares_screen_from_browser_students_watch_and_pcs_are_told(client
     assert p["broadcast"] == {"active": True, "by": admin.full_name, "title": "PLC demo"} and p["broadcast_capture"] is False
     assert client.get("/api/equipment/broadcast/frame.jpg", headers=hst).status_code == 204       # nothing yet
     up = lambda h: client.post("/api/equipment/broadcast/frame", headers={**h, "Content-Type": "image/jpeg"}, content=JPEG)
-    assert up(hs).status_code == 403                                                              # not the presenter
+    assert up(hs).status_code == 409                                       # not the presenter (staff may share since 2026-11-03)
     assert up(ha).status_code == 204
     f = client.get("/api/equipment/broadcast/frame.jpg", headers=hst)                            # a student watches
     assert f.status_code == 200 and f.content == JPEG

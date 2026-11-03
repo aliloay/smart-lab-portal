@@ -130,11 +130,15 @@ def test_pc_actions_spare_the_engineers_pc_and_staff_cannot_touch_it(client, db,
     # Lab staff control lab PCs, not the engineer's master PC; the admin can.
     hs = auth_headers(client, staff.email)
     assert client.put(f"/api/equipment/{pcs[0].id}/mode", headers=hs, json={"mode": "NORMAL"}).status_code == 200
-    assert client.put(f"/api/equipment/{pcs[2].id}/mode", headers=hs, json={"mode": "NORMAL"}).status_code == 403
-    assert client.post(f"/api/equipment/{pcs[2].id}/screen/start", headers=hs).status_code == 403
+    # 2026-11-03 (Gemini ACT-02): the lab engineer now controls the master PC too (his own)
+    assert client.put(f"/api/equipment/{pcs[2].id}/mode", headers=hs, json={"mode": "NORMAL"}).status_code == 200
+    assert client.post(f"/api/equipment/{pcs[2].id}/screen/start", headers=hs).status_code == 200
     assert client.put(f"/api/equipment/{pcs[2].id}/mode", headers=h, json={"mode": "NORMAL"}).status_code == 200
     # Only an admin marks the master PC.
-    assert client.put(f"/api/equipment/{pcs[0].id}/master", headers=hs, json={"is_master": True}).status_code == 403
+    # 2026-11-03: the lab engineer may now mark a master PC (owner); marked and released again here.
+    assert client.put(f"/api/equipment/{pcs[0].id}/master", headers=hs, json={"is_master": True}).status_code == 200
+    assert client.put(f"/api/equipment/{pcs[0].id}/master", headers=auth_headers(client, admin.email),
+                      json={"is_master": False}).status_code == 200
     assert client.put(f"/api/equipment/{pcs[0].id}/master", headers=h, json={"is_master": True}).json()["is_master_pc"]
 
 

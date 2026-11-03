@@ -309,6 +309,9 @@ class ModeRequest(BaseModel):
 def set_mode(device_id: int, req: ModeRequest, db: Session = Depends(get_db),
              staff: User = Depends(require_staff)):
     d = _pc(db, device_id, staff)
+    if req.mode in ("EXAM", "LOCKED") and "ADMIN" in (d.device_uid or "").upper():
+        # the portal laptop runs every service: never put in exam / locked (ACT-02; its agent ignores lockdown anyway)
+        raise HTTPException(status.HTTP_409_CONFLICT, "The administrator's PC runs the portal - it is never locked or put in exam mode.")
     old = d.mode or "NORMAL"
     d.mode = req.mode
     action = ("PC_ACCESS_REMOVED" if req.mode == "LOCKED" else
@@ -342,11 +345,13 @@ def _pc(db: Session, device_id: int, user: Optional[User] = None) -> Device:
     d = db.get(Device, device_id)
     if d is None or d.device_type != DeviceType.PC:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "PC not found")
-    # The lab engineer controls the lab PCs; only an administrator controls
-    # the engineer's own master PC.
-    if d.is_master_pc and user is not None and user.role != Role.ADMIN:
-        raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "This is the lab engineer's master PC - administrators only.")
+    # 2026-11-03 (Gemini ACT-02, verified): the lab engineer IS a master - he controls every lab PC including
+    # his own master PC (the old "master PC = administrators only" rule locked him out of it once his sign-in
+    # made it master). Only the admin's own PC stays admin-only (below).
+    # Owner 2026-11-03: the admin's own PC (the portal laptop, it runs every service) is never controlled by
+    # staff - wherever the master flag is - so the lab engineer's master access stops at it.
+    if user is not None and user.role != Role.ADMIN and "ADMIN" in (d.device_uid or "").upper():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This is the administrator's PC - administrators only.")
     return d
 
 
@@ -364,7 +369,7 @@ MASTER_NONCE_S = 60.0
 
 
 @router.get("/master/nonce")
-def master_nonce(admin: User = Depends(require_admin)):
+def master_nonce(admin: User = Depends(require_staff)):     # owner 2026-11-03: the lab engineer is a master too
     import secrets
     now = time.monotonic()
     for k in [k for k, (_, exp) in _master_nonces.items() if exp < now]:
@@ -391,7 +396,7 @@ def _proof_ok(d: Device, nonce: str, proof: str) -> bool:
 
 
 @router.post("/master/claim")
-def master_claim(req: MasterClaim, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def master_claim(req: MasterClaim, db: Session = Depends(get_db), admin: User = Depends(require_staff)):
     """Called by the web app right after an admin signs in. The admin becomes the master; the lab PC
     they sit at becomes the master PC only with a valid agent proof."""
     pc: Optional[Device] = None
@@ -441,7 +446,7 @@ class MasterRequest(BaseModel):
 
 @router.put("/{device_id}/master")
 def set_master(device_id: int, req: MasterRequest, db: Session = Depends(get_db),
-               admin: User = Depends(require_admin)):
+               admin: User = Depends(require_staff)):
     """Mark (or unmark) a PC as the lab engineer's master PC."""
     d = _pc(db, device_id, admin)
     d.is_master_pc = req.is_master
@@ -559,13 +564,19 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
     capture = bool(b["active"] and ((b["source"] == "master_pc" and d.is_master_pc)
                                     or (b["source"] == "pc" and b.get("device_id") == d.id)))
     return {"mode": d.mode or "NORMAL", "mirror": pc_control.is_watched(d.id),
-            "exam": {"url": u, "lockdown": True} if (u := _exam_url_for(db, d)) else None,
+            # 2026-11-03 lab: Exam on PC-6 with no page "did nothing" (report-only). Exam = lockdown always;
+            # without a page the agent opens the portal at the address IT reaches (url None).
+            "exam": {"url": _exam_url_for(db, d), "lockdown": True} if (d.mode or "NORMAL") == "EXAM" else None,
             "message": message, "action": _hand_over_action(db, d),
             # Presenting: students' PCs open the portal's /share page; the master PC uploads frames
             # when the admin chose it as the source.
             "broadcast": {"active": b["active"] and (b["targets"] is None or d.id in b["targets"]),
                           "by": b["by"], "title": b["title"]}
-                         if not d.is_master_pc and not capture and b.get("audience", "all") == "all" else None,
+                         # owner 2026-11-03: an admin's share reaches the lab engineer's master PC too;
+                         # the master PC skips only a share its own (staff) presenter started.
+                         if (not d.is_master_pc or _is_admin_user(db, b.get("by_id"))) and not capture
+                         and "ADMIN" not in (d.device_uid or "").upper()          # the admin's own PC: never
+                         and b.get("audience", "all") == "all" else None,
             "mirror_opts": pc_control.view_opts(d.id) if pc_control.is_watched(d.id) else None,
             "broadcast_capture": capture}
 
@@ -790,8 +801,13 @@ class BroadcastStart(BaseModel):
     targets: Optional[list[int]] = Field(default=None, max_length=200)   # None = every lab PC
 
 
+def _is_admin_user(db: Session, user_id) -> bool:
+    u = db.get(User, user_id) if user_id else None
+    return bool(u and u.role == Role.ADMIN)
+
+
 @router.post("/broadcast/start")
-def broadcast_start(req: BroadcastStart, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def broadcast_start(req: BroadcastStart, db: Session = Depends(get_db), admin: User = Depends(require_staff)):
     """Admin shares their screen with the students' PCs (and anyone signed in on /share)."""
     if req.source == "master_pc" and db.scalar(select(Device.id).where(
             Device.device_type == DeviceType.PC, Device.is_master_pc.is_(True))) is None:
@@ -800,7 +816,21 @@ def broadcast_start(req: BroadcastStart, db: Session = Depends(get_db), admin: U
         ok = set(db.scalars(select(Device.id).where(Device.id.in_(req.targets), Device.device_type == DeviceType.PC)).all())
         if not req.targets or ok != set(req.targets):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Targets must be registered lab PCs.")
-    st = pc_control.broadcast_start(admin.full_name, admin.id, req.source, req.title, req.targets)
+    targets = req.targets
+    if admin.role != Role.ADMIN:
+        # Owner 2026-11-03: the admin is the master of the master - the lab engineer neither takes over nor
+        # stops an admin's share, and his own shares never reach the admin's PC.
+        cur = pc_control.broadcast_state()
+        if cur.get("active") and cur.get("by_id") != admin.id and _is_admin_user(db, cur.get("by_id")):
+            raise HTTPException(status.HTTP_409_CONFLICT, "An administrator is sharing now - wait until they stop.")
+        admin_pcs = set(db.scalars(select(Device.id).where(Device.device_type == DeviceType.PC,
+                                                           Device.device_uid.ilike("%ADMIN%"))).all())
+        if targets is None:
+            targets = [i for i in db.scalars(select(Device.id).where(Device.device_type == DeviceType.PC)).all()
+                       if i not in admin_pcs] or None
+        elif admin_pcs & set(targets):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "The administrator's PC is not a share target for staff.")
+    st = pc_control.broadcast_start(admin.full_name, admin.id, req.source, req.title, targets)
     db.add(AuditLog(actor_user_id=admin.id, action="PC_BROADCAST_STARTED", entity_type="broadcast",
                     entity_id="screen", detail={"source": req.source, "title": req.title, "targets": req.targets or "all"}))
     db.commit()
@@ -809,8 +839,12 @@ def broadcast_start(req: BroadcastStart, db: Session = Depends(get_db), admin: U
 
 
 @router.post("/broadcast/stop")
-def broadcast_stop(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    was = pc_control.broadcast_state()["active"]
+def broadcast_stop(db: Session = Depends(get_db), admin: User = Depends(require_staff)):
+    cur = pc_control.broadcast_state()
+    if (admin.role != Role.ADMIN and cur.get("active") and cur.get("by_id") != admin.id
+            and _is_admin_user(db, cur.get("by_id"))):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "An administrator's share - only an administrator stops it.")
+    was = cur["active"]
     st = pc_control.broadcast_stop()
     if was:                                       # idempotent: a second Stop is not audited again
         db.add(AuditLog(actor_user_id=admin.id, action="PC_BROADCAST_STOPPED", entity_type="broadcast", entity_id="screen"))
@@ -880,7 +914,7 @@ def share_mine(user: User = Depends(get_current_user)):
 
 
 @router.get("/share-requests")
-def share_list(_: User = Depends(require_admin)):
+def share_list(_: User = Depends(require_staff)):
     return pc_control.share_requests()
 
 
@@ -890,7 +924,7 @@ class ShareDecision(BaseModel):
 
 
 @router.post("/share-requests/{req_id}")
-def share_decide(req_id: int, body: ShareDecision, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+def share_decide(req_id: int, body: ShareDecision, db: Session = Depends(get_db), admin: User = Depends(require_staff)):
     r = pc_control.share_request_set(req_id, "ACCEPTED" if body.accept else "REJECTED")
     if r is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "This request was already answered or has expired")
@@ -924,7 +958,7 @@ def share_stop_mine(db: Session = Depends(get_db), user: User = Depends(get_curr
 
 
 @router.post("/broadcast/frame", status_code=status.HTTP_204_NO_CONTENT)
-async def broadcast_frame_from_browser(request: Request, admin: User = Depends(require_admin)):
+async def broadcast_frame_from_browser(request: Request, admin: User = Depends(require_staff)):
     """A frame captured in the presenting admin's browser."""
     st = pc_control.broadcast_state()
     if not st["active"] or st["source"] != "browser" or st["by_id"] != admin.id:
@@ -962,12 +996,60 @@ def broadcast_frame(viewer: User = Depends(get_current_user)):
     st = pc_control.broadcast_state()
     if st.get("audience") == "staff" and viewer.role not in (Role.ADMIN, Role.LAB_STAFF) and viewer.id != st.get("by_id"):
         return Response(status_code=status.HTTP_410_GONE)          # not shown to the other students
+    return _frame_response()
+
+
+def _frame_response() -> Response:
     jpeg = pc_control.broadcast_frame()
     if jpeg is None:
         if not pc_control.broadcast_state()["active"]:
             return Response(status_code=status.HTTP_410_GONE)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+# ---------------------------- watch a share on a lab PC without signing in again (2026-11-03) ---
+# Owner: "the PC was already signed in, but when the admin shared the screen it asked to sign in again" -
+# the agent opened /share in the PC's browser, and that page needed a portal session. The agent (its device
+# key) now gets a short-lived WATCH-ONLY token and opens /share?t=...: the token reads the status and the
+# picture of an everyone-audience share and nothing else.
+_watch_tokens: dict[str, float] = {}                    # token -> expires (monotonic)
+WATCH_TOKEN_S = 4 * 3600.0
+
+
+@router.get("/pc/watch-token", tags=["devices"])
+def pc_watch_token(identity: str = Depends(require_device)):
+    import secrets
+    now = time.monotonic()
+    for k in [k for k, exp in _watch_tokens.items() if exp < now]:
+        _watch_tokens.pop(k, None)
+    t = secrets.token_urlsafe(24)
+    _watch_tokens[t] = now + WATCH_TOKEN_S
+    return {"token": t}
+
+
+def _watch_ok(t: str) -> bool:
+    exp = _watch_tokens.get(t or "")
+    return exp is not None and exp > time.monotonic()
+
+
+@router.get("/broadcast/watch/status")
+def broadcast_watch_status(t: str = Query(max_length=64)):
+    if not _watch_ok(t):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Watch link expired")
+    st = pc_control.broadcast_state()
+    if st.get("audience") == "staff":
+        return {**st, "active": False, "by": None, "title": ""}
+    return st
+
+
+@router.get("/broadcast/watch/frame.jpg")
+def broadcast_watch_frame(t: str = Query(max_length=64)):
+    if not _watch_ok(t):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Watch link expired")
+    if pc_control.broadcast_state().get("audience") == "staff":
+        return Response(status_code=status.HTTP_410_GONE)
+    return _frame_response()
 
 
 # ------------------------------------------------ agent long-poll (2026-10-17) ---

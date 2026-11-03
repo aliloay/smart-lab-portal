@@ -28,6 +28,7 @@ TEACH_BUTTON_BIT = 1 << 2
 PROGRAM_RUNNING_BIT = 1 << 1
 
 
+TARGET_IDLE = 0.005                              # rad/s: below this the controller commands no motion
 EXTERNAL_HINTS = ("external", "ros", "urcap")   # program names of the ROS 2 driver's External Control program
 
 
@@ -51,6 +52,14 @@ def classify(extra: dict, moving: bool, joints_moving: Optional[int] = None) -> 
     if remote is False:
         if running:
             return "PENDANT_PROGRAM", f"Program {prog or '(unnamed)'} running - started on the teach pendant (Local mode)"
+        target = extra.get("target_qd_max")                  # commanded speed (Gemini ACT-07); None = not reported
+        if moving and isinstance(target, (int, float)):
+            if target <= TARGET_IDLE:
+                return "HAND_GUIDING", ("The arm moves while the controller commands no motion - moved by hand "
+                                        "(freedrive)")
+            if joints_moving is not None and joints_moving >= 2:
+                return "PENDANT", ("Teach pendant (Local mode) - jogging several joints at once (a Base / Tool "
+                                   "linear move, or Move / Home)")
         if moving and joints_moving is not None and joints_moving >= 2:
             return "MULTI_JOINT", (f"{joints_moving} joints moving at once with no program - the pendant's Move / "
                                    "Home, or the arm moved another way (pendant jogging turns one joint)")
