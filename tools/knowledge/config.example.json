@@ -1,0 +1,9 @@
+{
+ "repo": "../..",
+ "vault": "C:/Users/dell/SmartLabKnowledge/vault",
+ "data": "C:/Users/dell/SmartLabKnowledge/data",
+ "ollama": "http://127.0.0.1:11434",
+ "model": "qwen2.5:3b",
+ "llm_on_cpu": true,
+ "llm_timeout_s": 240
+}

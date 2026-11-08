@@ -1,0 +1,235 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 50,
+   "seconds": 40.0,
+   "logins_ok": 50,
+   "login_p95_ms": 3587.0,
+   "page_loads": 459,
+   "requests": 1229,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 1170,
+    "403": 59
+   },
+   "page_ms": {
+    "p50": 28.8,
+    "p95": 1430.3,
+    "p99": 2731.5
+   },
+   "req_ms": {
+    "p50": 40.2,
+    "p95": 1305.9,
+    "p99": 2125.7
+   },
+   "req_per_s": 30.7,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 139.8,
+    "smart-lab-portal-db-1": 29.1
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.73,
+    "smart-lab-portal-db-1": 11.82
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/operations",
+     3664.4,
+     10
+    ],
+    [
+     "/analytics/anomalies",
+     2266.2,
+     6
+    ],
+    [
+     "/system/health",
+     2250.8,
+     6
+    ],
+    [
+     "/summary",
+     1898.2,
+     119
+    ],
+    [
+     "/ai/student/status",
+     1632.1,
+     36
+    ],
+    [
+     "/access-events",
+     1624.8,
+     68
+    ],
+    [
+     "/issues",
+     1572.1,
+     113
+    ],
+    [
+     "/labs/overview",
+     1456.4,
+     119
+    ]
+   ],
+   "stable": true
+  },
+  {
+   "sessions": 75,
+   "seconds": 40.0,
+   "logins_ok": 75,
+   "login_p95_ms": 5655.6,
+   "page_loads": 670,
+   "requests": 1797,
+   "errors": 1,
+   "error_rate": 0.0006,
+   "codes": {
+    "200": 1708,
+    "403": 88,
+    "0": 1
+   },
+   "page_ms": {
+    "p50": 55.3,
+    "p95": 1151.1,
+    "p99": 2284.9
+   },
+   "req_ms": {
+    "p50": 84.5,
+    "p95": 979.1,
+    "p99": 1821.5
+   },
+   "req_per_s": 44.9,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 156.0,
+    "smart-lab-portal-db-1": 24.1
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.54,
+    "smart-lab-portal-db-1": 12.09
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/operations",
+     2619.0,
+     6
+    ],
+    [
+     "/analytics/system",
+     1918.4,
+     12
+    ],
+    [
+     "/labs/1/environment",
+     1732.2,
+     33
+    ],
+    [
+     "/analytics/trends",
+     1516.6,
+     6
+    ],
+    [
+     "/ai/status",
+     1375.2,
+     9
+    ],
+    [
+     "/labs",
+     1279.6,
+     231
+    ],
+    [
+     "/ai/student/status",
+     1245.5,
+     54
+    ],
+    [
+     "/notifications/inbox",
+     1150.9,
+     50
+    ]
+   ],
+   "stable": true
+  },
+  {
+   "sessions": 100,
+   "seconds": 40.0,
+   "logins_ok": 100,
+   "login_p95_ms": 6470.0,
+   "page_loads": 842,
+   "requests": 2300,
+   "errors": 1,
+   "error_rate": 0.0004,
+   "codes": {
+    "200": 2209,
+    "403": 90,
+    "0": 1
+   },
+   "page_ms": {
+    "p50": 90.5,
+    "p95": 2344.4,
+    "p99": 3696.4
+   },
+   "req_ms": {
+    "p50": 117.9,
+    "p95": 2163.8,
+    "p99": 3453.3
+   },
+   "req_per_s": 57.5,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 181.7,
+    "smart-lab-portal-db-1": 26.8
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.1,
+    "smart-lab-portal-db-1": 12.21
+   },
+   "slowest_endpoints": [
+    [
+     "/security/events",
+     3571.9,
+     10
+    ],
+    [
+     "/monitor",
+     2582.2,
+     43
+    ],
+    [
+     "/system/services",
+     2531.2,
+     10
+    ],
+    [
+     "/labs/environment/all",
+     2465.7,
+     76
+    ],
+    [
+     "/labs/1/environment",
+     2443.3,
+     33
+    ],
+    [
+     "/labs",
+     2429.1,
+     289
+    ],
+    [
+     "/analytics/system",
+     2379.3,
+     9
+    ],
+    [
+     "/notifications/unread-count",
+     2336.1,
+     147
+    ]
+   ],
+   "stable": false
+  }
+ ]
+}

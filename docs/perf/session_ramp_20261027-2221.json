@@ -1,0 +1,158 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 75,
+   "seconds": 40.0,
+   "logins_ok": 75,
+   "login_p95_ms": 4312.0,
+   "page_loads": 687,
+   "requests": 1878,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 1794,
+    "403": 84
+   },
+   "page_ms": {
+    "p50": 47.8,
+    "p95": 1331.7,
+    "p99": 3063.4
+   },
+   "req_ms": {
+    "p50": 62.5,
+    "p95": 1183.8,
+    "p99": 2272.2
+   },
+   "req_per_s": 47.0,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 161.3,
+    "smart-lab-portal-db-1": 19.4
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.92,
+    "smart-lab-portal-db-1": 11.72
+   },
+   "slowest_endpoints": [
+    [
+     "/system/services",
+     3059.8,
+     12
+    ],
+    [
+     "/alerts",
+     2283.9,
+     57
+    ],
+    [
+     "/labs/1/environment",
+     1908.1,
+     34
+    ],
+    [
+     "/security/events",
+     1822.5,
+     12
+    ],
+    [
+     "/labs/environment/all",
+     1383.8,
+     76
+    ],
+    [
+     "/notifications/inbox",
+     1352.2,
+     54
+    ],
+    [
+     "/robots",
+     1330.6,
+     100
+    ],
+    [
+     "/notifications/unread-count",
+     1326.1,
+     142
+    ]
+   ],
+   "stable": true
+  },
+  {
+   "sessions": 100,
+   "seconds": 40.0,
+   "logins_ok": 100,
+   "login_p95_ms": 6165.1,
+   "page_loads": 835,
+   "requests": 2229,
+   "errors": 2,
+   "error_rate": 0.0009,
+   "codes": {
+    "200": 2134,
+    "403": 93,
+    "0": 2
+   },
+   "page_ms": {
+    "p50": 114.1,
+    "p95": 2699.6,
+    "p99": 4461.9
+   },
+   "req_ms": {
+    "p50": 188.1,
+    "p95": 2603.1,
+    "p99": 4344.3
+   },
+   "req_per_s": 55.7,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 163.9,
+    "smart-lab-portal-db-1": 27.0
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.89,
+    "smart-lab-portal-db-1": 12.17
+   },
+   "slowest_endpoints": [
+    [
+     "/reliability/briefing",
+     5726.1,
+     10
+    ],
+    [
+     "/security/cameras",
+     4191.6,
+     32
+    ],
+    [
+     "/ai/student/status",
+     4152.7,
+     75
+    ],
+    [
+     "/labs/overview",
+     3294.8,
+     240
+    ],
+    [
+     "/monitor",
+     3182.2,
+     32
+    ],
+    [
+     "/analytics/me",
+     3172.8,
+     75
+    ],
+    [
+     "/bookings",
+     2928.6,
+     190
+    ],
+    [
+     "/issues",
+     2906.6,
+     217
+    ]
+   ],
+   "stable": false
+  }
+ ]
+}

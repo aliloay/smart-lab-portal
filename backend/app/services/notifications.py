@@ -23,7 +23,8 @@ def notify(db: Session, user_ids: Iterable[int], kind: str, title: str, *,
            issue_id: Optional[int] = None,
            booking_id: Optional[int] = None,
            exclude: Optional[int] = None,
-           dedupe_key: Optional[str] = None) -> list[Notification]:
+           dedupe_key: Optional[str] = None,
+           source: str = "portal") -> list[Notification]:
     """
     Stage one notification per recipient. `exclude` drops the person who
     caused the change - nobody needs to be told about their own action.
@@ -42,7 +43,7 @@ def notify(db: Session, user_ids: Iterable[int], kind: str, title: str, *,
                          body=body[:500], link=link, severity=severity,
                          issue_id=issue_id, booking_id=booking_id,
                          created_at=datetime.now(timezone.utc),
-                         dedupe_key=dedupe_key)
+                         dedupe_key=dedupe_key, source=source)
         db.add(n)
         rows.append(n)
     if rows:
@@ -59,6 +60,7 @@ def serialize(n: Notification) -> dict:
         "body": n.body, "link": n.link, "issue_id": n.issue_id,
         "booking_id": n.booking_id, "is_read": n.is_read,
         "created_at": n.created_at.isoformat() if n.created_at else None,
+        "source": n.source,
     }
 
 
@@ -66,6 +68,11 @@ def staff_ids(db: Session) -> list[int]:
     return list(db.scalars(select(User.id).where(
         User.role.in_([Role.ADMIN, Role.LAB_STAFF]),
         User.is_active.is_(True))).all())
+
+
+def active_user_ids(db: Session) -> list[int]:
+    """Everyone with an active account: emergency messages go to all of them."""
+    return list(db.scalars(select(User.id).where(User.is_active.is_(True))).all())
 
 
 def admin_ids(db: Session) -> list[int]:

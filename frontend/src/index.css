@@ -6,6 +6,30 @@
 
 html, body, #root { min-height: 100%; }
 
+/* ---- responsive foundation (2026-10-28 audit: 8 device profiles x 3 roles) ---------------------------------- */
+/* form controls never push a row wider than the screen (iOS date inputs have a large intrinsic width) */
+input, select, textarea { max-width: 100%; min-width: 0; }
+/* long ids / URLs / device codes wrap instead of widening the page */
+/* break-word, NOT anywhere: "anywhere" also shrinks flex items to one letter wide ("N e t w o r k" on phones,
+   owner 2026-10-28); break-word only breaks a word that truly does not fit its line */
+main { min-width: 0; overflow-wrap: break-word; }
+main .mono, main code { overflow-wrap: anywhere; }
+/* wide data tables scroll inside their card on narrow screens instead of the whole page */
+@media (max-width: 767px) {
+  main table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+/* touch screens: comfortable targets (WCAG 2.5.8 minimum 24 px; we aim for 40) for buttons, selects and inputs */
+@media (pointer: coarse) {
+  .btn, .btn-sm, .btn-ghost, .btn-primary, select, .input { min-height: 40px; }
+  .glass-control { min-height: 40px; min-width: 40px; }
+  /* small inline text links get a taller tap area without changing the layout */
+  main a.link, main a.text-xs, main a[class*="text-[12px]"], main .link, main a.underline,
+  main a[class*="hover:text-accent"] { display: inline-block; padding-block: 10px; margin-block: -10px; }
+  header a, header button { min-height: 40px; }
+}
+/* notch / home-indicator safe areas */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
 body {
   @apply bg-ink-900 text-slate-300 antialiased;
   font-feature-settings: 'cv02','cv03','cv04','cv11','ss01';
@@ -16,6 +40,19 @@ body {
     radial-gradient(900px 520px at 100% 0%, rgba(139,92,246,.07), transparent 55%),
     linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
   background-attachment: fixed;
+}
+/* 2026-10-27 (owner: "when scrolling fast it freezes and lags"; measured: frame p95 33 ms, worst 150 ms on the dashboard
+   with NO long JavaScript tasks = painting): a fixed body background is repainted on every scroll frame. The same light
+   now lives on its own fixed, composited layer, so scrolling only moves the content. */
+@supports (position: fixed) {
+  body { background-attachment: scroll; background-image: none; }
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; transform: translateZ(0);
+    background-image:
+      radial-gradient(1200px 600px at 12% -10%, rgba(14,165,233,.10), transparent 60%),
+      radial-gradient(900px 520px at 100% 0%, rgba(139,92,246,.07), transparent 55%),
+      linear-gradient(180deg, #152642 0%, #12213a 40%, #101e35 100%);
+  }
 }
 
 /* Motion communicates state here, so with motion reduced the state must still
@@ -46,15 +83,23 @@ body {
 }
 
 @layer components {
+  /* glass buttons on the live camera picture (2026-10-28) */
+  .glass-btn {
+    @apply grid place-items-center w-11 h-11 rounded-full text-white shadow-lg transition active:scale-95;
+    border: 1px solid rgba(255,255,255,.3);
+    /* no backdrop blur: re-blurring the live video under 7 buttons every frame made the iPhone lag (2026-10-28) */
+    background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.10)), rgba(15,23,42,.45);
+  }
+  .glass-btn:hover { background: rgba(255,255,255,.24); }
   /* --- surfaces ----------------------------------------------------------- */
   /* Glass: translucent blue-grey, a light blur, one thin border, a soft
      shadow. Opaque enough that text never competes with what is behind. */
   .card {
     @apply relative rounded-2xl shadow-card;
     border: 1px solid rgba(148,184,226,.13);
-    background: linear-gradient(180deg, rgba(36,58,92,.74) 0%, rgba(27,46,75,.70) 100%);
-    -webkit-backdrop-filter: blur(14px) saturate(135%);
-            backdrop-filter: blur(14px) saturate(135%);
+    /* 2026-10-27: no live blur behind every card (each one re-blurred the page on every scroll frame); what is
+       behind a card is the smooth page gradient, so a slightly denser glass colour looks the same. */
+    background: linear-gradient(180deg, rgba(36,58,92,.86) 0%, rgba(27,46,75,.84) 100%);
   }
   .card-pad { @apply card p-5; }
   .card-hover {
@@ -132,8 +177,9 @@ body {
   .chip {
     @apply inline-flex items-center gap-1.5 px-2 py-[3px] rounded-md
            text-[10.5px] font-semibold tracking-[0.08em] uppercase
-           whitespace-nowrap;
+           whitespace-nowrap max-w-full;
   }
+  @media (max-width: 767px) { .chip { white-space: normal; } }
 
   /* --- tables -------------------------------------------------------------- */
   .th {
@@ -211,4 +257,80 @@ body {
   aside, header, nav, .print\:hidden { display: none !important; }
   body { background: #fff !important; }
   .card { break-inside: avoid; box-shadow: none !important; }
+}
+
+/* Asset marker sheet (2026-10-27): only the sheet prints - A4, 3 per row, each marker 6.3 cm wide, cut gaps.
+   The marker images carry their own colours, so they print the same with or without "background graphics". */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+  body.printing-markers * { visibility: hidden !important; }
+  body.printing-markers #marker-sheet, body.printing-markers #marker-sheet * { visibility: visible !important; }
+  body.printing-markers #marker-sheet { display: grid !important; position: absolute; left: 0; top: 0; width: 190mm;
+    grid-template-columns: repeat(2, 90mm); gap: 4mm 6mm; justify-content: center; }
+  body.printing-markers #marker-sheet .marker-card { break-inside: avoid; box-shadow: none; border: 0.3mm dashed #94a3b8;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* ---- Smart Lab motion system (Welcome page + intro) ----------------------
+   Durations: reveal 650 ms, intro 2.4 s, exit 500 ms. Easing: --ease-out-lab.
+   Only opacity/transform animate; each element once; nothing loops except the
+   tiny scroll cue (2 s, stops with reduced motion). */
+:root { --ease-out-lab: cubic-bezier(.22, 1, .36, 1); }
+.reveal { opacity: 0; transform: translate3d(0, 18px, 0);
+  transition: opacity 650ms var(--ease-out-lab), transform 650ms var(--ease-out-lab); }
+.reveal.is-in { opacity: 1; transform: none; }
+.hero-img { animation: heroIn 1.4s var(--ease-out-lab) both; }
+@keyframes heroIn { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: scale(1); } }
+.welcome-grid { background-image: linear-gradient(rgba(56,189,248,.06) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(56,189,248,.06) 1px, transparent 1px); background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, transparent, #000 60%); }
+.eyebrow-line { font-size: 11px; letter-spacing: .3em; text-transform: uppercase; color: rgb(103 232 249 / .85);
+  font-weight: 600; margin-bottom: .35rem; }
+.scroll-cue { width: 1px; height: 28px; background: linear-gradient(180deg, transparent, #67e8f9);
+  animation: cue 2s ease-in-out infinite; transform-origin: top; }
+@keyframes cue { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
+
+.intro { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: #070d17;
+  animation: introBg 2.4s var(--ease-out-lab) both; }
+.intro-out { opacity: 0; transform: translate3d(0, -2%, 0); transition: opacity 500ms ease, transform 500ms var(--ease-out-lab); }
+.intro-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(56,189,248,.07) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(56,189,248,.07) 1px, transparent 1px); background-size: 56px 56px;
+  mask-image: radial-gradient(circle at 50% 50%, #000 0%, transparent 65%); animation: introFade 1.2s ease both; }
+.intro-content { position: relative; text-align: center; padding: 0 16px; }
+.intro-mark { display: inline-block; animation: introRise 900ms var(--ease-out-lab) 100ms both; }
+.intro-title { margin-top: 18px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: clamp(2rem, 7vw, 4rem);
+  letter-spacing: .32em; color: #fff; font-weight: 600; padding-left: .32em; animation: introRise 900ms var(--ease-out-lab) 350ms both; }
+.intro-sub { margin-top: 6px; color: #94a3b8; letter-spacing: .18em; font-size: 13px; text-transform: uppercase;
+  animation: introRise 900ms var(--ease-out-lab) 650ms both; }
+.intro-hello { margin-top: 22px; color: #67e8f9; font-size: 15px; animation: introRise 800ms var(--ease-out-lab) 1000ms both; }
+.intro-line { margin: 22px auto 0; height: 1px; width: min(320px, 70vw); background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  transform-origin: center; animation: introLine 1.6s var(--ease-out-lab) 500ms both; }
+.intro-skip { position: absolute; right: 16px; bottom: 16px; }
+@keyframes introRise { from { opacity: 0; transform: translate3d(0, 14px, 0); } to { opacity: 1; transform: none; } }
+@keyframes introFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes introLine { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+@keyframes introBg { from { opacity: 0; } 12% { opacity: 1; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; }
+  .scroll-cue { animation: none; }
+}
+
+/* Robotics Lab: a light travelling around a rounded border (cyan with an amber tail). Decorative. */
+@property --rb-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.ray-border { position: relative; isolation: isolate; }
+.ray-border::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; pointer-events: none; z-index: 2;
+  background: conic-gradient(from var(--rb-angle), transparent 0deg 250deg, rgba(251,191,36,.7) 285deg, #22d3ee 330deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: rb-spin 8s linear infinite;
+}
+@keyframes rb-spin { to { --rb-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .ray-border::before { animation: none; } }
+
+/* Old Chrome on the lab's Windows 7 PCs (< 88) has no aspect-ratio: a box sized only by it got 0 height,
+   so a shared screen or camera was invisible until Full screen (seen on PC-01, 2026-10-21). */
+@supports not (aspect-ratio: 16 / 9) {
+  .aspect-video { min-height: 14rem; }
+  .aspect-\[4\/3\] { min-height: 15rem; }
 }

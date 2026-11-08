@@ -1,6 +1,45 @@
-# Smart Laboratory Management Portal
+# Design and Development of a Lightweight, Locally Operated AIoT Platform for Integrated Smart Facility Management and Vision-Based Presence Verification
 
 [![CI](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml)
+
+## Executive overview
+
+Facilities run access control, cameras, environmental sensors, stock, shared equipment and computers as separate systems. A door log says who badged in, but not who is actually inside an hour later; a camera sees people, but does not know who was allowed in.
+
+This project is a modular AIoT platform that runs on a local network and links those systems through one backend:
+
+- **Four ESP32 nodes:** Master (door access: NFC, fingerprint, lock), Environment (temperature, humidity, gas, motion), Consumables (load-cell stock) and Reusables (NFC check-out, automatic lid). They report to the API over HTTP on local Wi-Fi.
+- **Vision-based presence:** a YOLO26s camera service detects and tracks people, and the backend cross-checks them against door entries ("person with no door entry", desk and PC occupancy). Detection is not identification; a person is named only by a clear face match or their own access event.
+- **One portal** for operations, security, resources, equipment, lab PCs, read-only robot monitoring (UR5e, FANUC), reports and phone-based "Scan the lab" views.
+- **Knowledge and automation:** an Obsidian vault is the project knowledge base; a local LLM agent answers questions from it with sources; 23 n8n workflows schedule checks and notifications while the backend makes every decision.
+- **Local first:** core operations need no internet or cloud service.
+
+The **Smart Research Laboratory at GIU** is the development and demonstration environment. Hospitals, universities, banks and industrial sites are potential applications, not validated deployments.
+
+## Run it (one command)
+
+```powershell
+git clone https://github.com/aliloay/smart-lab-portal.git
+cd smart-lab-portal
+copy .env.example .env        # then set POSTGRES_PASSWORD, SECRET_KEY (32+ chars), DEVICE_API_KEY
+powershell -ExecutionPolicy Bypass -File .\launch.ps1 -Build
+```
+
+The launcher checks Docker and `.env`, starts the stack, waits for the health checks and prints the URLs (portal `https://localhost/`, API `http://127.0.0.1:8000/api/health`). `stop.ps1` stops the containers and keeps all data. Hardware (ESP32 nodes, cameras, face server, robots) is optional: without it the portal runs and shows those devices as offline. The full lab start, including camera services and the local AI, is `launch.bat` (see [docs/How_To_Run_System.md](docs/How_To_Run_System.md)).
+
+## Release documentation (9 Nov 2026)
+
+| Document | Contents |
+|---|---|
+| [docs/release/PROJECT_COMPONENT_INVENTORY.md](docs/release/PROJECT_COMPONENT_INVENTORY.md) | Every subsystem, its location and verified status (including what was proposed but not built: PLC, MQTT, Raspberry Pi) |
+| [docs/automation/N8N_WORKFLOWS.md](docs/automation/N8N_WORKFLOWS.md) | All 23 workflows: trigger, steps, backend endpoints |
+| [docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md](docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md) | Repository state, exclusions and secret audit before this release |
+| [docs/release/CODE_OPTIMIZATION_REPORT.md](docs/release/CODE_OPTIMIZATION_REPORT.md) | Maintenance changes and their tests |
+| [docs/release/GITHUB_RELEASE_REPORT.md](docs/release/GITHUB_RELEASE_REPORT.md) | Tests run, push result, remaining issues |
+
+Not in the repository (kept on the development PC): YOLO training datasets and results, CAD build outputs, generated status PDFs, unblurred camera images, and the PC install kit (it contains an enrolment key; rebuild it with `tools/pc_agent/make_kit.py`).
+
+## Portal and lab details
 
 Booking, time-bound QR credentials, and the audit trail for the physical
 two-factor access-control system - plus analytics dashboards, n8n automation
@@ -89,6 +128,12 @@ two chat screenshots are from the owner's laptop with the free local models.
 | ![Report an issue](docs/screenshots/report-issue.png) | ![Maintenance queue](docs/screenshots/maintenance-queue.png) |
 | **Issue workflow** | **Devices** |
 | ![Issue detail](docs/screenshots/issue-detail.png) | ![Devices](docs/screenshots/devices.png) |
+| **Security camera: the robotics lab (MC210)** | **Security camera: people, PCs and robots watched** |
+| ![Security camera view](docs/screenshots/security-camera-lab.jpg) | ![Security camera boxes](docs/screenshots/security-camera-boxes.jpg) |
+
+The two security camera pictures are real frames from the lab (7 Oct 2026):
+faces are blurred for publication. Each PC (PC-01...PC-11), the UR5e and the
+Fanuc has a box; "Unknown" is a person with no door entry and no enrolled face.
 
 ## Documentation
 
@@ -203,7 +248,7 @@ invents activity). Set `SEED_DEMO_DATA=false` in `.env` to skip seeding.
 | Who | Address |
 |---|---|
 | This laptop | <http://localhost> |
-| Phones and other laptops on the same Wi-Fi or hotspot | `http://<laptop LAN IP>` - e.g. `http://192.168.1.8` |
+| Phones and other laptops on the same Wi-Fi or hotspot | `http://<laptop LAN IP>` - e.g. `http://192.168.1.200` |
 | ESP32 master (`BACKEND_IP` in the firmware) | `<laptop LAN IP>`, port `8000` |
 | API documentation | <http://localhost:8000/api/docs> |
 | Database tools (pgAdmin, psql) on this laptop only | `localhost:5433`, user and database `smartlab` |
@@ -293,13 +338,15 @@ new tables.
 
 ### Sign in
 
-| Email | Password | Role |
-|---|---|---|
-| `admin@giu-uni.de` | `Admin#2026` | Administrator |
-| `ali@giu-uni.de` | `Student#2026` | Student (`USER1`) |
-| `ramy@giu-uni.de` | `Staff#2026` | Lab staff (`USER2`) |
+| Email | Role |
+|---|---|
+| `admin@giu-uni.de` | Administrator |
+| `ali@giu-uni.de` | Student (`USER1`) |
+| `ramy@giu-uni.de` | Lab staff (`USER2`) |
 
-**Change these before the system goes anywhere real.**
+Initial passwords are not published. A new install takes them from `SEED_ADMIN_PASSWORD`, `SEED_STAFF_PASSWORD`
+and `SEED_STUDENT_PASSWORD` in `.env`, or creates random ones; set or reset any account's password on the laptop with
+`docker compose exec backend python set_password.py <email>` (hidden prompt), or on **Users & roles**.
 
 **New accounts.** Students can use the **Sign up** tab on the login page. Sign-up
 only ever creates a *student* with no fingerprint/card enrolment, so it gives no
@@ -560,7 +607,7 @@ Then set these near the top of the master sketch:
 
 ```cpp
 constexpr bool BACKEND_ENABLED = true;   // false = exactly the old behaviour
-const char *BACKEND_IP   = "192.168.1.8";
+const char *BACKEND_IP   = "192.168.1.200";
 const char *LAB_ID       = "LAB_01";     // must match labs.code
 const char *DEVICE_ID    = "MASTER_LAB01";
 ```

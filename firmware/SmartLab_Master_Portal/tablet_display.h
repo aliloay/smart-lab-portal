@@ -1,0 +1,503 @@
+// ===========================================================================
+// TABLET DISPLAY - a second, larger, READ-ONLY view of the access station.
+//
+// The TFT stays the local display and is not touched. This file only READS
+// the same state the TFT is drawn from (state, verifyPromptShown, step1Label,
+// pendingUserIndex, deniedReason, heldOpenAlarmed, ...) and serves it to a
+// browser on the same Wi-Fi:
+//
+//     http://<Master ESP32 IP>/        the tablet page
+//     http://<Master ESP32 IP>/state   the current state as JSON
+//
+// Guarantees:
+//   - Three GET routes (/, /state, /photo), nothing else (anything else is a 404). No route
+//     calls a state transition or touches the relay/lock, so no request -
+//     including one from a modified page - can open the door. The one thing a
+//     request records is /state?snd=1: "this page has its sound on", which
+//     moves the spoken prompts from the door speaker to the page. Nothing else.
+//   - Sound: the page says each announcement (sayId / say) with the voice and
+//     speaker of the device that opened it, after one tap to allow sound.
+//   - handleClient() is non-blocking and a /state reply is ~1 KB, so the
+//     access logic keeps its timing. With no tablet, it costs nothing.
+//   - Wording is taken from the TFT screens in SmartLab_Master_Portal.ino so
+//     both displays say the same thing.
+//
+// Included from the .ino just before setup(), where every variable and
+// helper it reads (friendlyReason, cameraHealthy, authorizedUsers, ...) is
+// already declared.
+// ===========================================================================
+#pragma once
+#include <WebServer.h>
+
+static WebServer tabletServer(80);
+
+// --- tiny JSON writer (names and reasons are short firmware strings) --------
+static void tjStr(String &o, const char *s) {
+  o += '"';
+  for (const char *p = s ? s : ""; *p; ++p) {
+    char c = *p;
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if ((uint8_t)c < 0x20) o += ' ';
+    else o += c;
+  }
+  o += '"';
+}
+static void tjKey(String &o, const char *k) { tjStr(o, k); o += ':'; }
+static void tjKV(String &o, const char *k, const char *v) { tjKey(o, k); tjStr(o, v); o += ','; }
+static void tjKV(String &o, const char *k, bool v) { tjKey(o, k); o += v ? "true" : "false"; o += ','; }
+static void tjKV(String &o, const char *k, long v) { tjKey(o, k); o += String(v); o += ','; }
+
+// The granted user's LCD photo (RGB565, 160x128), or nullptr.
+static const uint16_t *tabletPhoto() {
+  if (pendingUserIndex < 0) return nullptr;
+  return grantPhoto(authorizedUsers[pendingUserIndex].name);
+}
+
+// Raw RGB565 pixels, little-endian, 40 KB - the page turns them into an
+// image. Read-only like /state; 404 when there is no photo to show.
+static void tabletHandlePhoto() {
+  const uint16_t *p = tabletPhoto();
+  if (!p) { tabletServer.send(404, "text/plain", "No photo"); return; }
+  tabletServer.sendHeader("Cache-Control", "no-store");
+  tabletServer.send_P(200, "application/octet-stream", (PGM_P)p,
+                      USER_PHOTO_W * USER_PHOTO_H * 2);
+}
+
+// Mirrors updateDisplay(): same states, same branches, same words.
+static void tabletHandleState() {
+  if (tabletServer.arg("snd") == "1") tabletSoundSeenMs = millis();
+  const char *name = (pendingUserIndex >= 0) ? authorizedUsers[pendingUserIndex].displayName : "";
+  const char *screen = "idle", *tone = "idle", *header = "SMART LAB", *title = "";
+  const char *lines[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+  const char *note = nullptr;
+  int step = 0;
+  long remainingMs = -1;
+
+  switch (state) {
+    case STATE_IDLE:
+      screen = "idle"; title = "WELCOME"; step = 1;
+      lines[0] = "Scan your QR code"; lines[1] = "or RFID tag / card";
+      if (rfidLinkDown && !cameraHealthy()) note = "Readers offline - call staff";
+      else if (rfidLinkDown)                note = "RFID offline - use QR code";
+      else if (!cameraHealthy())            note = "Camera offline - use card";
+      break;
+    case STATE_WAIT_FINGERPRINT:
+      step = 2; tone = "ok";
+      if (verifyPromptShown) {
+        screen = "verify"; title = "VERIFY"; tone = "idle";
+        lines[0] = "Look at the camera"; lines[1] = "or place your finger";
+        uint32_t used = millis() - stateEnteredMs;
+        remainingMs = used >= FINGERPRINT_TIMEOUT_MS ? 0 : (long)(FINGERPRINT_TIMEOUT_MS - used);
+      } else {
+        screen = "step1ok"; title = step1Label;
+      }
+      break;
+    case STATE_ACCESS_GRANTED:
+    case STATE_DOOR_UNLOCKED_WAIT_OPEN:
+      screen = "granted"; tone = "ok"; header = "DOOR UNLOCKED"; title = "ACCESS GRANTED";
+      break;
+    case STATE_DOOR_OPEN_WAIT_CLOSE:
+      if (heldOpenAlarmed) {
+        screen = "heldopen"; tone = "bad"; header = "DOOR HELD OPEN"; title = "CLOSE THE DOOR";
+        lines[0] = "Open for too long"; lines[1] = "Staff have been notified";
+      } else {
+        screen = "dooropen"; title = "DOOR OPEN";
+        lines[0] = "Please close the door"; lines[1] = "behind you";
+      }
+      break;
+    case STATE_ACCESS_DENIED:
+      screen = "denied"; tone = "bad"; header = "DOOR LOCKED"; title = "ACCESS DENIED";
+      lines[0] = friendlyReason(deniedReason);
+      break;
+    case STATE_DOOR_ALARM:
+      screen = "alarm"; tone = "bad"; header = "! SECURITY ALERT !"; title = "FORCED ENTRY";
+      lines[0] = "Door opened while locked"; lines[1] = "Staff have been notified";
+      lines[2] = "Please close the door";
+      break;
+  }
+
+  // Fingerprint enrollment (serial monitor or portal request) runs while the
+  // state machine is idle; show its prompts instead of the welcome screen.
+  if (enrollActive) {
+    screen = "enroll"; tone = "idle";
+    header = enrollIsCard ? "RFID CARD ENROLLMENT" : "FINGERPRINT ENROLLMENT";
+    title = enrollLine1; name = enrollWho; step = 0; note = nullptr;
+    for (auto &l : lines) l = nullptr;
+    lines[0] = enrollLine2;
+  }
+
+  // Emergency (admin, from the portal): it overrides the normal screens.
+  if (emView) {
+    screen = "emergency"; tone = emView == 1 ? "ok" : "bad"; header = "! EMERGENCY !";
+    title = emView == 1 ? "DOOR OPEN" : "LAB LOCKED"; name = ""; step = 0; remainingMs = -1;
+    for (auto &l : lines) l = nullptr;
+    lines[0] = emMessage[0] ? emMessage : (emView == 1 ? "Please leave calmly" : "No entry at the moment");
+    note = emView == 1 ? (emUnlockUntilMs ? "Door kept open for a limited time" : "Door kept open until staff lock it")
+                       : "Set by the lab administrator";
+  } else if (emMessage[0]) {
+    note = emMessage;                      // the admin's message on the normal screens
+  }
+  if (emAlarm) { tone = "bad"; header = "! EVACUATE !"; }
+
+  String o; o.reserve(1600);
+  o += '{';
+  tjKV(o, "screen", screen); tjKV(o, "tone", tone); tjKV(o, "header", header);
+  tjKV(o, "title", title); tjKV(o, "name", name);
+  tjKV(o, "note", note ? note : "");
+  tjKey(o, "lines"); o += '[';
+  bool first = true;
+  for (auto l : lines) if (l && *l) { if (!first) o += ','; tjStr(o, l); first = false; }
+  o += "],";
+  tjKV(o, "step", (long)step);
+  tjKV(o, "remainingMs", remainingMs);
+  tjKV(o, "totalMs", (long)FINGERPRINT_TIMEOUT_MS);
+  tjKV(o, "method", (state == STATE_WAIT_FINGERPRINT) ? step1Label : "");
+  tjKV(o, "viaPortal", (bool)(pendingViaPortal && pendingUserIndex >= 0));
+  // Same photo the LCD shows on ACCESS GRANTED; the page fetches /photo.
+  tjKV(o, "photo", (bool)(!strcmp(screen, "granted") && tabletPhoto() != nullptr));
+  // Changes when the face server's photo replaces the compiled-in one, so
+  // the page fetches it again.
+  tjKV(o, "photoSrc", (pendingUserIndex >= 0 &&
+                       serverPortrait(authorizedUsers[pendingUserIndex].name)) ? "server" : "local");
+  // The newest announcement. sayId changes once per announcement; a page
+  // with its sound on plays each one once, if it is still fresh.
+  tjKV(o, "sayId", (long)annSeq);
+  tjKV(o, "sayAgeMs", (long)(millis() - annAtMs));
+  tjKey(o, "say"); o += annSteps; o += ',';
+  // Station facts the ESP32 already tracks (read-only).
+  tjKV(o, "lab", LAB_ID); tjKV(o, "device", DEVICE_ID);
+  // A page left open across a reflash reloads itself when this changes.
+  tjKV(o, "build", __DATE__ " " __TIME__);
+  // Where the portal is: the page shows the GIU logo from it (cosmetic only;
+  // the page works the same if the laptop is off).
+  tjKV(o, "portal", BACKEND_IP);
+  tjKV(o, "doorClosed", doorClosed);
+  tjKV(o, "lockReleased", relayUnlocked);
+  // The admin's emergency message, read aloud by this page while emSpeak
+  // (repeated until cleared, Clear sound, or "Stop message" on the tablet).
+  tjKV(o, "emMsg", emMessage);
+  tjKV(o, "emSpeak", (bool)(emSpeak && emMessage[0]));
+  tjKV(o, "emVer", emVersion);
+  tjKV(o, "camera", cameraHealthy());
+  tjKV(o, "fingerprint", fpOk);
+  tjKV(o, "rfidReader", !rfidLinkDown);
+  tjKV(o, "portalIntegration", BACKEND_ENABLED);
+  tjKV(o, "wifi", WiFi.status() == WL_CONNECTED);
+  tjKV(o, "rssi", (long)WiFi.RSSI());
+  tjKV(o, "ip", WiFi.localIP().toString().c_str());
+  tjKey(o, "uptimeS"); o += String(millis() / 1000);
+  o += '}';
+
+  tabletServer.sendHeader("Cache-Control", "no-store");
+  tabletServer.send(200, "application/json", o);
+}
+
+// --- the page ------------------------------------------------------------------
+static const char TABLET_PAGE[] PROGMEM = R"HTML(<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1a2e">
+<title>Smart Lab - Access Station</title>
+<style>
+:root{--bg:#0d1a2e;--glass:rgba(36,58,92,.62);--line:rgba(148,184,226,.14);--txt:#f1f5f9;--sub:#94a3b8;
+--cy:#38bdf8;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b}
+*{box-sizing:border-box;margin:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--txt);
+background:radial-gradient(1200px 600px at 10% -10%,rgba(14,165,233,.14),transparent 60%),
+radial-gradient(900px 500px at 100% 0,rgba(139,92,246,.08),transparent 55%),
+linear-gradient(180deg,#152642,#101e35);display:flex;flex-direction:column;overflow:hidden}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+background-image:linear-gradient(rgba(148,184,226,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(148,184,226,.06) 1px,transparent 1px);
+background-size:32px 32px}
+header{display:flex;align-items:center;justify-content:space-between;padding:2.2vh 3vw;border-bottom:1px solid var(--line);
+background:rgba(13,26,46,.55);backdrop-filter:blur(12px);position:relative}
+.brand{font-weight:800;letter-spacing:.18em;font-size:clamp(16px,2.4vw,28px)}
+.brand b{color:var(--cy)}
+.brand{display:flex;align-items:center;gap:1.4vw}
+#logo{height:clamp(34px,6vh,64px);width:auto;
+filter:drop-shadow(0 0 .8px rgba(241,245,249,1)) drop-shadow(0 0 .8px rgba(241,245,249,.85)) drop-shadow(0 0 3px rgba(241,245,249,.22))}
+.sep{width:1px;align-self:stretch;background:var(--line)}
+.lab{font-family:ui-monospace,Consolas,monospace;color:var(--sub);font-size:clamp(13px,1.8vw,20px);letter-spacing:.1em}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:3vh 4vw;position:relative}
+.card{width:min(1100px,100%);border-radius:28px;border:1px solid var(--line);background:var(--glass);
+backdrop-filter:blur(16px);box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 30px 60px -30px rgba(2,6,23,.9);
+padding:5vh 5vw;text-align:center;transition:background .3s,border-color .3s}
+.card.ok{background:linear-gradient(180deg,rgba(16,185,129,.30),rgba(6,95,70,.35));border-color:rgba(52,211,153,.45)}
+.card.bad{background:linear-gradient(180deg,rgba(239,68,68,.30),rgba(127,29,29,.40));border-color:rgba(248,113,113,.5)}
+.hdr{font-family:ui-monospace,Consolas,monospace;letter-spacing:.2em;font-size:clamp(13px,1.8vw,20px);color:var(--sub);margin-bottom:2.5vh}
+.icon{width:clamp(80px,13vh,150px);height:clamp(80px,13vh,150px);margin:0 auto 2.5vh;border-radius:50%;display:grid;place-items:center;
+border:2px solid rgba(255,255,255,.5)}
+.icon svg{width:55%;height:55%}
+#photo{display:block;margin:0 auto 2.5vh;height:clamp(160px,34vh,380px);aspect-ratio:160/128;border-radius:20px;
+border:3px solid rgba(52,211,153,.7);image-rendering:auto}
+h1{font-size:clamp(40px,8vw,104px);line-height:1.02;font-weight:800;letter-spacing:.02em}
+.name{margin-top:1.6vh;font-size:clamp(26px,4.6vw,60px);font-weight:700;color:#a7f3d0}
+.card:not(.ok) .name{color:#bae6fd}
+.lines{margin-top:2.4vh;font-size:clamp(18px,2.8vw,34px);color:#e2e8f0;line-height:1.35}
+.note{margin-top:2vh;font-size:clamp(16px,2.2vw,26px);color:var(--warn);font-weight:600}
+.step{margin-top:3vh;display:inline-block;padding:.6vh 1.6vw;border-radius:999px;border:1px solid rgba(56,189,248,.45);
+color:var(--cy);font-family:ui-monospace,Consolas,monospace;letter-spacing:.2em;font-size:clamp(13px,1.8vw,20px)}
+.bar{margin:3vh auto 0;height:12px;width:min(700px,90%);border-radius:99px;background:rgba(148,184,226,.15);overflow:hidden}
+.bar i{display:block;height:100%;width:100%;background:var(--ok);transition:width .4s linear}
+.bar.low i{background:var(--warn)}
+footer{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line)}
+footer div{background:rgba(13,26,46,.72);padding:1.6vh 1.6vw}
+footer small{display:block;color:var(--sub);font-size:clamp(11px,1.3vw,14px);letter-spacing:.14em;text-transform:uppercase}
+footer span{font-size:clamp(14px,1.9vw,22px);font-weight:600}
+.g{color:var(--ok)}.r{color:var(--bad)}.m{color:var(--sub)}.y{color:var(--warn)}
+#conn{position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:999px;font-weight:700;
+letter-spacing:.14em;font-size:clamp(12px,1.6vw,18px);display:none;z-index:5}
+#conn.down{display:block;background:#7f1d1d;border:1px solid #f87171}
+#conn.up{display:block;background:#065f46;border:1px solid #34d399}
+.card.withlive{padding-top:2vh;padding-bottom:2vh}
+.card.withlive .hdr{margin-bottom:1vh;font-size:clamp(11px,2vh,18px)}
+.card.withlive h1{font-size:clamp(28px,7.5vh,64px)}
+.card.withlive .name{margin-top:.6vh;font-size:clamp(20px,4.6vh,44px)}
+.card.withlive .lines{margin-top:.8vh;font-size:clamp(15px,3vh,26px);line-height:1.25}
+.card.withlive .note{margin-top:.6vh;font-size:clamp(14px,2.6vh,22px)}
+.card.withlive .icon{display:none}
+.live{position:relative;height:min(34vh,345px);aspect-ratio:4/3;max-width:80vw;margin:1.4vh auto 0;border-radius:18px;overflow:hidden;
+border:2px solid rgba(148,184,226,.35);background:#050b16}
+.live img{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:block}
+.live .box{position:absolute;border:3px solid var(--cy);border-radius:14px;transition:all .15s linear}
+.live .box.ok{border-color:var(--ok)}.live .box.warn{border-color:var(--warn)}
+.live .off{position:absolute;inset:0;display:grid;place-items:center;color:var(--sub);font-size:clamp(14px,1.8vw,20px)}
+.hint{margin-top:1vh;font-size:clamp(18px,4vh,34px);font-weight:700;color:var(--cy)}
+.hint.ok{color:var(--ok)}.hint.warn{color:var(--warn)}
+footer .snd{cursor:pointer}
+footer .snd:hover{background:rgba(22,44,76,.85)}
+#sndAsk{position:fixed;inset:0;z-index:8;display:flex;flex-direction:column;align-items:center;justify-content:center;
+gap:2.4vh;background:rgba(5,11,22,.84);text-align:center;padding:24px;cursor:pointer}
+#sndAsk b{font-size:clamp(22px,4.8vh,46px);color:var(--cy)}
+#sndAsk span{font-size:clamp(15px,2.4vh,22px);color:var(--sub)}
+#sndAsk small{font-size:clamp(14px,2.2vh,20px);color:var(--sub);text-decoration:underline;padding:8px}
+#msgStop{position:fixed;right:2vw;bottom:12vh;z-index:7;font:inherit;font-size:clamp(16px,2.6vh,24px);font-weight:700;
+color:#fff;background:#7a1d1d;border:2px solid #fff;border-radius:12px;padding:1.2vh 2.2vw;cursor:pointer}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<div id="conn"></div>
+<div id="sndAsk" hidden><b>Tap to turn on the door sound</b><span>The door speaks through this device</span>
+<small id="sndNo">Keep this device silent</small></div>
+<button id="msgStop" hidden>Stop message</button>
+<header><div class="brand"><img id="logo" alt="German International University" hidden><i class="sep" id="sep" hidden></i><span id="brandTxt">GIU &middot; SMART <b>LAB</b></span></div><div class="lab" id="lab">ACCESS STATION</div></header>
+<main><div class="card" id="card">
+<div class="hdr" id="hdr">SMART LAB</div>
+<div class="icon" id="icon" hidden></div>
+<canvas id="photo" width="160" height="128" hidden></canvas>
+<h1 id="title">CONNECTING&hellip;</h1>
+<div class="name" id="name" hidden></div>
+<div class="lines" id="lines"></div>
+<div class="note" id="note" hidden></div>
+<div id="liveWrap" hidden><div class="live"><img id="liveImg" alt="Camera view"><div class="box" id="liveBox" hidden></div>
+<div class="off" id="liveOff">Camera view starting&hellip;</div></div><div class="hint" id="liveHint"></div></div>
+<div class="bar" id="bar" hidden><i id="barFill"></i></div>
+<div class="step" id="step" hidden></div>
+</div></main>
+<footer>
+<div><small>Door</small><span id="fDoor" class="m">&ndash;</span></div>
+<div><small>Lock</small><span id="fLock" class="m">&ndash;</span></div>
+<div><small>Camera / Face</small><span id="fCam" class="m">&ndash;</span></div>
+<div><small>Fingerprint</small><span id="fFp" class="m">&ndash;</span></div>
+<div><small>RFID reader</small><span id="fRfid" class="m">&ndash;</span></div>
+<div><small>Network</small><span id="fNet" class="m">&ndash;</span></div>
+<div class="snd" id="fSndCell"><small>Sound &middot; this device</small><span id="fSnd" class="m">&ndash;</span></div>
+</footer>
+<script>
+var CHECK='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+var CROSS='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+var WARN='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18h.01"/></svg>';
+function $(i){return document.getElementById(i)}
+function set(el,txt,cls){el.textContent=txt;el.className=cls||''}
+var fails=0,wasDown=false,upTimer=null,photoFor=null;
+function showPhoto(s){var cv=$('photo');
+ if(!s.photo){cv.hidden=true;photoFor=null;return false}
+ var key=s.name+'|'+s.photoSrc;
+ if(photoFor===key)return !cv.hidden;
+ photoFor=key;
+ fetch('/photo',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.arrayBuffer()}).then(function(b){
+  var v=new DataView(b),x=cv.getContext('2d'),im=x.createImageData(160,128),d=im.data;
+  for(var i=0;i<160*128;i++){var c=v.getUint16(i*2,true);
+   d[i*4]=(c>>11&31)*255/31;d[i*4+1]=(c>>5&63)*255/63;d[i*4+2]=(c&31)*255/31;d[i*4+3]=255}
+  x.putImageData(im,0,0);cv.hidden=false;$('icon').hidden=true;
+ }).catch(function(){photoFor=null});
+ return !cv.hidden}
+var BUILD=null,logoTried=false;
+function render(s){
+ if(BUILD===null)BUILD=s.build;else if(s.build&&s.build!==BUILD){location.reload();return}
+ PORTAL=s.portal||null;
+ LIVE=!!PORTAL&&(s.screen==='verify'||s.screen==='step1ok');   // after step 1 only
+ $('liveWrap').hidden=!LIVE;
+ if(!logoTried&&s.portal){logoTried=true;var im=$('logo');
+  im.onload=function(){im.hidden=false;$('sep').hidden=false;$('brandTxt').innerHTML='SMART <b>LAB</b>'};
+  im.onerror=function(){setTimeout(function(){logoTried=false},30000)};
+  im.src='http://'+s.portal+'/brand/giu-logo.png'}
+ var c=$('card');c.className='card'+(s.tone==='ok'?' ok':s.tone==='bad'?' bad':'')+(LIVE?' withlive':'');
+ $('hdr').textContent=s.header;$('lab').textContent=s.lab+' · ACCESS STATION';
+ $('title').textContent=s.title;
+ var ic=$('icon');
+ if(s.screen==='granted'||s.screen==='step1ok'){ic.innerHTML=CHECK;ic.hidden=false}
+ else if(s.screen==='denied'){ic.innerHTML=CROSS;ic.hidden=false}
+ else if(s.screen==='alarm'||s.screen==='heldopen'){ic.innerHTML=WARN;ic.hidden=false}
+ else ic.hidden=true;
+ if(showPhoto(s))ic.hidden=true;
+ var n=$('name');n.textContent=s.name;n.hidden=!s.name;
+ var L=$('lines');L.innerHTML='';s.lines.forEach(function(t){var d=document.createElement('div');d.textContent=t;L.appendChild(d)});
+ if(s.viaPortal&&s.screen!=='idle'){var d=document.createElement('div');d.className='m';d.textContent='Booking verified by the portal';L.appendChild(d)}
+ var nt=$('note');nt.textContent=s.note;nt.hidden=!s.note;
+ var st=$('step');st.hidden=!s.step;st.textContent='STEP '+s.step+' OF 2';
+ var b=$('bar');
+ if(s.remainingMs>=0){b.hidden=false;var p=Math.max(0,Math.min(100,100*s.remainingMs/s.totalMs));
+  $('barFill').style.width=p+'%';b.className='bar'+(s.remainingMs<5000?' low':'')}else b.hidden=true;
+ set($('fDoor'),s.doorClosed?'Closed':'Open',s.doorClosed?'g':'y');
+ set($('fLock'),s.lockReleased?'Released':'Locked',s.lockReleased?'y':'g');
+ set($('fCam'),s.camera?'Online':'Offline',s.camera?'g':'r');
+ set($('fFp'),s.fingerprint?'Ready':'Not detected',s.fingerprint?'g':'r');
+ set($('fRfid'),s.rfidReader?'Ready':'Offline',s.rfidReader?'g':'r');
+ set($('fNet'),s.ip+' · '+s.rssi+' dBm',s.wifi?'g':'r');
+}
+function conn(down){
+ var e=$('conn');
+ if(down){e.className='down';e.textContent='TABLET DISCONNECTED · RECONNECTING';wasDown=true;return}
+ if(wasDown){wasDown=false;e.className='up';e.textContent='TABLET CONNECTED';clearTimeout(upTimer);upTimer=setTimeout(function(){e.className=''},3000)}
+}
+// Live camera view. The frames come from the face server on the laptop -
+// the very frames the camera already sends for QR/face analysis - so the
+// camera and this board do no extra work. Shown after step 1 (QR / card),
+// while the person verifies. The face server PUSHES each frame the moment
+// it arrives (MJPEG), so the view runs at the camera's own rate; the hint
+// and face box are polled alongside.
+var LIVE=false,PORTAL=null,liveOn=false,liveStale=true;
+function liveStream(on){
+ var im=$('liveImg');
+ if(on){im.src='http://'+PORTAL+':5000/preview.mjpg?t='+Date.now();liveStale=false}
+ else{im.removeAttribute('src');$('liveOff').hidden=false;$('liveOff').textContent='Camera view starting…'}
+ liveOn=on}
+$('liveImg').onerror=function(){if(liveOn){liveStale=true;$('liveOff').hidden=false;$('liveOff').textContent='Camera view unavailable'}};
+function liveTick(){
+ if(LIVE!==liveOn)liveStream(LIVE);
+ if(!LIVE)return;
+ fetch('http://'+PORTAL+':5000/preview/state',{cache:'no-store'}).then(function(r){return r.json()}).then(function(p){
+  if(!LIVE)return;
+  var h=$('liveHint'),b=$('liveBox');h.textContent=p.hint||'';h.className='hint '+(p.tone||'');
+  if(p.box){b.hidden=false;b.className='box '+(p.tone||'');
+   b.style.left=(100*(1-p.box.x-p.box.w))+'%';b.style.top=(100*p.box.y)+'%';
+   b.style.width=(100*p.box.w)+'%';b.style.height=(100*p.box.h)+'%'}else b.hidden=true;
+  if(!p.fresh){liveStale=true;$('liveOff').hidden=false;$('liveOff').textContent='Camera view paused'}
+  else{$('liveOff').hidden=true;if(liveStale)liveStream(true)}   // frames are back: reconnect
+ }).catch(function(){});
+}
+setInterval(liveTick,300);
+// Door sound. The door decides WHAT is said; this device says it, with its
+// own voice and speaker (or the Bluetooth / lab speaker it is connected to).
+// Browsers allow sound only after a tap, so a tap turns it on; the choice is
+// remembered per device. While it is on, the polls carry snd=1 and the door
+// speaker stays quiet - if this page goes away, the door speaks again.
+var SND={want:false,ctx:null,voice:null,last:null,gen:0};
+try{SND.want=localStorage.getItem('doorSound')==='1'}catch(e){}
+function sndReady(){return SND.want&&!!SND.ctx&&SND.ctx.state==='running'}
+function sndVoice(){
+ if(!window.speechSynthesis)return null;
+ var v=speechSynthesis.getVoices().filter(function(x){return /^en/i.test(x.lang)});
+ var loc=v.filter(function(x){return x.localService});     // these work without internet
+ return loc.filter(function(x){return /en.US/i.test(x.lang)})[0]||loc[0]||v[0]||null}
+if(window.speechSynthesis)speechSynthesis.onvoiceschanged=function(){SND.voice=sndVoice()};
+function sndSay(t,done){
+ var fin=false;function end(){if(!fin){fin=true;if(done)done()}}
+ if(!window.speechSynthesis){end();return}
+ var u=new SpeechSynthesisUtterance(t);
+ u.volume=1;if(SND.voice){u.voice=SND.voice;u.lang=SND.voice.lang}else u.lang='en-US';
+ u.onend=end;u.onerror=end;setTimeout(end,4000+t.length*120);   // never stall the list
+ speechSynthesis.speak(u)}
+function sndTone(f0,f1,ms,sq){
+ var c=SND.ctx;if(!c)return;
+ var o=c.createOscillator(),g=c.createGain(),t=c.currentTime,d=ms/1000,v=sq?.35:.85;   // near full scale: the device volume does the rest
+ o.type=sq?'square':'triangle';o.frequency.setValueAtTime(f0,t);
+ if(f1!==f0)o.frequency.linearRampToValueAtTime(f1,t+d);
+ g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(v,t+.01);
+ g.gain.setValueAtTime(v,t+Math.max(.01,d-.015));g.gain.linearRampToValueAtTime(0,t+d);
+ o.connect(g);g.connect(c.destination);o.start(t);o.stop(t+d+.03)}
+function sndPlay(steps){
+ var g=++SND.gen,i=0;try{speechSynthesis.cancel()}catch(e){}
+ function next(){
+  if(g!==SND.gen||!sndReady()||i>=steps.length)return;
+  var s=steps[i++];
+  if(s[0]==='t'){sndTone(s[1],s[2],s[3]);setTimeout(next,s[3])}
+  else if(s[0]==='b'){sndTone(s[1],s[1],s[2],true);setTimeout(next,s[2])}
+  else if(s[0]==='g'){setTimeout(next,s[1])}
+  else if(s[0]==='v'){sndSay(s[1],next)}
+  else next()}
+ setTimeout(next,80)}      // a moment after cancel(): some browsers drop a speak() right after it
+function sndOn(){
+ try{if(!SND.ctx)SND.ctx=new(window.AudioContext||window.webkitAudioContext)();
+  SND.ctx.onstatechange=sndShow;SND.ctx.resume()}catch(e){}
+ SND.voice=sndVoice();SND.want=true;
+ try{localStorage.setItem('doorSound','1')}catch(e){}
+ sndSay('Door sound on.');            // said inside the tap: that is what allows speech later
+ sndShow();setTimeout(sndShow,400)}
+function sndOff(){
+ SND.want=false;SND.gen++;try{speechSynthesis.cancel()}catch(e){}
+ try{localStorage.setItem('doorSound','0')}catch(e){}
+ sndShow()}
+function sndShow(){
+ var r=sndReady();
+ set($('fSnd'),r?'On':SND.want?'Tap to resume':'Off \u00b7 tap to turn on',r?'g':SND.want?'y':'m');
+ $('sndAsk').hidden=!(SND.want&&!r)}
+$('fSndCell').onclick=function(){if(sndReady())sndOff();else sndOn()};
+$('sndAsk').onclick=sndOn;
+$('sndNo').onclick=function(e){e.stopPropagation();sndOff()};
+function sndCheck(s){
+ if(s.sayId===undefined)return;
+ if(SND.last===null){SND.last=s.sayId;return}     // just opened: nothing old is played
+ if(s.sayId===SND.last)return;
+ SND.last=s.sayId;
+ if(sndReady()&&s.sayAgeMs<3000)sndPlay(s.say||[])}
+// The admin's emergency message: read aloud now and every 20 s while the
+// portal says so, never over a door prompt; "Stop message" silences this
+// message on this tablet (a NEW message is read again).
+var MSG={key:null,stopped:null,last:0};
+function msgVoice(s){
+ var b=$('msgStop');
+ if(!s.emSpeak||!s.emMsg){b.hidden=true;return}
+ var k=s.emVer+':'+s.emMsg;
+ b.hidden=MSG.stopped===k||!sndReady();
+ if(MSG.stopped===k||!sndReady())return;
+ if(MSG.key===k&&Date.now()-MSG.last<20000)return;
+ if(window.speechSynthesis&&speechSynthesis.speaking)return;    // a door prompt is speaking
+ MSG.key=k;MSG.last=Date.now();
+ sndPlay([['v','Message from the lab administrator. '+s.emMsg]])}
+$('msgStop').onclick=function(){MSG.stopped=MSG.key;try{speechSynthesis.cancel()}catch(e){}this.hidden=true};
+sndShow();
+function poll(){
+ var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},2500);
+ fetch('/state'+(sndReady()?'?snd=1':''),{cache:'no-store',signal:ctl.signal}).then(function(r){return r.json()})
+ .then(function(s){clearTimeout(t);fails=0;conn(false);render(s);sndCheck(s);msgVoice(s)})
+ .catch(function(){clearTimeout(t);if(++fails>=3)conn(true)})
+ .then(function(){setTimeout(poll,fails?1500:500)});
+}
+poll();
+</script></body></html>)HTML";
+
+static void tabletHandlePage() {
+  tabletServer.sendHeader("Cache-Control", "no-store");
+  tabletServer.send_P(200, "text/html", TABLET_PAGE);
+}
+
+// Called once from setup(), after the existing Wi-Fi start. Listens on every
+// interface, so it also works if Wi-Fi only connects later.
+void tabletBegin() {
+  tabletServer.on("/", HTTP_GET, tabletHandlePage);
+  tabletServer.on("/state", HTTP_GET, tabletHandleState);
+  tabletServer.on("/photo", HTTP_GET, tabletHandlePhoto);
+  tabletServer.onNotFound([]() { tabletServer.send(404, "text/plain", "Not found"); });
+  tabletServer.begin();
+  Serial.print("[TABLET] Read-only display at http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/  (same Wi-Fi)");
+}
+
+// Called every loop(). Returns at once when no tablet is asking.
+void tabletLoop() {
+  tabletServer.handleClient();
+}

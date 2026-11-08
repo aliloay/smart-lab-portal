@@ -1,0 +1,1 @@
+Apache-2.0 - from https://raw.githubusercontent.com/ros-industrial/kuka_experimental/melodic-devel/kuka_kr6_support/ (ROS-Industrial). See https://www.apache.org/licenses/LICENSE-2.0

@@ -1,0 +1,81 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 50,
+   "seconds": 40.0,
+   "logins_ok": 50,
+   "login_p95_ms": 3494.8,
+   "page_loads": 457,
+   "requests": 1209,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 1150,
+    "403": 59
+   },
+   "page_ms": {
+    "p50": 29.2,
+    "p95": 1700.6,
+    "p99": 2375.8
+   },
+   "req_ms": {
+    "p50": 49.8,
+    "p95": 1595.1,
+    "p99": 2208.4
+   },
+   "req_per_s": 30.2,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 140.2,
+    "smart-lab-portal-db-1": 20.6
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.54,
+    "smart-lab-portal-db-1": 8.56
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/system",
+     2722.5,
+     9
+    ],
+    [
+     "/monitor",
+     2350.2,
+     23
+    ],
+    [
+     "/security/cameras",
+     2341.2,
+     23
+    ],
+    [
+     "/issues/summary",
+     2113.5,
+     29
+    ],
+    [
+     "/alerts",
+     2109.9,
+     33
+    ],
+    [
+     "/analytics/anomalies",
+     1973.7,
+     9
+    ],
+    [
+     "/system/health",
+     1955.5,
+     9
+    ],
+    [
+     "/bookings",
+     1857.2,
+     115
+    ]
+   ],
+   "stable": true
+  }
+ ]
+}

@@ -14,9 +14,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_staff
 from app.db.session import get_db
-from app.models import (AccessEvent, AccessSession, Booking, BookingStatus,
+from app.models import (AccessEvent, AccessSession, Booking, BookingItem, BookingStatus,
                         Lab, QrToken, Role, SessionEndReason, User)
-from app.schemas import (BookingCreate, BookingOut, BookingTrace, LabOut,
+from app.services.booking_equipment import items_of, options as equipment_options
+from app.schemas import (BookingCreate, BookingItemOut, BookingOut, BookingTrace, LabOut,
                          NoteBody, QrOut, SessionOut, TokenInfo, UserBrief)
 from app.services.booking import (BookingError, active_token, cancel_booking,
                                   confirm_booking, create_booking,
@@ -37,15 +38,37 @@ def _staff(u: User) -> bool:
     return u.role in (Role.ADMIN, Role.LAB_STAFF)
 
 
-def _decorate(db: Session, b: Booking) -> BookingOut:
+def _prefetch(db: Session, rows: list[Booking]) -> dict:
+    """What _decorate needs for a whole list in 5 queries instead of 5 per booking
+    (GET /bookings: 117 queries, ~0.7 s for 23 bookings on 2026-10-18)."""
+    ids = [b.id for b in rows]
+    group = lambda items, key: {k: [i for i in items if key(i) == k] for k in {key(i) for i in items}}
+    tokens: dict = {}
+    for t in db.scalars(select(QrToken).where(QrToken.booking_id.in_(ids), QrToken.revoked_at.is_(None))
+                        .order_by(QrToken.issued_at.desc())).all():
+        tokens.setdefault(t.booking_id, t)                 # newest first, as active_token()
+    return {
+        "labs": {x.id: x for x in db.scalars(select(Lab).where(Lab.id.in_({b.lab_id for b in rows}))).all()},
+        "users": {x.id: x for x in db.scalars(select(User).where(User.id.in_({b.user_id for b in rows}))).all()},
+        "items": group(db.scalars(select(BookingItem).where(BookingItem.booking_id.in_(ids))
+                                  .order_by(BookingItem.id)).all(), lambda i: i.booking_id),
+        "sessions": group(db.scalars(select(AccessSession).where(AccessSession.booking_id.in_(ids))).all(),
+                          lambda x: x.booking_id),
+        "tokens": tokens,
+    }
+
+
+def _decorate(db: Session, b: Booking, pre: Optional[dict] = None) -> BookingOut:
     out = BookingOut.model_validate(b)
-    lab = db.get(Lab, b.lab_id)
-    user = db.get(User, b.user_id)
+    lab = pre["labs"].get(b.lab_id) if pre else db.get(Lab, b.lab_id)
+    user = pre["users"].get(b.user_id) if pre else db.get(User, b.user_id)
     out.lab_name = lab.name if lab else None
     out.lab_code = lab.code if lab else None
     out.lab_category = lab.category if lab else None
     out.user_name = user.full_name if user else None
     out.user_email = user.email if user else None
+    out.equipment = [BookingItemOut.model_validate(i)
+                     for i in (pre["items"].get(b.id, []) if pre else items_of(db, b.id))]
 
     # Punctuality, computed rather than stored: derived values go stale the
     # moment either input changes.
@@ -53,7 +76,7 @@ def _decorate(db: Session, b: Booking) -> BookingOut:
         delta = _utc(b.first_entry_at) - _utc(b.start_time)
         out.entry_delay_minutes = int(delta.total_seconds() // 60)
 
-    sessions = db.scalars(select(AccessSession).where(
+    sessions = pre["sessions"].get(b.id, []) if pre else db.scalars(select(AccessSession).where(
         AccessSession.booking_id == b.id)).all()
     # An open session means somebody walked in and has not been seen leaving
     # or had the window close on them. Derived from access_sessions rather
@@ -65,7 +88,7 @@ def _decorate(db: Session, b: Booking) -> BookingOut:
         out.last_exit_at = max(s.ended_at for s in exits)
         out.time_inside_minutes = sum(duration_minutes(s) or 0 for s in exits)
 
-    tok = active_token(db, b.id)
+    tok = pre["tokens"].get(b.id) if pre else active_token(db, b.id)
     out.qr_active = (tok is not None and b.status == BookingStatus.CONFIRMED
                      and _utc(b.end_time) > datetime.now(timezone.utc))
     return out
@@ -104,11 +127,21 @@ def create(req: BookingCreate, db: Session = Depends(get_db),
             raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     try:
         booking = create_booking(db, owner, lab, req.start_time, req.end_time,
-                                 req.reason, actor=user)
+                                 req.reason, actor=user, equipment=req.equipment)
     except BookingError as e:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail={"code": e.code, "message": e.message})
     return _decorate(db, booking)
+
+
+@router.get("/equipment-options")
+def booking_equipment_options(lab_id: int, start_time: datetime, end_time: datetime,
+                              db: Session = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """What can be chosen for this lab and window (reserved items are marked)."""
+    if db.get(Lab, lab_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    return equipment_options(db, lab_id, _utc(start_time), _utc(end_time))
 
 
 @router.get("", response_model=list[BookingOut])
@@ -134,7 +167,9 @@ def list_bookings(lab_id: Optional[int] = None,
         stmt = stmt.where(Booking.end_time > start)
     if end is not None:
         stmt = stmt.where(Booking.start_time < end)
-    return [_decorate(db, b) for b in db.scalars(stmt.limit(limit)).all()]
+    rows = db.scalars(stmt.limit(limit)).all()
+    pre = _prefetch(db, rows) if rows else None
+    return [_decorate(db, b, pre) for b in rows]
 
 
 @router.get("/{booking_id}", response_model=BookingOut)

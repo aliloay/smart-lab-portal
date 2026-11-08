@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>ALIoT Smart Lab - engineering dossier 2026-10-20 (evening update)</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 9.6pt; color: #16202a; line-height: 1.45; }
+h1 { font-size: 20pt; margin: 0 0 4pt; color: #0b3d5c; }
+h2 { font-size: 13pt; color: #0b3d5c; border-bottom: 1.5px solid #0b7a8a; padding-bottom: 2pt; margin: 16pt 0 6pt; page-break-after: avoid; }
+h3 { font-size: 10.5pt; margin: 10pt 0 4pt; page-break-after: avoid; }
+p { margin: 3pt 0 6pt; }
+table { border-collapse: collapse; width: 100%; margin: 4pt 0 8pt; page-break-inside: auto; }
+th, td { border: 1px solid #c9d3da; padding: 3pt 5pt; text-align: left; vertical-align: top; }
+th { background: #e8f1f4; font-weight: 600; }
+tr { page-break-inside: avoid; }
+code, pre { font-family: Consolas, monospace; font-size: 8.6pt; }
+pre { background: #f2f5f7; border: 1px solid #d6dde1; padding: 6pt; white-space: pre-wrap; }
+.lab { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0 4pt; border-radius: 3pt; border: 1px solid; }
+.lv { color: #1f7a3f; } .to { color: #0b5f8a; } .sim { color: #7a5a00; } .pv { color: #a3361f; } .bl { color: #6b4a9a; }
+.meta { color: #55656f; font-size: 8.6pt; }
+.box { border: 1px solid #c9d3da; background: #f7fafb; padding: 6pt 8pt; margin: 6pt 0; }
+.fig { display: flex; gap: 6pt; justify-content: center; align-items: flex-end; margin: 6pt 0; page-break-inside: avoid; }
+.fig figure { margin: 0; text-align: center; font-size: 8pt; color: #55656f; }
+.fig img { max-height: 70mm; max-width: 100%; border: 1px solid #e1e7eb; }
+.sheet img { width: 100%; border: 1px solid #c9d3da; margin: 4pt 0; page-break-inside: avoid; }
+</style></head><body>
+
+<h1>ALIoT Smart Lab - engineering dossier</h1>
+<p class="meta">Version 2026-10-20 <b>evening update</b> (the morning 2026-10-20 and the 2026-10-18 dossiers stay as history).
+Branch <code>offline-router-door-photos</code>, committed as <code>b8c5bdb</code>, <b>not pushed</b>. Deployed portal version
+<code>f5eaeff-dirty-20261020021246</code> (nothing redeployed since - only CAD and docs changed). Database migration head
+<code>b7c3e1f9a204</code>. Labels:
+<span class="lab lv">LIVE-VERIFIED</span> seen working on the real system,
+<span class="lab to">TESTED OFFLINE</span> automated tests only,
+<span class="lab sim">SIMULATED</span>,
+<span class="lab pv">PHYSICAL VALIDATION REQUIRED</span>,
+<span class="lab bl">BLOCKED / OWNER INPUT</span>.</p>
+
+<div class="box"><b>New in this update (section 0):</b> the master-door enclosure fit-test release (datasheet research,
+SOLIDWORKS model, interference check, drawings), the Face-ID photo self-service, the camera-first GPU gate, the
+FANUC / UR5e welcome view, the AI CPU-vs-GPU measurement and the evening test run. The speaker / PAM8403 was
+removed by the owner and is gone from the wiring record.</div>
+
+<h2>0. This update (2026-10-20 afternoon / evening)</h2>
+<table>
+<tr><th>Area</th><th>What was done</th><th>Status</th></tr>
+<tr><td>Door node enclosure</td><td>Every opening re-based on sourced dimensions (4 research passes over Most Electronics, Ekostra and the manufacturers' datasheets; report <code>reports/Door enclosure component dimensions.md</code>). New mounts: TFT on its 4 PCB holes, PN532 on islands behind a 1.5 mm skin, R307 in a cradle with a cable tie (it has no flange), active-buzzer cradle with sound holes, PG7 / M16 gland holes. The 180 x 150 mm fit coupon tests every one.</td><td><span class="lab to">VERIFIED IN CAD</span> <span class="lab pv">FIT-TEST PRINT REQUIRED</span></td></tr>
+<tr><td>Virtual assembly</td><td>Body + front panel + plate + 14 component envelopes (outline + clearance). SOLIDWORKS interference detection: <b>no interferences (17 bodies)</b>. The first run found the ESP32 overlapping a lever connector by 0.25 mm and a square buzzer envelope inside its round cradle - both fixed. 25 mm wire space between the plate modules and the front modules.</td><td><span class="lab to">VERIFIED IN CAD</span></td></tr>
+<tr><td>Printable files</td><td>Body, front panel, plate, coupon: STL (all closed, manifold, consistent winding, no degenerate triangles - <code>check_stl.py</code>), STEP, SLDPRT; assembly SLDASM + STEP; dimensioned drawings PDF; release ZIP.</td><td><span class="lab to">VERIFIED</span></td></tr>
+<tr><td>Labels</td><td>Title "DOOR NODE (MASTER ESP)" and placement labels engraved 0.6 mm, panel printed front-down (smoothest face; raised text is printed next to it on the coupon for comparison). Bug found and fixed: SOLIDWORKS sketch text is left-aligned, so the title ran off the panel edge - every text is now measured and centred.</td><td><span class="lab to">VERIFIED IN CAD</span></td></tr>
+<tr><td>Face-ID photo self-service</td><td>Users send photos (file or selfie); the portal checks them with the face server (no face / someone else's face refused); staff approve (trains), ask to retake, or refuse ("see the lab staff"); notifications both ways.</td><td><span class="lab lv">LIVE</span> deployed; 16 backend tests</td></tr>
+<tr><td>Camera-first GPU gate</td><td>One decision for both assistants: any camera live or unknown -> CPU at once; GPU only after 120 s idle, at most once per 300 s, with free GPU memory. Opt-in (default unchanged).</td><td><span class="lab to">TESTED OFFLINE</span> 9 + 5 tests</td></tr>
+<tr><td>Welcome view</td><td>FANUC cell turned so its real front faces the viewer; UR5e starts at an easier home pose.</td><td><span class="lab lv">LIVE</span></td></tr>
+</table>
+
+<h3>Enclosure - renders and drawings</h3>
+<div class="fig">
+<figure><img src="enclosure_2026-10-20/DoorEnclosure_FrontPanel.png"><figcaption>front panel</figcaption></figure>
+<figure><img src="enclosure_2026-10-20/DoorEnclosure_Assembly_inside.png"><figcaption>inside (panel hidden) with component envelopes</figcaption></figure>
+<figure><img src="enclosure_2026-10-20/DoorEnclosure_FitCoupon.png"><figcaption>fit coupon - print first</figcaption></figure>
+</div>
+<div class="sheet"><img src="enclosure_2026-10-20/sheet0.png"><img src="enclosure_2026-10-20/sheet2.png"></div>
+
+<h3>Enclosure - where each opening comes from</h3>
+<table>
+<tr><th>Part (seller)</th><th>Key dimensions used</th><th>Confidence</th></tr>
+<tr><td>R307 fingerprint (Most ME-30297)</td><td>44.1 x 20 x 23.5, head face 19 x 21, sensing window 15 x 11.19, no flange (GROW manual p.2)</td><td>DATASHEET (no tolerances published)</td></tr>
+<tr><td>1.8" ST7735 TFT, red V1.1 (Most ME-38699)</td><td>PCB 34.5 x 58, holes D3.2 on 28.5 x 52 (LCDWIKI MSP1803); glass 34.7 x 46.7 x 2.4, active area 28.03 x 35.04 (QDTFT1801)</td><td>VARIANT + DATASHEET</td></tr>
+<tr><td>PN532 V3 red (Ekostra EK506)</td><td>42.7 x 40.4 x 4; 2 holes D3.05 on 27.8 x 25.2 (Elechouse V4 STEP, "same holes as V3")</td><td>VARIANT / REFERENCE (holes)</td></tr>
+<tr><td>Active buzzer (Most ME-32997 / ME-19495)</td><td>D12 x 9.5 (listing); TMB12A05 D12.0 +-0.2</td><td>VARIANT / DATASHEET</td></tr>
+<tr><td>ESP32 30-pin USB-C, XL4016 + display, PCT-212 lever connector (all Most)</td><td>51.5 x 28.5; ~64 x 47 x 26; 21 x 12.5 x 14.5 - no hole patterns published, so the plate has slots everywhere</td><td>VARIANT (outline only)</td></tr>
+<tr><td>Cable glands (not sold by Most), M3 inserts</td><td>PG7 hole 12.5-12.8, M16 16.0-16.3; insert hole 4.0, min. wall 1.6 (CNC Kitchen)</td><td>DATASHEET</td></tr>
+</table>
+<p class="meta">Full register: <code>docs/hardware/DOOR_ENCLOSURE.md</code>. Verdict: <b>ready for the fit-test print, not yet for the final box</b> - most hole patterns are vendor / reference data, not measured on the owner's parts; the coupon checks them all in one ~97 cm³ print.</p>
+
+<h3>AI assistants: CPU vs GPU, cameras idle <span class="lab lv">MEASURED</span></h3>
+<table>
+<tr><th>qwen2.5:1.5b, 120-token answers, n = 6 each</th><th>Answer (median)</th><th>Generation</th><th>GPU memory</th></tr>
+<tr><td>CPU (current setting)</td><td>2.4 s</td><td>22 tokens/s</td><td>0 MB</td></tr>
+<tr><td>GPU</td><td>1.3 s</td><td>68 tokens/s</td><td>1062 MB</td></tr>
+<tr><td>CPU again (left as found)</td><td>2.6 s</td><td>20 tokens/s</td><td>0 MB</td></tr>
+</table>
+<p class="meta">Both camera services were up with no stream (0 analyses/s). Short answers are quick on the CPU too; the
+51 s CPU figure in section 2 is a long answer with document context. The GPU generates ~3x faster - worth it only while the cameras are idle, which is what the opt-in GPU gate does. <code>tools/benchmarks/ai_cpu_gpu_ab.py</code>.</p>
+
+<div class="box"><b>State while the morning sections (1-7) were written:</b> the laptop was off the lab network (phone hotspot). Both camera
+services run the new code but have no stream; no ESP node, robot or camera could be tested live after 19:15 on
+2026-10-19. Portal changes were deployed and verified on the live portal; tracking changes are tested offline only.</div>
+
+<h2>1. What changed in this round</h2>
+<table>
+<tr><th>Area</th><th>Root cause (evidence)</th><th>Fix</th><th>Status</th></tr>
+<tr><td>USER1 / USER5 cross-camera conflict</td><td>Camera 1's desk rule named whoever sat at PC-09/PC-10 "USER5" from a door entry hours old; camera 2's face said USER1. 4 episodes (16:14, 16:15, 17:02, 18:36), 243 conflict lines, 546 of 547 USER5 namings came from the desk.</td><td>The desk only continues evidence: name on a track within 120 s, or door / face / other camera within 10 min. Otherwise <code>DESK_NOT_USED</code>.</td><td><span class="lab to">TESTED OFFLINE</span> regression test fails on the old code</td></tr>
+<tr><td>Seated-person flicker</td><td>The labeler saw only tracks detected in the last 0.6 s while the tracker keeps a still track 6 s: every short miss logged NAME_LOST and let the desk name a second track (NAME_ON_TWO_PEOPLE x24).</td><td>Tracks still kept by the tracker ("coasting") keep their names and are not reported lost; hand-back counts from last-seen time.</td><td><span class="lab to">TESTED OFFLINE</span></td></tr>
+<tr><td>Nour Unknown after a short track break</td><td>Hand-back looked only at the spot where the track was lost; a walking person reappears further along.</td><td>Search along the walking path (look must still agree).</td><td><span class="lab lv">LIVE-VERIFIED</span> 19:05 walk test</td></tr>
+<tr><td>Wrong name after a crossing (camera 2, 19:05)</td><td>Nour's name, correctly handed over, stayed on camera 2's track after it went onto Ali; camera 2's own face said USER1; by design the name was not switched.</td><td>A name only carried over (other camera, desk) gives way to this camera's 2 agreeing face matches when nobody touches. Door names keep the mismatch flag. Face thresholds unchanged.</td><td><span class="lab to">TESTED OFFLINE</span></td></tr>
+<tr><td>FANUC Educational Cell</td><td>Drawn from overall dimensions only; panels 12 % opaque; yellow panel on the wrong face; no lettering; cell front opposite the owner's real front.</td><td>Glass with edges, two doors, hinges, knob, FANUC sticker, yellow side panels ("Learn online: fanuc.eu/educational-package"), controller with e-stop, pendant, crate, slotted table, parts plate, "FANUC Robot ER-4iA" on the forearm; robot right of the plate, front = owner's front.</td><td><span class="lab lv">LIVE-VERIFIED</span> deployed, screenshots</td></tr>
+<tr><td>Robot mesh size</td><td>UR5e meshes were unindexed (each position stored ~5.6 times); the 2026-10-19 "12.5 MB -> 75 KB" counted only the index files.</td><td>Weld + quantize, every triangle kept: UR5e + Robotiq 10.4 -> 1.9 MB, FANUC 1.26 -> 0.26 MB.</td><td><span class="lab lv">LIVE-VERIFIED</span> renders identical</td></tr>
+<tr><td>System tab slow</td><td>12 Recharts charts built at once (643 ms block) plus entry animations (~100 ms blocks repeating).</td><td>Charts built when near the screen; animations off on that page.</td><td><span class="lab lv">LIVE-VERIFIED</span></td></tr>
+<tr><td>Evacuation alarm missing on full-screen pages</td><td>Alarm and emergency message mounted only in the portal frame - /welcome (every sign-in lands there), /monitor, /wall, /report showed neither.</td><td>Safety layer on those pages; Welcome gets live updates.</td><td><span class="lab to">TESTED OFFLINE</span> e2e on the isolated copy; deployed</td></tr>
+<tr><td>Stale data after a write</td><td>Identical GETs shared one answer for 1 s, also across a write: a photo uploaded within 1 s of opening an issue stayed invisible.</td><td>Every write clears the shared reads.</td><td><span class="lab to">TESTED OFFLINE</span> workflows 30/30; deployed</td></tr>
+<tr><td>Welcome finale crash (own regression)</td><td>The mesh-loader change sent Kinova <code>.STL</code> files through the glTF loader (deployed 23:36).</td><td>Only the converted FANUC uses .glb; fixed and redeployed 00:01.</td><td><span class="lab lv">LIVE-VERIFIED</span> welcome 20/20 admin+staff</td></tr>
+</table>
+
+<h2>2. Measurements</h2>
+<h3>Portal navigation (deployed build, real browser, admin)</h3>
+<table>
+<tr><th>Page</th><th>Before (first / repeat)</th><th>After (first / repeat)</th></tr>
+<tr><td>Robots &amp; PCs tab (cold, empty cache)</td><td>2.0 s, 8.3 MB models</td><td>1.5 s, ~1 MB models</td></tr>
+<tr><td>Robots &amp; PCs tab (repeat visit)</td><td>0.78 s</td><td>0.29 s</td></tr>
+<tr><td>System analytics</td><td>1.20 / 0.88 s</td><td>0.27 / 0.23 s</td></tr>
+<tr><td>Reliability</td><td>0.96 / 0.84 s</td><td>0.08 / 0.04 s</td></tr>
+<tr><td>All other sidebar tabs</td><td>66-693 ms</td><td>40-500 ms</td></tr>
+</table>
+<p class="meta">Medians of 3 runs (robots) / 2 rounds (tabs). Scripts: <code>frontend/e2e/robots_tab_perf.mjs</code>, <code>nav_timing.mjs</code>. Remaining cold cost is main-thread work (3D library start, WebGL), not downloads.</p>
+
+<h3>Load test <span class="lab sim">SIMULATED</span> (isolated backend + test DB, 120 s)</h3>
+<table>
+<tr><th>Measure</th><th>Result</th></tr>
+<tr><td>API errors</td><td>0</td></tr>
+<tr><td>API p95</td><td>all &lt; 220 ms; <code>/summary</code> one sample of 12 at 525 ms; <code>/monitor</code> p95 215 ms</td></tr>
+<tr><td>Two simulated cameras (GPU, DirectML)</td><td>6.5 / 6.9 analyses/s, frame age p95 ~85 ms, GPU 50 %, VRAM 1155 MB</td></tr>
+<tr><td>Memory / threads</td><td>RSS 2163 -> 2171 MB, threads 300 -> 283 (no growth)</td></tr>
+<tr><td>WebSocket per client</td><td>robot_status 1.1/s, env 0.36/s, security 0.19/s</td></tr>
+</table>
+
+<h3>AI assistants <span class="lab lv">LIVE-VERIFIED</span></h3>
+<p>Structured answers 0.0-0.2 s; document lookup 1.6 s; an answer from the language model (qwen2.5:1.5b on the
+<b>CPU</b>, cameras idle) 51.5 s. CPU is the owner's choice (GPU for the cameras; GPU answers were ~3 s on 2026-10-19).</p>
+
+<h3>Cross-camera evidence (camera logs 2026-10-19)</h3>
+<table>
+<tr><th>Measure</th><th>Value</th></tr>
+<tr><td>Appearance distance, same person (both names confirmed)</td><td>n = 119, median 0.30, p90 0.44, max 0.73</td></tr>
+<tr><td>Appearance distance, different people</td><td>n = 2 (0.67, 0.70) - the earlier 0.28 / 0.38 pairs used the wrong desk name and are excluded</td></tr>
+<tr><td>Floor gap, same person in both cameras</td><td>median 0.41 m, p90 0.86 m (pairing gate 0.7 m)</td></tr>
+<tr><td>Floor coverage from the two floor maps</td><td>both cameras: middle of the room (y ~3.5-8 m); camera 1 only: far end; camera 2 only: near end; neither ~1 % (occlusion not modelled)</td></tr>
+<tr><td>Handover at entry (19:04 walk test)</td><td>camera 1 named at the door, camera 2 had the name 4 s later; longest Unknown on camera 2: 35 s after a track break where only camera 2 saw the person</td></tr>
+<tr><td>Simulated scenario bench (14 scenarios)</td><td>no false names, no name switches - identical to 2026-10-18 <span class="lab sim">SIMULATED</span></td></tr>
+</table>
+<p>Conclusion: appearance matching stays observe-only - not because it is shown unreliable, but because only 2
+different-person pairs exist. The blind-spot Unknown time is track breaks in camera 2's own area, not unseen floor.</p>
+
+<h2>3. Tests</h2>
+<table>
+<tr><th>Suite</th><th>Result</th></tr>
+<tr><td>Backend (pytest, smartlab_test)</td><td><b>554 passed</b> (8 min 18 s, evening run; 542 in the morning)</td></tr>
+<tr><td>Security cameras</td><td>253 passed (11 new regression tests; evening re-run 253)</td></tr>
+<tr><td>Robot monitor / knowledge / PC agent</td><td>41 / <b>49</b> / 5 passed (evening run)</td></tr>
+<tr><td>Frontend</td><td>TypeScript clean; production build OK (evening re-run)</td></tr><tr><td>Enclosure CAD</td><td>interference check: none (17 bodies); STL check 4/4 closed + manifold</td></tr>
+<tr><td>Browser e2e, isolated seeded copy</td><td>workflows 30/30, welcome 27/27, reliability 31/31, monitor+security 18/18, emergency message 6/6, notifications, experiments, report link pass; navigation 97 checks, 2 console messages = camera 503 (test cameras stopped)</td></tr>
+<tr><td>Browser e2e, live portal (read-only)</td><td>robot readiness 8/8, monitor+security 18/18, reliability 31/31, welcome 20/20 (admin, staff)</td></tr>
+<tr><td>Not run</td><td>camera recording e2e (cameras offline); student-role checks on live (real account, not the demo password)</td></tr>
+</table>
+<p class="meta">Six e2e scripts were updated for UI changes made since they were written (sign-in now lands on /welcome; booking wizard has an Equipment step; lab count read from the database).</p>
+
+<h2>4. Devices</h2>
+<table>
+<tr><th>Device</th><th>State</th></tr>
+<tr><td>Door master, environment node, consumables bin, reusable bin, PC agent</td><td>last report 2026-10-19 03:59-04:29 local; <b>none reported during the 2026-10-19 lab session</b> although the cameras on the same network did <span class="lab pv">PHYSICAL CHECK</span></td></tr>
+<tr><td>ESP32-CAM + face server</td><td>face server up (SFace, threshold 0.363); templates USER1, 2, 3, 5, 6, 7 - <b>Hemaly (USER5) is loaded</b> (23 samples); live door test needs her present <span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>Robots (UR5e, FANUC)</td><td>collectors running read-only, no data off the lab network; DRY RUN, nothing sent</td></tr>
+<tr><td>Cameras</td><td>services healthy, reconnecting; 7 fps each when live (2026-10-19)</td></tr>
+</table>
+
+<h2>5. Remaining - owner actions</h2>
+<table>
+<tr><th>#</th><th>Item</th><th>Type</th></tr>
+<tr><td>1</td><td>Walk tests at the lab (one person, then two crossing) to confirm the tracking fixes live; record a 2-person session for appearance thresholds</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>2</td><td>Only if the walk shows long camera-2-only stretches: tilt camera 2 and re-click the tape marks (back up the floor JSON first)</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>3</td><td>PC letter -> number mapping for camera 2 (B, C, D, F, G, I, J, K, L -> PC-01..11)</td><td><span class="lab bl">OWNER INPUT</span></td></tr>
+<tr><td>4</td><td>Hemaly at the door: positive + negative face test</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>5</td><td>Why the ESP nodes stopped reporting at 04:00 (power, Wi-Fi, portal address)</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>6</td><td><b>Print the enclosure fit coupon</b> (same material as the panel, front down) and try the real TFT, PN532 (a card must read through 1.5 mm), R307, LEDs, buzzer, inserts, glands; measure the R307 length (44.1 or ~52 mm) and the breadboard height (8.5 or 10 mm)</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>7</td><td>Buy 3 x PG7 + 1 x M16 cable glands with locknuts (Most Electronics has none)</td><td><span class="lab bl">OWNER</span></td></tr>
+<tr><td>8</td><td>Door wiring values not recorded (section 6) - measure</td><td><span class="lab pv">PHYSICAL</span></td></tr>
+<tr><td>9</td><td>Full 3-run before/after benchmark of every sidebar entry: needs <code>E2E_PASSWORD</code> set in the environment (the tooling refuses a password typed on the command line)</td><td><span class="lab bl">OWNER</span></td></tr>
+<tr><td>10</td><td>Decide whether to switch the assistants to the GPU gate (auto) - numbers in section 0</td><td><span class="lab bl">OWNER</span></td></tr>
+</table>
+
+<h2>6. Appendix - door master (MASTER_LAB01) wiring as recorded</h2>
+<p>From the firmware constants and the 2026-10-04/05 bring-up log; full version with parts table:
+<code>docs/hardware/DOOR_MASTER_WIRING.md</code>. "Not recorded" = measure before use; nothing was guessed.</p>
+<table>
+<tr><th>ESP32 GPIO</th><th>Connected to</th><th>Notes</th></tr>
+<tr><td>19 / 18</td><td>PN532 V3 (HW-147) SDA / SCL</td><td>I2C 0x24, S1 ON / S2 OFF, IRQ + RESET not wired; supply pin not recorded</td></tr>
+<tr><td>13 / 2</td><td>ST7735 1.8" TFT SCK / MOSI</td><td>own SPI bus; GPIO2 is a boot strapping pin</td></tr>
+<tr><td>25 / 32 / 33</td><td>ST7735 CS / DC / RST</td><td>VCC and backlight supply not recorded</td></tr>
+<tr><td>16 / 17</td><td>fingerprint TX -&gt; ESP RX16; ESP TX17 -&gt; sensor RX</td><td>AS608-protocol, 57600 8N1; model and supply not recorded</td></tr>
+<tr><td>27</td><td>MC-38 reed switch to GND</td><td>INPUT_PULLUP: LOW closed, HIGH open</td></tr>
+<tr><td>26</td><td>BC557 base via 3.3 kΩ</td><td>HIGH = locked, LOW = unlocked</td></tr>
+<tr><td>14</td><td>green LED</td><td>resistor not recorded</td></tr>
+<tr><td>21</td><td>NPN stage: red LED + buzzer</td><td>transistor and resistors not recorded; 600 ms denial beep</td></tr>
+<tr><td>15</td><td>red LED via 220 Ω to GND</td><td>own pin, no buzzer current</td></tr>
+<tr><td>22</td><td>nothing now (was 3.3 kΩ -&gt; PAM8403)</td><td><b>speaker + PAM8403 removed</b> (owner, 2026-10-20) - the tablet page plays the sounds</td></tr>
+</table>
+<pre>+12 V -- relay VCC, relay COM, 470 uF 25 V (+) ;  (-) -- GND
+relay NO -- solenoid (+) ;  solenoid (-) -- GND            (lock on NO = fail-secure)
+3V3 -- BC557 E ;  BC557 C -- relay IN ;  BC557 B -- 3.3 k -- GPIO26 ;  15 k between B and E
+GPIO26 HIGH -> PNP off -> coil off -> locked.   LOW -> ~1 mA base -> coil on -> unlocked.
+Measured: COM-GND 12.1 V at rest, 12.03 -> 11.95 V during an unlock.
+Supply: 12 V / 10 A PSU -> master switch -> WAGO -> fused branch -> buck -> 5 V -> ESP32 VIN (door buck model not recorded).</pre>
+<p class="meta">Records disagree: <code>door_audio.h</code> says RC ~47 µs, but 3.3 kΩ x 100 nF = 330 µs; <code>docs/DOOR_SYSTEM.md</code> pin table still shows the retired MFRC522 and the lock on NC.</p>
+
+<h2>7. Evidence files</h2>
+<p><code>docs/camera-identity/TWO_CAMERAS.md</code> (2026-10-20 section), <code>docs/PROGRESS_CHECKPOINT.md</code>,
+<code>docs/hardware/DOOR_MASTER_WIRING.md</code>, <code>tools/security_vision/test_desk_evidence_2026_10_19.py</code>,
+<code>test_face_overrides_carried_name.py</code>, <code>test_walk_handback.py</code>,
+<code>frontend/scripts/compact_glb.mjs</code>, <code>stl_to_glb.mjs</code>, <code>frontend/e2e/robots_tab_perf.mjs</code>,
+<code>backups/deploy_history.jsonl</code>; enclosure: <code>tools/cad/door_enclosure/</code> (params.json, Build.cs, out/), <code>docs/hardware/DOOR_ENCLOSURE.md</code>, <code>reports/Door enclosure component dimensions.md</code>; AI: <code>docs/reports/ai_cpu_gpu_ab_20261020.json</code>. Camera logs (git-ignored): <code>tools/security_vision/recordings/identity_log_*.jsonl</code>, <code>crosscam_obs_*.jsonl</code>.</p>
+</body></html>

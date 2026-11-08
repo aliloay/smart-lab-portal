@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import UsageSummary from '../components/UsageSummary'
 import { Link, useParams } from 'react-router-dom'
 import {
   Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, CalendarRange, Camera,
-  CircuitBoard, Cpu, DoorClosed, Fingerprint, Gauge, Lock, MapPin, Radio, Server,
+  CircuitBoard, Cpu, DoorClosed, Fingerprint, FlaskConical, Gauge, Lock, MapPin, Radio, Server,
   TriangleAlert, Users, Wrench,
 } from 'lucide-react'
 import { AccessEvent, Asset, Device, LabStatus, LabTwin, api } from '../lib/api'
@@ -15,8 +16,27 @@ import {
   Skeleton, StateDot,
 } from '../components/ui'
 import { LabArt, categoryMeta } from '../components/labArt'
+import RoboticsHero from '../components/RoboticsHero'
+
+/** Detail-page hero illustrations (generated, not photographs of the room), by lab code. */
+const HERO_IMAGE: Record<string, { src: string; alt: string; pos?: string }> = {
+  LAB_02: { src: '/assets/labs/plc-lab-hero.webp', alt: 'Illustration of a PLC training lab: rows of PLC stations, workstations and overview screens' },
+  LAB_03: { src: '/assets/labs/production_lab_hero.webp', alt: 'Illustration of a production lab: CNC machines, drilling and milling stations, workbenches and a robot cell' },
+  LAB_04: { src: '/assets/labs/materials_lab_hero.webp', alt: 'Illustration of a materials lab: microscopes, sample benches and a universal testing machine' },
+  LAB_05: { src: '/assets/labs/automotive-lab-hero.webp', alt: 'Illustration of an automotive lab: a BMW i3 beside a bench of drivetrain and steering parts', pos: '70% center' },
+  LAB_06: { src: '/assets/labs/02-pcb-lab-hero.webp', alt: 'Illustration of a PCB lab: prototyping machine, workstations and soldering benches' },
+  LAB_07: { src: '/assets/labs/02-microcontroller-lab-hero.webp', alt: 'Illustration of a microcontrollers lab bench: schematic on screen, oscilloscopes, boards and a breadboard' },
+  LAB_08: { src: '/assets/labs/02-power-lab-hero.webp', alt: 'Illustration of a power and process lab: control cabinets with HMIs, a motor test bench and a water-tank rig' },
+  LAB_09: { src: '/assets/labs/design_lab_hero.webp', alt: 'Illustration of a design and fabrication lab: laser cutter, saw table and a jewellery bench' },
+  LAB_11: { src: '/assets/labs/fashion_lab_hero.webp', alt: 'Illustration of a fashion studio: pattern table, sewing machines and dress forms' },
+}
 import { DoorSchematic } from '../components/visual'
 import { EnvironmentPanel, Heatmap } from '../components/analytics'
+import SafetyStates from '../components/SafetyStates'
+import SmartBin from '../components/SmartBin'
+import EquipmentGallery from '../components/EquipmentGallery'
+
+const LabExperiments = lazy(() => import('./Experiments'))
 
 export default function LabDetail() {
   const { id } = useParams()
@@ -38,7 +58,8 @@ export default function LabDetail() {
     setStatus(null); setError('')
     loadStatus()
     api.labActivity(labId, 60).then(setEvents).catch(() => {})
-    api.assets(labId).then(setAssets).catch(() => {})
+    // Door / security parts of the Smart Lab system are not lab equipment.
+    api.assets(labId).then(a => setAssets(a.filter(x => x.category !== 'Access control'))).catch(() => {})
     api.labTwin(labId).then(setTwin).catch(() => setTwin(null))
   }, [labId, loadStatus])
 
@@ -48,6 +69,8 @@ export default function LabDetail() {
       if (/^(DOOR|ACCESS|DEVICE|EXIT)/.test(m.event.event_type)) loadStatus()
     }
     if (m.type === 'staff' && m.kind === 'issue') loadStatus()
+    if (m.type === 'door_state' && m.lab_id === labId) loadStatus()
+    if ((m.type === 'env_update' || m.type === 'hazard') && m.lab_id === labId) loadStatus()
   })
 
   if (error) {
@@ -83,12 +106,15 @@ export default function LabDetail() {
                                   hover:text-white"><ArrowLeft size={14} />Laboratories</Link>
 
       {/* ---------------------------------------------------------- hero */}
-      <section className="relative card overflow-hidden">
-        <div className="absolute inset-y-0 right-0 w-full md:w-[62%]">
-          <LabArt category={lab.category} className="w-full h-full" />
+      <section className={`relative card overflow-hidden ${lab.code === 'LAB_01' ? 'ray-border' : ''}`}>
+        {lab.code === 'LAB_01' ? <RoboticsHero /> : <div className="absolute inset-y-0 right-0 w-full md:w-[62%]">
+          {HERO_IMAGE[lab.code]
+            ? <img src={HERO_IMAGE[lab.code].src} alt={HERO_IMAGE[lab.code].alt} width={1600} height={600} decoding="async"
+                   className="w-full h-full object-cover object-center" style={HERO_IMAGE[lab.code].pos ? { objectPosition: HERO_IMAGE[lab.code].pos } : undefined} />
+            : <LabArt category={lab.category} className="w-full h-full" />}
           <div className="absolute inset-0 bg-gradient-to-r from-ink-800 via-ink-800/80 to-ink-800/10" />
           <div className="absolute inset-0 bg-gradient-to-t from-ink-800/90 to-transparent md:hidden" />
-        </div>
+        </div>}
         <div className="relative p-6 sm:p-8 max-w-2xl">
           <div className="flex items-center gap-2.5 flex-wrap">
             <span className="mono text-accent-200 text-[13px]">{lab.code}</span>
@@ -124,6 +150,13 @@ export default function LabDetail() {
           </div>
         </div>
       </section>
+
+      {/* ------------------------------------------- equipment gallery */}
+      {status && <section>
+        <SectionTitle icon={<FlaskConical size={15} />}
+          sub="What is in this lab.">Equipment gallery</SectionTitle>
+        <EquipmentGallery labCode={status.lab.code} />
+      </section>}
 
       {/* ---------------------------------------------------- live status */}
       <section>
@@ -230,15 +263,22 @@ export default function LabDetail() {
           {/* ------------------------------------------------ usage pattern */}
           <section>
             <SectionTitle icon={<CalendarRange size={15} />}
-              sub={twin ? `Typical week over the last ${twin.days} days (${twin.timezone}) and the three weeks around today.`
+              sub={twin ? `How busy this lab is - from its bookings (last ${twin.days} days, ${twin.timezone}).`
                 : undefined}>Usage pattern</SectionTitle>
             <div className="card p-5 space-y-5">
               {!twin ? <Skeleton className="h-40" /> : <>
-                <DayStrip days={twin.days_strip} openHours={twin.open_hours_per_day} />
-                <Heatmap data={twin.heatmap} unit="avg h booked" tone="violet" />
+                <UsageSummary heatmap={twin.heatmap} daysStrip={twin.days_strip} days={twin.days} />
               </>}
             </div>
           </section>
+
+          {/* -------------------------------------------------- experiments */}
+          {staff && (
+            <section>
+              <SectionTitle icon={<FlaskConical size={15} />}
+                sub="Experiments run on this laboratory's devices.">Experiments</SectionTitle>
+              <Suspense fallback={<Skeleton className="h-32" />}><LabExperiments labId={labId} embedded /></Suspense>
+            </section>)}
 
           {/* ----------------------------------------------------- activity */}
           <section>
@@ -336,11 +376,15 @@ export default function LabDetail() {
             </div>
           </section>
 
+          {/* ------------------------------------------------- smart bin */}
+          <SmartBin labId={labId} />
+
           {/* ------------------------------------------------- environment */}
           <section>
             <SectionTitle icon={<Gauge size={15} />}
               sub="Real sensor readings only - nothing is estimated.">Environment</SectionTitle>
             <div className="card p-4 space-y-3">
+              <SafetyStates labId={labId} />
               <EnvironmentPanel env={twin?.environment ?? null} compact />
               <div className="well px-3 py-2.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-[12px] text-slate-400"><Users size={14} />Occupancy</span>
@@ -402,29 +446,42 @@ function Node({ icon, title, state, labels, device, note, stale, neutral }: {
 function DayStrip({ days, openHours }: { days: { day: string; booked_hours: number }[]; openHours: number }) {
   const today = new Date().toLocaleDateString('en-CA')
   const max = Math.max(openHours, ...days.map(d => d.booked_hours))
+  const ticks = [max, max / 2, 0]
   return (
     <div>
-      <div className="flex items-end gap-1 h-24" role="img"
-           aria-label="Booked hours per day, two weeks back and one week ahead">
-        {days.map(d => {
-          const future = d.day > today
-          return (
-            <div key={d.day} className="flex-1 h-full flex flex-col justify-end items-center"
-                 title={`${d.day}: ${d.booked_hours} h booked`}>
-              <div className={`w-full rounded-t-[4px] ${d.day === today ? 'ring-1 ring-accent-300' : ''}
-                               ${future ? 'bg-violet-400/35' : 'bg-accent-400/70'}`}
-                   style={{ height: `${d.booked_hours ? Math.max((d.booked_hours / max) * 100, 4) : 0}%` }} />
-              <div className={`h-[3px] w-full mt-0.5 rounded ${d.day === today ? 'bg-accent-300' : 'bg-ink-600/60'}`} />
-            </div>)
-        })}
+      <div className="text-[11.5px] text-slate-300 mb-1">Booked hours per day</div>
+      <div className="flex gap-2">
+        {/* y axis: hours booked that day */}
+        <div className="flex flex-col justify-between items-end h-24 text-[10px] text-slate-500 tnum w-9 shrink-0">
+          {ticks.map(t => <span key={t}>{Number.isInteger(t) ? t : t.toFixed(1)} h</span>)}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-end gap-1 h-24 border-l border-b border-ink-600/70 pl-1" role="img"
+               aria-label="Booked hours per day, two weeks back and one week ahead">
+            {days.map(d => {
+              const future = d.day > today
+              return (
+                <div key={d.day} className="flex-1 h-full flex flex-col justify-end items-center"
+                     title={`${d.day}: ${d.booked_hours} h booked${future ? ' (ahead)' : ''}`}>
+                  <div className={`w-full rounded-t-[4px] ${d.day === today ? 'ring-1 ring-accent-300' : ''}
+                                   ${future ? 'bg-violet-400/45' : 'bg-accent-400/70'}`}
+                       style={{ height: `${d.booked_hours ? Math.max((d.booked_hours / max) * 100, 4) : 0}%` }} />
+                </div>)
+            })}
+          </div>
+          {/* x axis: one bar per calendar day; a date every 7 days */}
+          <div className="mt-1 flex gap-1 pl-1 text-[10px] text-slate-500 tnum">
+            {days.map((d, i) => (
+              <span key={d.day} className={`flex-1 text-center ${d.day === today ? 'text-accent-200 font-semibold' : ''}`}>
+                {d.day === today ? 'today' : i % 7 === 0 ? d.day.slice(5) : ''}</span>))}
+          </div>
+          <div className="text-center text-[10.5px] text-slate-500 mt-0.5">Date (one bar = one day)</div>
+        </div>
       </div>
-      <div className="mt-1.5 flex justify-between text-[10.5px] text-slate-500">
-        <span>{days[0]?.day.slice(5)}</span><span>today</span><span>{days[days.length - 1]?.day.slice(5)}</span>
-      </div>
-      <div className="mt-1 text-[11px] text-slate-500 flex gap-3">
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-accent-400/70" />booked (past)</span>
-        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-400/35" />booked ahead</span>
-        <span>scale: {max} h</span>
+      <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap gap-3">
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-accent-400/70" />booked (past days)</span>
+        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-violet-400/45" />booked ahead</span>
+        <span>y axis 0 – {max} h (the lab's open hours per day)</span>
       </div>
     </div>
   )

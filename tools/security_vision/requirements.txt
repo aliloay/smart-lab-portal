@@ -1,0 +1,8 @@
+opencv-python>=4.8
+numpy
+flask
+waitress
+requests
+psutil
+openvino>=2026.4             # YOLO26 on the CPU, faster than plain onnxruntime
+onnxruntime-directml>=1.24  # YOLO26 on the graphics card (GTX 1650: ~30 ms/frame)

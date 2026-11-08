@@ -1,0 +1,279 @@
+{
+ "_about": "Environment node enclosure (Robotics Lab) - one box, every sensor visible (owner 2026-10-24). Same rules as the door box: clearance fits = part + 0.3 (owner + printer operator, Elegoo Neptune 4); heat-set insert holes and self-tap pilots stay undersize on purpose. Built by build.ps1 with door_enclosure/Build.cs + EnvParts.cs.",
+ "kind": "env",
+ "name_prefix": "EnvEnclosure",
+ "envelope": {
+  "width": 190,
+  "height": 170,
+  "depth": 80,
+  "wall": 3.0,
+  "corner_radius": 8.0
+ },
+ "print": {
+  "clearance": 0.3
+ },
+ "fasteners": {
+  "insert_hole_d": 4.0,
+  "insert_hole_depth": 7.0,
+  "screw_clear_d": 3.3,
+  "corner_boss_d": 10.0,
+  "corner_boss_inset": 7.0,
+  "pilot_m25_d": 2.2,
+  "pilot_m2_d": 1.6
+ },
+ "env_body": {
+  "chamfer": 32.0,
+  "col_x": 57.0,
+  "_status": "45-degree front corners, 32 mm: each corner face is 45 mm wide, room for the 32.5 x 24.06 HC-SR501 board. Front panel = 190 - 2 x 32 = 126 wide."
+ },
+ "pir": {
+  "y": 120,
+  "dome_hole_d": 23.3,
+  "hole_dx": 28.0,
+  "boss_d": 4.4,
+  "boss_h": 1.0,
+  "_status": "HC-SR501 x2, MEASURED board 32.5 x 24.06, ~25 high (owner). DATASHEET (Electrokit): lens D23 -> hole 23.3 (0.3 rule); 2 x M2 holes 28 apart -> M2 self-tap pilots 1.6 (undersize on purpose). Boss 1.0 high for the lens base under the board = ESTIMATE (add a washer if the board rocks). PIR 1 = left corner (zone 1), PIR 2 = right corner (zone 2): together ~200 degrees."
+ },
+ "mq": {
+  "x": 0,
+  "y": 120,
+  "can_hole_d": 19.81,
+  "can_from_top": 11.8,
+  "board_w": 20.5,
+  "board_h": 32.52,
+  "rail_wall": 2.0,
+  "rail_len": 16.0,
+  "tie_z": 4.0,
+  "tie_h": 6.0,
+  "tie_w": 4.0,
+  "_status": "Flying-Fish / 'MH MQ Sensor' module (owner photos 2026-10-24): can on the FRONT, trimmer + LM393 + 4-pin header (in-plane, at the bottom end) on the BACK -> board flush on the panel's rear, can out through 19.81 (19.51 + 0.3). MEASURED board 20.2 x 32.22 -> 20.5 x 32.52 between the rails. Can centre 11.8 below the board's top end = PHOTO ESTIMATE. Ties press the board flat (slots 1..7 mm behind the panel). Type MQ-2 CONFIRMED (owner read it on the sensor, 2026-10-24)."
+ },
+ "dht": {
+  "x": 0,
+  "y": 52,
+  "pocket_w": 15.8,
+  "pocket_h": 38.1,
+  "lip": 1.0,
+  "wall": 2.0,
+  "depth": 11.0,
+  "tie_z": 9.0,
+  "tie_h": 4.0,
+  "tie_w": 4.0,
+  "_status": "DHT22 module, MEASURED (owner) 15.5 x 37.8 -> pocket 15.8 x 38.1; window 1 mm smaller all round keeps it in, grille faces the room; walls left / right / top + its own PCB at the back keep the box's warm air off it; pins at the bottom end. OWNER PHOTO: white grille body on the front, 3 pins at the bottom end (open end of the pocket) - matches."
+ },
+ "flame": {
+  "x": 0,
+  "z": 59.5,
+  "pocket_d": 40.05,
+  "pocket_depth": 1.0,
+  "tie_dx": 22.5,
+  "tie_dz": -10,
+  "tie_w": 3.0,
+  "tie_h": 4.0,
+  "wire_z": 24,
+  "wire_w": 34.0,
+  "wire_h": 8.0,
+  "label_z": 8,
+  "label_h": 8.0,
+  "_status": "OWNER PHOTOS 2026-10-24: round board D39.75 (caliper) -> pocket 40.05 (+0.3), 1 mm deep in the 3 mm top wall; 5 receivers on the front edge fan out over the front (tips ~7 mm past the panel); the blue multi-turn trimmer (~10 high) in the CENTRE -> the board lies on the TOP of the box, fully outside, trimmer reachable. 12-pin header at the back edge: wires drop through a 34 x 8 slot behind it (12 x 2.54 = 30.5 + room; >= 2.78 rule). Two zip ties over the back half through 3 x 4 slots."
+ },
+ "front_panel": {
+  "thickness": 4.0,
+  "corner_r": 2.0,
+  "locating_tab_len": 30.0,
+  "locating_tab_t": 2.0,
+  "locating_tab_h": 3.0,
+  "text_height": 8.0,
+  "title": "ENVIRONMENT NODE",
+  "title_y": 147,
+  "title_height": 8.0,
+  "raised_height": 0.8
+ },
+ "usb_access": {
+  "side": "left",
+  "y": 72,
+  "z": 18,
+  "w": 14.0,
+  "h": 14.0,
+  "_status": "ESP32 flat on the plate, lower left, USB-C end toward the left wall (40 mm in: push the cable through, then plug)."
+ },
+ "dc_in": {
+  "y": 25,
+  "z": 30,
+  "d": 16.3,
+  "_status": "12 V in: M16 gland 16.0 + 0.3, in the left wall so the bottom stays flat for a desk"
+ },
+ "env_vents": {
+  "slot_w": 3.0,
+  "bottom_z": [
+   24,
+   32,
+   40
+  ],
+  "bottom_x0": -20,
+  "bottom_x1": 20,
+  "side_y": [
+   146,
+   153,
+   160
+  ],
+  "side_z0": 10,
+  "side_z1": 40
+ },
+ "feet": {
+  "x": [
+   -80,
+   80
+  ],
+  "z": [
+   10,
+   40
+  ],
+  "d": 10,
+  "h": 3
+ },
+ "wall_ears": {
+  "y": [
+   35,
+   135
+  ],
+  "w": 24.0,
+  "reach": 16.0,
+  "t": 5.0,
+  "hole_d": 4.3,
+  "hole_from_edge": 8.0
+ },
+ "keyholes": {
+  "x": [],
+  "y": 0,
+  "head_d": 9.5,
+  "slot_w": 4.3,
+  "slot_len": 11.0
+ },
+ "electronics_plate": {
+  "thickness": 4.0,
+  "boss_h": 6.0,
+  "boss_d": 9.0,
+  "hole_inset": 6.0,
+  "x_margin": 39.0,
+  "y_bottom": 40.0,
+  "y_top_margin": 14.0,
+  "slot_w": 3.3,
+  "slot_len": 20.0,
+  "slot_pitch_x": 27.0,
+  "slot_pitch_y": 12.0,
+  "zone_labels": [
+   {
+    "text": "BUCK 12>5V",
+    "x": -23.5,
+    "y": 124
+   },
+   {
+    "text": "BB 5V",
+    "x": 33.5,
+    "y": 136
+   },
+   {
+    "text": "ESP32 USB <",
+    "x": -28,
+    "y": 76
+   },
+   {
+    "text": "BB 3.3V",
+    "x": 30,
+    "y": 64
+   }
+  ],
+  "_fit": "2026-10-24: plate 190 - 2 x 39 = 112 wide so it goes in through the front opening (117.5 between the 45-degree corner walls); 162 did not fit. Modules in 2 rows inside |x| < 57 - the corners behind the PIRs stay empty."
+ },
+ "components": [
+  {
+   "id": "buck",
+   "label": "buck 12>5 V",
+   "on": "plate",
+   "x": -23.5,
+   "y": 128,
+   "z": 13,
+   "w": 64.0,
+   "h": 46.9,
+   "d": 26.2,
+   "conf": "MEASURED 63.7 x 46.6 x 25.9 + 0.3"
+  },
+  {
+   "id": "esp32",
+   "label": "ESP32 flat + Dupont",
+   "on": "plate",
+   "x": -28,
+   "y": 72,
+   "z": 13,
+   "w": 52.7,
+   "h": 38.3,
+   "d": 30,
+   "conf": "MEASURED 51.4 x 28.03 + 0.3, flat, plugs on top"
+  },
+  {
+   "id": "bb_5v",
+   "label": "breadboard 5 V",
+   "on": "plate",
+   "x": 33.5,
+   "y": 130,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  },
+  {
+   "id": "bb_3v3",
+   "label": "breadboard 3.3 V (MQ divider)",
+   "on": "plate",
+   "x": 30,
+   "y": 75,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  },
+  {
+   "id": "mq_board",
+   "label": "MQ-2 board",
+   "on": "panel",
+   "x": 0,
+   "y": 115.54,
+   "z": 80,
+   "dir": "down",
+   "w": 20.2,
+   "h": 32.22,
+   "d": 8.6,
+   "conf": "MEASURED 20.2 x 32.22; flush on the panel rear, back parts ~7 (photo)"
+  },
+  {
+   "id": "mq_can",
+   "label": "MQ-2 can",
+   "on": "panel",
+   "round": true,
+   "x": 0,
+   "y": 120,
+   "z": 80,
+   "w": 19.51,
+   "h": 19.51,
+   "d": 16,
+   "conf": "MEASURED D19.51; out through the 19.81 hole"
+  },
+  {
+   "id": "dht",
+   "label": "DHT22 module",
+   "on": "panel",
+   "x": 0,
+   "y": 52,
+   "z": 80,
+   "dir": "down",
+   "w": 15.5,
+   "h": 37.8,
+   "d": 9.3,
+   "conf": "MEASURED 15.5 x 37.8; thickness 1.6 + 7.7 DATASHEET"
+  }
+ ],
+ "inside_views": false
+}

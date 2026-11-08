@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Smart Lab System Report</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+  :root { --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --accent:#0369a1; --soft:#e0f2fe; --ok:#15803d; --warn:#b45309; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Calibri, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 24pt; margin: 0 0 4pt; color: var(--accent); }
+  h2 { font-size: 15pt; margin: 20pt 0 6pt; padding-bottom: 3pt; border-bottom: 2px solid var(--accent); color: var(--accent); page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 4pt; page-break-after: avoid; }
+  p { margin: 4pt 0 6pt; }
+  ul { margin: 3pt 0 6pt 16pt; padding: 0; }
+  li { margin: 1.5pt 0; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.5pt; page-break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 4pt 6pt; vertical-align: top; text-align: left; }
+  th { background: var(--soft); }
+  tr { page-break-inside: avoid; }
+  .cover { height: 245mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+  .cover .sub { font-size: 13pt; color: var(--muted); margin-bottom: 18pt; }
+  .cover .meta { font-size: 10.5pt; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10pt; margin-top: 30pt; }
+  .box { border: 1px solid var(--line); border-left: 4px solid var(--accent); background: #f8fafc; padding: 6pt 9pt; margin: 6pt 0 10pt; page-break-inside: avoid; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .mono { font-family: Consolas, "Courier New", monospace; font-size: 9pt; }
+  .toc li { margin: 2pt 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+  .page-break { page-break-before: always; }
+  pre { font-family: Consolas, monospace; font-size: 8.3pt; background: #f1f5f9; border: 1px solid var(--line); padding: 7pt; white-space: pre; overflow: hidden; page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <div class="muted" style="letter-spacing:2px;font-size:10pt">GERMAN INTERNATIONAL UNIVERSITY · BSc THESIS</div>
+  <h1>Intelligent IoT-Based Smart Research Laboratory</h1>
+  <div class="sub">System report: what the system does, what has been reached, and every feature of the portal for students, laboratory staff and administrators</div>
+  <div class="box">
+    <b>In one paragraph.</b> The Smart Lab system runs a research laboratory end to end on its own local network.
+    Booking the laboratory issues a QR credential; a two-step door (card or QR, then fingerprint or face) lets
+    the person in; environment sensors, a security camera and read-only robot monitoring watch the room; smart
+    bins track equipment and components by NFC and weight; and one web portal shows everything live to
+    students, staff and administrators, with reports, alerts, maintenance tickets and an AI assistant.
+  </div>
+  <div class="meta">
+    Report date: 9 October 2026 · State of branch <span class="mono">offline-router-door-photos</span><br>
+    Author: Ali Loay · Smart Lab team
+  </div>
+</section>
+
+<h2>Contents</h2>
+<ol class="toc">
+  <li>System at a glance</li>
+  <li>What has been reached (status by subsystem)</li>
+  <li>The hardware subsystems</li>
+  <li>The portal for students</li>
+  <li>The portal for laboratory staff</li>
+  <li>The portal for administrators</li>
+  <li>End-to-end journeys</li>
+  <li>Data, security and reliability</li>
+  <li>Verification</li>
+  <li>Open items and next steps</li>
+</ol>
+
+<h2>1. System at a glance</h2>
+<pre>
+ Door (Master ESP32)          Environment node (ESP32)        Security camera (Mercusys MC210)
+ RFID / QR -> fingerprint     DHT22, 2x PIR, 5-ch flame,      RTSP stream (local only)
+ or face, lock relay,         MQ-2 gas                              |
+ reed switch, buzzer, TFT          |                                v
+   |   ESP32-CAM ---> Face server (laptop)          Camera service (laptop): people + equipment
+   |                                                detection, tracking, names, zones
+   v
+ Portal backend (FastAPI + PostgreSQL, Docker on the lab laptop, 192.168.1.200)
+   ^            ^                          ^                         ^
+ Reusable smart bin (ESP32)        Robot monitor (UR5e, FANUC)   n8n automation, local AI (Ollama)
+ NFC + load cell + lid servo       read-only telemetry
+   |
+   v
+ Web portal (React): students, staff, admins - live over WebSocket; IoT Dashboard wall screen (:8080)
+</pre>
+<p>Three rules hold everywhere:</p>
+<ul>
+  <li><b>Only the door controller opens the door.</b> No network message can reach the lock; the portal only answers "whose booking is this, and is it valid here and now?".</li>
+  <li><b>The portal never invents data.</b> Charts count recorded rows; missing data is shown as "not recorded".</li>
+  <li><b>Robots are read-only.</b> No part of the system can send a command to a robot (enforced by an automated test).</li>
+</ul>
+
+<h2>2. What has been reached</h2>
+<table>
+  <tr><th style="width:24%">Subsystem</th><th style="width:16%">State</th><th>Verified by</th><th style="width:22%">Open</th></tr>
+  <tr><td>Door access (Master ESP32 + ESP32-CAM)</td><td class="ok">Validated on the bench</td><td>Card, fingerprint, face and booking-QR entries; lock, buzzer, LEDs, door sensor, tablet prompts; access log in the portal</td><td>12 V supply split; per-device key</td></tr>
+  <tr><td>Environment node</td><td class="ok">Live in the portal</td><td>Temperature/humidity, 2 motion zones, 5-channel flame, MQ-2 gas; flame and gas alarms reached the portal over the lab network</td><td>PIR false triggers; MQ-2 calibration</td></tr>
+  <tr><td>Security camera</td><td class="ok">Live in the portal</td><td>1280×720 stream; people detection ~3/s; names from door + face; equipment boxes; event snapshots; latency measured per stage</td><td>Final mounting in the lab; real PC detection</td></tr>
+  <tr><td>Robot monitoring (UR5e, FANUC LR Mate 200iD)</td><td class="warn">Built, simulated</td><td>Per-joint motion events, HOME calibration, 3D twins from the manufacturers' models, replay, tool trail; tested with simulators</td><td>Connect to the real UR5e (RTDE, read-only); FANUC protocol after inspection</td></tr>
+  <tr><td>Reusable smart bin</td><td class="ok">Full cycle verified today</td><td>NFC (PN532), 1 kg load cell (calibrated, ±0.1 g noise), LCD, lid sensor (MC-38), servo lid; take-out recorded by weight drop, return by NFC + weight; notifications</td><td>Stronger servo (MG996R) on 10 Oct; lid timing tune</td></tr>
+  <tr><td>Consumables scale (resistors, LEDs)</td><td class="warn">Portal ready, hardware next</td><td>Inventory bins, measurements and transactions in the database and portal</td><td>Build and calibrate the scale node</td></tr>
+  <tr><td>Portal + AI assistant</td><td class="ok">Running</td><td>415 automated backend tests; browser tests; local AI model (no internet needed)</td><td>Commit and push with owner's approval</td></tr>
+</table>
+
+<h3>Reached this week (8–9 October 2026)</h3>
+<ul>
+  <li><b>Security hardening:</b> Argon2id passwords, strong-password policy, sign-in throttling, strict browser headers (CSP), local HTTPS certificate authority.</li>
+  <li><b>Identity engine for the camera</b> and <b>latency instrumentation</b> of every camera stage.</li>
+  <li><b>Robot monitoring</b> with real manufacturer 3D models (UR5e ceiling-mounted with a Robotiq 2F-85 gripper, FANUC LR Mate), movement replay, tool trail and a wall mode.</li>
+  <li><b>IoT Dashboard</b>: live laboratory floor plan, clock, counters and robots on one wall screen (own port 8080).</li>
+  <li><b>Reusable smart bin brought up end to end</b>: scale calibrated (51 g tape read 51.3 g; 200 g pliers 201.2 g), NFC on its own I2C bus, lid sensor, automatic power-on zero, weight-settled lid closing, portal integration in normal mode on the lab Wi-Fi.</li>
+  <li><b>Equipment in bookings</b>: students choose smart-bin items, consumables and workstations (robot and/or PC) while booking; items are reserved for the booked window.</li>
+</ul>
+
+<h2 class="page-break">3. The hardware subsystems</h2>
+
+<h3>3.1 Door access control</h3>
+<ul>
+  <li><b>Two steps:</b> RFID card or booking QR code (read by the ESP32-CAM), then the same person's fingerprint (AS608) or face (face server on the laptop).</li>
+  <li>The portal validates a QR only for its laboratory and its time window; anyone else's finger or face is refused as an identity mismatch.</li>
+  <li>Door sensor (MC-38): forced entry, door held open and "door never opened" are detected and logged.</li>
+  <li>Colour screen shows the granted person's photo; a door tablet speaks prompts; the lock is locked by default at power-on.</li>
+  <li>Emergency modes from the portal: hold open, lockdown, evacuation alarm. The door controller remains the final authority.</li>
+  <li><b>Fail closed:</b> if the portal cannot be reached, a booking QR is refused.</li>
+</ul>
+
+<h3>3.2 Environment monitoring</h3>
+<ul>
+  <li>DHT22 temperature and humidity, two PIR motion zones, 5-channel flame sensor, MQ-2 smoke/gas indicator.</li>
+  <li>Flame or smoke: full-screen red alarm with siren on every open portal page. Heat or humidity over limits: advice to staff. Motion: a silent note.</li>
+  <li>Offline detection, with one alert per outage.</li>
+</ul>
+
+<h3>3.3 Security camera and vision</h3>
+<ul>
+  <li>People detection and tracking on the laptop (YOLOX-S); each name stays on the right person through crossings.</li>
+  <li>Names come from the door entry and the enrolled faces: "verified" when both agree; a card-sharing alert when the face contradicts the badge.</li>
+  <li>Equipment boxes per PC or robot: alerts when an item is moved, missing, or moves with nobody near it.</li>
+  <li>Camera wall of all laboratories; events with snapshots; the stream never leaves the laptop (staff see it through the portal).</li>
+  <li>Latency measured at capture, analysis, rendering and serving (frame age in every response).</li>
+</ul>
+
+<h3>3.4 Robot monitoring (read-only)</h3>
+<ul>
+  <li>UR5e telemetry through the receive-only RTDE interface; FANUC protocol only after the controller is inspected.</li>
+  <li>Per-joint movement start/stop, joint moved by how much, stale-telemetry detection (never shown as "stationary").</li>
+  <li>HOME position calibration with versions; fusion with the camera (motion seen in the robot's box).</li>
+  <li>3D twins built from the manufacturers' models, live per-joint traces, reach ring, movement replay, tool trail, wall mode.</li>
+</ul>
+
+<h3>3.5 Reusable smart bin (equipment such as breadboards)</h3>
+<table>
+  <tr><th style="width:22%">Part</th><th>Role</th><th style="width:22%">Wiring</th></tr>
+  <tr><td>ESP32</td><td>Bin controller, joins the Smart_Lab Wi-Fi, reports to the portal</td><td>—</td></tr>
+  <tr><td>PN532 NFC (HW-147)</td><td>Reads the item's NFC sticker when it is returned</td><td>Own I2C bus, GPIO 18/19, 3.3 V</td></tr>
+  <tr><td>1 kg load cell + HX711</td><td>Total weight of the bin; confirms take-out and return</td><td>GPIO 32/33</td></tr>
+  <tr><td>16×2 LCD (I2C)</td><td>Shows the item and what the bin does; total weight while idle</td><td>GPIO 21/22</td></tr>
+  <tr><td>Servo</td><td>Opens the lid through the pedal linkage</td><td>GPIO 25, external 5 V</td></tr>
+  <tr><td>MC-38 lid sensor</td><td>Confirms the lid really opened and closed</td><td>GPIO 27 + GND</td></tr>
+</table>
+<p><b>Take-out:</b> the person presses <i>Take</i> in the portal → the bin opens → the weight drops by about one item (a breadboard weighs ≈ 33–35 g) → the lid closes 2 s after the weight settles → the take-out is recorded and the person is notified. <b>Return:</b> the person scans the item's NFC tag → the bin opens → the weight rises → recorded and notified. The tag tells exactly which item came back; identical items are taken as "a breadboard".</p>
+<p>Safety: the lid closes on its own after 5 s without a weight change; a lid that never opens is reported; the scale zeroes itself at power-on only when the bin is empty (below 10 g), so items inside are never "forgotten".</p>
+<p>Verified on 9 Oct 2026: scan → lid opened (sensor confirmed) → +35.4 g settled → gentle close → lid closed (sensor confirmed); portal take-out by weight recorded (−32.7 g).</p>
+
+<h3>3.6 Consumables scale</h3>
+<p>Weighing bins for bulk components (for example 10 kΩ resistors, red LEDs). The count is an estimate from measured mass and measured unit mass, shown only after calibration. The portal side (bins, measurements, withdrawals and refills) exists; the scale hardware is the next step.</p>
+
+<h2 class="page-break">4. The portal for students</h2>
+<p>Students sign in at <span class="mono">http://192.168.1.200</span> (or HTTPS) from a phone or PC on the lab network.</p>
+<table>
+  <tr><th style="width:24%">Page</th><th>What a student can do</th></tr>
+  <tr><td>Dashboard</td><td>Next booking, current status, recent activity, notifications at a glance.</td></tr>
+  <tr><td>Laboratories</td><td>All laboratories with photos, location, equipment and live state; each laboratory's page shows its equipment, environment and the smart bin.</td></tr>
+  <tr><td>New booking</td><td>Guided steps: <b>laboratory → date → time → purpose → equipment → review</b>. Taken hours show as taken. In <b>Equipment</b> the student picks smart-bin items (Breadboard 1–3), consumables with quantities, and what they will work on (UR5e, FANUC, lab PC — several at once). Every group has <b>None</b>. Reserved items cannot be picked by an overlapping booking.</td></tr>
+  <tr><td>My bookings</td><td>Every booking with status, the QR credential, actual entry times (not just the booked ones), and the chosen equipment. During the booking the smart bin's <b>Take</b> button is right on the booking page.</td></tr>
+  <tr><td>QR credential</td><td>Valid only for that laboratory and inside the booked window; useless if photographed and replayed later.</td></tr>
+  <tr><td>Smart bin</td><td>Take an item ("a breadboard") while inside the laboratory or in the booking after the door let them in; return by scanning its tag at the bin.</td></tr>
+  <tr><td>Robots</td><td>Live 3D twins and state of the laboratory robots (view only).</td></tr>
+  <tr><td>My reports</td><td>Report a broken device or problem with photos; follow the ticket's progress and comments.</td></tr>
+  <tr><td>Notifications</td><td>Booking confirmed, item taken, item returned, ticket updates, emergencies.</td></tr>
+  <tr><td>Profile</td><td>Personal details, enrolment status of card, fingerprint and face; password change with the strong-password policy.</td></tr>
+  <tr><td>AI assistant</td><td>Chat for questions about bookings and the laboratory; answers come from the records.</td></tr>
+</table>
+
+<h2>5. The portal for laboratory staff</h2>
+<p>Staff (laboratory engineers) see everything students see, plus operations and facility tools.</p>
+<table>
+  <tr><th style="width:24%">Page</th><th>What staff can do</th></tr>
+  <tr><td>Operations</td><td>Live overview of laboratories, people inside, devices and alarms.</td></tr>
+  <tr><td>Reservations</td><td>Approve or reject pending bookings, book on behalf of a person, see each booking's equipment and trace (every door step to the second).</td></tr>
+  <tr><td>Access monitor</td><td>Every authentication attempt and door transition: who, how (card, QR, finger, face), result and reason.</td></tr>
+  <tr><td>IoT Dashboard</td><td>The IoT wall screen: live floor plan, counters, robots, devices — also on its own port <span class="mono">:8080</span> for a wall monitor.</td></tr>
+  <tr><td>Operations Center</td><td>Combined live picture across laboratories with drill-down per laboratory.</td></tr>
+  <tr><td>Live monitor</td><td>Full-screen monitor: each laboratory's door, lock, occupancy, alarms and camera, with a details window.</td></tr>
+  <tr><td>Security camera</td><td>Live camera with detection boxes, camera wall of all laboratories, events with snapshots, equipment boxes and zone setup.</td></tr>
+  <tr><td>Robots</td><td>Per-robot page: live per-joint traces, movement events, HOME calibration, replay, tool trail.</td></tr>
+  <tr><td>Maintenance</td><td>Tickets with photos, priority, assignment, comments and history.</td></tr>
+  <tr><td>Devices</td><td>Every device's health, last heartbeat and components; device keys.</td></tr>
+  <tr><td>Equipment &amp; inventory</td><td>Assets, smart-bin items (assign NFC tags, item mass), consumable bins and their transactions.</td></tr>
+  <tr><td>Alerts</td><td>Smart-bin weight mismatches and <b>weight changes without a request</b> (with the likely number of items), sensor alarms, device faults.</td></tr>
+  <tr><td>Notifications</td><td>Who took or returned which item; tag swaps; tickets; bookings awaiting approval.</td></tr>
+  <tr><td>Users</td><td>People, roles and enrolment (card, fingerprint slot, face).</td></tr>
+  <tr><td>Experiments</td><td>Experiment records and trials linked to robot and laboratory data.</td></tr>
+</table>
+
+<h2>6. The portal for administrators</h2>
+<p>Administrators have everything staff have, plus:</p>
+<table>
+  <tr><th style="width:24%">Page</th><th>What administrators can do</th></tr>
+  <tr><td>System overview</td><td>Health of the whole system: controllers online, live stream, last heartbeat, laboratory network map.</td></tr>
+  <tr><td>Reports</td><td>Weekly and monthly reports compared with the previous period, coloured charts, repeated problems with recommendations; printable to PDF.</td></tr>
+  <tr><td>Users &amp; roles</td><td>Create users, change roles (student, staff, administrator), deactivate accounts.</td></tr>
+  <tr><td>Settings</td><td>System settings such as booking approval rules.</td></tr>
+  <tr><td>Emergency</td><td>Hold the door open, lock down, or sound the evacuation alarm on every screen.</td></tr>
+  <tr><td>Smart bin</td><td>Can take items at any time (without being inside the laboratory).</td></tr>
+</table>
+
+<h2 class="page-break">7. End-to-end journeys</h2>
+<h3>7.1 A student's lab session with a breadboard</h3>
+<ol>
+  <li>Ali books the Robotics Laboratory for 14:00–16:00, purpose "Project prototyping", equipment: a breadboard, UR5e and lab PC.</li>
+  <li>The booking is confirmed and a QR credential is issued.</li>
+  <li>At the door: QR code → fingerprint → door opens; the entry is logged against the booking.</li>
+  <li>In the portal (booking page or laboratory page) Ali presses <b>Take</b> → the bin opens, LCD "Breadboard / BIN OPENING!".</li>
+  <li>Ali takes one breadboard; the weight drops by ≈33 g; the lid closes; the portal records the take-out and notifies Ali; staff see "Ali took a breadboard".</li>
+  <li>At the end Ali scans the breadboard's NFC tag at the bin → the lid opens → he puts it in → +33 g → recorded as "Returned: Breadboard 2"; Ali and staff are notified.</li>
+</ol>
+<h3>7.2 Something taken without the portal</h3>
+<p>If the bin's weight changes while no take-out or return is running, staff immediately get an alert such as "Smart bin: 32.9 g removed without a request — about 1 item".</p>
+<h3>7.3 A fire alarm</h3>
+<p>The flame sensor triggers → every open portal page shows a full-screen red alarm with a siren → staff can trigger evacuation from the Emergency page; the door logs everyone's exit.</p>
+
+<h2>8. Data, security and reliability</h2>
+<ul>
+  <li><b>Everything is recorded:</b> door events, sensor readings, alerts, bookings, camera events, bin transactions — the dataset for analysis and the thesis.</li>
+  <li><b>Data is never deleted:</b> history is kept; database restores are insert-only merges; tests run on a separate test database; a database backup is taken before every schema change.</li>
+  <li><b>Local network only:</b> the system works without internet (lab router 192.168.1.x, server 192.168.1.200).</li>
+  <li><b>Security:</b> Argon2id password hashing, strong-password policy, sign-in throttling, strict browser security headers, local HTTPS certificate authority, device keys for every board, secrets never in the code repository.</li>
+  <li><b>Fail-safe hardware:</b> the door locks at power-on and refuses QR codes when the portal is unreachable; the bin never opens without the portal's approval; servo hold time is limited.</li>
+</ul>
+
+<h2>9. Verification</h2>
+<table>
+  <tr><th style="width:30%">What</th><th>Result</th></tr>
+  <tr><td>Automated backend tests</td><td><b class="ok">415 of 415 passed</b> on 9 Oct 2026 (booking, access, QR pipeline, security hardening, smart bin, booking equipment, robots, inventory, notifications …)</td></tr>
+  <tr><td>Door hardware</td><td>Card, finger, face, QR entries and refusals on the bench</td></tr>
+  <tr><td>Smart-bin scale</td><td>51 g reference read 51.3 g; 200 g read 201.2 g; 9-minute drift 2.1 g; noise ±0.1 g</td></tr>
+  <tr><td>Smart-bin full cycle</td><td>Scan → lid open (sensor) → +35.4 g → close → lid closed (sensor); portal take-out by weight recorded</td></tr>
+  <tr><td>Camera latency</td><td>Measured per stage (capture, analysis, render, serve)</td></tr>
+</table>
+
+<h2>10. Open items and next steps</h2>
+<ol>
+  <li>Fit the stronger servo (MG996R) on the reusable bin and tune the lid timing.</li>
+  <li>Build and calibrate the consumables scale (resistors, LEDs).</li>
+  <li>Connect the real UR5e read-only (RTDE) and inspect the FANUC controller.</li>
+  <li>Mount the security camera in the laboratory and test PC detection on the real lab PCs.</li>
+  <li>Use the booked workstation with the camera and robot data to confirm who works on which station.</li>
+  <li>Automated nightly database backups; per-device keys; commit and publish the work with the owner's approval.</li>
+</ol>
+
+</body>
+</html>

@@ -105,7 +105,8 @@ def list_issues(
 @router.get("/summary", response_model=IssueSummary)
 def issue_summary(lab_id: Optional[int] = None, db: Session = Depends(get_db),
                   _: User = Depends(require_staff)):
-    return svc.summary(db, lab_id)
+    from app.core.ttl import cached
+    return cached(f"issues.summary.{lab_id}", 5, lambda: svc.summary(db, lab_id))
 
 
 @router.get("/{issue_id}", response_model=IssueDetail)

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_device
+from app.api.deps import device_scope, require_device
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
                         DeviceType, EventType, Notification, SensorReading,
@@ -62,10 +62,11 @@ def validate_qr_endpoint(req: ValidateQrRequest,
         user_id=res.user.id,
         auth_subject=res.user.auth_subject,
         display_name=res.user.full_name,
-        booking_id=res.booking.id,
+        booking_id=res.booking.id if res.booking else None,
         lab_id=res.lab.code,
-        valid_from=res.token.valid_from,
-        valid_until=res.token.valid_until,
+        # A personal door QR has no booking token (and maybe no booking).
+        valid_from=res.token.valid_from if res.token else None,
+        valid_until=res.token.valid_until if res.token else None,
     )
 
 
@@ -228,12 +229,13 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
 
 @router.post("/heartbeat", tags=["devices"])
 def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
-              _: str = Depends(require_device)):
+              identity: str = Depends(require_device)):
     """
     Device liveness and door state. Auto-registers an unknown device against
     its lab so a freshly flashed board appears in the admin view without
     manual setup.
     """
+    device_scope(identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
         return {"status": "unknown_lab"}
@@ -247,6 +249,13 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
                         lab_id=lab.id)
         db.add(device)
         db.flush()
+
+    # The firmware sends a heartbeat the moment the door or lock changes;
+    # tell open pages at once instead of waiting for their 30 s refresh.
+    lock_before = (device.component_state or {}).get("relay_locked")
+    door_changed = req.door_closed is not None and req.door_closed != device.door_closed
+    lock_changed = (req.components is not None and "relay_locked" in req.components
+                    and req.components["relay_locked"] != lock_before)
 
     device.ip_address = req.ip_address or device.ip_address
     device.firmware_version = req.firmware_version or device.firmware_version
@@ -263,6 +272,15 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
                   device_id=device.id, message=f"{device.name} online")
         resolve_offline_alerts(db, device)
     db.commit()
+    if door_changed or lock_changed:
+        # Best effort and after the commit: pages refetch over REST, so the
+        # database stays the only source of truth. Guarded like events.py:
+        # a dashboard must never affect a device request.
+        try:
+            from app.ws.manager import manager
+            manager.publish({"type": "door_state", "lab_id": lab.id})
+        except Exception:
+            pass
     return {"status": "ok", "lab": lab.code, "device_id": device.id}
 
 
@@ -281,13 +299,15 @@ class TelemetryRequest(BaseModel):
 
 @router.post("/telemetry", tags=["devices"])
 def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
-              _: str = Depends(require_device)):
+              identity: str = Depends(require_device)):
     """
-    Environmental readings from a sensor node (temperature, humidity, CO2,
-    ...). Stored as reported; nothing is interpolated. No sensor node is
-    installed yet, so until one posts here every environment view says
-    "Awaiting sensor data" - this endpoint is the contract it will use.
+    Environmental readings from a sensor node (temperature, humidity, and
+    the hazard states smoke / flame / water_leak / emergency, plus motion).
+    Stored as reported with the server's UTC time; nothing is interpolated.
+    A hazard state raises (or clears) its alert at once - see
+    services/environment.py.
     """
+    device_scope(identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     if lab is None:
         return {"status": "unknown_lab"}
@@ -300,5 +320,12 @@ def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
                              recorded_at=now))
     if device is not None:
         device.last_seen_at = now
+    from app.services import environment
+    values = [(r.metric, r.value) for r in req.readings]
+    messages = environment.record_hazards(db, lab, device, values)
+    messages += environment.record_advisories(db, lab, device, values)
     db.commit()
+    # After the commit: open pages refetch this lab's readings at once, and a
+    # hazard change shows / clears the full-screen alarm.
+    environment.publish([{"type": "env_update", "lab_id": lab.id}, *messages])
     return {"status": "recorded", "count": len(req.readings)}

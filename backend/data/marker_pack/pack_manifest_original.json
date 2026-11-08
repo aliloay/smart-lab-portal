@@ -1,0 +1,367 @@
+{
+  "title": "Smart Lab QR Ready Candidate Pack",
+  "generated_from": "Visible asset captions in user screenshots",
+  "warning": "All payloads are candidate strings inferred from visible captions. Verify each against current repository marker generation and scanner contracts before production integration.",
+  "assets": [
+    {
+      "slug": "entry-camera",
+      "name": "Entry Camera (ESP32-CAM)",
+      "asset_id": "CAM_LAB01",
+      "payload": "SLAB:D:CAM_LAB01",
+      "category": "camera",
+      "color": "#6426a8",
+      "rgb": [
+        100,
+        38,
+        168
+      ],
+      "shape": "camera",
+      "png": "markers/entry-camera.png",
+      "svg": "markers/entry-camera.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:CAM_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:CAM_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:CAM_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:CAM_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "",
+          "pass": false
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "face-server",
+      "name": "Face Recognition Server",
+      "asset_id": "FACESRV_01",
+      "payload": "SLAB:D:FACESRV_01",
+      "category": "server",
+      "color": "#562099",
+      "rgb": [
+        86,
+        32,
+        153
+      ],
+      "shape": "server",
+      "png": "markers/face-server.png",
+      "svg": "markers/face-server.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:FACESRV_01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:FACESRV_01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:FACESRV_01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:FACESRV_01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:FACESRV_01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "door-master",
+      "name": "Door Controller (Master ESP32)",
+      "asset_id": "MASTER_LAB01",
+      "payload": "SLAB:D:MASTER_LAB01",
+      "category": "door",
+      "color": "#075f59",
+      "rgb": [
+        7,
+        95,
+        89
+      ],
+      "shape": "door",
+      "png": "markers/door-master.png",
+      "svg": "markers/door-master.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:MASTER_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:MASTER_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:MASTER_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:MASTER_LAB01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:MASTER_LAB01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "admin-laptop",
+      "name": "ADMIN-LAPTOP",
+      "asset_id": "PC_ADMIN_LAPTOP",
+      "payload": "SLAB:D:PC_ADMIN_LAPTOP",
+      "category": "pc",
+      "color": "#1557ad",
+      "rgb": [
+        21,
+        87,
+        173
+      ],
+      "shape": "laptop",
+      "png": "markers/admin-laptop.png",
+      "svg": "markers/admin-laptop.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:PC_ADMIN_LAPTOP",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:PC_ADMIN_LAPTOP",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:PC_ADMIN_LAPTOP",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:PC_ADMIN_LAPTOP",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:PC_ADMIN_LAPTOP",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "ur5e-robot",
+      "name": "UR5e Collaborative Robot",
+      "asset_id": "UR5E_01",
+      "payload": "SLAB:D:UR5E_01",
+      "category": "robot",
+      "color": "#b84300",
+      "rgb": [
+        184,
+        67,
+        0
+      ],
+      "shape": "robot",
+      "png": "markers/ur5e-robot.png",
+      "svg": "markers/ur5e-robot.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:UR5E_01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:UR5E_01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:UR5E_01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:UR5E_01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:UR5E_01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "fanuc-robot",
+      "name": "FANUC ER-4iA (physical)",
+      "asset_id": "FANUC_01",
+      "payload": "SLAB:D:FANUC_01",
+      "category": "robot",
+      "color": "#b84300",
+      "rgb": [
+        184,
+        67,
+        0
+      ],
+      "shape": "robot",
+      "png": "markers/fanuc-robot.png",
+      "svg": "markers/fanuc-robot.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:FANUC_01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:FANUC_01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:FANUC_01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:FANUC_01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:FANUC_01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "consumables-bin",
+      "name": "Consumables Bin",
+      "asset_id": "CONS_BIN_01",
+      "payload": "SLAB:D:CONS_BIN_01",
+      "category": "inventory",
+      "color": "#976000",
+      "rgb": [
+        151,
+        96,
+        0
+      ],
+      "shape": "bin",
+      "png": "markers/consumables-bin.png",
+      "svg": "markers/consumables-bin.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:CONS_BIN_01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:CONS_BIN_01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:CONS_BIN_01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:CONS_BIN_01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:CONS_BIN_01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    },
+    {
+      "slug": "security-node",
+      "name": "Security Node",
+      "asset_id": "SEC_NODE_01",
+      "payload": "SLAB:D:SEC_NODE_01",
+      "category": "security",
+      "color": "#a71f31",
+      "rgb": [
+        167,
+        31,
+        49
+      ],
+      "shape": "shield",
+      "png": "markers/security-node.png",
+      "svg": "markers/security-node.svg",
+      "dimension_px": 720,
+      "decoder_tests": [
+        {
+          "size_px": 720,
+          "decoded": "SLAB:D:SEC_NODE_01",
+          "pass": true
+        },
+        {
+          "size_px": 480,
+          "decoded": "SLAB:D:SEC_NODE_01",
+          "pass": true
+        },
+        {
+          "size_px": 320,
+          "decoded": "SLAB:D:SEC_NODE_01",
+          "pass": true
+        },
+        {
+          "size_px": 240,
+          "decoded": "SLAB:D:SEC_NODE_01",
+          "pass": true
+        },
+        {
+          "size_px": 180,
+          "decoded": "SLAB:D:SEC_NODE_01",
+          "pass": true
+        }
+      ],
+      "payload_provenance": "Candidate transcribed from visible marker caption in user screenshot; must be verified against repository scanner/source before deployment."
+    }
+  ]
+}

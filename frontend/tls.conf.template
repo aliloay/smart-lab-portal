@@ -1,0 +1,27 @@
+# HTTPS (enabled by 40-smartlab-tls.sh only when deploy/tls has a certificate
+# from tools/tls/make_local_ca.py - see docs/SECURITY.md).
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+    ssl_certificate     /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:5m;
+    set $backend http://backend:8000;
+    include /etc/nginx/app_locations.conf;
+}
+server {
+    listen 8443 ssl;
+    http2 on;
+    server_name _;
+    ssl_certificate     /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    set $backend http://backend:8000;
+    location = / {
+        include /etc/nginx/security_headers.conf;
+        return 302 /command;
+    }
+    include /etc/nginx/app_locations.conf;
+}

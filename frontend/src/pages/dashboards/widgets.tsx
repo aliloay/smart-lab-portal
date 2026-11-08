@@ -14,6 +14,7 @@ import { fmtClock, fmtTime, relative } from '../../lib/time'
 import {
   Chip, Dot, EmptyState, IssueStatusChip, SectionTitle, SeverityBadge, Skeleton,
 } from '../../components/ui'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 // ---------------------------------------------------------------------------
 export function LiveActivity({ limit = 40, securityOnly = false, title = 'Live access activity',
@@ -92,7 +93,7 @@ export function DeviceHealth() {
   const load = useCallback(() => api.devices().then(setDevices).catch(() => setDevices([])), [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 20000)
+    const t = visibleInterval(load, 20000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {
@@ -110,7 +111,7 @@ export function DeviceHealth() {
           : devices.length === 0 ? <EmptyState icon={<Cpu size={18} />} title="No devices registered" compact />
           : devices.slice(0, 6).map(d => (
             <div key={d.id} className="px-4 py-3 flex items-center gap-3">
-              <Dot tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : 'idle'}
+              <Dot tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : d.state === 'DEGRADED' ? 'warn' : 'idle'}
                    live={d.state === 'ONLINE'} />
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] text-slate-100 truncate">{d.name}</div>
@@ -118,8 +119,8 @@ export function DeviceHealth() {
               </div>
               <div className="text-right text-[12px]">
                 <div className={d.state === 'ONLINE' ? 'text-ok-soft' : d.state === 'OFFLINE'
-                  ? 'text-bad-soft' : 'text-slate-400'}>
-                  {d.state === 'NO_DATA' ? 'No data' : d.state === 'ONLINE' ? 'Online' : 'Offline'}
+                  ? 'text-bad-soft' : d.state === 'DEGRADED' ? 'text-warn-soft' : 'text-slate-400'}>
+                  {d.state === 'NO_DATA' ? 'No data' : d.state === 'ONLINE' ? 'Online' : d.state === 'DEGRADED' ? 'Partly working' : 'Offline'}
                 </div>
                 <div className="text-slate-500 text-[11px]">
                   {d.last_seen_at ? relative(d.last_seen_at) : 'never reported'}

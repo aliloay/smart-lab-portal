@@ -1,9 +1,9 @@
 /**
  * The Smart Lab identity.
  *
- * The mark is original: a hexagonal laboratory cell containing an articulated
- * arm whose joints are network nodes - robotics and IoT in one glyph. It is
- * deliberately not styled after the university's logo.
+ * The mark: a camera aperture around an articulated robot arm (vision + robotics),
+ * redrawn as SVG from the owner's logo. Deliberately not styled after the
+ * university's logo.
  *
  * The official GIU logo is used as supplied, never redrawn: InstitutionLogo
  * shows public/brand/giu-logo.png: the university's logo with the white
@@ -16,44 +16,38 @@ import { useId, useState } from 'react'
 export function SmartLabMark({ size = 36, animated = false, className = '' }: {
   size?: number; animated?: boolean; className?: string
 }) {
-  // Unique ids per instance: a gradient defined inside a hidden copy (the
-  // phone header on a desktop) cannot be painted by the visible ones.
+  // The Smart Lab symbol (owner's logo, 2026-10-15; reference: docs/brand/smartlab-logo-reference.png):
+  // a cyan camera aperture - vision - around a robot arm with an amber joint, plus an amber light
+  // wedge. Redrawn as SVG so it stays sharp and tiny; below 24 px the blade seams are left out.
+  // Unique ids per instance: a gradient defined inside a hidden copy cannot paint the visible ones.
   const uid = useId().replace(/:/g, '')
-  const g = `slm-g-${uid}`, bg = `slm-bg-${uid}`
+  const g = `slm-g-${uid}`, am = `slm-a-${uid}`
+  const detailed = size >= 24
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden
+    <svg width={size} height={size} viewBox="0 0 64 64" role="img" aria-label="Smart Lab"
          className={className}>
       <defs>
         <linearGradient id={g} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#38bdf8" />
-          <stop offset="1" stopColor="#2dd4bf" />
+          <stop offset="0" stopColor="#67e8f9" /><stop offset="1" stopColor="#2563eb" />
         </linearGradient>
-        <radialGradient id={bg} cx="35%" cy="25%" r="80%">
-          <stop offset="0" stopColor="#273e62" />
-          <stop offset="1" stopColor="#12213a" />
-        </radialGradient>
+        <linearGradient id={am} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fbbf24" /><stop offset="1" stopColor="#f59e0b" stopOpacity="0" />
+        </linearGradient>
       </defs>
-      <path d="M32 4 56.2 18v28L32 60 7.8 46V18Z" fill={`url(#${bg})`}
-            stroke={`url(#${g})`} strokeWidth="3" strokeLinejoin="round" />
-      {/* inner cell, a fainter echo of the outline */}
-      <path d="M32 12 49.3 22v20L32 52 14.7 42V22Z" fill="none"
-            stroke="#38bdf8" strokeOpacity=".18" strokeWidth="1" />
-      <g fill="none" stroke="#e0f2fe" strokeWidth="3.4" strokeLinecap="round"
-         strokeLinejoin="round">
-        <path d="M18 47h14" />
-        <path d="M25 44 29 29 43 23" />
-        <path d="M43 23l4-4M43 23l5 2" />
-      </g>
-      <g fill="#38bdf8">
-        <circle cx="25" cy="44" r="3.2" />
-        <circle cx="29" cy="29" r="3.2" />
-        <circle cx="43" cy="23" r="2.6" />
-      </g>
-      {/* the signal from the tool: the arm is connected, not just moving */}
-      <g fill="none" stroke="#2dd4bf" strokeWidth="1.8" strokeLinecap="round"
-         className={animated ? 'art-blink' : ''}>
-        <path d="M49 14.5a7 7 0 0 1 4 4" />
-        <path d="M50.5 10.5a11 11 0 0 1 6.5 6.5" strokeOpacity=".55" />
+      <circle cx="32" cy="32" r="30" fill={`url(#${g})`} />
+      {detailed && <path d="M43.3 27.9Q58.0 31.1 53.9 51.7 M41.2 39.7Q45.8 54.0 25.9 60.9 M29.9 43.8Q19.8 55.0 3.9 41.1 M20.7 36.1Q6.0 32.9 10.1 12.3 M22.8 24.3Q18.2 10.0 38.1 3.1 M34.1 20.2Q44.2 9.0 60.1 22.9" fill="none" stroke="#0b1528" strokeWidth="1.6" strokeLinecap="round" strokeOpacity=".75" />}
+      <path d="M57.4 20.2A28 28 0 0 1 54.9 48.1L49.6 44.3A21.5 21.5 0 0 0 51.5 22.9Z" fill={`url(#${am})`} opacity=".85"
+            className={animated ? 'art-blink' : ''} />
+      <circle cx="32" cy="32" r="22.5" fill="#0b1528" />
+      {/* The arm is the focal point: drawn 1.35x around the opening centre, bolder strokes. */}
+      <g transform="translate(32 33) scale(1.6) translate(-32 -33)">
+      <path d="M23 43.5h10" stroke="#e0f2fe" strokeWidth="3" strokeLinecap="round" />
+      <path d="M27.5 41 27 33.5 35.5 25 40 31" fill="none" stroke="#ffffff" strokeWidth="4.4"
+            strokeLinecap="round" strokeLinejoin="round" />
+      {detailed && <path d="M38 33.5l2-2.5 2 2.5" fill="none" stroke="#e0f2fe" strokeWidth="1.8"
+                         strokeLinecap="round" strokeLinejoin="round" />}
+      <circle cx="27" cy="33.5" r="2.6" fill="#38bdf8" stroke="#e0f2fe" strokeWidth="1.4" />
+      <circle cx="35.5" cy="25" r="2.6" fill="#0b1528" stroke="#fbbf24" strokeWidth="1.8" />
       </g>
     </svg>
   )
@@ -62,13 +56,13 @@ export function SmartLabMark({ size = 36, animated = false, className = '' }: {
 export function Wordmark({ compact = false, tight = false }: { compact?: boolean; tight?: boolean }) {
   return (
     <div className="leading-none">
-      <div className="font-display font-semibold tracking-[0.18em] text-white
-                      text-[15px]">
+      <div className="font-display font-bold tracking-[0.12em] text-white
+                      text-[18px] antialiased">
         SMART<span className="text-accent-300"> LAB</span>
       </div>
       {!compact && (
-        <div className={`mt-1.5 uppercase text-slate-400 whitespace-nowrap ${tight
-          ? 'text-[8.5px] tracking-[0.12em]' : 'text-[10px] tracking-[0.2em]'}`}>
+        <div className={`mt-1.5 uppercase font-bold text-slate-200 whitespace-nowrap ${tight
+          ? 'text-[9px] tracking-[0.05em]' : 'text-[11px] tracking-[0.08em]'}`}>
           Intelligent Research Laboratory
         </div>
       )}

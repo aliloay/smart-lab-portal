@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -299,13 +300,55 @@ def next_subject(db: Session = Depends(get_db), _: User = Depends(require_admin)
     return {"auth_subject": next_auth_subject(db)}
 
 
+# Lab staff may correct a STUDENT's sign-in details; the rest is for administrators.
+STAFF_EDITABLE = {"full_name", "email", "department", "student_id"}
+
+
+def _may_manage(actor: User, target: User) -> bool:
+    return actor.role == Role.ADMIN or (actor.role == Role.LAB_STAFF and target.role == Role.STUDENT)
+
+
+@router.post("/users/{user_id}/remove", response_model=UserOut)
+def remove_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
+    """Remove a person from use - their history stays (bookings, door entries,
+    camera events are the lab's records): the account is disabled, every RFID
+    card and personal door QR revoked. Re-enable with 'Account active'."""
+    from datetime import datetime, timezone
+    from app.models import PersonalQrCredential
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if u.id == admin.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You cannot remove your own account")
+    now = datetime.now(timezone.utc)
+    u.is_active = False
+    cards = qrs = 0
+    for c in db.scalars(select(RfidCredential).where(RfidCredential.user_id == u.id,
+                                                     RfidCredential.revoked_at.is_(None))).all():
+        c.is_active, c.revoked_at = False, now
+        cards += 1
+    for q in db.scalars(select(PersonalQrCredential).where(PersonalQrCredential.user_id == u.id,
+                                                           PersonalQrCredential.revoked_at.is_(None))).all():
+        q.revoked_at = now
+        qrs += 1
+    db.add(AuditLog(actor_user_id=admin.id, action="USER_REMOVED", entity_type="user",
+                    entity_id=str(u.id), detail={"email": u.email, "cards_revoked": cards,
+                                                 "door_qr_revoked": qrs}))
+    db.commit()
+    db.refresh(u)
+    return u
+
+
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
-                admin: User = Depends(require_admin)):
+                admin: User = Depends(require_staff)):
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     changes = req.model_dump(exclude_unset=True)
+    if not _may_manage(admin, u) or (admin.role != Role.ADMIN and set(changes) - STAFF_EDITABLE):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "Lab staff can change a student's name, e-mail, department and student ID only")
     enrol = {f: changes.pop(f"{f}_enrolled") for f in ("fingerprint", "face")
              if f"{f}_enrolled" in changes and changes[f"{f}_enrolled"] is not None}
     changes.pop("fingerprint_enrolled", None)
@@ -316,6 +359,19 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                              changes.get("role") not in (None, Role.ADMIN)):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "You cannot demote or disable your own account")
+    if "email" in changes:
+        email = (changes["email"] or "").strip().lower()
+        if not email:
+            changes.pop("email")
+        elif email != u.email and db.scalar(select(User).where(
+                func.lower(User.email) == email, User.id != u.id)):
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "Another account already uses this email")
+        else:
+            changes["email"] = email
+    if "username" in changes:                        # administrators only (not in STAFF_EDITABLE)
+        from app.api.routes.auth import _username_or_422
+        changes["username"] = _username_or_422(db, changes["username"], u.id)
     if "auth_subject" in changes:
         subj = (changes["auth_subject"] or "").strip() or None
         if subj and db.scalar(select(User).where(User.auth_subject == subj,
@@ -393,6 +449,48 @@ def create_device(req: DeviceCreate, db: Session = Depends(get_db),
     db.commit()
     db.refresh(d)
     return device_out(d)
+
+
+@router.post("/devices/{device_id}/key")
+def issue_device_key(device_id: int, db: Session = Depends(get_db),
+                     admin: User = Depends(require_admin)):
+    """Give one device its own key (shown once; only its hash is kept). A
+    device using it may report only as itself. Issuing again replaces it."""
+    import secrets
+    from app.api.deps import hash_device_key
+    d = db.get(Device, device_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    key = secrets.token_urlsafe(24)
+    d.key_hash = hash_device_key(key)
+    _drop_account_keys(db, d.id)
+    db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_ISSUED",
+                    entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid}))
+    db.commit()
+    return {"device_uid": d.device_uid, "device_key": key,
+            "note": "Put this in the device's secrets.h as DEVICE_KEY. It is not shown again."}
+
+
+def _drop_account_keys(db: Session, device_id: int) -> None:
+    from sqlalchemy import delete
+    from app.models import PcAccountKey
+    db.execute(delete(PcAccountKey).where(PcAccountKey.device_id == device_id))
+
+
+@router.delete("/devices/{device_id}/key")
+def revoke_device_key(device_id: int, db: Session = Depends(get_db),
+                      admin: User = Depends(require_admin)):
+    d = db.get(Device, device_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    d.key_hash = None
+    _drop_account_keys(db, d.id)
+    db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_REVOKED",
+                    entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid}))
+    db.commit()
+    return {"device_uid": d.device_uid, "has_own_key": False}
 
 
 # ---------------------------------------------------------------- assets ---
@@ -650,12 +748,16 @@ def list_alerts(open_only: bool = False, db: Session = Depends(get_db),
 
 @router.post("/alerts/{alert_id}/resolve", response_model=AlertOut)
 def resolve_alert(alert_id: int, db: Session = Depends(get_db),
-                  _: User = Depends(require_staff)):
+                  user: User = Depends(require_staff)):
     a = db.get(Alert, alert_id)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert not found")
     a.is_resolved = True
     a.resolved_at = datetime.now(timezone.utc)
+    a.state, a.resolved_by_id = "RESOLVED", user.id
+    a.resolution = a.resolution or "Marked resolved from the alerts list"
+    db.add(AuditLog(actor_user_id=user.id, action="INCIDENT_RESOLVE", entity_type="alert", entity_id=str(a.id),
+                    detail={"via": "alerts list"}))
     db.commit()
     db.refresh(a)
     labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
@@ -851,3 +953,30 @@ def reports_overview(days: int = Query(30, ge=1, le=365),
                              if r.asset_id in assets else str(r.asset_id),
                              "count": r.n} for r in checkouts],
     }
+
+
+class PasswordSet(BaseModel):
+    new_password: str = Field(max_length=128)
+
+
+@router.put("/users/{user_id}/password")
+def set_user_password(user_id: int, req: PasswordSet, db: Session = Depends(get_db),
+                      actor: User = Depends(require_staff)):
+    """Set someone's password: administrators for anyone, lab staff for
+    students. Takes effect at the next sign-in; the audit log records who and
+    whose, never the password."""
+    u = db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if not _may_manage(actor, u):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Lab staff can set a student's password only")
+    from app.core import password_policy
+    from app.core.security import hash_password
+    bad = password_policy.problems(req.new_password, u.email, u.full_name)
+    if bad:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Password needs " + "; ".join(bad) + ".")
+    u.hashed_password = hash_password(req.new_password)
+    db.add(AuditLog(actor_user_id=actor.id, action="USER_PASSWORD_SET", entity_type="user",
+                    entity_id=str(u.id), detail={"email": u.email, "by_role": actor.role.value}))
+    db.commit()
+    return {"ok": True}

@@ -9,6 +9,8 @@ import { fmtDate } from '../lib/time'
 import { Avatar, Chip, KV, MetricCard, Notice, PageHeader, SectionTitle } from '../components/ui'
 import { Bloom, GridField } from '../components/visual'
 import { AccessSetupChecklist, useAccessSetup } from '../components/AccessSetup'
+import { FaceSelfService } from '../components/FaceSubmission'
+import DoorQrCard from '../components/DoorQrCard'
 
 export default function Profile() {
   const { user } = useAuth()
@@ -71,6 +73,8 @@ export default function Profile() {
               <p className={`text-[13px] ${setup.complete ? 'text-ok-soft' : 'text-amber-100/90'}`}>{setup.summary}</p>
               <AccessSetupChecklist setup={setup} />
             </> : <div className="text-[13px] text-slate-400">Loading…</div>}
+            <FaceSelfService />
+            <DoorQrCard />
             <Notice icon={<ScanFace size={15} />}>
               At the door: first your booking QR code or RFID card, then your fingerprint or face,
               which must belong to the same person. Your fingerprint stays inside the door's sensor

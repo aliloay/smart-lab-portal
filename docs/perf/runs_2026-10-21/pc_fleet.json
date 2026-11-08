@@ -1,0 +1,71 @@
+{
+ "seconds": 120.0,
+ "pcs": 11,
+ "viewers": 11,
+ "errors": {},
+ "stop_start_cycles": [
+  {
+   "stop_to_410_ms": 66.5,
+   "late_frame_after_stop": 409,
+   "start_to_picture_ms": 310.8
+  },
+  {
+   "stop_to_410_ms": 23.9,
+   "late_frame_after_stop": 409,
+   "start_to_picture_ms": 519.6
+  },
+  {
+   "stop_to_410_ms": 172.9,
+   "late_frame_after_stop": 409,
+   "start_to_picture_ms": 514.5
+  },
+  {
+   "stop_to_410_ms": 43.6,
+   "late_frame_after_stop": 409,
+   "start_to_picture_ms": 451.8
+  },
+  {
+   "stop_to_410_ms": 337.1,
+   "late_frame_after_stop": 409,
+   "start_to_picture_ms": 128.6
+  }
+ ],
+ "latency_ms": {
+  "LAN presence (2 s)": {
+   "n": 57,
+   "p50": 68.5,
+   "p95": 404.8,
+   "max": 546.6
+  },
+  "agent poll (1 s)": {
+   "n": 1074,
+   "p50": 33.2,
+   "p95": 198.9,
+   "max": 505.5
+  },
+  "agent state (30 s)": {
+   "n": 43,
+   "p50": 52.7,
+   "p95": 254.9,
+   "max": 332.5
+  },
+  "share frame upload (0.5 s)": {
+   "n": 220,
+   "p50": 26.1,
+   "p95": 163.1,
+   "max": 508.3
+  },
+  "viewer frame.jpg (0.5 s)": {
+   "n": 2344,
+   "p50": 25.3,
+   "p95": 149.8,
+   "max": 514.4
+  },
+  "viewer status (1.5 s)": {
+   "n": 785,
+   "p50": 26.5,
+   "p95": 148.1,
+   "max": 411.6
+  }
+ }
+}

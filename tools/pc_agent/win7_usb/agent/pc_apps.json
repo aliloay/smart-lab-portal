@@ -1,0 +1,3 @@
+{
+  "browser": {"start": ["cmd", "/c", "start", "", "chrome"], "image": "chrome.exe"}
+}

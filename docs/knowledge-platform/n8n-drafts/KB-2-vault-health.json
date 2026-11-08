@@ -1,0 +1,147 @@
+{
+ "id": "kbVaultHealth002",
+ "name": "Knowledge 2 - Vault health check",
+ "active": false,
+ "nodes": [
+  {
+   "id": "f14382f2-a2c4-5f26-9b3d-98109e0f2716",
+   "name": "Sticky Note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -400,
+    -200
+   ],
+   "parameters": {
+    "content": "## Vault health (DRAFT, inactive)\nBroken links, stale generated notes, removed sources, workflow drift (file vs live export). Reports are written to the vault's 12 - Generated Reports. Never edits or runs other workflows."
+   }
+  },
+  {
+   "id": "47a8dd3a-68a4-560c-aa8d-1143c28cc09f",
+   "name": "Daily 07:00",
+   "type": "n8n-nodes-base.scheduleTrigger",
+   "typeVersion": 1.2,
+   "position": [
+    0,
+    0
+   ],
+   "parameters": {
+    "rule": {
+     "interval": [
+      {
+       "field": "cronExpression",
+       "expression": "0 7 * * *"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "d5709528-9d96-58e7-b823-001928c891e6",
+   "name": "Run health check",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    250,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "http://host.docker.internal:5199/jobs/health",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "options": {
+     "timeout": 600000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "kbServiceKey0001",
+     "name": "KB service token (local)"
+    }
+   }
+  },
+  {
+   "id": "c0480b47-116a-5827-8e55-0c75c368b6b5",
+   "name": "Run workflow drift",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    500,
+    0
+   ],
+   "parameters": {
+    "method": "POST",
+    "url": "http://host.docker.internal:5199/jobs/drift",
+    "authentication": "genericCredentialType",
+    "genericAuthType": "httpHeaderAuth",
+    "options": {
+     "timeout": 600000
+    }
+   },
+   "credentials": {
+    "httpHeaderAuth": {
+     "id": "kbServiceKey0001",
+     "name": "KB service token (local)"
+    }
+   }
+  },
+  {
+   "id": "55d535e1-e413-5d28-a168-274409b53509",
+   "name": "Run now",
+   "type": "n8n-nodes-base.manualTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    200
+   ],
+   "parameters": {}
+  }
+ ],
+ "connections": {
+  "Daily 07:00": {
+   "main": [
+    [
+     {
+      "node": "Run health check",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Run health check": {
+   "main": [
+    [
+     {
+      "node": "Run workflow drift",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Run now": {
+   "main": [
+    [
+     {
+      "node": "Run health check",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1",
+  "saveManualExecutions": true,
+  "callerPolicy": "workflowsFromSameOwner",
+  "errorWorkflow": ""
+ },
+ "tags": [
+  {
+   "name": "knowledge (draft)"
+  }
+ ]
+}

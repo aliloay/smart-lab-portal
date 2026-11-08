@@ -9,18 +9,19 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        100,
-        300
+        112,
+        304
       ],
       "parameters": {
         "httpMethod": "POST",
         "path": "smartlab-issue-created",
         "authentication": "headerAuth",
-        "responseMode": "onReceived"
+        "options": {}
       },
       "webhookId": "46708782-0bd7-5121-aa05-229865547598",
       "credentials": {
         "httpHeaderAuth": {
+          "id": "MVhUQdHGHhnhjqcA",
           "name": "Smart Lab webhook token"
         }
       }
@@ -31,17 +32,18 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        300,
-        300
+        304,
+        304
       ],
       "parameters": {
-        "method": "GET",
         "url": "=http://backend:8000/api/automation/issues/{{ $json.body.object.id }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -52,15 +54,16 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        500,
-        300
+        512,
+        304
       ],
       "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 2
           },
           "conditions": [
             {
@@ -69,7 +72,8 @@
                 "type": "string",
                 "operation": "notEquals"
               },
-              "rightValue": "LOW"
+              "rightValue": "LOW",
+              "id": "bee86163-7b67-44ed-8a5d-e4b6076660df"
             },
             {
               "leftValue": "={{ $json.severity }}",
@@ -77,7 +81,8 @@
                 "type": "string",
                 "operation": "notEquals"
               },
-              "rightValue": "MEDIUM"
+              "rightValue": "MEDIUM",
+              "id": "78dcd8ee-5319-4d7a-853c-ac0257564dc9"
             },
             {
               "leftValue": "={{ $json.bookings_next_24h }}",
@@ -85,11 +90,13 @@
                 "type": "number",
                 "operation": "gt"
               },
-              "rightValue": 0
+              "rightValue": 0,
+              "id": "2faff5ff-b1e5-4de1-8c2d-78577a2ed0b9"
             }
           ],
           "combinator": "and"
-        }
+        },
+        "options": {}
       }
     },
     {
@@ -98,8 +105,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        700,
-        300
+        704,
+        304
       ],
       "parameters": {
         "method": "POST",
@@ -107,12 +114,13 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String($json.severity + \" issue in a booked lab: \" + $json.ticket).slice(0, 160), body: String($json.title + \" - \" + $json.bookings_next_24h + \" booking(s) in \" + $json.lab_code + \" in the next 24 h.\").slice(0, 500), link: $json.link, severity: $json.severity === \"CRITICAL\" ? \"critical\" : \"warning\", dedupe_key: \"issue-impact:\" + $json.issue_id }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String($json.severity + \" issue in a booked lab: \" + $json.ticket).slice(0, 160), body: String($json.title + \" - \" + $json.bookings_next_24h + \" booking(s) in \" + $json.lab_code + \" in the next 24 h.\").slice(0, 500), link: $json.link, severity: $json.severity === \"CRITICAL\" ? \"critical\" : \"warning\", dedupe_key: \"issue-impact:\" + $json.issue_id }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -123,8 +131,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        900,
-        300
+        912,
+        304
       ],
       "parameters": {
         "method": "POST",
@@ -132,17 +140,16 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"05-maintenance-automation\", status: \"success\", summary: \"Maintenance notification sent\", execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"05-maintenance-automation\", status: \"success\", summary: \"Maintenance notification sent\", execution_id: $execution.id }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      },
-      "executeOnce": true,
-      "onError": "continueRegularOutput"
+      }
     },
     {
       "id": "91aa8dd5-db4b-5f05-aaa1-7e8f5e852f30",
@@ -150,14 +157,13 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.4,
       "position": [
-        100,
-        450
+        112,
+        464
       ],
       "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "days",
               "triggerAtHour": 8
             }
           ]
@@ -170,17 +176,18 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        300,
-        450
+        304,
+        464
       ],
       "parameters": {
-        "method": "GET",
         "url": "http://backend:8000/api/automation/maintenance",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -191,15 +198,16 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        500,
-        450
+        512,
+        464
       ],
       "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 2
           },
           "conditions": [
             {
@@ -208,11 +216,13 @@
                 "type": "number",
                 "operation": "gt"
               },
-              "rightValue": 0
+              "rightValue": 0,
+              "id": "e6a63f2b-93f7-4ba0-9e87-be4d7693f51b"
             }
           ],
           "combinator": "and"
-        }
+        },
+        "options": {}
       }
     },
     {
@@ -221,8 +231,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        700,
-        450
+        704,
+        464
       ],
       "parameters": {
         "method": "POST",
@@ -230,24 +240,25 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String(\"Maintenance digest: \" + $json.overdue.length + \" overdue, \" + $json.unassigned_urgent.length + \" urgent unassigned\").slice(0, 160), body: String([...$json.overdue.map(i => i.ticket + \" overdue\"), ...$json.unassigned_urgent.map(i => i.ticket + \" unassigned\"), ...$json.assets_due.map(a => a.name + (a.overdue ? \" maintenance overdue\" : \" maintenance due\"))].join(\"; \")).slice(0, 500), link: \"/issues\", severity: \"warning\", dedupe_key: \"maintenance-digest:\" + $json.dedupe_day }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String(\"Maintenance digest: \" + $json.overdue.length + \" overdue, \" + $json.unassigned_urgent.length + \" urgent unassigned\").slice(0, 160), body: String([...$json.overdue.map(i => i.ticket + \" overdue\"), ...$json.unassigned_urgent.map(i => i.ticket + \" unassigned\"), ...$json.assets_due.map(a => a.name + (a.overdue ? \" maintenance overdue\" : \" maintenance due\"))].join(\"; \")).slice(0, 500), link: \"/issues\", severity: \"warning\", dedupe_key: \"maintenance-digest:\" + $json.dedupe_day }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
     },
     {
-      "id": "45d03deb-fcc0-58de-a636-b36214cc9dcf",
-      "name": "Sticky Note",
+      "id": "a3de26c6-b778-5961-a8f4-9353e3ede309",
+      "name": "Sticky Note 3cc86393",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        100,
-        600
+        112,
+        608
       ],
       "parameters": {
         "content": "## Maintenance automation\nEvent path: a HIGH/CRITICAL issue in a lab with bookings in the next 24 h is flagged to staff at once.\nDaily path: overdue (per published SLA), urgent unassigned, and equipment due for maintenance within 7 days.",

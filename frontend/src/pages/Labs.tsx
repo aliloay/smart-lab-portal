@@ -22,6 +22,7 @@ export default function Labs() {
   useEffect(() => { load() }, [])
   useLiveMessages(m => {
     if (m.type === 'access_event' && /^(ACCESS_GRANTED|DOOR|DEVICE|BOOKING)/.test(m.event.event_type)) load()
+    if (m.type === 'door_state') load()
   })
 
   // Filters live in the URL: back/forward and a shared link keep them.

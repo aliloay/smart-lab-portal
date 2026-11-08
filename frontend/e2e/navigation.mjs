@@ -34,7 +34,7 @@ const ROLES = [
     journey: async page => {
       for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/reports',
                        '/admin/users', '/admin/devices', '/admin/equipment', '/admin/alerts',
-                       '/admin/settings', '/']) await clickNav(page, p)
+                       '/admin/settings', '/admin/emergency', '/admin/security', '/']) await clickNav(page, p)
     } },
 ]
 
@@ -45,7 +45,12 @@ let current = ''
 async function state(page) {
   return page.evaluate(() => {
     const main = document.querySelector('main')
-    if (!main) return { text: 0, opacity: 1, err: false, heading: null }
+    if (!main) {
+      // The full-screen welcome (sign-in lands there since 2026-10-15) is a page of its own, outside the frame.
+      const wl = document.querySelector('.wl-root')
+      if (wl) return { text: wl.innerText.trim().length, opacity: 1, err: false, heading: wl.querySelector('h1')?.innerText.trim().slice(0, 50) ?? null }
+      return { text: 0, opacity: 1, err: false, heading: null }
+    }
     // The page wrapper (keyed per route) and its direct content. Decorative
     // layers inside cards are translucent by design and are not measured.
     let op = 1
@@ -113,6 +118,9 @@ try {
     await page.click('button[type=submit]')
     await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 })
     await check(page, 'after sign-in')
+    // The journeys use the sidebar: continue from a page inside the portal frame.
+    await page.goto(`${BASE}/labs`)
+    await page.waitForSelector('aside nav a', { timeout: 15000 })
 
     await role.journey(page)
 

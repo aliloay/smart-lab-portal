@@ -10,6 +10,7 @@ import { fmtDateLong, greeting } from '../../lib/time'
 import { CardsSkeleton, Dot, EmptyState, MetricCard, SectionTitle } from '../../components/ui'
 import { Bloom, GridField, NodeField } from '../../components/visual'
 import { DeviceHealth, LiveActivity, MaintenanceQueue, TodaySchedule } from './widgets'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 /** Staff: "what is happening, what needs me, what next" - for today. */
 export default function StaffDashboard() {
@@ -23,7 +24,7 @@ export default function StaffDashboard() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 30000)
+    const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })

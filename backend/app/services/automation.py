@@ -96,14 +96,35 @@ def lab_readiness(db: Session, lab: Lab, now: Optional[datetime] = None) -> dict
     if in_maintenance:
         notes.append(f"{in_maintenance} item(s) of equipment are in maintenance.")
 
+    # Environment node (Robotics Lab, System 2), where one is installed.
+    from app.services import environment
+    env = environment.latest(db, lab, now)
+    env_state = None
+    if env["node"] is not None:
+        env_state = "OFFLINE" if env["node"]["online"] is False else "ONLINE"
+        if env_state == "OFFLINE":
+            warnings.append("The environment node is offline - smoke, flame, leak "
+                            "and emergency states are unknown.")
+        for h in env["hazards"]:
+            warnings.append(f"Environment hazard active: {environment.HAZARD_LABEL[h]}.")
+        lo_hi = settings.sensor_thresholds
+        for m in ("temperature", "humidity"):
+            v = env["metrics"][m]
+            lo, hi = lo_hi.get(m, (None, None))
+            if v["quality"] == "VALID" and ((lo is not None and v["value"] < lo)
+                                            or (hi is not None and v["value"] > hi)):
+                notes.append(f"{m.capitalize()} {v['value']:.1f}{v['unit'] or ''} is "
+                             f"outside {lo}-{hi}.")
+
     level = "warning" if warnings else ("attention" if notes and (
-        high or open_alerts or in_maintenance) else "ok")
+        high or open_alerts or in_maintenance or env_state) else "ok")
     return {
         "lab_id": lab.id, "lab_code": lab.code, "lab_name": lab.name,
         "level": level, "controller": controller,
         "open_issues": len(issues), "critical_issues": len(critical),
         "high_issues": len(high), "open_alerts": open_alerts,
         "assets_in_maintenance": in_maintenance,
+        "environment": env_state, "environment_hazards": env["hazards"],
         "warnings": warnings, "notes": notes,
     }
 

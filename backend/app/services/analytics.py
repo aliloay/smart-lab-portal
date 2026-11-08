@@ -320,14 +320,38 @@ def automation_status(db: Session) -> dict:
 
 
 # --------------------------------------------------------------- environment --
+# 0/1 states: a slice keeps its highest value, so a short alarm stays visible.
+STATE_METRICS = {"smoke", "flame", "water_leak", "emergency", "motion"}
+SPARK_POINTS = 120
+
+
+def _downsample(points: list[tuple], keep_peaks: bool) -> list[tuple]:
+    """At most SPARK_POINTS (time, value, lab_id) points for a sparkline: consecutive slices,
+    each the mean (or, for states, the max) of its readings, at its last time."""
+    if len(points) <= SPARK_POINTS:
+        return points
+    out, size = [], len(points) / SPARK_POINTS
+    for i in range(SPARK_POINTS):
+        chunk = points[int(i * size):int((i + 1) * size)] or points[int(i * size):int(i * size) + 1]
+        vs = [p[1] for p in chunk]
+        out.append((chunk[-1][0], max(vs) if keep_peaks else round(sum(vs) / len(vs), 2), chunk[-1][2]))
+    return out
+
+
 def environment(db: Session, lab_id: Optional[int] = None,
                 hours: int = 24) -> dict:
     now = datetime.now(timezone.utc)
-    q = select(SensorReading).where(
-        SensorReading.recorded_at >= now - timedelta(hours=hours))
+    # Plain rows, five columns: building ~6 000 ORM objects took ~0.2 s.
+    # The lab's environment only: the PC agent stores its CPU/RAM/disk/network as pc_* readings in
+    # the same table - they are equipment telemetry, and were drawn here as "environment"
+    # (2026-10-18: all 12 285 readings of the last 24 h were pc_*, ~0.8 s of /analytics/operations).
+    q = select(SensorReading.metric, SensorReading.unit, SensorReading.value,
+               SensorReading.recorded_at, SensorReading.lab_id).where(
+        SensorReading.recorded_at >= now - timedelta(hours=hours),
+        ~SensorReading.metric.startswith("pc_"))
     if lab_id:
         q = q.where(SensorReading.lab_id == lab_id)
-    rows = db.scalars(q.order_by(SensorReading.recorded_at)).all()
+    rows = db.execute(q.order_by(SensorReading.recorded_at)).all()
     thresholds = settings.sensor_thresholds
     series: dict[str, dict] = {}
     for r in rows:
@@ -335,13 +359,16 @@ def environment(db: Session, lab_id: Optional[int] = None,
                                          "points": [],
                                          "min": thresholds.get(r.metric, (None, None))[0],
                                          "max": thresholds.get(r.metric, (None, None))[1]})
-        s["points"].append({"t": _iso(r.recorded_at), "v": r.value,
-                            "lab_id": r.lab_id})
+        # (time, value, lab) tuples; timestamps are formatted only for the points kept after
+        # thinning - formatting all ~12 000 first cost ~1.2 s of /analytics/operations (2026-10-18).
+        s["points"].append((r.recorded_at, r.value, r.lab_id))
     for s in series.values():
         last = s["points"][-1]
-        s["latest"] = last["v"]
-        s["latest_at"] = last["t"]
-        s["points"] = s["points"][-500:]
+        s["latest"] = last[1]
+        s["latest_at"] = _iso(last[0])
+        s["count"] = len(s["points"])
+        s["points"] = [{"t": _iso(t), "v": v, "lab_id": lab}
+                       for t, v, lab in _downsample(s["points"], s["metric"] in STATE_METRICS)]
     return {"hours": hours, "has_data": bool(rows),
             "message": None if rows else "Awaiting sensor data",
             "series": sorted(series.values(), key=lambda s: s["metric"])}

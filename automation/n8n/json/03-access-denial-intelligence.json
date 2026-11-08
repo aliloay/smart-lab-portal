@@ -9,18 +9,19 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        100,
-        300
+        112,
+        304
       ],
       "parameters": {
         "httpMethod": "POST",
         "path": "smartlab-access-denied",
         "authentication": "headerAuth",
-        "responseMode": "onReceived"
+        "options": {}
       },
       "webhookId": "34038c54-27df-593d-a9d9-90d097ad549c",
       "credentials": {
         "httpHeaderAuth": {
+          "id": "MVhUQdHGHhnhjqcA",
           "name": "Smart Lab webhook token"
         }
       }
@@ -31,17 +32,18 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        300,
-        300
+        304,
+        304
       ],
       "parameters": {
-        "method": "GET",
         "url": "=http://backend:8000/api/automation/access/denials{{ $json.body.lab_id ? \"?lab_id=\" + $json.body.lab_id : \"\" }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -52,15 +54,16 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        500,
-        300
+        512,
+        304
       ],
       "parameters": {
         "conditions": {
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "loose"
+            "typeValidation": "strict",
+            "version": 2
           },
           "conditions": [
             {
@@ -69,11 +72,13 @@
                 "type": "string",
                 "operation": "equals"
               },
-              "rightValue": "warning"
+              "rightValue": "warning",
+              "id": "a03a40d4-7124-41bc-959b-c1853746fb60"
             }
           ],
           "combinator": "and"
-        }
+        },
+        "options": {}
       }
     },
     {
@@ -82,8 +87,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        700,
-        300
+        704,
+        304
       ],
       "parameters": {
         "method": "POST",
@@ -91,12 +96,13 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: \"Repeated refusals at \" + $json.lab_code, detail: $json.message + \". Reasons: \" + Object.entries($json.by_reason).map(([k, v]) => k + \" x\" + v).join(\", \"), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: \"Repeated refusals at \" + $json.lab_code, detail: $json.message + \". Reasons: \" + Object.entries($json.by_reason).map(([k, v]) => k + \" x\" + v).join(\", \"), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -107,8 +113,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        900,
-        300
+        912,
+        304
       ],
       "parameters": {
         "method": "POST",
@@ -116,12 +122,13 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SECURITY_EVENT\", title: String(\"Repeated refusals at \" + $(\"Evaluate Denial Burst\").item.json.lab_code).slice(0, 160), body: String($(\"Evaluate Denial Burst\").item.json.message + \" - check the camera and who is at the door.\").slice(0, 500), link: \"/admin/access\", severity: \"warning\", dedupe_key: $(\"Evaluate Denial Burst\").item.json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SECURITY_EVENT\", title: String(\"Repeated refusals at \" + $(\"Evaluate Denial Burst\").item.json.lab_code).slice(0, 160), body: String($(\"Evaluate Denial Burst\").item.json.message + \" - check the camera and who is at the door.\").slice(0, 500), link: \"/admin/access\", severity: \"warning\", dedupe_key: $(\"Evaluate Denial Burst\").item.json.dedupe_key }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
       }
@@ -132,8 +139,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1100,
-        300
+        1104,
+        304
       ],
       "parameters": {
         "method": "POST",
@@ -141,26 +148,25 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
-        "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"03-access-denial-intelligence\", status: \"success\", summary: \"Burst at \" + $(\"Evaluate Denial Burst\").item.json.lab_code, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"03-access-denial-intelligence\", status: \"success\", summary: \"Burst at \" + $(\"Evaluate Denial Burst\").item.json.lab_code, execution_id: $execution.id }) }}",
+        "options": {}
       },
       "credentials": {
         "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      },
-      "executeOnce": true,
-      "onError": "continueRegularOutput"
+      }
     },
     {
-      "id": "4c75e3eb-471e-5bc1-aded-1a40778dd968",
-      "name": "Sticky Note",
+      "id": "aab52454-1b39-5d66-a02e-78f4cad3874e",
+      "name": "Sticky Note b2e733e0",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        100,
-        450
+        112,
+        464
       ],
       "parameters": {
         "content": "## Access denial intelligence\n1 refusal = normal (early, wrong code). 3 within 10 min = warning (thresholds in backend config). One alert per burst via dedupe key.\n\nThis workflow NEVER locks or unlocks anything - the door decides on its own.",

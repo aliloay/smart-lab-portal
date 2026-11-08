@@ -2,7 +2,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from app.core import password_policy
 
 from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
                               AuthMethod, BookingStatus, DeviceType, EventType,
@@ -17,8 +19,9 @@ class ORM(BaseModel):
 
 # --- auth ------------------------------------------------------------------
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    # e-mail OR username (2026-10-20); the field keeps its name so existing clients still work
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(max_length=256)       # an old password may be shorter than today's rule
 
 
 class TokenResponse(BaseModel):
@@ -32,6 +35,7 @@ class TokenResponse(BaseModel):
 class UserOut(ORM):
     id: int
     email: EmailStr
+    username: Optional[str] = None
     full_name: str
     role: Role
     is_active: bool
@@ -45,25 +49,43 @@ class UserOut(ORM):
 
 class UserCreate(BaseModel):
     email: EmailStr
+    username: Optional[str] = Field(default=None, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
-    password: str = Field(min_length=8)
+    password: str = Field(max_length=password_policy.MAX_LENGTH)
     role: Role = Role.STUDENT
     auth_subject: Optional[str] = Field(default=None, max_length=32)
-    student_id: Optional[str] = None
-    department: Optional[str] = None
+    student_id: Optional[str] = Field(default=None, max_length=64)
+    department: Optional[str] = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _strong(self):
+        password_policy.check(self.password, self.email, self.full_name)
+        return self
 
 
 class SignupRequest(BaseModel):
-    """Public sign-up. No role and no auth_subject: always a plain student."""
+    """Public sign-up. No role and no auth_subject: always a plain student. A username
+    (firstname.lastname) is required for new accounts (owner, 2026-10-20)."""
     email: EmailStr
+    username: str = Field(min_length=3, max_length=64)
     full_name: str = Field(min_length=2, max_length=255)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(max_length=password_policy.MAX_LENGTH)
     student_id: Optional[str] = Field(default=None, max_length=64)
     department: Optional[str] = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def _strong(self):
+        password_policy.check(self.password, self.email, self.full_name)
+        return self
 
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    # The sign-in address. Not derived from the name: changing the name never
+    # changes it; change it here when the person's address changes.
+    email: Optional[EmailStr] = None
+    # administrators only; "" removes it
+    username: Optional[str] = Field(default=None, max_length=64)
     role: Optional[Role] = None
     is_active: Optional[bool] = None
     auth_subject: Optional[str] = Field(default=None, max_length=32)
@@ -145,9 +167,15 @@ class DeviceOut(ORM):
     door_closed: Optional[bool]
     component_state: Optional[dict[str, Any]] = None
     lab_code: Optional[str] = None
-    # ONLINE / OFFLINE / NO_DATA - NO_DATA means it has never reported.
+    # Uses its own key (True) or the shared one (False).
+    has_own_key: bool = False
+    # ONLINE / DEGRADED / OFFLINE / NO_DATA - NO_DATA means it has never reported; DEGRADED = its
+    # reporter runs but the device itself is missing (camera without picture, robot not connected).
     state: str = "NO_DATA"
     seconds_since_seen: Optional[int] = None
+    # Why the state is what it is when it is not the device's own heartbeat
+    # (e.g. "reported by the door controller", "no picture from the camera").
+    state_note: Optional[str] = None
 
 
 class LabIssueBrief(BaseModel):
@@ -184,6 +212,29 @@ class LabStatus(BaseModel):
 
 
 # --- bookings --------------------------------------------------------------
+class ConsumableChoice(BaseModel):
+    inventory_bin_id: int
+    quantity: int = Field(ge=1, le=10000)
+
+
+class BookingEquipment(BaseModel):
+    """Chosen in the booking step 'Equipment'. Empty everywhere = none needed."""
+    bin_asset_ids: list[int] = Field(default_factory=list, max_length=50)
+    consumables: list[ConsumableChoice] = Field(default_factory=list, max_length=50)
+    # Each "PC" or "ASSET:<id>" (a robot); several at once (robot + PC). Empty = none.
+    workstations: list[str] = Field(default_factory=list, max_length=10)
+    # Older clients: one choice, "NONE" / "PC" / "ASSET:<id>".
+    workstation: str = Field(default="NONE", max_length=32)
+
+
+class BookingItemOut(ORM):
+    kind: str
+    asset_id: Optional[int] = None
+    inventory_bin_id: Optional[int] = None
+    quantity: Optional[int] = None
+    label: str
+
+
 class BookingCreate(BaseModel):
     lab_id: int
     start_time: datetime
@@ -191,6 +242,7 @@ class BookingCreate(BaseModel):
     reason: str = Field(default="", max_length=500)
     # Staff only: book on behalf of someone else.
     user_id: Optional[int] = None
+    equipment: Optional[BookingEquipment] = None
 
 
 class BookingOut(ORM):
@@ -212,6 +264,7 @@ class BookingOut(ORM):
     lab_name: Optional[str] = None
     lab_code: Optional[str] = None
     lab_category: Optional[str] = None
+    equipment: list[BookingItemOut] = []
     user_name: Optional[str] = None
     user_email: Optional[str] = None
 
@@ -410,6 +463,11 @@ class AssetOut(ORM):
     last_inspected_at: Optional[datetime] = None
     next_maintenance_at: Optional[datetime] = None
     maintenance_due: bool = False           # next_maintenance_at has passed
+    # NFC sticker for the reusable smart bin; None = not tagged.
+    nfc_uid: Optional[str] = None
+    bin_item: bool = False
+    # Mass on the smart bin's load cell (learnt from the first return).
+    unit_mass_g: Optional[float] = None
 
 
 class AssetCreate(BaseModel):
@@ -420,6 +478,8 @@ class AssetCreate(BaseModel):
     notes: str = ""
     serial_number: Optional[str] = Field(default=None, max_length=64)
     next_maintenance_at: Optional[datetime] = None
+    # Kept in the reusable smart bin (Arduinos, breadboards, ...).
+    bin_item: bool = False
 
 
 class AssetUpdate(BaseModel):
@@ -429,6 +489,7 @@ class AssetUpdate(BaseModel):
     category: Optional[str] = Field(default=None, max_length=64)
     serial_number: Optional[str] = Field(default=None, max_length=64)
     next_maintenance_at: Optional[datetime] = None
+    bin_item: Optional[bool] = None
 
 
 class AssetInspect(BaseModel):
@@ -736,6 +797,7 @@ class NotificationOut(ORM):
     booking_id: Optional[int] = None
     is_read: bool
     created_at: datetime
+    source: Optional[str] = None
 
 
 # --- system ----------------------------------------------------------------
@@ -749,7 +811,17 @@ class SystemStatus(BaseModel):
     devices_reporting: int     # have ever sent a heartbeat
     controllers_online: int
     controllers_total: int
+    # Real devices (not simulations) that have reported before and are not
+    # reporting now - the header names them instead of saying "healthy".
+    offline_devices: list[str] = []
     last_heartbeat_at: Optional[datetime] = None
+    # Internet is OPTIONAL: the lab runs on its own router. Reported apart
+    # from device health so "internet offline" never reads as a fault.
+    # None = not checked yet.
+    internet: Optional[bool] = None
+    # The database backups (app.services.backups): state OK / FAILED / STALE /
+    # MISSING / NOT_CONFIGURED, last success, file and size.
+    backup: Optional[dict] = None
     time: datetime
 
 

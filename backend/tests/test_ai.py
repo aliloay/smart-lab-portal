@@ -73,6 +73,7 @@ def test_priorities_rank_is_explainable(client, db, staff, alice, lab, now):
 
 def test_priorities_work_without_ai(client, staff, monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(settings, "OLLAMA_URL", "")   # local AI off too
     h = auth_headers(client, staff.email)
     assert client.get("/api/ai/status", headers=h).json()["configured"] is False
     assert client.get("/api/ai/maintenance-priorities", headers=h).status_code == 200
@@ -143,6 +144,7 @@ def test_ask_endpoint_limits_and_audits(client, db, staff, monkeypatch):
 def test_automation_weekly_summary_optional(client, monkeypatch):
     monkeypatch.setattr(settings, "AUTOMATION_API_KEY", "k")
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(settings, "OLLAMA_URL", "")   # local AI off too
     r = client.get("/api/automation/ai/weekly-summary",
                    headers={"X-Automation-Key": "k"}).json()
     assert r["available"] is False and r["summary"] is None

@@ -9,6 +9,15 @@ dist/
 firmware/**/secrets.h
 # face_server.py output: face photos and logs of real people
 dataset/
+portraits/
+dataset_sface/
+face_model_comparison.csv
+firmware/face_server/models/*.onnx
+tools/security_vision/models/*.onnx
+# the camera's RTSP address holds its password
+tools/security_vision/camera.env
+tools/security_vision/camera*.env
+!tools/security_vision/camera*.env.example
 lbph_model.yml
 labels.txt
 recognition_log.csv
@@ -32,3 +41,116 @@ backend/uploads/
 Thumbs.db
 firmware/**/user_photos.h
 firmware/**/user_photos_preview.png
+backups/
+
+# Arduino build output: the binaries contain the devices' keys.
+firmware/**/build/
+
+# Security camera recordings (videos stay on this laptop; never committed)
+tools/security_vision/recordings/
+
+# Robot detector training pictures (stay on this laptop)
+tools/security_vision/dataset/
+
+# Camera view anchors (room picture per camera)
+tools/security_vision/anchors/
+docs/paper_images_private/
+firmware/face_server/wrong_person/
+deploy/tls/*
+!deploy/tls/README.md
+# the CA private key lives OUTSIDE the folder mounted into nginx (2026-10-26)
+deploy/tls-ca/
+tools/robot_monitor/robot.env
+firmware/face_server/dataset_archive/
+
+# n8n.cloud trial export (owner backup, 2026-10-13) - same workflows as automation/n8n/json
+automation/n8n/aliloay-workflows/
+automation/n8n/aliloay-workflows.zip
+
+# PC agent: the PC's own device key
+tools/pc_agent/agent.env
+
+# deploy version stamp (tools/deploy/deploy.py writes it at each deploy)
+backend/app/build_info.json
+
+# Windows 7 offline agent package (installers + wheels, downloaded, not source)
+tools/pc_agent/win7_usb/python/
+tools/pc_agent/win7_usb/wheels/
+tools/pc_agent/win7_usb/ucrt/
+tools/pc_agent/win7_usb/agent/agent.env
+tools/lan_presence/presence_log.jsonl
+tools/pc_agent/SmartLab_PC_agent_Win7_USB.zip
+tools/pc_agent/SmartLab_PC_agent_UPDATE.zip
+# generated copies for the USB package (originals in tools/pc_agent/)
+tools/pc_agent/win7_usb/agent/pc_agent.py
+tools/pc_agent/win7_usb/agent/exam_lockdown.py
+tools/pc_agent/win7_usb/agent/notice.py
+tools/pc_agent/win7_usb/agent/start_pc_agent.bat
+
+# local voice models (downloaded, tools/voice/README.md)
+tools/voice/models/
+tools/voice/voice.env
+tools/llm_bench/bin/
+tools/llm_bench/models/
+tools/llm_bench/results*.jsonl
+tools/opcua/opcua.env
+tools/opcua/*.pem
+tools/opcua/*.der
+.last_build_fingerprint
+
+# personal photos (2026-10-27 audit): never commit
+firmware/tools/ali.jpg.jpg
+firmware/tools/ali2.jpg
+
+# enclosure reference photos (owner) - kept local
+backend/data/asset_refs/*/
+
+# local training environment + data (2026-10-28)
+tools/vision_train/.venv/
+tools/vision_train/data/
+tools/vision_train/runs/
+*.pt
+
+# USB kit (2026-11-03): the device key and the portable Python are never committed
+lab_usb_kit/device.key
+lab_usb_kit/python/
+lab_usb_kit/pc_agent/wheels/
+lab_usb_kit/smartlab-ca.crt
+lab_usb_kit/enroll.key
+
+# --- repository audit 2026-11-09: local tooling, secrets, generated and large artifacts ---
+.agents/
+.aider-desk/
+.claude/
+.vscode/
+.perf-dist-*/
+*.css.bak
+skills-lock.json
+logs/
+# PC install kit: contains enroll.key, site.json and a bundled Python (regenerate with tools/pc_agent/make_kit.py)
+lab_usb_kit/
+backend/data/pc_agent_bundle/
+# debug captures from e2e probes
+frontend/*.png
+frontend/e2e/_*.mjs
+# CAD: SolidWorks lock files, binaries, build outputs, backups and zips (release STLs are kept)
+~$*
+tools/cad/**/out/
+tools/cad/**/out_*/
+tools/cad/*backup*/
+tools/cad/**/*.zip
+tools/cad/**/*.SLDPRT
+tools/cad/**/*.SLDASM
+tools/cad/**/*backup*.json
+tools/cad/door_enclosure/DoorEnclosure_FitTestRelease_*/
+# YOLO training data, raw captures and results (kept locally; see docs/hardware or tools/vision_train/README)
+tools/vision_train/raw/
+tools/vision_train/results/
+tools/vision_train/colab_object/*.zip
+tools/vision_train/colab_object/*_dataset/
+# generated status reports and raw evidence dumps (kept locally)
+docs/reports/*.pdf
+docs/reports/*.json
+docs/reports/*.html
+docs/reports/dossier/
+docs/paper_figures/

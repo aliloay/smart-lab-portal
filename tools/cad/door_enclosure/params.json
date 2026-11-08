@@ -1,0 +1,559 @@
+{
+ "_about": "MASTER_LAB01 door controller enclosure - every dimension in mm. Edit, then run build.ps1 to regenerate all parts in SOLIDWORKS. Confidence labels (2026-10-20 research, reports/Door enclosure component dimensions.md): DATASHEET = manufacturer drawing for the exact part; VARIANT = drawing of the matching board variant; REFERENCE = similar part / other seller; CHOSEN = design choice; MEASURE = check with calipers or the fit coupon before the full print. No speaker / PAM8403 (removed by the owner 2026-10-20).",
+ "envelope": {
+  "width": 170,
+  "height": 210,
+  "depth": 110,
+  "_status": "CHOSEN: fits a 220 x 220 bed printed back-down; interference check in out/interference.txt; 45 mm wire space between the plate modules (top z 40) and the front modules (bottom z 85); depth 90 -> 110 on 2026-10-20 (owner: more room for wires).",
+  "wall": 3.0,
+  "corner_radius": 8.0
+ },
+ "print": {
+  "clearance": 0.3,
+  "_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3 for every slide / pass-through fit; inserts and self-tap pilots stay under size."
+ },
+ "fasteners": {
+  "insert_hole_d": 4.0,
+  "insert_hole_depth": 7.0,
+  "_insert_status": "DATASHEET (CNC Kitchen M3 x 5.7 x 4.6: hole 4.0, min wall 1.6, blind hole +1 mm). Most Electronics' M3 insert has no published size: MEASURE it; the coupon has 3.9 / 4.0 / 4.2 test holes. Insert hole stays UNDER size on purpose (press/melt fit, not a clearance).",
+  "screw_clear_d": 3.3,
+  "_screw_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; M3 3.0 -> 3.3 (was 3.4 ISO 273 medium)",
+  "corner_boss_d": 10.0,
+  "corner_boss_inset": 7.0,
+  "pilot_m25_d": 2.2,
+  "_pilot_status": "CHOSEN pilot for M2.5 self-tapping (PT/KA) screws into PLA/PETG; coupon has 2.0 / 2.2 / 2.4 Pilot stays UNDER size on purpose (screw cuts its thread)."
+ },
+ "front_panel": {
+  "thickness": 4.0,
+  "locating_tab_len": 30.0,
+  "locating_tab_t": 2.0,
+  "locating_tab_h": 3.0,
+  "engrave_depth": 0.6,
+  "text_height": 8.0,
+  "title": "DOOR NODE  (MASTER ESP)",
+  "title_y": 196,
+  "title_height": 9.0,
+  "label_style": "raised",
+  "raised_height": 0.8,
+  "_label_status": "OWNER 2026-10-24 (printed coupon): raised text looks best, RAISED 7 best - made bigger: labels 8, title 9, 0.8 high. Print the panel the same way the coupon was printed.",
+  "_cam_status": "2026-10-24: ESP32-CAM added upper-left (lens at -50, 175); title stays at the top (y 187-196)."
+ },
+ "tft": {
+  "_ref": "VARIANT: Most ME-38699 red '1.8 TFT SPI 128*160 V1.1' = LCDWIKI MSP1803: PCB 34.5 x 58, 4 holes D3.2 on 28.5 x 52 (3.0 from the edges). DATASHEET (QDTFT1801 panel): glass 34.7 x 46.7 x 2.4 (+-0.2/+-0.1), active area 28.03 x 35.04, 3.00 from the glass edge opposite the ribbon (8.66 at the ribbon end). Glass position on the PCB NOT dimensioned (~6.0 / 5.2 from the PCB ends, scaled).",
+  "center_x": 0,
+  "center_y": 150,
+  "pcb_w": 57.7,
+  "pcb_h": 33.7,
+  "hole_dx": 52.0,
+  "hole_dy": 28.5,
+  "glass_w": 43.4,
+  "glass_h": 33.7,
+  "glass_t": 2.4,
+  "window_w": 40.0,
+  "window_h": 30.0,
+  "window_offset_y": 0.0,
+  "_window_status": "CHOSEN 30 x 40: active area 28.03 x 35.04 + 1 mm sides, +2.5 mm each end to cover the undimensioned glass position and ribbon end; stays inside the 46.7 glass (black glass border shows as a bezel)",
+  "boss_d": 4.2,
+  "boss_h": 2.4,
+  "pilot_depth": 4.0,
+  "_boss_status": "bosses at the 4 PCB holes, as tall as the glass (2.4) so the glass touches the panel; D4.2 keeps 0.2 from the glass edge; 4 x M2.5 x 6 self-tapping screws",
+  "_measured": "MEASURED (owner, caliper + photo, 2026-10-24): glass 43.4 x 33.7 and red PCB 57.7 x 33.7 (same width), mounted LANDSCAPE, centred left-right (owner: 'lie rectangular centred'). Window 40 x 30 inside the glass. Holes kept at 52 x 28.5 (LCDWIKI, the coupon's bosses fitted).",
+  "orientation": "landscape"
+ },
+ "nfc": {
+  "_ref": "VARIANT: Ekostra EK506 'PN532 NFC RFID Module V3' (red), Elechouse 42.7 x 40.4 x 4. REFERENCE (Elechouse V4 STEP, 'same shape, same mounting holes as V3'): 2 holes D3.05 at (7.39, 7.59) and (35.19, 32.79) from the top-left corner = +-13.9 / +-12.6 about the centre; red clones 43 x 40 'holes 3 mm'.",
+  "center_x": -40,
+  "center_y": 95,
+  "pocket_w": 42.85,
+  "pocket_h": 40.52,
+  "pocket_depth": 2.5,
+  "front_skin": 1.5,
+  "_pocket_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; 43 x 40.4 -> 43.3 x 40.7; skin 1.5. VERIFIED 2026-10-24 (owner, printed coupon): a card reads through the 1.5 mm skin; most coupon fits OK. Next: owner's caliper measurements + 0.3 on clearance fits (insert / self-tap holes stay undersize).",
+  "island_d": 6.0,
+  "island_dx": 27.8,
+  "island_dy": 25.2,
+  "pilot_depth": 3.0,
+  "_island_status": "4 islands (both diagonals) so the board fits either way round; the board rests on them at the rear plane, held by 2 x M2.5 x 5 self-tapping screws. REFERENCE hole positions: MEASURE on the coupon.",
+  "tap_outline_margin": 2.0,
+  "tap_outline_groove": 1.0,
+  "_measured": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance: board 42.55 x 40.22 -> pocket 42.85 x 40.52; card reads through the 1.5 skin (coupon)."
+ },
+ "fingerprint": {
+  "_ref": "DATASHEET (GROW R307 manual v1.20 p.2) for Most ME-30297: body 44.1 x 20 x 23.5, no flange / ears, sensing window 15 x 11.19, 'window dimension 19 x 21' (prism head face), side notches 1.5 deep 22.9 from the sensor end, connector 3.2 below the base. Tolerances not published.",
+  "center_x": 40,
+  "center_y": 95,
+  "body_l": 46.1,
+  "body_w": 20.0,
+  "body_h": 23.5,
+  "pocket_l": 44.4,
+  "pocket_w": 20.3,
+  "pocket_depth": 1.5,
+  "aperture_l": 21.3,
+  "aperture_w": 19.3,
+  "sensor_end": "left",
+  "_aperture_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; body 44.1 x 20 -> pocket 44.4 x 20.3; head face 21 x 19 -> 21.3 x 19.3; coupon also 21.6 x 19.6. If the module measures ~52 long it is an R307S body: change body_l / pocket_l.",
+  "cradle_wall": 2.0,
+  "cradle_h": 12.0,
+  "tie_slot_w": 4.0,
+  "tie_slot_h": 2.5,
+  "mount": "protrude",
+  "face_w": 20.0,
+  "face_h": 23.5,
+  "protrude": 15.0,
+  "sleeve_wall": 2.5,
+  "stop_ledge": 3.0,
+  "stop_t": 2.0,
+  "_mount_status": "OWNER 2026-10-24: the finger goes on the sensor's END (the 45-degree glass); the end measures 19.7 x 23.2 (caliper) -> opening 20.0 x 23.5 (0.3 rule). The sensor stands OUT of the panel 15 mm (box hangs on the wall, easy to reach). Behind the panel: a sleeve (wall 2.5) as long as the rest of the body (44.1 - 15 - panel 4 = 25.1), a back stop (3 mm ledges left/right, wires pass in the middle) so a pressing finger cannot push it in, and one M2.5 self-tapping screw through the sleeve wall clamps the body so it cannot be pulled out. body_l 44.1 is the datasheet length - measure it if the stop does not touch.",
+  "top_l": 32.45,
+  "_length_measured": "MEASURED (owner, caliper, 2026-10-24): body 46.1 long on the bottom (long side, under the 45-degree glass), 32.45 on the top -> sleeve behind the panel 46.1 - 15 - 4 = 27.1 (was 44.1 datasheet). Wires leave the back end."
+ },
+ "leds": {
+  "_ref": "REFERENCE Kingbright L-53 5 mm: body D5.0, flange D5.9 x 1.0, length 8.6 (+-0.25); Most LEDs unbranded with a flange",
+  "use_holder": false,
+  "bare_d": 5.0,
+  "holder_d": 8.1,
+  "_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; LED body 5.0 -> 5.3, the 5.9 flange still stops it; coupon 5.1/5.2/5.3/5.4",
+  "green_x": -20,
+  "red_x": 20,
+  "y": 52,
+  "_measured": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance: LED body D4.7 -> hole D5.0"
+ },
+ "buzzer": {
+  "_ref": "VARIANT: Most 5 V ME-32997 / 12 V ME-19495 active buzzer D12 x 9.5, 85 dB, 2.3 kHz ('HXD'); DATASHEET TMB12A05 D12.0 +-0.2 x 9.5 +-0.2, pins 7.6 apart",
+  "center_x": 0,
+  "center_y": 28,
+  "cradle_id": 12.2,
+  "cradle_wall": 1.6,
+  "cradle_h": 7.0,
+  "sound_hole_d": 1.6,
+  "sound_ring_d": 7.0,
+  "_measured": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance: buzzer D11.9 -> cradle ID 12.2"
+ },
+ "glands": {
+  "_ref": "DATASHEET panel holes: PG7 12.5-12.8 (cable 3-6.5), M16x1.5 16.0-16.3 (cable 4-8). Most Electronics sells no glands: buy PG7 x 3 + M16 x 1 with locknuts (electrical supplier). Plain holes + locknut, no printed thread (3 mm wall << 8 mm thread). 0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3: PG7 thread 12.5 -> 12.8, M16 16.0 -> 16.3.",
+  "z": 45,
+  "holes": [
+   {
+    "name": "DC IN 12V",
+    "x": -50,
+    "d": 16.3
+   },
+   {
+    "name": "LOCK",
+    "x": -15,
+    "d": 12.8
+   },
+   {
+    "name": "DOOR",
+    "x": 15,
+    "d": 12.8
+   },
+   {
+    "name": "SPARE",
+    "x": 50,
+    "d": 12.8
+   }
+  ],
+  "tie_bar_w": 12,
+  "tie_bar_h": 6,
+  "tie_bar_d": 12,
+  "tie_bar_y": 30,
+  "tie_slot_w": 4.0,
+  "tie_slot_h": 2.5
+ },
+ "usb_access": {
+  "_ref": "VARIANT: Most ESP32 30-pin CH340 USB-C 51.5 x 28.5; USB-C on the short edge. Height of the connector = plate top 13 + breadboard 8.5-10 + header 2.5 + PCB 1.6 + half the receptacle 1.6 = 27.2-28.7",
+  "side": "left",
+  "y": 95,
+  "z": 18,
+  "w": 14.0,
+  "h": 14.0,
+  "_status": "CHOSEN 14 x 12 passes USB-C overmolds up to 13 x 8 with the height uncertainty; ESP32 end 12 mm from the wall",
+  "_measured": "OWNER PHOTO 2026-10-24: the ESP32 lies FLAT on the plate, Dupont plugs on top, USB-C leaves its short end low. USB centre ~ plate 13 + joints 2 + PCB 1.6 + 1.6 = 18.2 -> opening 14 x 14 at z 18 (11..25)."
+ },
+ "vents": {
+  "y_list": [
+   172,
+   180,
+   188
+  ],
+  "z_from": 25,
+  "z_to": 65,
+  "slot_h": 3.0,
+  "_status": "CHOSEN: both side walls, at the buck converter (top left)"
+ },
+ "keyholes": {
+  "x": [
+   -45,
+   45
+  ],
+  "y": 165,
+  "head_d": 9.5,
+  "slot_w": 4.3,
+  "slot_len": 11.0,
+  "_status": "0.3 RULE (owner + printer operator, Elegoo Neptune 4, 2026-10-21): clearance fits = part + 0.3; slot 4.0 -> 4.3 (holds the screw); entry 9.5 is a pass-through for the screw head, not a fit"
+ },
+ "electronics_plate": {
+  "thickness": 4.0,
+  "boss_h": 6.0,
+  "boss_d": 9.0,
+  "hole_inset": 6.0,
+  "x_margin": 14.0,
+  "y_bottom": 40.0,
+  "y_top_margin": 14.0,
+  "slot_w": 3.3,
+  "slot_len": 20.0,
+  "slot_pitch_x": 27.0,
+  "slot_pitch_y": 12.0,
+  "_slot_status": "no module hole pattern is published for Most's parts, so M3 / cable-tie slots everywhere; labels engraved inside each module's footprint",
+  "zone_labels": [
+   {
+    "text": "BUCK XL4016 12>5V",
+    "x": -28,
+    "y": 160
+   },
+   {
+    "text": "RELAY 12V",
+    "x": 38,
+    "y": 172
+   },
+   {
+    "text": "470uF",
+    "x": 38,
+    "y": 148
+   },
+   {
+    "text": "ESP32  USB <",
+    "x": -43,
+    "y": 100
+   },
+   {
+    "text": "WAGO 12V | GND",
+    "x": 12,
+    "y": 51
+   },
+   {
+    "text": "BB 3.3V",
+    "x": -43,
+    "y": 64
+   },
+   {
+    "text": "BB 5V",
+    "x": 38,
+    "y": 76
+   },
+   {
+    "text": "BB 12V BC557",
+    "x": 38,
+    "y": 112
+   }
+  ]
+ },
+ "components": [
+  {
+   "id": "buck",
+   "label": "XL4016 buck + display",
+   "on": "plate",
+   "x": -28,
+   "y": 163,
+   "z": 13,
+   "w": 64.0,
+   "h": 46.9,
+   "d": 26.2,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance (63.7 x 46.6 x 25.9)",
+   "src": "mostelectronic.com XL4016 8A display"
+  },
+  {
+   "id": "relay",
+   "label": "relay 1ch 12V",
+   "on": "plate",
+   "x": 38,
+   "y": 172,
+   "z": 13,
+   "w": 57.66,
+   "h": 29.8,
+   "d": 17.1,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance (57.36 x 29.5 x 16.8)",
+   "src": "generic SRD-12VDC module"
+  },
+  {
+   "id": "cap",
+   "label": "470uF 25V",
+   "on": "plate",
+   "round": true,
+   "x": 38,
+   "y": 148,
+   "z": 13,
+   "w": 11,
+   "h": 11,
+   "d": 21,
+   "conf": "REFERENCE D10 x 20 radial",
+   "src": "typical 470uF 25V"
+  },
+  {
+   "id": "esp32",
+   "label": "ESP32 flat, Dupont plugs on top",
+   "on": "plate",
+   "x": -43,
+   "y": 95,
+   "z": 13,
+   "w": 52.7,
+   "h": 38.3,
+   "d": 30,
+   "conf": "MEASURED ESP32 51.4 x 28.03 (+0.3), lies flat (owner photo); height = board + Dupont housings 14 + wire bend ~ 30; 50 mm free above (owner)",
+   "src": "Most ESP32 30-pin; Most ME-29142"
+  },
+  {
+   "id": "bb_3v3",
+   "label": "breadboard 3.3 V",
+   "on": "plate",
+   "x": -43,
+   "y": 58,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED (owner, caliper) 46 x 34.4 x 8.3 + 0.3; parts / wires 10",
+   "src": "Most ME-29142"
+  },
+  {
+   "id": "bb_12v",
+   "label": "breadboard 12 V (BC557 relay driver)",
+   "on": "plate",
+   "x": 38,
+   "y": 117,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance: breadboard 46 x 34.4 x 8.3 + parts 8",
+   "src": "Most ME-29142"
+  },
+  {
+   "id": "bb_5v",
+   "label": "breadboard 5 V",
+   "on": "plate",
+   "x": 38,
+   "y": 79,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED (owner, caliper) 46 x 34.4 x 8.3 + 0.3; parts / wires 10",
+   "src": "Most ME-29142"
+  },
+  {
+   "id": "wago1",
+   "label": "WAGO 12V",
+   "on": "plate",
+   "x": -1,
+   "y": 51,
+   "z": 13,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 21 x 12.5 x 14.5 +1",
+   "src": "Most WAGO PCT-212"
+  },
+  {
+   "id": "wago2",
+   "label": "WAGO GND",
+   "on": "plate",
+   "x": 25,
+   "y": 51,
+   "z": 13,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 +1",
+   "src": "Most WAGO PCT-212"
+  },
+  {
+   "id": "tft_glass",
+   "label": "TFT glass",
+   "on": "panel",
+   "x": 0,
+   "y": 150,
+   "z": 110,
+   "dir": "down",
+   "w": 43.7,
+   "h": 34.0,
+   "d": 2.4,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance (33.7 x 43.4)",
+   "src": "QDTFT1801"
+  },
+  {
+   "id": "tft_pcb",
+   "label": "TFT PCB + header plugs",
+   "on": "panel",
+   "x": 0,
+   "y": 150,
+   "z": 107.6,
+   "dir": "down",
+   "w": 58.0,
+   "h": 34.0,
+   "d": 15.6,
+   "conf": "MEASURED PCB 57.7 x 33.7 (+0.3), landscape; plugs 14 REFERENCE",
+   "src": "LCDWIKI MSP1803"
+  },
+  {
+   "id": "nfc",
+   "label": "PN532 + header plugs",
+   "on": "panel",
+   "x": -40,
+   "y": 95,
+   "z": 110,
+   "dir": "down",
+   "w": 42.85,
+   "h": 40.52,
+   "d": 17.6,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance (42.55 x 40.22); plugs 16 REFERENCE",
+   "src": "Ekostra EK506 / Elechouse"
+  },
+  {
+   "id": "fp",
+   "label": "R307 standing out 15 mm + connector",
+   "on": "panel",
+   "x": 40,
+   "y": 95,
+   "z": 129.0,
+   "dir": "down",
+   "w": 20.0,
+   "h": 23.5,
+   "d": 46.1,
+   "conf": "MEASURED end 19.7 x 23.2 (+0.3), length 46.1 bottom / 32.45 top (owner caliper); wires leave between the back-stop ledges",
+   "src": "GROW R307 manual"
+  },
+  {
+   "id": "led_g",
+   "label": "LED green + wires",
+   "on": "panel",
+   "round": true,
+   "x": -20,
+   "y": 52,
+   "z": 110,
+   "dir": "down",
+   "w": 6,
+   "h": 6,
+   "d": 16,
+   "conf": "MEASURED body D4.7 (owner 2026-10-24); flange REFERENCE 5.9",
+   "src": "Kingbright L-53"
+  },
+  {
+   "id": "led_r",
+   "label": "LED red + wires",
+   "on": "panel",
+   "round": true,
+   "x": 20,
+   "y": 52,
+   "z": 110,
+   "dir": "down",
+   "w": 6,
+   "h": 6,
+   "d": 16,
+   "conf": "MEASURED body D4.7 (owner 2026-10-24); flange REFERENCE 5.9",
+   "src": "Kingbright L-53"
+  },
+  {
+   "id": "buzzer",
+   "label": "active buzzer D12",
+   "on": "panel",
+   "round": true,
+   "x": 0,
+   "y": 28,
+   "z": 110,
+   "dir": "down",
+   "w": 12.2,
+   "h": 12.2,
+   "d": 21,
+   "conf": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance (D11.9)",
+   "src": "Huaneng TMB12A05 / Most ME-32997"
+  },
+  {
+   "id": "esp32cam",
+   "label": "ESP32-CAM on ESP32-CAM-MB",
+   "on": "panel",
+   "x": -51.13,
+   "y": 164.165,
+   "z": 106.0,
+   "dir": "down",
+   "w": 27.56,
+   "h": 40.51,
+   "d": 13.3,
+   "conf": "MEASURED (owner, caliper, 2026-10-24) + 0.3: ESP32-CAM on ESP32-CAM-MB, stack 27.26 x 40.21 x ~13 -> pocket 27.56 x 40.51 x 13.3; camera square 8.04 -> 8.34 rec",
+   "src": "AI-Thinker ESP32-CAM + ESP32-CAM-MB"
+  },
+  {
+   "id": "esp32cam_lens",
+   "label": "OV2640 camera block",
+   "on": "panel",
+   "x": -50.0,
+   "y": 175.0,
+   "z": 108.8,
+   "dir": "down",
+   "w": 8.34,
+   "h": 8.34,
+   "d": 2.8,
+   "conf": "MEASURED square 8.04 (+0.3)",
+   "src": "OV2640 module"
+  },
+  {
+   "id": "esp32cam_usb",
+   "label": "MB micro-USB plug + cable bend",
+   "on": "panel",
+   "x": -51.13,
+   "y": 131.41,
+   "z": 100.7,
+   "dir": "down",
+   "w": 12.0,
+   "h": 25.0,
+   "d": 8.0,
+   "conf": "REFERENCE micro-USB plug ~11 x 8, 18 long + bend",
+   "src": "generic micro-USB cable"
+  }
+ ],
+ "wires": {
+  "dupont_housing": 2.48,
+  "wire_d": 1.3,
+  "min_slot_w": 2.78,
+  "_measured": "MEASURED (owner, digital caliper, 2026-10-24) + 0.3 clearance: Dupont housing 2.48 square, wire D1.3 -> every wire slot / pass-through >= 2.78"
+ },
+ "esp32cam": {
+  "lens_x": -50.0,
+  "lens_y": 175.0,
+  "lens_dx": 1.13,
+  "lens_from_top": 9.42,
+  "board_w": 27.56,
+  "board_h": 40.51,
+  "stack_d": 13.3,
+  "cam_sq": 8.34,
+  "lens_hole_d": 8.19,
+  "front_skin": 1.2,
+  "flash_d": 4.5,
+  "flash_dx": 11.33,
+  "flash_from_bottom": 11.3,
+  "holder_wall": 2.0,
+  "holder_extra": 4.0,
+  "tie_slot_w": 4.0,
+  "tie_slot_h": 5.5,
+  "usb_w": 12.0,
+  "usb_h": 25.0,
+  "usb_d": 8.0,
+  "_measured": "MEASURED (owner, caliper, 2026-10-24) + 0.3: ESP32-CAM on ESP32-CAM-MB, stack 27.26 x 40.21 x ~13 -> pocket 27.56 x 40.51 x 13.3; camera square 8.04 -> 8.34 recess from the rear, lens D7.89 -> D8.19 hole through a 1.2 front skin. Mounted UPRIGHT (camera at the top, picture not rotated), left of the LCD, lens at y 175 (higher than the LCD = nearer face height); the MB's USB cable leaves downward (open bottom of the holder). The stack self-locates: the camera block goes into the square recess until it (or the SD holder) stops. Holder: walls left / right / top, 3 mm longer than the stack, a zip tie through the long side slots goes behind the MB. ESTIMATES (photo, not measured): lens centre 9 below the board top and 1 left of centre; flash LED 9 right of centre, 6 above the bottom edge -> D4.5 hole (owner: 'small hole for the white flash LED').",
+  "_lens_measured": "MEASURED (owner, 2026-10-24): board top edge to the camera block 5.4 -> lens centre 5.4 + 8.04/2 = 9.42 below the top edge (was a 9.0 estimate). Left-right offset still a photo estimate. MEASURED 2026-10-24: RIGHT edge (camera side facing you) to the camera block 8.48 -> lens 12.50 from the right edge, board centre 13.63 -> lens 1.13 RIGHT of centre (owner corrected).",
+  "_flash": "FROM THE OWNER'S PHOTO 2026-10-24 (scaled by the measured 27.26 x 40.21 board): white flash LED ~2.3 in from the right edge, ~11.3 above the bottom edge -> D4.5 hole (+-1 mm photo tolerance covered by the 4.5 vs ~3 mm LED)"
+ },
+ "breadboards_note": "OWNER 2026-10-24 (photo + message): 3 mini breadboards, one per rail - 12 V, 5 V, 3.3 V - and the master ESP32 on its own (female Dupont plugs on its pins, not on a breadboard). Which rail goes on which board is the owner's choice; the plate engraving suggests 12 V next to the relay, 3.3 V next to the ESP32.",
+ "wall_ears": {
+  "x": [
+   -55,
+   55
+  ],
+  "w": 24.0,
+  "reach": 16.0,
+  "t": 5.0,
+  "hole_d": 4.3,
+  "hole_from_edge": 8.0,
+  "_status": "OWNER 2026-10-24: handles to mount on the wall. 4 ears flush with the back (top + bottom), outside the box, so it screws to the wall without opening it. 0.3 RULE: 4 mm wall screw -> 4.3 hole. The inside keyholes stay as an option."
+ }
+}

@@ -1,7 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Camera, Cpu, DoorClosed, Fingerprint, Lock, Plus, Radio, Server, Thermometer, Wrench,
+  Bot, Camera, Cpu, DoorClosed, Fingerprint, Lock, Monitor, Plus, Radio, Server, Thermometer, Wrench,
+  Video,
 } from 'lucide-react'
 import { Device, Lab, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
@@ -11,13 +12,20 @@ import {
   Chip, Dot, EmptyState, ErrorBanner, Field, Modal, Notice, PageHeader, Skeleton, StateDot,
 } from '../components/ui'
 import { categoryMeta } from '../components/labArt'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const TYPE: Record<Device['device_type'], { label: string; icon: JSX.Element }> = {
   MASTER_CONTROLLER: { label: 'Master ESP32 controller', icon: <Cpu size={18} /> },
   CAMERA: { label: 'ESP32-CAM entry camera', icon: <Camera size={18} /> },
   FACE_SERVER: { label: 'Face recognition server', icon: <Server size={18} /> },
   SENSOR_NODE: { label: 'Sensor node', icon: <Thermometer size={18} /> },
+  SECURITY_CAMERA: { label: 'Security camera', icon: <Video size={18} /> },
+  ROBOT: { label: 'Robot (read-only monitoring)', icon: <Bot size={18} /> },
+  PC: { label: 'Lab PC', icon: <Monitor size={18} /> },
+  OTHER: { label: 'Other device', icon: <Cpu size={18} /> },
 }
+// A device type this page does not know yet still shows (never a crash).
+const typeOf = (t: string) => TYPE[t as Device['device_type']] ?? { label: t.replace(/_/g, ' ').toLowerCase(), icon: <Cpu size={18} /> }
 
 export default function Devices() {
   const { user } = useAuth()
@@ -31,14 +39,19 @@ export default function Devices() {
   useEffect(() => {
     load()
     api.labs().then(setLabs).catch(() => {})
-    const t = window.setInterval(load, 15000)
+    const t = visibleInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'access_event' && m.event.event_type.startsWith('DEVICE')) load() })
+  useLiveMessages(m => {
+    if (m.type === 'access_event' && m.event.event_type.startsWith('DEVICE')) load()
+    if (m.type === 'door_state') load()
+  })
 
   const byLab = useMemo(() => {
     const m = new Map<number, Device[]>()
-    ;(devices ?? []).forEach(d => m.set(d.lab_id, [...(m.get(d.lab_id) ?? []), d]))
+    // Simulations are not lab devices: they stay recorded but are not listed here.
+    ;(devices ?? []).filter(d => !(d.component_state as { demo?: boolean } | null)?.demo)
+      .forEach(d => m.set(d.lab_id, [...(m.get(d.lab_id) ?? []), d]))
     return [...m.entries()]
   }, [devices])
 
@@ -47,11 +60,12 @@ export default function Devices() {
 
   return (
     <div>
-      <PageHeader eyebrow="Connected devices" title="Devices"
+      <PageHeader eyebrow="Connected devices" title="System Devices"
         sub="Each laboratory's access hardware, as last reported by the devices themselves."
         actions={isAdmin(user) ? <button className="btn-primary" onClick={() => setAdding(true)}>
           <Plus size={16} />Register device</button> : undefined} />
       {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
+      <Screens devices={devices ?? []} />
 
       <div className="mb-5"><Notice>
         Liveness comes from heartbeats: a device silent for more than 90 seconds is offline, and
@@ -92,21 +106,24 @@ export default function Devices() {
                     <div className="flex items-center gap-3 min-w-0">
                       <span className={`grid place-items-center w-10 h-10 rounded-xl border ${d.state === 'ONLINE'
                         ? 'border-ok/40 bg-ok/10 text-ok-soft' : d.state === 'OFFLINE'
-                        ? 'border-bad/40 bg-bad/10 text-bad-soft' : 'border-ink-500 bg-ink-700/60 text-slate-400'}`}>
-                        {TYPE[d.device_type].icon}</span>
+                        ? 'border-bad/40 bg-bad/10 text-bad-soft' : d.state === 'DEGRADED'
+                        ? 'border-warn/40 bg-warn/10 text-warn-soft' : 'border-ink-500 bg-ink-700/60 text-slate-400'}`}>
+                        {typeOf(d.device_type).icon}</span>
                       <div className="min-w-0">
                         <div className="text-[14px] text-white truncate">{d.name}</div>
-                        <div className="text-[11.5px] text-slate-400">{TYPE[d.device_type].label}</div>
+                        <div className="text-[11.5px] text-slate-400">{typeOf(d.device_type).label}</div>
                       </div>
                     </div>
-                    <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : 'idle'} dot>
-                      {d.state === 'NO_DATA' ? 'No data' : d.state.toLowerCase()}</Chip>
+                    <Chip tone={d.state === 'ONLINE' ? 'ok' : d.state === 'OFFLINE' ? 'bad' : d.state === 'DEGRADED' ? 'warn' : 'idle'} dot>
+                      {d.state === 'NO_DATA' ? 'No data' : d.state === 'DEGRADED' ? 'partly working' : d.state.toLowerCase()}</Chip>
                   </div>
+                  {d.state_note && <p className={`mt-2 text-[12px] ${d.state === 'ONLINE' ? 'text-slate-400' : 'text-warn-soft'}`}>{d.state_note}</p>}
                   <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">
                     <div><dt className="text-slate-500">Last heartbeat</dt>
-                      <dd className="text-slate-200">{d.last_seen_at ? relative(d.last_seen_at) : 'Never'}</dd></div>
+                      <dd className="text-slate-200">{d.last_seen_at ? relative(d.last_seen_at)
+                        : d.seconds_since_seen != null ? `${d.seconds_since_seen}s ago (via door)` : 'Never'}</dd></div>
                     <div><dt className="text-slate-500">Address</dt>
-                      <dd className="mono text-slate-200">{d.ip_address ?? '—'}</dd></div>
+                      <dd className="mono text-slate-200">{d.ip_address ?? <span className="text-warn-soft font-sans">Not configured</span>}</dd></div>
                     <div><dt className="text-slate-500">Device ID</dt>
                       <dd className="mono text-slate-200 truncate">{d.device_uid}</dd></div>
                     <div><dt className="text-slate-500">Firmware</dt>
@@ -115,6 +132,7 @@ export default function Devices() {
                   <div className="mt-4 flex items-center justify-between">
                     <Link to={`/issues/new?lab=${d.lab_id}&device=${d.id}`} className="text-xs link inline-flex items-center gap-1">
                       <Wrench size={12} />Report a problem</Link>
+                    {isAdmin(user) && <DeviceKey id={d.id} own={!!d.has_own_key} />}
                   </div>
                 </div>
               ))}
@@ -196,5 +214,63 @@ function AddDevice({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => voi
         </div>
       </form>
     </Modal>
+  )
+}
+
+/** Give one device its own key. Shown once; only its hash is stored. */
+function DeviceKey({ id, own }: { id: number; own: boolean }) {
+  const [key, setKey] = useState<string | null>(null)
+  const [err, setErr] = useState('')
+  async function issue() {
+    if (own && !window.confirm('Replace the key of this device? The old key stops working at once.')) return
+    try { setKey((await api.issueDeviceKey(id)).device_key) }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed') }
+  }
+  if (key) {
+    return <div className="text-[11.5px] text-right max-w-[60%]">
+      <div className="text-warn-soft">Copy now - not shown again:</div>
+      <code className="mono text-slate-100 break-all select-all">{key}</code></div>
+  }
+  return <button className="text-xs link" onClick={issue} title={err || undefined}>
+    {own ? 'Own key ✓ · replace' : 'Issue own key'}</button>
+}
+
+
+/** The screens of the system: door tablet (served by the Master ESP32 itself)
+ *  and the IoT dashboard wall, with the address on the lab network and on
+ *  this computer. Links only - nothing here changes a device. */
+function Screens({ devices }: { devices: Device[] }) {
+  const master = devices.find(d => d.device_type === 'MASTER_CONTROLLER' && d.ip_address)
+  const here = window.location.hostname
+  const lab = '192.168.1.200'          // the portal laptop on the Smart_Lab router
+  const proto = window.location.protocol
+  const iot = (h: string) => `${proto}//${h}:${proto === 'https:' ? 8443 : 8080}/command`
+  const row = 'flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]'
+  const a = 'underline text-sky-300 hover:text-sky-200'
+  return (
+    <div className="card p-4 mb-4 grid gap-3 md:grid-cols-2">
+      <div>
+        <div className="text-[13.5px] font-semibold text-slate-100">Door tablet screen</div>
+        <div className="text-[11.5px] text-slate-400 mb-1.5">Served by the door controller (Master ESP32) - opens only on the Smart_Lab network.</div>
+        <div className={row}>
+          {master ? <a className={a} href={`http://${master.ip_address}/`} target="_blank" rel="noopener noreferrer">http://{master.ip_address}/</a>
+                  : <span className="text-slate-400">Not configured</span>}
+        </div>
+      </div>
+      <div>
+        <div className="text-[13.5px] font-semibold text-slate-100">IoT Dashboard (wall screen)</div>
+        <div className="text-[11.5px] text-slate-400 mb-1.5">Open the full wall here or in a separate tab.</div>
+        <div className={row}>
+          <Link className="btn-ghost !py-1 !px-2.5" to="/wall">Wall in this tab</Link>
+          <a className="btn-ghost !py-1 !px-2.5" href="/wall" target="_blank" rel="noopener noreferrer">Wall in new tab</a>
+        </div>
+        <div className={row + ' mt-1.5'}>
+          <span className="text-slate-400">Lab network:</span>
+          <a className={a} href={iot(lab)} target="_blank" rel="noopener noreferrer">{iot(lab)}</a>
+          {here !== lab && <><span className="text-slate-400">This computer:</span>
+            <a className={a} href={iot(here)} target="_blank" rel="noopener noreferrer">{iot(here)}</a></>}
+        </div>
+      </div>
+    </div>
   )
 }

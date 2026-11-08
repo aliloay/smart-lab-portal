@@ -1,0 +1,238 @@
+{
+ "_about": "Reusable (smart) bin DOCK, 2026-10-25 (owner: stand on the floor, hug the bin, hide the pedal, holes in the side walls). Hand-edited part; gen_params.py adds the traced geometry and writes params.json. Clearance fits = part + 0.3 (owner); insert holes / self-tap pilots undersize on purpose.",
+ "kind": "dock",
+ "name_prefix": "BinDock",
+ "inside_views": false,
+ "envelope": {
+  "width": 160,
+  "height": 150,
+  "depth": 75,
+  "wall": 3.0,
+  "corner_radius": 6.0,
+  "_status": "box beside the bin's LEFT side (owner: wires already leave the bin on the left). x along the bin (-x = bin back), y up, z out of the bin's side (0 = the face toward the bin)."
+ },
+ "print": {
+  "clearance": 0.3
+ },
+ "fasteners": {
+  "insert_hole_d": 4.0,
+  "insert_hole_depth": 7.0,
+  "screw_clear_d": 3.3,
+  "corner_boss_d": 10.0,
+  "corner_boss_inset": 7.0
+ },
+ "lid": {
+  "thickness": 4.0,
+  "locating_tab_len": 30.0,
+  "locating_tab_t": 2.0,
+  "locating_tab_h": 0.0,
+  "title": "REUSABLE BIN",
+  "title_height": 9.0,
+  "raised_height": 0.8,
+  "_status": "no tabs (2026-10-25): with tabs below and raised text on top the lid could not lie flat on the bed; the 4 M3 screws (3.3 holes) locate it"
+ },
+ "outer_text": {
+  "title": "REUSABLE BIN",
+  "title_y": 75,
+  "title_height": 11.0,
+  "raised_height": 0.8,
+  "labels": [
+   {
+    "text": "< 12V IN",
+    "x": -50,
+    "y": 30,
+    "h": 6.0
+   },
+   {
+    "text": "< BIN",
+    "x": -57,
+    "y": 112,
+    "h": 6.0
+   },
+   {
+    "text": "BIN >",
+    "x": 57,
+    "y": 112,
+    "h": 6.0
+   },
+   {
+    "text": "USB >",
+    "x": 57,
+    "y": 35,
+    "h": 6.0
+   }
+  ]
+ },
+ "end_holes": {
+  "_status": "M16 cable glands (16.0 + 0.3) in the END walls (owner: holes in the side). -x end (toward the bin's back): 12 V in low, bin wires high; +x end: second bin bundle high and the ESP32 USB-C.",
+  "z": 45,
+  "holes": [
+   {
+    "name": "DC IN 12V",
+    "side": -1,
+    "y": 30,
+    "d": 16.3
+   },
+   {
+    "name": "BIN A",
+    "side": -1,
+    "y": 112,
+    "d": 16.3
+   },
+   {
+    "name": "BIN B",
+    "side": 1,
+    "y": 112,
+    "d": 16.3
+   }
+  ],
+  "usb": {
+   "side": 1,
+   "y": 35,
+   "z": 24,
+   "w": 14.0,
+   "h": 14.0
+  }
+ },
+ "vents": {
+  "y_list": [
+   128,
+   136,
+   144
+  ],
+  "x_from": -40,
+  "x_to": 40,
+  "slot_h": 3.0
+ },
+ "rails": {
+  "_status": "the electronics plate slides down into a groove on each end wall (plate 4.0 + 0.3) and lifts out from the top",
+  "plate_z0": 14.0,
+  "plate_t": 4.0,
+  "rib_t": 2.5,
+  "rib_reach": 4.0
+ },
+ "electronics_plate": {
+  "y_bottom": 9.0,
+  "y_top": 144.0,
+  "lift_notch_w": 40.0,
+  "lift_notch_h": 9.0,
+  "slot_w": 3.3,
+  "slot_len": 20.0,
+  "slot_pitch_x": 27.0,
+  "slot_pitch_y": 12.0,
+  "zone_labels": [
+   {
+    "text": "BUCK 12>5V",
+    "x": -30,
+    "y": 123
+   },
+   {
+    "text": "BB 5V",
+    "x": 38,
+    "y": 123
+   },
+   {
+    "text": "WAGO 12V | GND",
+    "x": -30,
+    "y": 87
+   },
+   {
+    "text": "470uF",
+    "x": 15,
+    "y": 87
+   },
+   {
+    "text": "BB 3.3V",
+    "x": -35,
+    "y": 51
+   },
+   {
+    "text": "ESP32 USB >",
+    "x": 30,
+    "y": 51
+   }
+  ],
+  "_labels": "plate y 9..144 (clears the tongue pads, top 8); slot rows at 21 + 12k, labels in the gaps (27 + 12k)"
+ },
+ "components": [
+  {
+   "id": "buck",
+   "label": "buck 12>5 V",
+   "xb": -30,
+   "yb": 110,
+   "zb": 18,
+   "w": 64.0,
+   "h": 46.9,
+   "d": 26.2,
+   "conf": "MEASURED 63.7 x 46.6 x 25.9 + 0.3"
+  },
+  {
+   "id": "bb_5v",
+   "label": "breadboard 5 V",
+   "xb": 38,
+   "yb": 114,
+   "zb": 18,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3, + Dupont"
+  },
+  {
+   "id": "wago1",
+   "label": "WAGO 12V",
+   "xb": -45,
+   "yb": 72,
+   "zb": 18,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 +1"
+  },
+  {
+   "id": "wago2",
+   "label": "WAGO GND",
+   "xb": -15,
+   "yb": 72,
+   "zb": 18,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 +1"
+  },
+  {
+   "id": "cap",
+   "label": "470uF 25V",
+   "round": true,
+   "xb": 15,
+   "yb": 72,
+   "zb": 18,
+   "w": 11,
+   "h": 11,
+   "d": 21,
+   "conf": "REFERENCE D10 x 20 radial"
+  },
+  {
+   "id": "esp32",
+   "label": "ESP32 flat + Dupont",
+   "xb": 30,
+   "yb": 35,
+   "zb": 18,
+   "w": 52.7,
+   "h": 38.3,
+   "d": 30,
+   "conf": "MEASURED 51.4 x 28.03 + 0.3"
+  },
+  {
+   "id": "bb_3v3",
+   "label": "breadboard 3.3 V",
+   "xb": -35,
+   "yb": 35,
+   "zb": 18,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3, + Dupont"
+  }
+ ],
+ "_bottom": "2026-10-25: no feet - the bottom is flat so the box prints on it with no supports and stands flat on the floor; the tray tongues slide into pockets under it."
+}

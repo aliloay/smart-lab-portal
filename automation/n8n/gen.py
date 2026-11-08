@@ -330,6 +330,51 @@ W["12-anomaly-detection"] = (
     + note("## Rule-based anomaly detection\nExplainable rules only, evaluated in the backend: denial bursts, repeated identity mismatch, after-hours access, forced entry / door held open, device flapping, refusals far above the lab's own 7-day baseline. No ML model - there is no training data. One notification per rule, lab and day."),
     ".add(hourly).to(scan).to(each).to(tell).to(recordRun).add(note)")
 
+# 13-22 ---------------------------------------------------------------------
+# Robotics Lab watch rules. The rules live in the backend
+# (app/services/robotics_watch.py, tested); each workflow polls one topic,
+# notifies staff once per item (dedupe key) and records its run.
+def robotics(num, slug, title, topic, interval_name, interval, kind, text):
+    key = f"{num}-{slug}"
+    W[key] = (
+        f"Smart Lab {num} - {title}",
+        schedule("tick", interval_name, interval)
+        + get("check", "Check In Backend", f"/robotics/{topic}",
+              {"topic": topic, "count": 1, "items": [{"title": "t", "body": "b", "severity": "warning",
+                                                     "link": "/admin/equipment", "dedupe_key": "k", "lab_id": 1}]})
+        + split("each", "One Item Per Finding", "items",
+                {"title": "t", "body": "b", "severity": "warning", "link": "/admin/equipment", "dedupe_key": "k"})
+        + notify("tell", "Notify Staff", "staff", kind, "$json.title", "$json.body", "$json.link",
+                 "$json.severity", "$json.dedupe_key")
+        + run(key, '"Findings: " + $("Check In Backend").first().json.count')
+        + note(f"## {title}" + chr(10) + text),
+        ".add(tick).to(check).to(each).to(tell).to(recordRun).add(note)")
+
+
+EVERY5 = "{ field: 'minutes', minutesInterval: 5 }"
+EVERY15 = "{ field: 'minutes', minutesInterval: 15 }"
+HOURLY = "{ field: 'hours', hoursInterval: 1 }"
+robotics("13", "environment-hazard-escalation", "Environment hazard escalation", "hazards", "Every 5 Minutes", EVERY5,
+         "ENVIRONMENT_HAZARD", "The backend alerts at once when smoke, flame, a leak or the emergency signal is reported; this re-notifies when it is still active after 5 min. Indicators only - not a certified fire or safety system.")
+robotics("14", "node-offline", "Environment / bin node offline", "env-offline", "Every 15 Minutes", EVERY15,
+         "DEVICE_OFFLINE", "A sensor or bin node stopped sending heartbeats - its readings are stale, never shown as current.")
+robotics("15", "low-stock", "Consumable below reorder level", "low-stock", "Every Hour", HOURLY,
+         "LOW_STOCK", "Estimated quantity at or below the bin's reorder level. Only calibrated bins are estimated.")
+robotics("16", "unattended-stock-change", "Stock change with nobody inside", "unattended-stock", "Every Hour", HOURLY,
+         "STOCK_CHANGE", "A withdrawal recorded while no access session was open. A record to check, never an accusation.")
+robotics("17", "asset-overdue", "Reusable item overdue", "assets-overdue", "Every Hour", HOURLY,
+         "ASSET_OVERDUE", "A smart-bin item checked out for more than 24 h.")
+robotics("18", "robot-offline-fault", "Robot offline or fault", "robots", "Every 5 Minutes", EVERY5,
+         "ROBOT", "From the read-only collector: the robot stopped reporting or reported a fault. Nothing commands the robot.")
+robotics("19", "robot-without-booking", "Robot running without a booking", "robot-unbooked", "Every 15 Minutes", EVERY15,
+         "ROBOT", "The robot entered RUNNING with no booking in force for its lab.")
+robotics("20", "pc-offline", "Lab PC offline", "pcs-offline", "Every 15 Minutes", EVERY15,
+         "DEVICE_OFFLINE", "A lab PC agent stopped reporting.")
+robotics("21", "exam-violations", "Exam-mode reports", "exam-violations", "Every 5 Minutes", EVERY5,
+         "EXAM_VIOLATION", "Programs the PC agent saw running in exam mode. Staff decide what a report means; nothing is automatic.")
+robotics("22", "robotics-daily", "Robotics Lab daily summary", "daily", "Daily 07:00", "{ field: 'days', triggerAtHour: 7 }",
+         "DAILY_REPORT", "Robot run time, consumable withdrawals, items out, environment alerts - from recorded data only.")
+
 out = pathlib.Path("src")
 for key, (title, body, chain) in W.items():
     code = HEAD + body + f"\nexport default workflow('smartlab-{key[:2]}', '{title}')\n  {chain};\n"

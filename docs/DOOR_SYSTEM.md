@@ -18,6 +18,10 @@ Nothing is wired between the two boards. They talk over WiFi.
 
 ## Board settings
 
+**ESP32 core (Boards Manager → esp32 by Espressif): `3.3.11`. Do not update to
+3.3.12** - with 3.3.12 the ESP32-CAM fails at boot with `frame buffer malloc
+failed` / `Camera init failed` (same board, same settings; 3.3.11 works).
+
 **ESP32-CAM**
 - Board: `AI Thinker ESP32-CAM`
 - PSRAM: `Enabled`
@@ -51,7 +55,7 @@ Leave the window open. Expect:
 ```
  SMART LAB - FACE RECOGNITION SERVER
  Listening on port 5000, all interfaces.
- * Running on http://192.168.1.8:5000
+ * Running on http://192.168.1.200:5000
 ```
 
 If it exits complaining about the face detector, the OpenCV version is wrong:
@@ -65,7 +69,7 @@ pip install "opencv-python==4.10.0.84" "opencv-contrib-python==4.10.0.84"
 Check line 61 points at the laptop:
 
 ```cpp
-const char *SERVER_IP = "192.168.1.8";
+const char *SERVER_IP = "192.168.1.200";
 ```
 
 Flash, then read Serial at 115200:
@@ -86,7 +90,7 @@ const char *CAMERA_IP = "192.168.1.150";
 Flash. Expect:
 
 ```
-[RFID][PASS] MFRC522 communication detected.
+[RFID][PASS] PN532 communication detected.
 [FP][PASS] Fingerprint sensor detected.
 [WIFI] Connected. Master IP: 192.168.1.x
                 SYSTEM READY
@@ -125,9 +129,9 @@ That is the security property worth demonstrating in the defence.
 The camera cannot open a TCP connection to the laptop. `HTTP -1` is a
 connection failure, not a bad request. Check in this order:
 
-1. `ipconfig` on the laptop — if the IPv4 address is no longer `192.168.1.8`,
-   DHCP moved it. Update `SERVER_IP` (line 61) in the camera sketch and reflash.
-2. `http://192.168.1.8:5000/health` in the laptop's own browser. This goes over
+1. `ipconfig` on the laptop — if the IPv4 address is no longer `192.168.1.200`,
+   the manual IP was lost. Set it back (Wi-Fi > IP assignment > Manual) or update `SERVER_IP` (line 61) in the camera sketch and reflash.
+2. `http://192.168.1.200:5000/health` in the laptop's own browser. This goes over
    loopback and bypasses the firewall, so it working proves nothing about the
    network — it only proves the server is alive.
 3. Same URL **from a phone on the same WiFi**. If the laptop works and the
@@ -284,13 +288,20 @@ The portal gives every new account the next door identity automatically
 (`USER3`, `USER4`, …; numbers are never reused). The number **is** the
 fingerprint slot, and the same label is the face name. For that person:
 
-1. **Fingerprint** — Arduino IDE → Serial Monitor on the master (115200 baud,
-   line ending *Newline*), door idle. Type `enroll 5` for USER5 and place the
-   same finger twice when asked. Other commands: `enroll 5 force`
-   (overwrite), `delete 5`, `count`.
-2. **Face (optional)** — about 20 times, with the person in front of the
-   camera: `http://<esp32cam-ip>/enroll?name=USER5`, then open
-   `http://<laptop-ip>:5000/train` once.
+1. **Fingerprint** — portal: **Users & roles → Edit → Fingerprint → Enroll
+   fingerprint at the door**. The portal only stores a request; the master
+   fetches it (it polls every 2 s, and only while the door is idle), prompts
+   the person on the LCD and the tablet — place finger, remove, same finger
+   again — and reports each step, shown live in the portal. Success ticks
+   "Fingerprint registered" and is audited. A request not taken within 90 s
+   expires; one request at a time; the door stays locked and watched (a
+   forced door stops enrollment and raises the normal alarm).
+   Or, without the portal: Arduino IDE → Serial Monitor on the master
+   (115200 baud, line ending *Newline*), door idle, `enroll 5` for USER5.
+   Other commands: `enroll 5 force` (overwrite), `delete 5`, `count`.
+2. **Face (optional)** — open the camera page `http://192.168.1.150`, type
+   `USER5` under *Enroll a face*, press **Capture sample** about 20 times
+   with the person in front of the camera, then press **Train**.
 3. They book a lab in the portal and show the booking QR. The portal names
    `USER5`, and the master then accepts only fingerprint slot 5 or face
    `USER5`. Anyone else's finger or face is refused as an identity mismatch.
@@ -298,6 +309,88 @@ fingerprint slot, and the same label is the face name. For that person:
 RFID cards are still listed in the sketch (only USER1 and USER2 have one);
 new people use the booking QR as step 1. Enrolment blocks the master for up
 to ~40 s; do it outside lab hours.
+
+### Face recognizer: SFace by default, LBPH as fallback
+
+The face server uses OpenCV's YuNet + SFace (128-d embeddings, cosine ≥
+0.363) when `firmware/face_server/models/*.onnx` are present, else LBPH.
+Every enrolled sample updates that person's template at once — no training
+step (Train still works and also retrains LBPH, so `FACE_ENGINE=lbph`
+switches back without re-enrolling). Replies to the camera are unchanged
+(`face`, `distance`; for SFace distance = 100 × (1 − cosine)).
+
+Measured offline on the enrolled samples (leave-one-out, USER1 26 + USER2
+27 samples, 2026-10-02, `py firmware/tools/eval_face_models.py`):
+
+| | identified and accepted | wrong person accepted | right person refused | CPU per face |
+|---|---|---|---|---|
+| LBPH (distance ≤ 70) | 46/53 = 86.8 % | 0 | 6 | 6.1 ms |
+| SFace (cosine ≥ 0.363) | 51/53 = 96.2 % | 0 | 1 | 18.8 ms |
+
+Limits: two people, one camera, one session each; the stored samples are
+grey crops, so SFace was measured at a disadvantage. Re-measure with more
+people before stating it as a general result.
+
+### The photo on ACCESS GRANTED — automatic, no reflash
+
+Face enrollment also keeps the best **colour** capture of each person (the
+frame with the largest face) as `firmware/face_server/portraits/USERn.jpg`.
+When step 1 names a person, the master fetches that photo from the face
+server in a background task (other core), so it is shown on the LCD and the
+tablet at ACCESS GRANTED. The door never waits for it:
+
+| Situation | Grant screen shows |
+|---|---|
+| Photo on the face server | that photo (redrawn if it arrives a moment after the grant) |
+| Laptop off / no photo, but the person is in `user_photos.h` | the compiled-in photo |
+| Neither | the text screen |
+
+- The face server hands a photo only to a device with the device key
+  (`DEVICE_API_KEY`, same as the portal) — these are pictures of people.
+  `portraits/` is gitignored for the same reason.
+- To use a specific photo instead, put it in `portraits/` as `USERn.jpg` and
+  delete `USERn.json`. A photo placed by hand is never replaced by
+  enrollment.
+- Older enrollments (before this feature) have no colour photo: capture a few
+  more samples for that person on the camera page and one is created.
+
+### RFID cards enrolled from the portal
+
+Users & roles -> Enroll -> RFID card -> *Enroll card at the door*. Same path
+as a finger: the master fetches the request while the door is idle, shows
+TAP YOUR CARD on the LCD and the tablet for 20 s, and stores the card for
+USERn in its own flash (NVS, up to 40 cards), so the card keeps working with
+the laptop or the Wi-Fi down. It reports the card's UID, which the portal
+records as the person's one active card; a new card replaces the old one.
+A card that already belongs to someone else is refused. *Remove* deletes it
+on the master, then revokes it in the portal. The two built-in cards (USER1,
+USER2) stay compiled in. Serial monitor: `cards` lists the stored cards,
+`card delete <n>` removes USERn's card.
+
+### Live camera view on the tablet
+
+After step 1 (QR code or card), while the person verifies, the tablet shows
+a small live view under the text, with a box around the face and a hint: *Look at the camera*, *Come a
+little closer*, *Step back a little*, *Center your face in the frame*, *Face
+the camera straight*, *Keep your head level*, *Recognised - hold still*.
+
+It costs the camera nothing. The ESP32-CAM already POSTs every frame to the
+face server's `/analyze`. The face server keeps the last frame and the face
+box it found anyway. The face server pushes each frame to the tablet the
+moment the camera's POST arrives (`http://<laptop>:5000/preview.mjpg`, an
+MJPEG stream), so the view runs at the camera's own rate; the hint and box
+come from `/preview/state` about 3 times a second. Measured with test frames
+at 10 frames/s: the stream ran at 10.1 frames/s and a frame reached the
+viewer about 2 ms after the camera sent it. At most two viewers stream at
+once, so viewers can never take the server threads the camera needs. The camera is never asked for anything extra, and the door decision
+path is unchanged. Measured `/analyze` median was about 35 ms with the
+preview on vs about 37 ms with it off, i.e. no slowdown.
+
+- A frame older than 2 s is not shown (`/preview.jpg` returns 204), so a
+  stale picture never stays on the screen when the camera stops.
+- Turn it off with `PREVIEW=off` in the face server's environment; the
+  tablet then shows no live box.
+- The view is mirrored so it behaves like a mirror for the person in front of it.
 
 ---
 

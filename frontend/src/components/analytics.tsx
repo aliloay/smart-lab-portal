@@ -15,9 +15,11 @@ import { EmptyState } from './ui'
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 /** Weekday x hour matrix. `unit` names what a cell counts. */
-export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent' }: {
+export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent', xTitle }: {
   data: number[][]; unit: string; fromHour?: number; toHour?: number
   tone?: 'accent' | 'teal' | 'violet'
+  /** Optional axis title under the hours. */
+  xTitle?: string
 }) {
   const max = Math.max(0, ...data.flat())
   if (!max) {
@@ -52,7 +54,9 @@ export function Heatmap({ data, unit, fromHour = 6, toHour = 23, tone = 'accent'
           </Row>
         ))}
       </div>
+      {xTitle && <div className="mt-1 text-center text-[10.5px] text-slate-500">{xTitle} · rows = day of week</div>}
       <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+        <span>colour = {unit}:</span>
         <span>less</span>
         {[0.15, 0.35, 0.6, 0.85, 1].map(a => (
           <span key={a} className="w-4 h-3 rounded-sm" style={{ background: `rgba(${rgb},${a})` }} />
@@ -134,6 +138,8 @@ export function Sparkline({ s, height = 46 }: { s: EnvSeries; height?: number })
   )
 }
 
+const STATE_METRICS = new Set(['smoke', 'flame', 'water_leak', 'motion', 'emergency'])
+
 const METRIC_LABEL: Record<string, string> = {
   temperature: 'Temperature', humidity: 'Humidity', co2: 'CO₂', noise: 'Noise',
 }
@@ -149,7 +155,8 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
   }
   return (
     <div className={`grid gap-3 ${compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2 xl:grid-cols-4'}`}>
-      {env.series.map(s => {
+      {/* Hazard states (0/1) have their own row - see SafetyStates. */}
+      {env.series.filter(s => !STATE_METRICS.has(s.metric)).map(s => {
         const out = (s.max !== null && s.latest > s.max) || (s.min !== null && s.latest < s.min)
         return (
           <div key={s.metric} className={`rounded-xl border p-3.5 ${out
@@ -166,7 +173,7 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
             <div className="text-[11px] text-slate-500 mb-1.5">
               {s.min !== null || s.max !== null
                 ? `Range ${s.min ?? '−'} – ${s.max ?? '−'} ${s.unit}` : 'No threshold configured'}
-              {' · '}{s.points.length} readings / {env.hours} h
+              {' · '}{s.count ?? s.points.length} readings / {env.hours} h
             </div>
             <Sparkline s={s} />
           </div>
@@ -179,7 +186,7 @@ export function EnvironmentPanel({ env, compact = false }: { env: EnvironmentBlo
 /** Horizontal bar over the period with the observed outages cut out. */
 export function OutageStrip({ outages, days, state }: {
   outages: { from: string; to: string }[]; days: number
-  state: 'ONLINE' | 'OFFLINE' | 'NO_DATA'
+  state: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'NO_DATA'
 }) {
   if (state === 'NO_DATA') {
     return <div className="h-2.5 rounded-full bg-ink-700/50" title="Never reported" />

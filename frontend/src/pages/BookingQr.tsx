@@ -24,6 +24,7 @@
  *   EXPIRING SOON         inside the window, under EXPIRING_MS left
  *   VALID                 inside the window
  */
+import SaveForWallet from '../components/SaveForWallet'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
@@ -157,6 +158,9 @@ export default function BookingQr() {
               : phase === 'before' ? 'The door will refuse this code until the window opens.'
               : 'This code no longer opens the door.'}
           </p>
+          {(live || phase === 'before') && <div className="mt-3 flex justify-center">
+            <SaveForWallet pngBase64={qr.qr_png_base64} text={qr.token}
+                           filename={`SmartLab-${qr.lab_code}-booking-${qr.booking_id}`} /></div>}
         </section>
 
         {/* ----------------------------------------------------- the window */}

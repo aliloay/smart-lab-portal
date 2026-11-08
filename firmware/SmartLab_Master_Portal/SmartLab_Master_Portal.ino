@@ -4,10 +4,9 @@
   ===========================================================================
   Board: ESP32 Dev Module
 
-  BASE: the known-good RFID build. The entire RFID path is untouched -
-  same rfidBeginSpi()/rfidInitReader(), same rfidVersionOk() test, same
-  heartbeat, same antenna handling, same PICC_IsNewCardPresent() +
-  PICC_ReadCardSerial() polling, same timings, same user database.
+  RFID READER: HW-147 PN532 V3 over I2C (SDA=GPIO19, SCL=GPIO18, addr 0x24,
+  DIP S1=ON S2=OFF), Adafruit PN532 library. It replaces the MFRC522; the
+  UID feeds the same user database, de-dup, timings and 2-step flow.
 
   ONLY TWO THINGS CHANGED, both requested:
 
@@ -30,16 +29,22 @@
        before Serial, so it is never left floating during boot.
      Result: across a whole denied attempt the relay is never written once.
 
-  WIRING THIS FIRMWARE EXPECTS (unchanged from your working setup):
-     Solenoid on the NC contact, GPIO26 wired DIRECTLY to the relay IN pin
-     (no transistor - the module is high-triggered and an NPN pulling IN low
-     stopped it energizing entirely). Relay VCC + COM on 12V.
-     GPIO26 HIGH = LOCKED, GPIO26 LOW = UNLOCKED.
+  WIRING THIS FIRMWARE EXPECTS:
+     Solenoid on the NO contact. Relay VCC + COM on 12V. The relay IN pin is
+     fed from 3V3 through a BC557 (PNP): E -> 3V3, C -> IN, B -> 3.3k ->
+     GPIO26, 15k B-E keeps it off while the ESP32 resets. Driven straight
+     from GPIO26 the module lit its LED but did not close NO (2026-10-05);
+     IN tied to 3V3 did. The PNP inverts:
+     GPIO26 HIGH = LOCKED (coil off), GPIO26 LOW = UNLOCKED (coil on).
+     Moved from NC on 2026-10-04: on NC the coil had to stay energized to
+     keep the door locked, so every reset, flash, boot or 12 V dip unlocked
+     it. On NO, whatever stops the ESP32 driving GPIO26 leaves it locked.
   ===========================================================================
 */
 
 #include <SPI.h>
-#include <MFRC522.h>
+#include <Wire.h>
+#include <Adafruit_PN532.h>
 #include <HardwareSerial.h>
 #include <Adafruit_Fingerprint.h>
 #include <Adafruit_GFX.h>
@@ -48,6 +53,14 @@
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
+// Speaker: PAM8403 + 3 W / 8 ohm on GPIO22 (through a 3.3 k / 100 nF low-pass).
+// Spoken prompts, beeps, the denial buzz and the alarm siren - the old buzzer
+// on GPIO21 is never energized any more (its current surge popped the lock).
+// Needs Partition Scheme "Huge APP (3MB No OTA/1MB SPIFFS)": the voice clips
+// are ~600 KiB. Clips: tools/door_voice/make_voice.py -> door_voice.h.
+#include "door_audio.h"
+#include "door_voice_text.h"   // the same prompts as words, for the tablet page
 
 // ===========================================================================
 // >>>>>>>>>>>>>>>>>>>>> STAGE 4: CAMERA INTEGRATION <<<<<<<<<<<<<<<<<<<<<<<<<
@@ -90,7 +103,7 @@ const char *CAMERA_IP = "192.168.1.150";
 // demonstration, and it is why the original file is left untouched on disk.
 constexpr bool BACKEND_ENABLED = true;
 
-const char *BACKEND_IP   = "192.168.1.8";   // laptop running the portal API
+const char *BACKEND_IP   = "192.168.1.200";   // laptop running the portal API
 constexpr uint16_t BACKEND_PORT = 8000;
 
 // Must match a lab 'code' in the portal database, and a device_uid.
@@ -121,16 +134,18 @@ constexpr uint32_t CAMERA_TIMEOUT_MS = 800; // keep it short: a slow reply
 // important security constant in the integration.
 constexpr uint32_t VISION_FRESH_MS  = 3500;
 
+
 // ===========================================================================
 // PIN ARCHITECTURE
 // ===========================================================================
 
-// --- RFID / MFRC522 — VSPI, exclusive use (proven: VersionReg = 0x92) ---
-constexpr uint8_t RFID_SS_PIN   = 5;
-constexpr uint8_t RFID_RST_PIN  = 22;
-constexpr uint8_t RFID_SCK_PIN  = 18;
-constexpr uint8_t RFID_MISO_PIN = 19;
-constexpr uint8_t RFID_MOSI_PIN = 23;
+// --- RFID / PN532 — I2C (address 0x24), no IRQ / RESET wires ---
+constexpr uint8_t RFID_SDA_PIN  = 19;
+constexpr uint8_t RFID_SCL_PIN  = 18;
+constexpr uint8_t PN532_NO_PIN  = 255;   // IRQ and RESET are not wired
+// How long each idle-loop poll lets the PN532 look for a card before the
+// loop moves on (QR, door, tablet). A card's reply needs well over 30 ms.
+constexpr uint16_t RFID_POLL_WINDOW_MS = 250;   // = CARD_READ_TIMEOUT_MS
 
 // --- TFT ST7735 — separate bus, physically isolated from RFID ---
 constexpr uint8_t TFT_SCK_PIN  = 13;
@@ -146,7 +161,7 @@ constexpr uint8_t FP_TX_PIN = 17;     // sensor RX -> here
 // --- Door sensor (MC-38 reed switch) ---
 constexpr uint8_t DOOR_PIN = 27;      // INPUT_PULLUP; LOW=CLOSED, HIGH=OPEN
 
-// --- Relay (HIGH = LOCKED / OFF, LOW = UNLOCKED / ON) ---
+// --- Relay via BC557 (HIGH = LOCKED / coil off, LOW = UNLOCKED / coil on; lock on NO) ---
 constexpr uint8_t RELAY_PIN = 26;
 constexpr uint8_t RELAY_LOCKED_LEVEL   = HIGH;
 constexpr uint8_t RELAY_UNLOCKED_LEVEL = LOW;
@@ -172,11 +187,11 @@ constexpr uint8_t RED_LED_BUZZER_PIN = 21;  // one NPN stage drives red LED + bu
 // ---------------------------------------------------------------------------
 constexpr uint8_t RED_LED_SOLO_PIN = 15;
 
-MFRC522 mfrc522(RFID_SS_PIN, RFID_RST_PIN);
+Adafruit_PN532 nfc(PN532_NO_PIN, PN532_NO_PIN, &Wire);
 HardwareSerial fingerSerial(2);
 Adafruit_Fingerprint finger(&fingerSerial);
 // The TFT runs on the ESP32's SECOND hardware SPI controller (HSPI), routed
-// to its own SCK/MOSI pins - still a separate bus from the RFID (VSPI), just
+// to its own SCK/MOSI pins - separate from the RFID (I2C), just
 // no longer bit-banged by the CPU. Bit-banging painted a full-screen photo
 // line by line; hardware SPI draws it in ~20-30 ms.
 // RST is passed as -1 and pulsed by tftInit() itself, so a light wake-up
@@ -186,15 +201,18 @@ SPIClass tftSPI(HSPI);
 Adafruit_ST7735 tft = Adafruit_ST7735(&tftSPI, TFT_CS_PIN, TFT_DC_PIN, -1);
 
 // ===========================================================================
-// Forward declarations — Arduino IDE's auto prototype generator mishandles a
-// library-class parameter type (MFRC522::Uid) and emits a broken prototype
-// above the #include that defines it. Declaring them here prevents that.
+// The UID of the card just read by the PN532, in the same shape the helpers
+// below always used (size + uidByte[]), so their logic is unchanged.
+// Forward declarations keep the Arduino prototype generator from emitting
+// prototypes above the struct definition.
 // ===========================================================================
-void printUID(const MFRC522::Uid &uid);
-bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize);
-bool isSameAsLastUID(const MFRC522::Uid &uid);
-void rememberUID(const MFRC522::Uid &uid);
-int  findAuthorizedUser(const MFRC522::Uid &uid);
+struct RfidUid { uint8_t size; uint8_t uidByte[10]; };
+RfidUid rfidUid = {0, {0}};
+void printUID(const RfidUid &uid);
+bool uidEquals(const RfidUid &uid, const uint8_t *storedUID, uint8_t storedSize);
+bool isSameAsLastUID(const RfidUid &uid);
+void rememberUID(const RfidUid &uid);
+int  findAuthorizedUser(const RfidUid &uid);
 
 // ===========================================================================
 // USER DATABASE — never silently changed
@@ -232,6 +250,26 @@ constexpr size_t AUTHORIZED_USER_COUNT =
 constexpr int    PORTAL_SLOT    = (int)AUTHORIZED_USER_COUNT;
 constexpr uint8_t MAX_FINGER_SLOT = 127;   // AS608 capacity on common modules
 
+// ---------------------------------------------------------------------------
+// RFID cards enrolled from the portal (Users & roles -> Enroll -> RFID card).
+// Kept in this board's flash (NVS), so they keep working with the laptop or
+// the Wi-Fi down - the door never depends on the network. One card per door
+// identity: card for slot n = identity USERn (fingerprint slot n, face USERn).
+// The two built-in cards above stay as they are.
+// ---------------------------------------------------------------------------
+constexpr uint8_t MAX_PORTAL_CARDS = 40;
+constexpr uint8_t MAX_CARDS_PER_PERSON = 5;   // a person may carry several cards
+struct PortalCard {
+  uint8_t slot;
+  uint8_t size;
+  uint8_t uid[10];
+  char    who[16];              // first name for the LCD
+};
+PortalCard portalCards[MAX_PORTAL_CARDS];
+uint8_t    portalCardCount = 0;
+Preferences cardPrefs;
+
+
 // Result of asking the portal about a booking QR.
 // Defined up here (not next to validateQrWithBackend) because the Arduino IDE
 // auto-generates function prototypes above the first function in the file;
@@ -252,8 +290,11 @@ constexpr uint32_t CARD_READ_TIMEOUT_MS   = 250;   // proven value
 constexpr uint32_t DUPLICATE_IGNORE_MS    = 1200;  // proven value
 constexpr uint32_t POLL_DELAY_MS          = 5;     // proven value
 constexpr uint32_t FINGERPRINT_TIMEOUT_MS = 20000;
-constexpr uint32_t GRANTED_DISPLAY_MS     = 1500;  // "GRANTED" screen hold time
-constexpr uint32_t UNLOCK_HOLD_MS         = 8000;  // safety relock if door never opens
+// Unlocked window after a grant: GRANTED_DISPLAY_MS + UNLOCK_HOLD_MS = 5 s to
+// pull the door, then it relocks by itself (was 1.5 + 8 = 9.5 s). Opening and
+// closing the door relocks at once, whatever is left of the window.
+constexpr uint32_t GRANTED_DISPLAY_MS     = 1000;  // "GRANTED" screen hold time
+constexpr uint32_t UNLOCK_HOLD_MS         = 4000;  // safety relock if door never opens
 constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
                                                    // otherwise goIdle() cuts
                                                    // the alert short
@@ -295,14 +336,18 @@ constexpr uint32_t RELAY_SETTLE_MS        = 80;    // supply settles after the
 // 150ms, with and without a soft-start ramp. Only disabling it keeps the door
 // shut. This is a supply problem (no bulk capacitance on the 12V rail), not a
 // firmware problem - fit a 470-1000uF capacitor and this can go back to true.
-constexpr bool     DENY_ALERT_ENABLED = false;
+// 2026-10-05: back ON. The lock now sits on the relay's NO contact (coil off
+// while locked), so a dip has no coil to drop - denial, reflash and reset all
+// tested locked on the bench. 470 uF fitted across the 12 V at the relay.
+constexpr bool     DENY_ALERT_ENABLED = true;
 // 30ms - a deliberate last attempt, not a normal value.
 // A relay armature takes ~5-10ms to release, and the buck converter's output
 // capacitor holds the rail up briefly before it droops. So a pulse this short
 // may finish before the voltage falls far enough to drop the coil.
 // 3000ms, 500ms and 150ms all popped the door; if 30ms does too, no firmware
 // timing will fix this and it is purely a supply problem.
-constexpr uint32_t DENY_BEEP_MS       = 30;
+// With the lock on NO (2026-10-05) a normal beep is safe again.
+constexpr uint32_t DENY_BEEP_MS       = 600;
 
 // ===========================================================================
 // State machine
@@ -326,6 +371,54 @@ long        pendingBookingId = -1;
 bool        pendingViaPortal = false;
 uint32_t    lastHeartbeatSentMs = 0;
 uint32_t    stateEnteredMs = 0;
+uint32_t    lastWelcomeMs = 0;       // welcome prompt cool-down
+uint32_t    lastNagMs = 0;           // repeated alarm / "close the door" prompts
+constexpr uint32_t WELCOME_COOLDOWN_MS = 30000;
+constexpr uint32_t HELD_OPEN_REPEAT_MS = 15000;
+constexpr uint32_t FORCED_REPEAT_MS    = 10000;
+constexpr uint32_t EVACUATE_REPEAT_MS  = 10000;
+
+// ---------------------------------------------------------------------------
+// ANNOUNCEMENTS - the door decides WHAT is said; WHERE depends on the tablet.
+// A tablet page with its sound on asks for /state?snd=1 every 0.5 s. While
+// one does, it says the prompts itself - with the voice and speaker of the
+// device that opened it, or the Bluetooth / lab speaker that device uses -
+// and the door speaker stays quiet. With no such page, the door speaker says
+// them as before. Alarms (forced entry, evacuation) go to BOTH: the page says
+// them too, and alsoDoor = true plays them at the door whatever the tablet or
+// the Wi-Fi is doing (the buzzer pulses for them as well).
+// ---------------------------------------------------------------------------
+constexpr uint32_t TABLET_SOUND_FRESH_MS = 3000;
+uint32_t tabletSoundSeenMs = 0;   // last /state?snd=1 (0 = never)
+uint32_t annSeq = 0;              // +1 per announcement; the page plays each once
+uint32_t annAtMs = 0;
+String   annSteps = "[]";         // the newest announcement, as JSON for the page
+
+bool tabletListening() {
+  return tabletSoundSeenMs != 0 && millis() - tabletSoundSeenMs < TABLET_SOUND_FRESH_MS;
+}
+
+void announce(std::initializer_list<AudioSeg> segs, bool alsoDoor = false) {
+  // Steps for the page: ["t",f0,f1,ms] tone or sweep, ["b",hz,ms] buzz,
+  // ["g",ms] pause, ["v","words"] speech (plain text: no quotes to escape).
+  String j = "[";
+  for (const AudioSeg &s : segs) {
+    if (s.kind == SEG_CLIP && s.clip >= VOICE_COUNT) continue;   // e.g. no name
+    if (j.length() > 1) j += ',';
+    if (s.kind == SEG_CLIP)        { j += "[\"v\",\""; j += VOICE_TEXT[s.clip]; j += "\"]"; }
+    else if (s.kind == SEG_TONE)   { j += "[\"t\","; j += s.f0; j += ','; j += s.f1; j += ','; j += s.ms; j += ']'; }
+    else if (s.kind == SEG_SQUARE) { j += "[\"b\","; j += s.f0; j += ','; j += s.ms; j += ']'; }
+    else if (s.kind == SEG_GAP)    { j += "[\"g\","; j += s.ms; j += ']'; }
+  }
+  j += ']';
+  annSteps = j;
+  annAtMs = millis();
+  annSeq++;
+  bool tablet = tabletListening();
+  Serial.printf("[SAY] #%lu -> %s\n", (unsigned long)annSeq,
+                alsoDoor ? (tablet ? "tablet + door" : "door") : tablet ? "tablet" : "door speaker");
+  if (alsoDoor || !tablet) audioPlay(segs);
+}
 const char *deniedReason = "";
 char        deniedReasonBuf[40];   // deniedReason points here: the callers'
                                    // strings (e.g. a portal reply) are
@@ -344,6 +437,8 @@ bool        fpOk = false;
 uint32_t    lastFpCheckMs = 0;
 uint32_t    lastCameraOkMs = 0;
 uint8_t     lastComponentBits = 0xFF;   // forces a report on the first loop
+bool        heartbeatNow = false;       // a change to report at the end of loop()
+bool        grantScreenHasPhoto = false; // false = redraw if the photo arrives late
 float       visionDistance = 0;
 
 // RFID de-dup tracking (from the proven standalone implementation)
@@ -351,6 +446,7 @@ uint8_t  lastUID[10] = {0};
 uint8_t  lastUIDSize = 0;
 uint32_t lastUIDTime = 0;
 bool     haveLastUID = false;
+uint32_t lastUIDSeenMs = 0;   // last time the remembered card was in the field
 
 // RFID link health
 bool     rfidLinkDown = false;
@@ -396,7 +492,7 @@ void printHexByte(uint8_t value) {
   Serial.print(value, HEX);
 }
 
-void printUID(const MFRC522::Uid &uid) {
+void printUID(const RfidUid &uid) {
   Serial.print("[RFID][UID] ");
   for (byte i = 0; i < uid.size; i++) {
     printHexByte(uid.uidByte[i]);
@@ -405,98 +501,508 @@ void printUID(const MFRC522::Uid &uid) {
   Serial.println();
 }
 
-void printErrorRegister() {
-  byte errorReg = mfrc522.PCD_ReadRegister(mfrc522.ErrorReg);
-  Serial.print("[SPI][ERROR] ErrorReg = 0x");
-  printHexByte(errorReg);
-  Serial.println();
+// ===========================================================================
+// RFID link health + auto-recovery  —  PN532 over I2C
+// ===========================================================================
+// getFirmwareVersion() returns 0 when the PN532 does not answer. Byte 3 is
+// the IC (0x32 = PN532), bytes 2/1 are the firmware version (1.6 here).
+bool rfidFirmwareOk(uint32_t fw) {
+  return fw != 0 && ((fw >> 24) & 0xFF) == 0x32;
 }
 
-// ===========================================================================
-// RFID link health + auto-recovery  —  UNCHANGED from the working build
-// ===========================================================================
-bool rfidVersionOk(byte v) {
-  return !(v == 0x00 || v == 0xFF);
+void printFirmware(const char *tag, uint32_t fw) {
+  if (fw == 0) { Serial.printf("%s no firmware response\n", tag); return; }
+  Serial.printf("%s Chip: PN5%02X  Firmware: %u.%u\n", tag,
+                (unsigned)((fw >> 24) & 0xFF), (unsigned)((fw >> 16) & 0xFF),
+                (unsigned)((fw >> 8) & 0xFF));
 }
 
-// Brings up the SPI bus. Called ONCE, from setup() only.
-void rfidBeginSpi() {
-  SPI.begin(RFID_SCK_PIN, RFID_MISO_PIN, RFID_MOSI_PIN, RFID_SS_PIN);
+// Brings up the I2C bus. Called ONCE, from setup() only.
+void rfidBeginI2c() {
+  Wire.begin(RFID_SDA_PIN, RFID_SCL_PIN);
+  Wire.setClock(100000);                     // 100 kHz, as in the working test
   delay(20);
-  pinMode(RFID_SS_PIN, OUTPUT);
-  digitalWrite(RFID_SS_PIN, HIGH);
 }
 
-// (Re)initializes the READER only — safe to call repeatedly.
-void rfidInitReader() {
-  mfrc522.PCD_Init(RFID_SS_PIN, RFID_RST_PIN);
-  delay(50);
-  mfrc522.PCD_AntennaOn();
-  mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
-  delay(10);
-}
-
-void printAntennaState(const char *tag) {
-  byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
-  byte gain = (mfrc522.PCD_GetAntennaGain() >> 4) & 0x07;
-  Serial.printf("%s TxControlReg = 0x%02X  [RF field %s]  RxGain level = %u/7\n",
-                tag, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF/PARTIAL", gain);
+// (Re)initializes the READER only — safe to call repeatedly. Returns the
+// firmware word (0 = no answer).
+uint32_t rfidInitReader() {
+  nfc.begin();
+  uint32_t fw = nfc.getFirmwareVersion();
+  if (fw) nfc.SAMConfig();                   // normal mode, RF field on
+                                             // (same setup as the working test)
+  return fw;
 }
 
 bool rfidRecover() {
-  Serial.println("[RFID][RECOVER] Link lost - reinitializing MFRC522 (reader only)...");
-  rfidInitReader();
-  byte v = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-  bool ok = rfidVersionOk(v);
-  Serial.printf("[RFID][RECOVER] VersionReg = 0x%02X  %s\n",
-                v, ok ? "(recovered)" : "(STILL DOWN - check wiring)");
-  if (ok) printAntennaState("[RFID][RECOVER]");
+  Serial.println("[RFID][RECOVER] Link lost - reinitializing PN532 (reader only)...");
+  uint32_t fw = rfidInitReader();
+  bool ok = rfidFirmwareOk(fw);
+  printFirmware("[RFID][RECOVER]", fw);
+  Serial.printf("[RFID][RECOVER] %s\n", ok ? "(recovered)" : "(STILL DOWN - check wiring)");
   return ok;
 }
 
 // ===========================================================================
 // RFID helpers — UNCHANGED
 // ===========================================================================
-bool uidEquals(const MFRC522::Uid &uid, const uint8_t *storedUID, uint8_t storedSize) {
+bool uidEquals(const RfidUid &uid, const uint8_t *storedUID, uint8_t storedSize) {
   if (uid.size != storedSize) return false;
   for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != storedUID[i]) return false;
   return true;
 }
 
-bool isSameAsLastUID(const MFRC522::Uid &uid) {
+bool isSameAsLastUID(const RfidUid &uid) {
   if (!haveLastUID || uid.size != lastUIDSize) return false;
   for (byte i = 0; i < uid.size; i++) if (uid.uidByte[i] != lastUID[i]) return false;
   return true;
 }
 
-void rememberUID(const MFRC522::Uid &uid) {
+void rememberUID(const RfidUid &uid) {
   lastUIDSize = uid.size;
   for (byte i = 0; i < uid.size && i < sizeof(lastUID); i++) lastUID[i] = uid.uidByte[i];
   lastUIDTime = millis();
   haveLastUID = true;
 }
 
-int findAuthorizedUser(const MFRC522::Uid &uid) {
-  for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
-    if (uidEquals(uid, authorizedUsers[i].uid, authorizedUsers[i].size)) return (int)i;
+// --- Portal-enrolled RFID cards (data: see PortalCard above) ----------------
+void cardsLoad() {
+  portalCardCount = 0;
+  if (!cardPrefs.begin("cards", true)) return;     // nothing stored yet
+  size_t n = cardPrefs.getBytesLength("list");
+  if (n > 0 && n % sizeof(PortalCard) == 0 && n <= sizeof(portalCards)) {
+    cardPrefs.getBytes("list", portalCards, n);
+    portalCardCount = n / sizeof(PortalCard);
+  }
+  cardPrefs.end();
+}
+
+bool cardsSave() {
+  if (!cardPrefs.begin("cards", false)) return false;
+  bool ok;
+  if (portalCardCount == 0) { cardPrefs.remove("list"); ok = true; }
+  else {
+    size_t n = portalCardCount * sizeof(PortalCard);
+    ok = cardPrefs.putBytes("list", portalCards, n) == n;
+  }
+  cardPrefs.end();
+  return ok;
+}
+
+int cardIndexBySlot(uint8_t slot) {
+  for (uint8_t i = 0; i < portalCardCount; i++) if (portalCards[i].slot == slot) return i;
+  return -1;
+}
+
+int cardIndexByUid(const uint8_t *uid, uint8_t size) {
+  for (uint8_t i = 0; i < portalCardCount; i++) {
+    if (portalCards[i].size != size) continue;
+    if (memcmp(portalCards[i].uid, uid, size) == 0) return i;
   }
   return -1;
 }
 
-bool readCardWithTimeout() {
-  uint32_t start = millis();
-  while ((millis() - start) < CARD_READ_TIMEOUT_MS) {
-    if (mfrc522.PICC_ReadCardSerial()) return true;
-    delay(POLL_DELAY_MS);
+void cardRemoveAt(int i) {
+  for (int j = i; j + 1 < portalCardCount; j++) portalCards[j] = portalCards[j + 1];
+  portalCardCount--;
+}
+
+// "89:52:FF:1F"
+void uidText(const uint8_t *uid, uint8_t size, char *out, size_t outSize) {
+  out[0] = '\0';
+  for (uint8_t i = 0; i < size && strlen(out) + 3 < outSize; i++) {
+    char b[4];
+    snprintf(b, sizeof(b), i ? ":%02X" : "%02X", uid[i]);
+    strlcat(out, b, outSize);
   }
-  Serial.println("[RFID][TIMEOUT] Could not read UID within timeout.");
-  printErrorRegister();
+}
+
+int usePortalIdentity(const String &subject, const String &fullName);   // defined below
+
+int findAuthorizedUser(const RfidUid &uid) {
+  for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++) {
+    if (uidEquals(uid, authorizedUsers[i].uid, authorizedUsers[i].size)) return (int)i;
+  }
+  // A card enrolled from the portal: its identity USERn goes into
+  // PORTAL_SLOT, exactly like a booking QR naming USERn.
+  int c = cardIndexByUid(uid.uidByte, uid.size);
+  if (c >= 0) {
+    return usePortalIdentity(String("USER") + portalCards[c].slot, String(portalCards[c].who));
+  }
+  return -1;
+}
+
+// One ISO14443A / MIFARE detection attempt. On success the UID is in
+// rfidUid. The PN532 detects and reads the UID in a single command, so this
+// replaces the old IsNewCardPresent() + ReadCardSerial() pair.
+bool rfidDetectCard(uint16_t windowMs) {
+  uint8_t len = 0;
+  if (windowMs > CARD_READ_TIMEOUT_MS) windowMs = CARD_READ_TIMEOUT_MS;
+  if (!nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, rfidUid.uidByte, &len, windowMs))
+    return false;
+  if (len == 0 || len > sizeof(rfidUid.uidByte)) return false;
+  rfidUid.size = len;
+  return true;
+}
+
+// A card left resting on the reader is re-detected on every poll. While the
+// remembered card is still in the field (seen again within this gap), it is
+// the SAME presentation and must not re-trigger authentication.
+constexpr uint32_t RFID_CARD_GONE_MS = 400;
+bool rfidSameCardStillPresent() {
+  bool held = isSameAsLastUID(rfidUid) && (millis() - lastUIDSeenMs) < RFID_CARD_GONE_MS;
+  if (isSameAsLastUID(rfidUid)) lastUIDSeenMs = millis();
+  return held;
+}
+
+// ===========================================================================
+// PORTAL REQUESTS - fingerprint enrollment started from the portal
+// ===========================================================================
+// Staff press "Enroll fingerprint" in Users & roles; the portal stores a
+// request. This board FETCHES it (the portal never pushes into it) and only
+// while the door is idle, carries it out itself, and reports each step. It
+// stays the final authority: a request arriving at any other time is
+// refused, and nothing here touches the relay.
+//
+// A background task on core 0 does the network part - polling every 2 s and
+// posting progress - so the access logic on core 1 never waits on Wi-Fi.
+constexpr uint32_t COMMAND_POLL_MS = 2000;
+
+// What a portal request asks for.
+constexpr uint8_t CMD_ENROLL_FINGER = 0;
+constexpr uint8_t CMD_ENROLL_CARD   = 1;
+constexpr uint8_t CMD_REMOVE_CARD   = 2;
+
+struct PortalCommand {          // what the task hands to loop()
+  long    id;
+  uint8_t kind;                 // CMD_*
+  uint8_t slot;
+  bool    force;
+  char    who[16];              // first name for the LCD / tablet
+  char    uid[24];              // REMOVE_RFID: which card ("8952FF1F"); empty = all of theirs
+};
+
+struct CommandProgress {        // what loop() hands back to the task
+  long id;
+  char status[8];               // RUNNING / DONE / FAILED
+  char step[24];
+  char message[96];
+  char uid[32];                 // card commands: the card's UID, "89:52:FF:1F"
+};
+
+// ---------------------------------------------------------------------------
+// EMERGENCY (admin, from the portal's Emergency tab, after its password)
+// ---------------------------------------------------------------------------
+// The portal holds an emergency STATE per lab; this board reads it every
+// second, in every state, and applies it at once:
+//   UNLOCKED  door kept unlocked (for N minutes, or until "back to normal");
+//             the entry steps are paused and the screens say so
+//   LOCKDOWN  no QR code or card is accepted (forced-entry alarm still works)
+//   message   shown on the LCD and tablet (entry still works)
+//   alarm     the buzzer sounds (evacuation)
+// It is a state, not a one-off command, so a reboot or a missed poll cannot
+// lose it. If the laptop goes down mid-emergency, the last state is kept;
+// after a reboot the board starts NORMAL until the portal answers.
+constexpr uint8_t  EM_NORMAL = 0, EM_UNLOCKED = 1, EM_LOCKDOWN = 2;
+constexpr uint32_t EMERGENCY_POLL_MS = 1000;
+
+struct EmergencyState {         // what the task hands to loop()
+  long    version;
+  uint8_t door;
+  long    remainingS;           // door UNLOCKED: seconds left, -1 = until normal
+  long    msgRemainingS;        // -1 = until cleared, 0 = no message
+  bool    alarm;
+  bool    speak;                // the tablet reads the message aloud
+  char    message[96];
+};
+QueueHandle_t emergencyQueue = nullptr;  // task -> loop (always the newest)
+
+uint8_t  emDoor = EM_NORMAL;
+uint32_t emUnlockUntilMs = 0;   // 0 = until normal
+bool     emAlarm = false;
+bool     emSpeak = false;       // the tablet page reads emMessage aloud (repeated)
+char     emMessage[96] = "";
+uint32_t emMessageUntilMs = 0;  // 0 = until cleared
+long     emVersion = -1;
+uint8_t  emView = 0;            // what the screens show: 0 none, 1 door open, 2 lockdown
+uint32_t emLastDrawMs = 0;
+
+// Door events are SENT by the background task (core 0), in order: the door,
+// the LCD and the tablet never wait on a network round trip. Before, every
+// grant / door-closed report blocked loop() - and with it the tablet and the
+// return to the welcome screen - for the round trip, or the whole timeout
+// when the laptop was slow or away.
+struct PortalEvent {
+  char type[24];
+  char subject[16];
+  long booking;
+  char method[12];
+  char result[12];
+  char reason[32];
+  char message[160];
+};
+QueueHandle_t eventQueue = nullptr;          // loop -> task
+volatile bool heartbeatWanted = false;       // loop -> task
+
+void sendEventNow(const char *eventType, const char *authSubject,
+                  long bookingId, const char *method, const char *result,
+                  const char *reason, const char *message);
+void sendHeartbeat();
+
+QueueHandle_t commandQueue  = nullptr;   // task -> loop
+QueueHandle_t progressQueue = nullptr;   // loop -> task
+volatile bool enrollActive  = false;     // an enrollment is running
+
+// From loop(): report a step. Never blocks; dropped if the queue is full.
+void queueProgress(long id, const char *status, const char *step, const char *message) {
+  if (!progressQueue || id <= 0) return;
+  CommandProgress p = {};
+  p.id = id;
+  strlcpy(p.status, status, sizeof(p.status));
+  strlcpy(p.step, step, sizeof(p.step));
+  strlcpy(p.message, message ? message : "", sizeof(p.message));
+  xQueueSend(progressQueue, &p, 0);
+}
+
+// Same, with the card UID (card enrollment / removal).
+void queueCardProgress(long id, const char *status, const char *step, const char *message,
+                       const char *uid) {
+  if (!progressQueue || id <= 0) return;
+  CommandProgress p = {};
+  p.id = id;
+  strlcpy(p.status, status, sizeof(p.status));
+  strlcpy(p.step, step, sizeof(p.step));
+  strlcpy(p.message, message ? message : "", sizeof(p.message));
+  strlcpy(p.uid, uid ? uid : "", sizeof(p.uid));
+  xQueueSend(progressQueue, &p, 0);
+}
+
+// Plain arguments, not the struct: the Arduino IDE puts its generated
+// prototypes above the struct definitions.
+void postProgress(long id, const char *status, const char *step, const char *message,
+                  const char *uid) {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/commands/" + id + "/progress")) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"status\":\"" + status +
+                "\",\"step\":\"" + step + "\",\"message\":\"" + message + "\"" +
+                (uid && *uid ? String(",\"uid\":\"") + uid + "\"" : String()) + "}";
+  int code = http.POST(body);
+  if (code != 200) Serial.printf("[PORTAL] progress for request %ld not recorded (HTTP %d)\n", id, code);
+  http.end();
+}
+
+void fetchCommand() {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/commands/next?device_uid=" + DEVICE_ID)) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  String reply = code == 200 ? http.getString() : String();
+  http.end();
+  if (code != 200 || reply.indexOf("\"id\":") < 0) return;
+
+  PortalCommand c = {};
+  c.id = jsonLong(reply, "id");
+  String command = jsonStr(reply, "command");
+  if (command == "ENROLL_FINGERPRINT") c.kind = CMD_ENROLL_FINGER;
+  else if (command == "ENROLL_RFID")   c.kind = CMD_ENROLL_CARD;
+  else if (command == "REMOVE_RFID")   c.kind = CMD_REMOVE_CARD;
+  else {
+    postProgress(c.id, "FAILED", "UNKNOWN_COMMAND", "This firmware does not know that request", "");
+    return;
+  }
+  long slot = jsonLong(reply, "slot");
+  c.slot  = (slot >= 1 && slot <= MAX_FINGER_SLOT) ? (uint8_t)slot : 0;
+  c.force = reply.indexOf("\"force\":true") >= 0;
+  strlcpy(c.who, jsonStr(reply, "display_name").c_str(), sizeof(c.who));
+  strlcpy(c.uid, jsonStr(reply, "uid").c_str(), sizeof(c.uid));
+  xQueueSend(commandQueue, &c, 0);
+}
+
+// The lab's emergency state, every second, in any state.
+void fetchEmergency() {
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, backendBase() + "/access/emergency?device_uid=" + DEVICE_ID)) return;
+  http.setConnectTimeout(BACKEND_TIMEOUT_MS);
+  http.setTimeout(BACKEND_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  String reply = code == 200 ? http.getString() : String();
+  http.end();
+  if (code != 200 || reply.indexOf("\"version\":") < 0) return;   // keep the last state
+  EmergencyState e = {};
+  e.version = jsonLong(reply, "version");
+  String door = jsonStr(reply, "door");
+  e.door = door == "UNLOCKED" ? EM_UNLOCKED : door == "LOCKDOWN" ? EM_LOCKDOWN : EM_NORMAL;
+  e.remainingS = jsonLong(reply, "remaining_s");
+  e.msgRemainingS = jsonLong(reply, "message_remaining_s");
+  e.alarm = reply.indexOf("\"alarm\":true") >= 0;
+  e.speak = reply.indexOf("\"speak\":true") >= 0;
+  strlcpy(e.message, jsonStr(reply, "message").c_str(), sizeof(e.message));
+  if (emergencyQueue) xQueueOverwrite(emergencyQueue, &e);
+}
+
+void portalTask(void *) {
+  CommandProgress p;
+  uint32_t lastCommandFetch = 0, lastEmergencyFetch = 0;
+  PortalEvent ev;
+  for (;;) {
+    // Door events first, in order, as soon as they happen.
+    if (eventQueue && xQueueReceive(eventQueue, &ev, 0) == pdTRUE) {
+      sendEventNow(ev.type, ev.subject, ev.booking, ev.method, ev.result, ev.reason, ev.message);
+      continue;
+    }
+    if (heartbeatWanted && BACKEND_ENABLED && WiFi.status() == WL_CONNECTED) {
+      heartbeatWanted = false;
+      sendHeartbeat();
+      continue;
+    }
+    // Short wait so a new event is picked up within ~50 ms.
+    if (xQueueReceive(progressQueue, &p, pdMS_TO_TICKS(50)) == pdTRUE) {
+      if (WiFi.status() == WL_CONNECTED) postProgress(p.id, p.status, p.step, p.message, p.uid);
+      continue;
+    }
+    if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) continue;
+    if (millis() - lastEmergencyFetch >= EMERGENCY_POLL_MS) {
+      lastEmergencyFetch = millis();
+      fetchEmergency();
+    }
+    // Ask for work only while the door is idle and nothing is queued.
+    if (millis() - lastCommandFetch >= COMMAND_POLL_MS && state == STATE_IDLE &&
+        !enrollActive && uxQueueMessagesWaiting(commandQueue) == 0) {
+      lastCommandFetch = millis();
+      fetchCommand();
+    }
+  }
+}
+
+void portalTaskBegin() {
+  commandQueue  = xQueueCreate(1, sizeof(PortalCommand));
+  progressQueue = xQueueCreate(8, sizeof(CommandProgress));
+  emergencyQueue = xQueueCreate(1, sizeof(EmergencyState));
+  eventQueue     = xQueueCreate(16, sizeof(PortalEvent));
+  if (!commandQueue || !progressQueue) {
+    Serial.println("[PORTAL][WARN] No memory for portal requests - serial enrollment only.");
+    return;
+  }
+  xTaskCreatePinnedToCore(portalTask, "portalcmd", 8192, nullptr, 1, nullptr, 0);
+}
+
+// ===========================================================================
+// PORTRAITS - the photo on the ACCESS GRANTED screen (LCD and tablet)
+// ===========================================================================
+// Every person whose face is enrolled gets a colour photo on the face server
+// (the laptop, port 5000). When step 1 names a person, a background task on
+// the other core fetches theirs into RAM, so a newly enrolled person appears
+// with no reflash. The door never waits for it: if the photo is not here by
+// the grant (or the laptop is off) the screen uses the compiled-in
+// user_photos.h photo, else the text screen, and redraws if it arrives.
+constexpr uint16_t FACE_SERVER_PORT    = 5000;
+constexpr uint32_t PORTRAIT_TIMEOUT_MS = 1500;
+constexpr uint32_t PORTRAIT_REUSE_MS   = 5UL * 60 * 1000;  // refetch after 5 min
+constexpr size_t   PORTRAIT_BYTES      = 160 * 128 * 2;    // RGB565, LCD size
+
+uint16_t     *portraitBuf = nullptr;           // PORTRAIT_BYTES, heap
+char          portraitHave[33] = "";           // whose photo is in it; "" = none / being written
+volatile uint32_t portraitFetchedMs = 0;
+portMUX_TYPE  portraitMux = portMUX_INITIALIZER_UNLOCKED;
+QueueHandle_t portraitQueue = nullptr;         // names to fetch, from loop()
+
+// The fetched photo for this internal name (USERn), or nullptr while it is
+// missing or still downloading. Safe from either core.
+const uint16_t *serverPortrait(const char *name) {
+  if (!portraitBuf || !name || !*name) return nullptr;
+  portENTER_CRITICAL(&portraitMux);
+  bool ok = portraitHave[0] && strcmp(portraitHave, name) == 0;
+  portEXIT_CRITICAL(&portraitMux);
+  return ok ? portraitBuf : nullptr;
+}
+
+void setPortraitHave(const char *name) {
+  portENTER_CRITICAL(&portraitMux);
+  strlcpy(portraitHave, name, sizeof(portraitHave));
+  portEXIT_CRITICAL(&portraitMux);
+}
+
+// Runs on the portrait task only. Writes straight into portraitBuf, which is
+// safe because portraitHave is "" for the whole download.
+bool fetchPortrait(const char *name) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  WiFiClient client;
+  HTTPClient http;
+  String url = String("http://") + BACKEND_IP + ":" + FACE_SERVER_PORT +
+               "/portrait/" + name + ".rgb565";
+  if (!http.begin(client, url)) return false;
+  http.setConnectTimeout(PORTRAIT_TIMEOUT_MS);
+  http.setTimeout(PORTRAIT_TIMEOUT_MS);
+  http.addHeader("X-Device-Key", DEVICE_KEY);
+  int code = http.GET();
+  size_t got = 0;
+  if (code == 200 && http.getSize() == (int)PORTRAIT_BYTES) {
+    WiFiClient *s = http.getStreamPtr();
+    uint8_t *dst = (uint8_t *)portraitBuf;
+    uint32_t start = millis();
+    while (got < PORTRAIT_BYTES && millis() - start < 4000 &&
+           (http.connected() || s->available())) {
+      size_t n = s->available();
+      if (n) got += s->readBytes(dst + got, min(n, PORTRAIT_BYTES - got));
+      else delay(2);
+    }
+  }
+  http.end();
+  if (got == PORTRAIT_BYTES) return true;
+  Serial.printf("[PHOTO] %s: no photo from the face server (HTTP %d)\n", name, code);
   return false;
 }
 
-void finishRFIDTransaction() {
-  mfrc522.PICC_HaltA();
-  mfrc522.PCD_StopCrypto1();
+void portraitTask(void *) {
+  char name[33];
+  for (;;) {
+    if (xQueueReceive(portraitQueue, name, portMAX_DELAY) != pdTRUE) continue;
+    char newer[33];                       // only the latest request matters
+    while (xQueueReceive(portraitQueue, newer, 0) == pdTRUE) memcpy(name, newer, sizeof(name));
+    setPortraitHave("");
+    if (fetchPortrait(name)) {
+      portraitFetchedMs = millis();
+      setPortraitHave(name);
+      Serial.printf("[PHOTO] %s: photo ready for the grant screen\n", name);
+    }
+  }
+}
+
+void portraitBegin() {
+  portraitBuf = (uint16_t *)malloc(PORTRAIT_BYTES);
+  portraitQueue = xQueueCreate(4, 33);
+  if (!portraitBuf || !portraitQueue) {
+    Serial.println("[PHOTO][WARN] No memory for portraits - compiled-in photos only.");
+    free(portraitBuf); portraitBuf = nullptr;
+    return;
+  }
+  // Core 0, low priority: never competes with the access logic on core 1.
+  xTaskCreatePinnedToCore(portraitTask, "portrait", 8192, nullptr, 1, nullptr, 0);
+}
+
+// From loop(): ask for this person's photo. Non-blocking.
+void requestPortrait(const char *name) {
+  if (!portraitBuf || !name || !*name) return;
+  if (serverPortrait(name) && millis() - portraitFetchedMs < PORTRAIT_REUSE_MS) return;
+  char n[33];
+  strlcpy(n, name, sizeof(n));
+  xQueueSend(portraitQueue, n, 0);
+}
+
+// The photo for the grant screen: the face server's, else the compiled one.
+const uint16_t *grantPhoto(const char *name) {
+  const uint16_t *p = serverPortrait(name);
+  return p ? p : userPhoto(name);
 }
 
 // ===========================================================================
@@ -506,13 +1012,25 @@ void finishRFIDTransaction() {
 // A denied attempt never reaches this function at all, and the goIdle() call
 // that follows a denial finds the relay already locked, so it returns
 // immediately without touching the pin.
+// One line with BOTH facts. The lock (relay) and the door position (reed
+// switch) are independent: unlocked-but-closed means nobody went in yet;
+// locked-but-open means the lock shut onto an open door.
+void printDoorStatus() {
+  const char *note = "";
+  if (!doorClosed && !relayUnlocked)    note = "  <- lock engaged but door is OPEN";
+  else if (doorClosed && relayUnlocked) note = "  (unlocked, not opened yet)";
+  Serial.printf("[STATUS] Door %s | Lock %s%s\n", doorClosed ? "CLOSED" : "OPEN",
+                relayUnlocked ? "UNLOCKED" : "LOCKED", note);
+}
+
 void setRelay(bool unlock) {
   if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
-  pinMode(RELAY_PIN, OUTPUT);
+  gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);   // see setup()
   digitalWrite(RELAY_PIN, unlock ? RELAY_UNLOCKED_LEVEL : RELAY_LOCKED_LEVEL);
   relayUnlocked   = unlock;
   relayEverDriven = true;
   Serial.printf("[RELAY] %s\n", unlock ? "UNLOCKED (GPIO26 LOW)" : "LOCKED (GPIO26 HIGH)");
+  printDoorStatus();
   // Switching the coil is the biggest current step in the system and is what
   // resets the TFT to white. Flag it; the refresh happens later, in IDLE only.
   tftRefreshWanted = true;
@@ -727,8 +1245,51 @@ void screenIdle(Adafruit_GFX &g) {
   if (rfidLinkDown && !cameraHealthy()) note = "Readers offline - call staff";
   else if (rfidLinkDown)                note = "RFID offline - use QR code";
   else if (!cameraHealthy())            note = "Camera offline - use card";
-  if (note) centerText(g, note, nullptr, 90, C_WARN);
+  if (emMessage[0]) {
+    g.fillRect(0, 78, 160, 34, C_BAD_DARK);   // the admin's message, over the notes
+    wrapText(g, emMessage, 80, C_WHITE, 3);
+  } else if (note) {
+    centerText(g, note, nullptr, 90, C_WARN);
+  }
   centerText(g, "STEP 1 OF 2", nullptr, 112, C_ACCENT);
+}
+
+// Up to `maxLines` lines of ~25 characters, centred, from y downwards.
+void wrapText(Adafruit_GFX &g, const char *text, int16_t y, uint16_t color, uint8_t maxLines) {
+  char line[27];
+  const char *p = text;
+  for (uint8_t n = 0; n < maxLines && *p; n++) {
+    while (*p == ' ') p++;
+    size_t len = strlen(p);
+    size_t take = len <= 25 ? len : 25;
+    if (len > 25) {                       // break at the last space that fits
+      size_t cut = take;
+      while (cut > 0 && p[cut] != ' ') cut--;
+      if (cut > 0) take = cut;
+    }
+    memcpy(line, p, take);
+    line[take] = '\0';
+    centerText(g, line, nullptr, y + n * 11, color);
+    p += take;
+  }
+}
+
+// Emergency screens: door held open by the admin, or lockdown.
+void screenEmergency(Adafruit_GFX &g) {
+  bool open = emView == 1;
+  g.fillScreen(open ? C_OK_DARK : C_BAD_DARK);
+  header(g, C_BAD, "! EMERGENCY !");
+  centerText(g, open ? "DOOR OPEN" : "LAB LOCKED", &FreeSansBold12pt7b, 30, C_WHITE);
+  if (emMessage[0]) wrapText(g, emMessage, 58, C_WARN, 4);
+  else centerText(g, open ? "Please leave calmly" : "No entry at the moment", nullptr, 62, C_WHITE);
+  if (open && emUnlockUntilMs) {
+    char left[24];
+    long s = (long)(emUnlockUntilMs - millis()) / 1000;
+    snprintf(left, sizeof(left), "for %ld min", s > 0 ? (s + 59) / 60 : 0);
+    centerText(g, left, nullptr, 112, C_SUB);
+  } else {
+    centerText(g, open ? "until staff lock it" : "set by the lab admin", nullptr, 112, C_SUB);
+  }
 }
 
 void screenChecking(Adafruit_GFX &g) {
@@ -775,7 +1336,8 @@ void screenVerify(Adafruit_GFX &g) {
 // between the two changes nothing on the panel.
 void screenGranted(Adafruit_GFX &g) {
   const char *name = authorizedUsers[pendingUserIndex].displayName;
-  const uint16_t *photo = userPhoto(authorizedUsers[pendingUserIndex].name);
+  const uint16_t *photo = grantPhoto(authorizedUsers[pendingUserIndex].name);
+  grantScreenHasPhoto = (photo != nullptr);
   if (photo) {
     // Photo full screen; the name on a green band at the top, ACCESS
     // GRANTED on a green band below the chin.
@@ -844,6 +1406,7 @@ void updateDisplay() {
   displayDirty = false;
 
   Adafruit_GFX &g = gfx();
+  if (emView) { screenEmergency(g); present(); return; }
   switch (state) {
     case STATE_IDLE:                    screenIdle(g); break;
     case STATE_WAIT_FINGERPRINT:
@@ -861,10 +1424,9 @@ void updateDisplay() {
 // ===========================================================================
 // CAMERA POLLING
 // ===========================================================================
-// Pulls /status from the camera board and caches the result. Non-blocking in
-// the sense that it runs on a timer and uses a short HTTP timeout - a camera
-// that is off or slow costs us CAMERA_TIMEOUT_MS at worst, and the RFID and
-// fingerprint paths keep working regardless.
+// A background task pulls /status from the camera board; loop() only takes
+// the newest reply. A camera that is off or slow never holds up the door,
+// and the RFID and fingerprint paths keep working regardless.
 // ===========================================================================
 String jsonStr(const String &src, const String &key) {
   int k = src.indexOf("\"" + key + "\"");
@@ -889,37 +1451,79 @@ long jsonLong(const String &src, const String &key) {
   return src.substring(colon + 1).toInt();
 }
 
+// The request used to run inside loop(): a slow or absent camera then held
+// the door loop for up to 2 x CAMERA_TIMEOUT_MS on every poll, and a door
+// closing was acted on about a second late (bench, 2026-10-04).
+SemaphoreHandle_t visionMutex = nullptr;
+String            camBody = "";          // newest 200 reply  } under
+uint32_t          camBodyMs = 0;         // when it arrived   } visionMutex
+volatile bool     camAnswering = false;  // the newest request got a 200
+
+void visionTask(void *) {
+  // Kept for the life of the task: HTTPClient can only keep the connection
+  // alive between requests if the objects survive between them.
+  WiFiClient client;
+  HTTPClient http;
+  for (;;) {
+    uint32_t start = millis();
+    bool ok = false;
+    String body;
+    if (WiFi.status() == WL_CONNECTED) {
+      http.begin(client, String("http://") + CAMERA_IP + "/status");
+      http.setReuse(true);
+      http.setConnectTimeout(CAMERA_TIMEOUT_MS);
+      http.setTimeout(CAMERA_TIMEOUT_MS);
+      ok = http.GET() == 200;
+      if (ok) body = http.getString();
+      http.end();
+    }
+    if (ok) {
+      xSemaphoreTake(visionMutex, portMAX_DELAY);
+      camBody = body;
+      camBodyMs = millis();
+      xSemaphoreGive(visionMutex);
+    }
+    camAnswering = ok;
+    uint32_t took = millis() - start;
+    vTaskDelay(pdMS_TO_TICKS(took < CAMERA_POLL_MS ? CAMERA_POLL_MS - took : 1));
+  }
+}
+
+void visionBegin() {
+  visionMutex = xSemaphoreCreateMutex();
+  if (!visionMutex) {
+    Serial.println("[CAM][WARN] No memory for the camera task - RFID/finger only.");
+    return;
+  }
+  // Core 0, low priority: never competes with the access logic on core 1.
+  xTaskCreatePinnedToCore(visionTask, "vision", 8192, nullptr, 1, nullptr, 0);
+}
+
+// From loop(): takes the newest camera reply. Never waits on the network.
 void pollCamera() {
-  if (WiFi.status() != WL_CONNECTED) { cameraOnline = false; return; }
-
-  // STATIC, not local: HTTPClient can only keep a connection alive across
-  // calls if the object survives between them. Re-opening a TCP connection
-  // four times a second is the single biggest avoidable delay in the poll.
-  static WiFiClient  client;
-  static HTTPClient  http;
-  http.begin(client, String("http://") + CAMERA_IP + "/status");
-  http.setReuse(true);
-  http.setConnectTimeout(CAMERA_TIMEOUT_MS);
-  http.setTimeout(CAMERA_TIMEOUT_MS);
-  int code = http.GET();
-
-  if (code != 200) {
-    http.end();
+  if (!visionMutex) return;
+  if (!camAnswering) {
     if (cameraOnline) Serial.println("[CAM] camera unreachable - RFID/finger still work");
     cameraOnline = false;
     visionQrFresh = visionFaceFresh = false;
     return;
   }
 
-  String body = http.getString();
-  http.end();
+  xSemaphoreTake(visionMutex, portMAX_DELAY);
+  String body = camBody;
+  uint32_t at = camBodyMs;
+  xSemaphoreGive(visionMutex);
   cameraOnline = true;
-  lastCameraOkMs = millis();
+  lastCameraOkMs = at;
 
   // FRESHNESS IS THE SECURITY CHECK. An old QR or face must never authorize
-  // the person standing there now.
+  // the person standing there now. The ages are the camera's own, plus how
+  // long ago its reply arrived here.
+  uint32_t waited = millis() - at;
   long qrAge   = jsonLong(body, "qr_age_ms");
   long faceAge = jsonLong(body, "face_age_ms");
+  if (qrAge   >= 0) qrAge   += waited;
+  if (faceAge >= 0) faceAge += waited;
 
   visionQr        = jsonStr(body, "qr");
   visionFace      = jsonStr(body, "face");
@@ -1025,20 +1629,43 @@ QrAuthResult validateQrWithBackend(const String &token) {
 // Event reporting. Fire and forget: the door must never wait on the portal.
 // A failure here costs an audit-log line, not an entry decision.
 // ---------------------------------------------------------------------------
+// Door events are SENT by the background task (core 0), in order: the door,
+// the LCD and the tablet never wait on a network round trip (PortalEvent,
+// eventQueue and heartbeatWanted are declared with the other task queues).
+
 void reportEvent(const char *eventType, const char *authSubject,
                  long bookingId, const char *method, const char *result,
                  const char *reason, const String &message) {
+  if (!BACKEND_ENABLED) return;
+  PortalEvent e = {};
+  strlcpy(e.type, eventType ? eventType : "", sizeof(e.type));
+  strlcpy(e.subject, authSubject ? authSubject : "", sizeof(e.subject));
+  e.booking = bookingId;
+  strlcpy(e.method, method ? method : "", sizeof(e.method));
+  strlcpy(e.result, result ? result : "", sizeof(e.result));
+  strlcpy(e.reason, reason ? reason : "", sizeof(e.reason));
+  strlcpy(e.message, message.c_str(), sizeof(e.message));
+  if (eventQueue && xQueueSend(eventQueue, &e, 0) == pdTRUE) return;
+  // No task (out of memory) or 16 events waiting: send it here rather than lose it.
+  Serial.println("[PORTAL] event queue full - sending directly");
+  sendEventNow(e.type, e.subject, e.booking, e.method, e.result, e.reason, e.message);
+}
+
+// Called by the background task (or, as a fallback, from reportEvent).
+// Its own client each time: it may run on either core.
+void sendEventNow(const char *eventType, const char *authSubject,
+                  long bookingId, const char *method, const char *result,
+                  const char *reason, const char *message) {
   if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) return;
 
-  static WiFiClient client;
-  static HTTPClient http;
+  WiFiClient client;
+  HTTPClient http;
 
   const char *path = "/access/events";
   if (strcmp(eventType, "ACCESS_GRANTED") == 0) path = "/access/grant";
   else if (strcmp(eventType, "ACCESS_DENIED") == 0) path = "/access/deny";
 
   http.begin(client, backendBase() + path);
-  http.setReuse(true);
   http.setConnectTimeout(BACKEND_TIMEOUT_MS);
   http.setTimeout(BACKEND_TIMEOUT_MS);
   http.addHeader("Content-Type", "application/json");
@@ -1084,7 +1711,9 @@ void sendHeartbeat() {
                 ",\"components\":{\"rfid\":" + (rfidLinkDown ? "false" : "true") +
                 ",\"fingerprint\":" + (fpOk ? "true" : "false") +
                 ",\"camera\":" + (cameraHealthy() ? "true" : "false") +
-                ",\"relay_locked\":" + (relayUnlocked ? "false" : "true") + "}}";
+                ",\"relay_locked\":" + (relayUnlocked ? "false" : "true") +
+                // The emergency state this board has applied (portal shows "applied").
+                ",\"emergency_version\":" + String(emVersion) + "}}";
   http.POST(body);
   http.end();
 }
@@ -1149,16 +1778,21 @@ void goIdle() {
   // earlier person's booking.
   pendingBookingId = -1;
   pendingViaPortal = false;
+  lastWelcomeMs = millis();        // no welcome right after an entry or a denial
   enterState(STATE_IDLE);
 }
 
 void goWaitFingerprint(int userIndex) {
   pendingUserIndex = userIndex;
+  // Fetch the grant-screen photo now, in the background, while the person
+  // does step 2 - so it is usually here before the door opens.
+  requestPortrait(authorizedUsers[userIndex].name);
   Serial.printf("[STATE] -> WAIT_FINGERPRINT (%s / %s)\n",
                 authorizedUsers[userIndex].displayName,
                 authorizedUsers[userIndex].name);
   verifyPromptShown = false;
   enterState(STATE_WAIT_FINGERPRINT);
+  announce({aTone(988, 80), aTone(1319, 120), aGap(80), aSay(VOICE_VERIFY)});
 }
 
 // The ONLY place the door is ever unlocked.
@@ -1187,6 +1821,13 @@ void goAccessGranted(const char *factorEvent, const char *factorMethod,
   updateDisplay();                 // show the grant now, not after the reports
   Serial.printf("[TFT] grant screen shown %u ms after unlock\n",
                 (unsigned)(millis() - t0));
+  // After the relay has settled: "Hello <name>, welcome. The door is unlocked."
+  uint8_t nameClip = voiceNameFor(authorizedUsers[pendingUserIndex].name);
+  if (nameClip < VOICE_COUNT)
+    announce({aTone(1319, 90), aTone(1760, 140), aGap(80), aSay(VOICE_HELLO), aSay(nameClip),
+              aGap(60), aSay(VOICE_WELCOME_IN)});
+  else
+    announce({aTone(1319, 90), aTone(1760, 140), aGap(80), aSay(VOICE_WELCOME_IN)});
 
   // Reported AFTER the door is already unlocked. The portal is a witness to
   // this decision, not a participant in it - if the report fails, the person
@@ -1211,6 +1852,13 @@ void goAccessDenied(const char *reason) {
   // white screen mid-draw.
   enterState(STATE_ACCESS_DENIED);
   updateDisplay();
+
+  // Speaker: the buzzer sound, then why, then what to do.
+  uint8_t why = VOICE_COUNT;
+  if (!strcmp(reason, "FINGER TIMEOUT")) why = VOICE_TIME_UP;
+  else if (!strcmp(reason, "FACE MISMATCH") || !strcmp(reason, "WRONG FINGER")) why = VOICE_MISMATCH;
+  announce({aBuzz(250), aGap(60), aBuzz(250), aGap(150), aSay(VOICE_DENIED), aSay(why),
+            aGap(60), aSay(VOICE_TRY_AGAIN)});
 
   // NO RELAY COMMAND. Every denial path already has the door locked - an
   // unknown card is rejected from IDLE, a wrong finger is rejected before
@@ -1246,11 +1894,12 @@ void goAccessDenied(const char *reason) {
 
 void goDoorOpenWaitClose() {
   Serial.println("[DOOR] Door OPEN detected");
+  heldOpenAlarmed = false;
+  enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
+  updateDisplay();   // screen first; the report below is a network round trip
   reportEvent("DOOR_OPENED",
               pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
               pendingBookingId, "", "", "", "Door opened");
-  heldOpenAlarmed = false;
-  enterState(STATE_DOOR_OPEN_WAIT_CLOSE);
 }
 
 // The door opened although nobody was granted access: the relay was locked,
@@ -1265,18 +1914,25 @@ void goDoorAlarm() {
   pendingViaPortal = false;
   enterState(STATE_DOOR_ALARM);
   updateDisplay();
+  lastNagMs = millis();
+  announce({aSay(VOICE_FORCED), aGap(150), aSweep(600, 1400, 600), aSweep(1400, 600, 600),
+            aSweep(600, 1400, 600), aSweep(1400, 600, 600)}, true);
   reportEvent("ALARM", "", -1, "", "", "FORCED_ENTRY",
               "Door opened while locked - no access had been granted");
 }
 
 void goRelockAndIdle() {
   Serial.println("[DOOR] Door CLOSED - relocking");
-  // Reported BEFORE goIdle(), which clears the portal context - otherwise
-  // the closure would be logged with no booking attached.
-  reportEvent("DOOR_CLOSED",
-              pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
-              pendingBookingId, "", "", "", "Door closed - relocked");
+  // Lock and redraw FIRST, report after: the lock must never wait on a
+  // network round trip. goIdle() clears the portal context, so the person
+  // and booking are saved here - otherwise the closure would be logged with
+  // no booking attached.
+  String who = pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "";
+  long booking = pendingBookingId;
   goIdle();
+  updateDisplay();
+  reportEvent("DOOR_CLOSED", who.c_str(), booking, "", "", "",
+              "Door closed - relocked");
 }
 
 // ===========================================================================
@@ -1298,9 +1954,48 @@ int tryReadFingerprint() {
 // Serial monitor: 115200 baud, line ending "Newline". Only accepted while
 // the door is idle; the lock stays locked throughout.
 // ===========================================================================
+void tabletLoop();   // tablet_display.h, included further down
+
+// One enrollment, from the serial monitor ("enroll 5") or from the portal.
+// The person is guided on the LCD and the tablet; a portal request also gets
+// each step reported back. The door stays watched throughout: if it opens
+// while locked, enrollment stops and the forced-entry alarm takes over.
+char        enrollWho[16] = "";
+bool        enrollIsCard = false;      // RFID card enrollment (else fingerprint)
+const char *enrollLine1 = "";
+const char *enrollLine2 = "";
+long        enrollCmdId = 0;          // 0 = from the serial monitor
+bool        enrollDoorForced = false;
+
+void enrollStep(const char *step, const char *line1, const char *line2, uint16_t tone) {
+  enrollLine1 = line1;
+  enrollLine2 = line2;
+  Serial.printf("[ENROLL] %s - %s\n", line1, line2);
+  Adafruit_GFX &g = gfx();
+  g.fillScreen(C_BG);
+  header(g, C_HEADER, enrollIsCard ? "RFID CARD" : "FINGERPRINT");
+  centerText(g, enrollWho, fitFont(g, enrollWho), 30, C_ACCENT);
+  centerText(g, line1, &FreeSansBold9pt7b, 66, tone);
+  centerText(g, line2, nullptr, 96, C_SUB);
+  present();
+  if (enrollCmdId) queueProgress(enrollCmdId, "RUNNING", step, line1);
+}
+
+// Keeps the tablet and the door alive while waiting for a finger.
+bool enrollService() {
+  tabletLoop();
+  pollDoor();
+  if (doorChangedThisLoop && !doorClosed && !relayUnlocked) {
+    enrollDoorForced = true;
+    return false;
+  }
+  return true;
+}
+
 bool waitFingerImage(uint32_t timeoutMs) {
   uint32_t start = millis();
   while (millis() - start < timeoutMs) {
+    if (!enrollService()) return false;
     uint8_t p = finger.getImage();
     if (p == FINGERPRINT_OK) return true;
     delay(60);
@@ -1310,30 +2005,207 @@ bool waitFingerImage(uint32_t timeoutMs) {
 
 void waitFingerRemoved(uint32_t timeoutMs) {
   uint32_t start = millis();
-  while (millis() - start < timeoutMs && finger.getImage() != FINGERPRINT_NOFINGER) delay(60);
+  while (millis() - start < timeoutMs && finger.getImage() != FINGERPRINT_NOFINGER) {
+    if (!enrollService()) return;
+    delay(60);
+  }
 }
 
-void enrollFinger(uint8_t id, bool force) {
-  if (!fpOk) { Serial.println("[ENROLL] Fingerprint sensor not available."); return; }
+// Returns a result code: STORED, SENSOR_UNAVAILABLE, SLOT_USED, TIMEOUT,
+// UNCLEAR, MISMATCH, STORE_FAILED or DOOR_OPENED. *why = human sentence.
+const char *enrollFingerCore(uint8_t id, bool force, const char **why) {
+  enrollDoorForced = false;
+  if (!fpOk) { *why = "Fingerprint sensor not available"; return "SENSOR_UNAVAILABLE"; }
   if (!force && finger.loadModel(id) == FINGERPRINT_OK) {
-    Serial.printf("[ENROLL] Slot %u is already used. Type \"enroll %u force\" to overwrite.\n", id, id);
-    return;
+    *why = "This slot already holds a finger - choose Replace to overwrite";
+    return "SLOT_USED";
   }
-  Serial.printf("[ENROLL] Slot %u (portal identity USER%u): place the finger on the sensor...\n", id, id);
-  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
-  if (finger.image2Tz(1) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
-  Serial.println("[ENROLL] OK. Remove the finger.");
+  enrollStep("PLACE_FINGER", "PLACE FINGER", "on the sensor", C_WHITE);
+  if (!waitFingerImage(20000)) {
+    *why = enrollDoorForced ? "Stopped: door opened while locked" : "No finger placed in time";
+    return enrollDoorForced ? "DOOR_OPENED" : "TIMEOUT";
+  }
+  if (finger.image2Tz(1) != FINGERPRINT_OK) { *why = "Unclear image - try again"; return "UNCLEAR"; }
+  enrollStep("REMOVE_FINGER", "REMOVE FINGER", "", C_OK_LIGHT);
   delay(800);
   waitFingerRemoved(10000);
-  Serial.println("[ENROLL] Place the SAME finger again...");
-  if (!waitFingerImage(20000))            { Serial.println("[ENROLL] Timed out - no finger."); return; }
-  if (finger.image2Tz(2) != FINGERPRINT_OK) { Serial.println("[ENROLL] Unclear image - try again."); return; }
-  if (finger.createModel() != FINGERPRINT_OK) {
-    Serial.println("[ENROLL] The two scans did not match - try again.");
+  if (enrollDoorForced) { *why = "Stopped: door opened while locked"; return "DOOR_OPENED"; }
+  enrollStep("PLACE_AGAIN", "SAME FINGER", "place it again", C_WHITE);
+  if (!waitFingerImage(20000)) {
+    *why = enrollDoorForced ? "Stopped: door opened while locked" : "No finger placed in time";
+    return enrollDoorForced ? "DOOR_OPENED" : "TIMEOUT";
+  }
+  if (finger.image2Tz(2) != FINGERPRINT_OK) { *why = "Unclear image - try again"; return "UNCLEAR"; }
+  if (finger.createModel() != FINGERPRINT_OK) { *why = "The two scans did not match - try again"; return "MISMATCH"; }
+  if (finger.storeModel(id) != FINGERPRINT_OK) { *why = "Could not store - try again"; return "STORE_FAILED"; }
+  *why = "Stored";
+  return "STORED";
+}
+
+// Runs one enrollment end to end (idle only) and leaves the door idle again.
+void runEnrollment(uint8_t id, bool force, const char *who, long cmdId) {
+  enrollCmdId = cmdId;
+  strlcpy(enrollWho, (who && *who) ? who : "", sizeof(enrollWho));
+  if (!enrollWho[0]) snprintf(enrollWho, sizeof(enrollWho), "USER%u", id);
+  enrollActive = true;
+  if (cmdId) queueProgress(cmdId, "RUNNING", "STARTED", "Door controller started");
+
+  const char *why = "";
+  const char *result = enrollFingerCore(id, force, &why);
+  bool ok = strcmp(result, "STORED") == 0;
+  Serial.printf("[ENROLL] Slot %u: %s (%s)\n", id, result, why);
+  if (cmdId) queueProgress(cmdId, ok ? "DONE" : "FAILED", result, why);
+
+  // A short result screen, then idle - unless the door was forced, which
+  // goes straight to the alarm like any other forced entry.
+  if (!enrollDoorForced) {
+    enrollStep(result, ok ? "STORED" : "NOT STORED", ok ? "" : why, ok ? C_OK_LIGHT : C_WARN);
+    uint32_t t0 = millis();
+    while (millis() - t0 < 1800) { if (!enrollService()) break; delay(30); }
+  }
+  enrollActive = false;
+  enrollCmdId = 0;
+  if (enrollDoorForced) goDoorAlarm(); else goIdle();
+}
+
+// ---------------------------------------------------------------------------
+// RFID card enrollment from the portal: the person taps their card; it is
+// stored for identity USERn in flash. A card already belonging to someone
+// else is refused. The door stays watched throughout, as for a finger.
+// ---------------------------------------------------------------------------
+void finishCardScreen(const char *result, bool ok, const char *line2) {
+  if (enrollDoorForced) return;
+  enrollStep(result, ok ? "CARD STORED" : "NOT STORED", line2, ok ? C_OK_LIGHT : C_WARN);
+  uint32_t t0 = millis();
+  while (millis() - t0 < 1800) { if (!enrollService()) break; delay(30); }
+}
+
+void runCardEnrollment(uint8_t slot, const char *who, long cmdId) {
+  enrollCmdId = cmdId;
+  enrollIsCard = true;
+  enrollDoorForced = false;
+  strlcpy(enrollWho, (who && *who) ? who : "", sizeof(enrollWho));
+  if (!enrollWho[0]) snprintf(enrollWho, sizeof(enrollWho), "USER%u", slot);
+  enrollActive = true;
+  if (cmdId) queueProgress(cmdId, "RUNNING", "STARTED", "Door controller started");
+
+  const char *result = "TIMEOUT", *why = "No card presented in time";
+  char text[32] = "";
+  if (rfidLinkDown) {
+    result = "READER_UNAVAILABLE"; why = "RFID reader not available";
+  } else {
+    enrollStep("PRESENT_CARD", "TAP YOUR CARD", "on the RFID reader", C_WHITE);
+    uint32_t start = millis();
+    while (millis() - start < 20000) {
+      if (!enrollService()) { result = "DOOR_OPENED"; why = "Stopped: door opened while locked"; break; }
+      if (!rfidDetectCard(100)) continue;
+      uidText(rfidUid.uidByte, rfidUid.size, text, sizeof(text));
+      // The card now resting on the reader must not start an entry afterwards.
+      rememberUID(rfidUid);
+      lastUIDSeenMs = millis();
+      int builtIn = -1;
+      for (size_t i = 0; i < AUTHORIZED_USER_COUNT; i++)
+        if (uidEquals(rfidUid, authorizedUsers[i].uid, authorizedUsers[i].size)) builtIn = (int)i;
+      int other = cardIndexByUid(rfidUid.uidByte, rfidUid.size);
+      if (builtIn >= 0 && authorizedUsers[builtIn].fingerprintId != slot) {
+        result = "CARD_IN_USE"; why = "This card already belongs to someone else";
+      } else if (other >= 0 && portalCards[other].slot != slot) {
+        result = "CARD_IN_USE"; why = "This card already belongs to someone else";
+      } else if (builtIn >= 0) {
+        result = "STORED"; why = "This is their built-in card - already works";
+      } else if (other >= 0) {
+        result = "STORED"; why = "This card is already theirs - already works";
+      } else {
+        uint8_t mine = 0;                         // several cards per person, each added
+        for (uint8_t k = 0; k < portalCardCount; k++) if (portalCards[k].slot == slot) mine++;
+        if (mine >= MAX_CARDS_PER_PERSON) {
+          result = "FULL"; why = "This person has the most cards allowed - remove one first";
+        } else if (portalCardCount >= MAX_PORTAL_CARDS) {
+          result = "FULL"; why = "Card memory full - remove a card first";
+        } else {
+          int i = portalCardCount++;
+          PortalCard &c = portalCards[i];
+          c.slot = slot;
+          c.size = rfidUid.size;
+          memset(c.uid, 0, sizeof(c.uid));
+          memcpy(c.uid, rfidUid.uidByte, rfidUid.size);
+          strlcpy(c.who, enrollWho, sizeof(c.who));
+          if (cardsSave()) { result = "STORED"; why = "Card stored"; }
+          else { cardsLoad(); result = "STORE_FAILED"; why = "Could not save - try again"; }
+        }
+      }
+      break;
+    }
+  }
+  bool ok = strcmp(result, "STORED") == 0;
+  Serial.printf("[CARD] USER%u: %s %s (%s)\n", slot, result, text, why);
+  if (cmdId) queueCardProgress(cmdId, ok ? "DONE" : "FAILED", result, why, text);
+  finishCardScreen(result, ok, ok ? text : why);
+  enrollActive = false;
+  enrollIsCard = false;
+  enrollCmdId = 0;
+  if (enrollDoorForced) goDoorAlarm(); else goIdle();
+}
+
+// "89:52:FF:1F" and "8952ff1f" name the same card.
+bool uidMatchesHex(const PortalCard &c, const char *hex) {
+  char mine[24] = "", want[24] = "";
+  for (uint8_t i = 0; i < c.size; i++) { char b[3]; snprintf(b, sizeof(b), "%02X", c.uid[i]); strlcat(mine, b, sizeof(mine)); }
+  size_t n = 0;
+  for (const char *p = hex; *p && n + 1 < sizeof(want); p++) if (isxdigit((unsigned char)*p)) want[n++] = toupper(*p);
+  want[n] = 0;
+  return n && strcmp(mine, want) == 0;
+}
+
+// Removes one card of this person (uidHex given) or all of their cards (empty).
+void runCardRemoval(uint8_t slot, long cmdId, const char *uidHex) {
+  char text[32] = "";
+  int removed = 0;
+  for (int i = portalCardCount - 1; i >= 0; i--) {
+    if (portalCards[i].slot != slot) continue;
+    if (uidHex && *uidHex && !uidMatchesHex(portalCards[i], uidHex)) continue;
+    uidText(portalCards[i].uid, portalCards[i].size, text, sizeof(text));
+    cardRemoveAt(i);
+    removed++;
+  }
+  if (!removed) {
+    if (cmdId) queueCardProgress(cmdId, "DONE", "NO_CARD", "That card was not stored for this person", "");
+    Serial.printf("[CARD] USER%u: no matching card stored\n", slot);
     return;
   }
-  if (finger.storeModel(id) != FINGERPRINT_OK) { Serial.println("[ENROLL] Could not store - try again."); return; }
-  Serial.printf("[ENROLL] Stored in slot %u. USER%u can now use this fingerprint with their booking QR.\n", id, id);
+  bool ok = cardsSave();
+  if (!ok) cardsLoad();
+  if (removed > 1) snprintf(text, sizeof(text), "%d cards", removed);
+  Serial.printf("[CARD] USER%u: %s %s\n", slot, text, ok ? "removed" : "NOT removed");
+  if (cmdId) queueCardProgress(cmdId, ok ? "DONE" : "FAILED", ok ? "REMOVED" : "STORE_FAILED",
+                               ok ? "Card removed from the door" : "Could not save - try again", text);
+}
+
+// A request fetched by the portal task. Taken only while idle.
+void handlePortalCommand() {
+  if (!commandQueue) return;
+  PortalCommand c;
+  if (xQueueReceive(commandQueue, &c, 0) != pdTRUE) return;
+  if (state != STATE_IDLE) {
+    queueProgress(c.id, "FAILED", "BUSY", "The door was in use - try again");
+    return;
+  }
+  if (c.slot == 0) {
+    queueProgress(c.id, "FAILED", "BAD_SLOT", "Invalid door identity");
+    return;
+  }
+  if (c.kind == CMD_ENROLL_CARD) {
+    Serial.printf("[CARD] Portal request %ld: card for USER%u (%s)\n", c.id, c.slot, c.who);
+    runCardEnrollment(c.slot, c.who, c.id);
+    return;
+  }
+  if (c.kind == CMD_REMOVE_CARD) {
+    runCardRemoval(c.slot, c.id, c.uid);
+    return;
+  }
+  Serial.printf("[ENROLL] Portal request %ld: slot %u (%s)%s\n", c.id, c.slot, c.who,
+                c.force ? " - replace" : "");
+  runEnrollment(c.slot, c.force, c.who, c.id);
 }
 
 void runSerialCommand(String line) {
@@ -1342,11 +2214,37 @@ void runSerialCommand(String line) {
   if (line.length() == 0) return;
   if (state != STATE_IDLE) { Serial.println("[CMD] Busy - try again when the door is idle."); return; }
 
+  if (line.startsWith("vol ")) {             // speaker loudness, % (until restart)
+    audioVolume = constrain(line.substring(4).toInt(), 0, 100);
+    Serial.printf("[CMD] Speaker volume %u%%\n", audioVolume);
+    audioPlay({aTone(880, 200)});
+    return;
+  }
+  if (line.startsWith("say ")) {             // play one clip: say 0 .. say 18
+    long n = line.substring(4).toInt();
+    if (n >= 0 && n < VOICE_COUNT) audioPlay({aSay((uint8_t)n)});
+    return;
+  }
   if (line == "count") {
     if (fpOk && finger.getTemplateCount() == FINGERPRINT_OK)
       Serial.printf("[CMD] %u fingerprints stored.\n", finger.templateCount);
     else
       Serial.println("[CMD] Fingerprint sensor not available.");
+    return;
+  }
+  if (line == "cards") {
+    Serial.printf("[CMD] %u portal card(s) stored (max %u):\n", portalCardCount, MAX_PORTAL_CARDS);
+    for (uint8_t i = 0; i < portalCardCount; i++) {
+      char t[32];
+      uidText(portalCards[i].uid, portalCards[i].size, t, sizeof(t));
+      Serial.printf("  USER%u  %-12s %s\n", portalCards[i].slot, portalCards[i].who, t);
+    }
+    return;
+  }
+  if (line.startsWith("card delete ")) {
+    long n = line.substring(12).toInt();
+    if (n < 1 || n > MAX_FINGER_SLOT) { Serial.println("[CMD] card delete <n>"); return; }
+    runCardRemoval((uint8_t)n, 0, "");
     return;
   }
   bool isEnroll = line.startsWith("enroll ");
@@ -1359,7 +2257,8 @@ void runSerialCommand(String line) {
     long id = rest.toInt();
     if (id < 1 || id > MAX_FINGER_SLOT) { Serial.printf("[CMD] Slot must be 1-%u.\n", MAX_FINGER_SLOT); return; }
     if (isEnroll) {
-      enrollFinger((uint8_t)id, force);
+      runEnrollment((uint8_t)id, force, nullptr, 0);   // ends in goIdle() itself
+      return;
     } else if (!fpOk) {
       Serial.println("[CMD] Fingerprint sensor not available.");
     } else {
@@ -1369,7 +2268,7 @@ void runSerialCommand(String line) {
     goIdle();                      // redraw the idle screen
     return;
   }
-  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count");
+  Serial.println("[CMD] Commands: enroll <n> | enroll <n> force | delete <n> | count | cards | card delete <n> | vol <0-100> | say <n>");
 }
 
 void pollSerialCommands() {
@@ -1395,6 +2294,7 @@ void pollDoor() {
       doorLastChangeMs = millis();
       doorChangedThisLoop = true;
       Serial.printf("[DOOR] State change -> %s\n", doorClosed ? "CLOSED" : "OPEN");
+      printDoorStatus();
     }
   } else {
     doorLastChangeMs = millis();
@@ -1402,15 +2302,114 @@ void pollDoor() {
 }
 
 // ===========================================================================
+// Emergency: take the newest state from the portal task and apply it.
+// Returns true while the normal entry steps must not run this loop.
+// ===========================================================================
+void emergencyTakeUpdate() {
+  EmergencyState e;
+  if (!emergencyQueue || xQueueReceive(emergencyQueue, &e, 0) != pdTRUE) return;
+  bool changed = e.version != emVersion;
+  if (!changed) return;
+  emVersion = e.version;
+  emDoor = e.door;
+  emUnlockUntilMs = (e.door == EM_UNLOCKED && e.remainingS >= 0) ? millis() + (uint32_t)e.remainingS * 1000UL : 0;
+  if (e.door == EM_UNLOCKED && e.remainingS == 0) emDoor = EM_NORMAL;     // already expired
+  strlcpy(emMessage, e.msgRemainingS != 0 ? e.message : "", sizeof(emMessage));
+  emSpeak = e.speak;
+  emMessageUntilMs = (emMessage[0] && e.msgRemainingS > 0) ? millis() + (uint32_t)e.msgRemainingS * 1000UL : 0;
+  if (e.alarm != emAlarm) {
+    emAlarm = e.alarm;
+    lastNagMs = 0;                 // evacuation: say it at once
+    if (!emAlarm) { digitalWrite(RED_LED_BUZZER_PIN, LOW); setRedSolo(false); audioStop(); }
+  }
+  Serial.printf("[EMERGENCY] v%ld door=%s%s alarm=%s message=\"%s\"\n", emVersion,
+                emDoor == EM_UNLOCKED ? "UNLOCKED" : emDoor == EM_LOCKDOWN ? "LOCKDOWN" : "NORMAL",
+                emDoor == EM_UNLOCKED && e.remainingS > 0 ? " (timed)" : "",
+                emAlarm ? "ON" : "off", emMessage);
+  displayDirty = true;
+  heartbeatNow = true;          // tell the portal at once that it is applied
+}
+
+bool emergencyOverride() {
+  emergencyTakeUpdate();
+  if (emMessage[0] && emMessageUntilMs && (int32_t)(millis() - emMessageUntilMs) >= 0) {
+    emMessage[0] = '\0';                 // the message's time is over
+    displayDirty = true;
+  }
+  bool unlocked = emDoor == EM_UNLOCKED &&
+                  (emUnlockUntilMs == 0 || (int32_t)(millis() - emUnlockUntilMs) < 0);
+  if (emDoor == EM_UNLOCKED && !unlocked) {
+    Serial.println("[EMERGENCY] Timed unlock over - locking");
+    emDoor = EM_NORMAL;
+  }
+  bool lockdown = emDoor == EM_LOCKDOWN && state == STATE_IDLE;
+
+  // Evacuation alarm: siren + "Emergency. Please leave the lab now." on the
+  // speaker (if fitted), repeated, and the red LED + buzzer pulsing (safe
+  // since the lock moved to NO: a dip can no longer release it).
+  if (emAlarm) {
+    digitalWrite(RED_LED_BUZZER_PIN, (millis() / 500) % 2);
+    if (lastNagMs == 0 || millis() - lastNagMs > EVACUATE_REPEAT_MS) {
+      lastNagMs = millis();
+      announce({aSay(VOICE_EVACUATE), aGap(150), aSweep(600, 1400, 700), aSweep(1400, 600, 700),
+                aSweep(600, 1400, 700), aSweep(1400, 600, 700)}, true);
+    }
+    setRedSolo((millis() / 500) % 2);
+  }
+
+  uint8_t view = unlocked ? 1 : lockdown ? 2 : 0;
+  if (view != emView && !emAlarm) {          // the evacuation siren has priority
+    if (view == 1) announce({aTone(988, 120), aGap(80), aSay(VOICE_EM_OPEN)});
+    if (view == 2) announce({aTone(700, 200), aGap(80), aSay(VOICE_LOCKDOWN)});
+  }
+  if (view != emView) {
+    if (emView == 1 && view != 1) {          // leaving "door open": lock and start fresh
+      emView = 0;
+      goIdle();
+    }
+    emView = view;
+    displayDirty = true;
+  }
+  if (!view) return false;
+
+  if (unlocked) {
+    if (state != STATE_IDLE) {              // whatever was going on, the admin's order wins
+      pendingUserIndex = -1; pendingBookingId = -1; pendingViaPortal = false;
+      enterState(STATE_IDLE);
+    }
+    setRelay(true);
+    digitalWrite(GREEN_LED_PIN, HIGH);
+  }
+  visionQrFresh = false;                    // QR codes are not used meanwhile
+  visionFaceFresh = false;
+  if (tftRefreshWanted) { tftRefreshWanted = false; tftWake(); displayDirty = true; }
+  if (millis() - emLastDrawMs > 30000) { emLastDrawMs = millis(); displayDirty = true; }   // minutes left
+  return true;
+}
+
+// ===========================================================================
 // setup()
 // ===========================================================================
+// Read-only tablet display (a second, larger view of the TFT's state).
+#include "tablet_display.h"
+
 void setup() {
   // =========================================================================
-  // RELAY FIRST - driven LOCKED before anything else. This is the 21:07
-  // configuration that kept the door shut. INPUT_PULLUP here is NOT a driven
-  // level and left the door sitting open, so it is not used.
+  // RELAY FIRST - driven LOCKED before anything else. INPUT_PULLUP is not
+  // used: it is not a driven level. Measured 2026-11-08 with the NPN stage
+  // fitted: GPIO26 reads 3.2 V when booted and locked, so LOCKED = HIGH.
+  // The level is written BEFORE the pin becomes an output, so it never
+  // drives LOW: on ESP32 core 3.x, digitalWrite() does nothing on a pin
+  // pinMode() has not claimed yet, hence gpio_set_level() for this first
+  // write. pinMode() changes only the direction, not the level.
   // =========================================================================
+  gpio_set_level((gpio_num_t)RELAY_PIN, RELAY_LOCKED_LEVEL);
   pinMode(RELAY_PIN, OUTPUT);
+  // Strongest output drive (~40 mA, default ~20 mA): at the default the
+  // module's input pulled the HIGH level down far enough that the relay
+  // lit its LED but did not close NO (bench, 2026-10-05: IN tied straight
+  // to 3V3 opened the lock, GPIO26 HIGH did not).
+  gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);
   digitalWrite(RELAY_PIN, RELAY_LOCKED_LEVEL);
   relayUnlocked   = false;
   relayEverDriven = true;
@@ -1441,23 +2440,23 @@ void setup() {
   screenBoot(gfx());
   present();
 
-  // --- RFID on the proven VSPI path --- (UNCHANGED)
-  Serial.println("[RFID] Initializing the proven standalone VSPI path...");
-  rfidBeginSpi();      // ONCE only
-  rfidInitReader();
-
-  byte version = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-  Serial.print("[RFID] VersionReg = 0x");
-  printHexByte(version);
-  Serial.println();
-  if (!rfidVersionOk(version)) {
-    Serial.println("[RFID][FAIL] MFRC522 communication check failed.");
-    printErrorRegister();
+  // --- RFID: PN532 over I2C (SDA=GPIO19, SCL=GPIO18) ---
+  Serial.println("[RFID] Initializing PN532 over I2C (SDA=GPIO19, SCL=GPIO18)...");
+  rfidBeginI2c();      // ONCE only
+  // The PN532 can still be waking when setup() gets here; give it up to
+  // ~1 s (the working test sketch waited 1 s) before calling it unavailable.
+  uint32_t fw = 0;
+  for (int attempt = 0; attempt < 5 && !rfidFirmwareOk(fw); attempt++) {
+    if (attempt) delay(200);
+    fw = rfidInitReader();
+  }
+  printFirmware("[RFID]", fw);
+  if (!rfidFirmwareOk(fw)) {
+    Serial.println("[RFID][FAIL] PN532 communication check failed - RFID unavailable, QR still works.");
     rfidLinkDown = true;
   } else {
-    Serial.println("[RFID][PASS] MFRC522 communication detected.");
+    Serial.println("[RFID][PASS] PN532 communication detected.");
     rfidLinkDown = false;
-    printAntennaState("[RFID][RF]");
   }
 
 
@@ -1480,6 +2479,7 @@ void setup() {
   doorClosed = (raw == LOW);
   Serial.printf("[DOOR] GPIO27 raw = %s\n", raw == LOW ? "LOW" : "HIGH");
   Serial.printf("[DOOR] Initial state = %s\n", doorClosed ? "CLOSED" : "OPEN");
+  printDoorStatus();
   doorLastChangeMs = millis();
 
   // --- WiFi, for polling the camera board ---------------------------------
@@ -1488,6 +2488,9 @@ void setup() {
   // so a failed connection is a warning, never a fatal error.
   Serial.println("[WIFI] Connecting (camera integration)...");
   WiFi.mode(WIFI_STA);
+  // Fixed address, so the tablet URL (http://192.168.1.151) never changes.
+  WiFi.config(IPAddress(192, 168, 1, 151), IPAddress(192, 168, 1, 1),
+              IPAddress(255, 255, 255, 0), IPAddress(192, 168, 1, 1));
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t wifiStart = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < 12000) {
@@ -1504,6 +2507,12 @@ void setup() {
     Serial.println("[WIFI][WARN] Not connected - QR and FACE unavailable.");
     Serial.println("[WIFI][WARN] RFID + fingerprint continue to work normally.");
   }
+  tabletBegin();       // read-only tablet display; the door never depends on it
+  portraitBegin();     // grant-screen photos from the face server, in the background
+  cardsLoad();         // RFID cards enrolled from the portal (flash)
+  Serial.printf("[CARD] %u portal card(s) loaded from flash\n", portalCardCount);
+  portalTaskBegin();   // portal requests (fingerprint / card enrollment), in the background
+  visionBegin();       // camera /status, in the background
 
   Serial.println();
   Serial.println("=================================================");
@@ -1517,6 +2526,8 @@ void setup() {
   Serial.println("[READY] STEP 2 (biometric): fingerprint    OR  face");
   Serial.println("[READY] Step 2 identity must MATCH step 1 - stolen card is denied.");
 
+  if (audioBegin()) audioPlay({aTone(880, 120), aGap(60), aSay(VOICE_BOOT)});
+
   goIdle();
   updateDisplay();   // draw the IDLE screen immediately
 }
@@ -1525,6 +2536,7 @@ void setup() {
 // loop() — logic identical to the working build
 // ===========================================================================
 void loop() {
+  tabletLoop();        // serve the tablet, if one is asking (non-blocking)
   pollDoor();
   pollSerialCommands();
 
@@ -1538,7 +2550,10 @@ void loop() {
 
   // Component health: report a change at once rather than at the next
   // 30 s heartbeat, so a failure reaches the admin view immediately.
-  uint8_t bits = (rfidLinkDown ? 0 : 1) | (fpOk ? 2 : 0) | (cameraHealthy() ? 4 : 0);
+  // Door (reed switch) and lock (relay) are in here too, so the website
+  // shows the door opening or the lock releasing at once, not 30 s later.
+  uint8_t bits = (rfidLinkDown ? 0 : 1) | (fpOk ? 2 : 0) | (cameraHealthy() ? 4 : 0) |
+                 (doorClosed ? 8 : 0) | (relayUnlocked ? 0 : 16);
   if (bits != lastComponentBits) {
     if (lastComponentBits != 0xFF) {
       Serial.printf("[HEALTH] rfid=%s fingerprint=%s camera=%s\n",
@@ -1546,8 +2561,7 @@ void loop() {
                     bits & 4 ? "ok" : "DOWN");
     }
     lastComponentBits = bits;
-    lastHeartbeatSentMs = millis();
-    sendHeartbeat();
+    heartbeatNow = true;   // sent at the end of loop(), after the screen
     if (state == STATE_IDLE) displayDirty = true;   // idle screen notes it
   }
 
@@ -1556,7 +2570,14 @@ void loop() {
   // assuming it.
   if (millis() - lastHeartbeatSentMs > HEARTBEAT_PERIOD_MS) {
     lastHeartbeatSentMs = millis();
-    sendHeartbeat();
+    heartbeatWanted = true;          // sent by the background task
+  }
+
+  // The photo arrived after the grant screen was drawn without it: redraw.
+  if ((state == STATE_ACCESS_GRANTED || state == STATE_DOOR_UNLOCKED_WAIT_OPEN) &&
+      !grantScreenHasPhoto && pendingUserIndex >= 0 &&
+      serverPortrait(authorizedUsers[pendingUserIndex].name)) {
+    displayDirty = true;
   }
 
   // Refresh the vision result on a timer. Runs in every state so a QR seen
@@ -1566,10 +2587,27 @@ void loop() {
     pollCamera();
   }
 
+  // Emergency from the portal (admin): door held open or lockdown. The
+  // forced-entry check above has already run; the entry steps pause.
+  if (emergencyOverride()) {
+    updateDisplay();
+    if (heartbeatNow) {
+      heartbeatNow = false;
+      lastHeartbeatSentMs = millis();
+      heartbeatWanted = true;
+    }
+    return;
+  }
+
   switch (state) {
 
     // -------------------------------------------------------------------
     case STATE_IDLE: {
+      // A fingerprint enrollment requested from the portal (fetched by the
+      // portal task). Only here, while idle.
+      handlePortalCommand();
+      if (state != STATE_IDLE) break;
+
       // Safe point to repair the display after a relay switch reset it.
       // Only ever runs here, while idle - never during a door cycle.
       // Light wake + clean repaint rather than a full tftInit(): the full
@@ -1587,31 +2625,30 @@ void loop() {
         fpOk = finger.verifyPassword();
       }
 
-      // Periodic SPI link self-test with automatic recovery.
+      // Periodic I2C link self-test (PN532 firmware query) with recovery.
       if (millis() - lastHeartbeatMs > RFID_HEARTBEAT_MS) {
         lastHeartbeatMs = millis();
-        byte v  = mfrc522.PCD_ReadRegister(mfrc522.VersionReg);
-        byte tx = mfrc522.PCD_ReadRegister(mfrc522.TxControlReg);
-        Serial.printf("[RFID][HEARTBEAT] VersionReg = 0x%02X   TxControlReg = 0x%02X [RF %s]\n",
-                      v, tx, ((tx & 0x03) == 0x03) ? "ON" : "OFF");
+        uint32_t fw = nfc.getFirmwareVersion();
+        printFirmware("[RFID][HEARTBEAT]", fw);
 
-        // RF field went down while the SPI link is still fine -> re-arm it.
-        if (rfidVersionOk(v) && (tx & 0x03) != 0x03) {
-          Serial.println("[RFID][RF] Antenna field is OFF - re-enabling...");
-          mfrc522.PCD_AntennaOn();
-          mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_max);
-          printAntennaState("[RFID][RF]");
-        }
-
-        if (!rfidVersionOk(v)) {
+        if (!rfidFirmwareOk(fw)) {
           bool ok = rfidRecover();
           if (!ok && !rfidLinkDown) { rfidLinkDown = true;  displayDirty = true; }
           if ( ok &&  rfidLinkDown) { rfidLinkDown = false; displayDirty = true; }
         } else if (rfidLinkDown) {
+          // It answers now but was never configured (boot init failed):
+          // run SAMConfig, or it replies to firmware queries yet reads no card.
+          nfc.SAMConfig();
           rfidLinkDown = false;
           displayDirty = true;
           Serial.println("[RFID] Link restored.");
         }
+      }
+
+      // ---- Speaker: someone stands in front of the camera -------------
+      if (visionFaceFresh && millis() - lastWelcomeMs > WELCOME_COOLDOWN_MS) {
+        lastWelcomeMs = millis();
+        announce({aTone(988, 90), aTone(1319, 140), aGap(100), aSay(VOICE_WELCOME)});
       }
 
       // ---- STEP 1 ALTERNATIVE: QR code from the camera ----------------
@@ -1678,29 +2715,29 @@ void loop() {
         else             { goAccessDenied("UNKNOWN QR");  break; }
       }
 
-      if (!mfrc522.PICC_IsNewCardPresent()) {
+      if (rfidLinkDown || !rfidDetectCard(RFID_POLL_WINDOW_MS)) {
         delay(POLL_DELAY_MS);
         break;
       }
-      if (!readCardWithTimeout()) {
-        finishRFIDTransaction();
+
+      // Same card still resting on the reader: not a new presentation.
+      if (rfidSameCardStillPresent()) {
         delay(20);
         break;
       }
 
-      printUID(mfrc522.uid);
+      printUID(rfidUid);
 
-      bool duplicate = isSameAsLastUID(mfrc522.uid) &&
+      bool duplicate = isSameAsLastUID(rfidUid) &&
                        ((millis() - lastUIDTime) < DUPLICATE_IGNORE_MS);
       if (duplicate) {
-        finishRFIDTransaction();
         delay(20);
         break;
       }
-      rememberUID(mfrc522.uid);
+      rememberUID(rfidUid);
+      lastUIDSeenMs = millis();
 
-      int userIndex = findAuthorizedUser(mfrc522.uid);
-      finishRFIDTransaction();
+      int userIndex = findAuthorizedUser(rfidUid);
 
       if (userIndex >= 0) { step1Label = "RFID OK"; goWaitFingerprint(userIndex); }
       else                goAccessDenied("UNKNOWN CARD");
@@ -1805,11 +2842,17 @@ void loop() {
         goRelockAndIdle();
         break;
       }
+      if (heldOpenAlarmed && millis() - lastNagMs > HELD_OPEN_REPEAT_MS) {   // still open: say it again
+        lastNagMs = millis();
+        announce({aTone(1500, 150), aGap(100), aTone(1500, 150), aGap(150), aSay(VOICE_CLOSE_DOOR)});
+      }
       if (!heldOpenAlarmed && millis() - stateEnteredMs > DOOR_HELD_OPEN_MS) {
         heldOpenAlarmed = true;
         Serial.println("[ALARM] Door held open");
         setRedSolo(true);
         displayDirty = true;
+        lastNagMs = millis();
+        announce({aTone(1500, 150), aGap(100), aTone(1500, 150), aGap(150), aSay(VOICE_CLOSE_DOOR)});
         reportEvent("ALARM",
                     pendingUserIndex >= 0 ? authorizedUsers[pendingUserIndex].name : "",
                     pendingBookingId, "", "", "DOOR_HELD_OPEN",
@@ -1821,11 +2864,21 @@ void loop() {
 
     // -------------------------------------------------------------------
     case STATE_DOOR_ALARM: {
+      if (millis() - lastNagMs > FORCED_REPEAT_MS) {         // forced entry: keep warning
+        lastNagMs = millis();
+        announce({aSay(VOICE_FORCED), aGap(150), aSweep(600, 1400, 600), aSweep(1400, 600, 600),
+                  aSweep(600, 1400, 600), aSweep(1400, 600, 600)}, true);
+      }
+      // Buzzer + red LED pulse while the forced door stays open (the door
+      // speaker may not be fitted; the buzzer is the alarm that always sounds).
+      digitalWrite(RED_LED_BUZZER_PIN, (millis() / 400) % 2);
       if (doorChangedThisLoop && doorClosed) {
         Serial.println("[ALARM] Door closed again");
+        digitalWrite(RED_LED_BUZZER_PIN, LOW);
+        goIdle();
+        updateDisplay();   // screen first, then the network report
         reportEvent("DOOR_CLOSED", "", -1, "", "", "",
                     "Door closed after forced entry");
-        goIdle();
       }
       break;
     }
@@ -1854,4 +2907,13 @@ void loop() {
   }
 
   updateDisplay();
+
+  // A component, door or lock change is reported only now, once the state
+  // machine has acted and the screen is drawn: the report is a network
+  // round trip and must never delay the door or the display.
+  if (heartbeatNow) {
+    heartbeatNow = false;
+    lastHeartbeatSentMs = millis();
+    heartbeatWanted = true;          // sent by the background task
+  }
 }

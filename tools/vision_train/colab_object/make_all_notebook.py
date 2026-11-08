@@ -1,0 +1,67 @@
+"""Builds SmartLab_train_all.ipynb (2026-10-30): the combined bin + switch + router detector, trained on Colab's GPU from
+the dataset prepared and box-checked locally (SmartLab_all_r1_dataset.zip, made from data/all_r1).   py make_all_notebook.py"""
+import json
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+md, code = "markdown", "code"
+cells = [
+(md, """# Smart Lab - one detector for the reusable bin, the TP-Link switch and the router (Colab GPU)
+1. Upload **SmartLab_all_r1_dataset.zip** anywhere in your Google Drive (My Drive).
+2. Runtime -> Change runtime type -> **T4 GPU** -> Save.  3. **Runtime -> Run all**, allow Drive. About 20-30 min.
+
+The boxes were drawn and checked on the laptop; this notebook only trains **YOLO11n**, tests each object on photos from
+scenes it never trained on plus no-object photos, and saves everything to `MyDrive/SmartLab_results/all_<date>/`."""),
+(code, "!nvidia-smi --query-gpu=name,memory.total --format=csv\n!pip -q install ultralytics==8.4.* onnx onnxruntime"),
+(code, """import os, glob, zipfile, shutil, datetime, json
+from google.colab import drive
+drive.mount('/content/drive')
+zs = glob.glob('/content/drive/MyDrive/**/SmartLab_all_r1_dataset*.zip', recursive=True)
+print(zs); assert zs, 'Upload SmartLab_all_r1_dataset.zip to your Google Drive first'
+zipfile.ZipFile(zs[0]).extractall('/content')
+OUT = f"/content/drive/MyDrive/SmartLab_results/all_{datetime.datetime.now():%Y-%m-%d_%H%M}"; os.makedirs(OUT, exist_ok=True)
+for sp in ('train', 'val', 'test'): print(sp, len(os.listdir(f'/content/all_r1/images/{sp}')), 'images')"""),
+(code, """from ultralytics import YOLO
+YOLO('yolo11n.pt').train(data='/content/all_r1/data.yaml', epochs=120, imgsz=640, batch=32, device=0, project='/content/runs',
+                         name='all11', exist_ok=True, seed=0, patience=30, fliplr=0.5, degrees=10, scale=0.6, mosaic=1.0, hsv_v=0.5)
+best = '/content/runs/all11/weights/best.pt'"""),
+(code, """# per object: found in unseen scenes (box overlap >= 0.5) and no-object test photos wrongly flagged as that object
+NAMES = ['reusable_bin', 'network_switch', 'network_router']
+def iou(a, b):
+    ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    u = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - ix*iy
+    return ix*iy/u if u else 0
+m = YOLO(best); report = {}
+tests = sorted(glob.glob('/content/all_r1/images/test/*'))
+pred = {}
+for p in tests:
+    r = m.predict(p, conf=0.05, verbose=False)[0]
+    best_per = {}
+    for b, c, k in zip(r.boxes.xyxyn.tolist(), r.boxes.conf.tolist(), r.boxes.cls.tolist()):
+        if c > best_per.get(int(k), (0, None))[0]: best_per[int(k)] = (c, b)
+    lab = p.replace('/images/', '/labels/').rsplit('.', 1)[0] + '.txt'
+    truth = {}
+    if os.path.exists(lab):
+        for line in open(lab).read().split('\\n'):
+            if line.strip():
+                k, cx, cy, w, h = line.split(); k = int(k); cx, cy, w, h = map(float, (cx, cy, w, h))
+                truth[k] = (cx-w/2, cy-h/2, cx+w/2, cy+h/2)
+    pred[p] = (best_per, truth)
+for k, n in enumerate(NAMES):
+    pos = [(bp.get(k, (0, None)), t[k]) for bp, t in pred.values() if k in t]
+    neg = [bp.get(k, (0, None))[0] for bp, t in pred.values() if not t]
+    report[n] = {'test_objects': len(pos), 'no_object_photos': len(neg), 'by_threshold': {
+        str(th): {'found': sum(1 for (c, b), g in pos if c >= th and b and iou(b, g) >= .5), 'false': sum(c >= th for c in neg)}
+        for th in (.3, .4, .5, .6, .7)}, 'no_object_top_scores': sorted(round(c, 2) for c in neg)[-5:]}
+print(json.dumps(report, indent=1)); json.dump(report, open(f'{OUT}/test_report.json', 'w'), indent=1)"""),
+(code, """YOLO(best).export(format='onnx', imgsz=640, opset=12, simplify=False, dynamic=False)
+shutil.copytree('/content/runs/all11', f'{OUT}/run', dirs_exist_ok=True)
+shutil.make_archive(OUT, 'zip', OUT)
+print('DONE - results in', OUT, 'and', OUT + '.zip')"""),
+]
+nb = {"nbformat": 4, "nbformat_minor": 5,
+      "metadata": {"accelerator": "GPU", "colab": {"gpuType": "T4", "provenance": []}, "kernelspec": {"name": "python3", "display_name": "Python 3"}},
+      "cells": [{"cell_type": t, "metadata": {}, "source": s, **({"outputs": [], "execution_count": None} if t == code else {})}
+                for t, s in cells]}
+json.dump(nb, open(os.path.join(HERE, "SmartLab_train_all.ipynb"), "w"), indent=1)
+print("ok")

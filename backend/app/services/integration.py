@@ -62,7 +62,7 @@ EVENT_NAMES: dict[EventType, str] = {
 # Every name the portal can emit - documented in docs/AUTOMATION.md.
 ALL_TYPES = sorted(set(EVENT_NAMES.values()) | {
     "issue.created", "issue.status_changed", "session.ended",
-    "device.component_fault",
+    "device.component_fault", "emergency.set",
 })
 
 

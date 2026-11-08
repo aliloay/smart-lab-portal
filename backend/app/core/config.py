@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
     ENVIRONMENT: str = "development"
 
+    # --- API docs -------------------------------------------------------------
+    # /api/docs + /api/openapi.json list every endpoint: development only.
+    EXPOSE_API_DOCS: bool = False
+
     # --- CORS ---------------------------------------------------------------
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
@@ -32,6 +36,18 @@ class Settings(BaseSettings):
     # The ESP32 master authenticates to the device endpoints with this key
     # rather than a user JWT: it is a device, not a person.
     DEVICE_API_KEY: str = "dev-device-key-change-me"
+    # Accept the shared key above. Set false once every device has its own
+    # key (Devices -> Issue key), so a leaked shared key opens nothing.
+    DEVICE_SHARED_KEY: bool = True
+    # Lab PCs swap the flash-drive kit's enrollment code for their own device key (POST /equipment/pc/enroll).
+    # false: no PC can enroll; set it once the lab is installed and the stick is put away.
+    PC_ENROLL_OPEN: bool = True
+    # The backup service's status file (docker-compose mounts ./backups read-only);
+    # empty = not watched (tests, a bare install).
+    BACKUP_STATUS_PATH: str = ""
+    # Provenance stamped on new records when no data mode was chosen in
+    # Settings and no experiment is running (models.PROVENANCES).
+    DATA_MODE_DEFAULT: str = "UNKNOWN_PROVENANCE"
 
     # QR tokens are opaque and random.
     #
@@ -62,6 +78,12 @@ class Settings(BaseSettings):
     BOOKING_AUTO_APPROVE: bool = True
     # A booking reminder is raised this many minutes before the window opens.
     BOOKING_REMINDER_MINUTES: int = 15
+    # Environment advisories (orange pop-up for staff, no siren): comfort
+    # limits with hysteresis. The portal only advises - it switches nothing.
+    ENV_TEMP_HIGH_C: float = 30.0
+    ENV_TEMP_NORMAL_C: float = 28.0
+    ENV_HUMIDITY_HIGH: float = 70.0
+    ENV_HUMIDITY_NORMAL: float = 65.0
 
     # A device that has not sent a heartbeat for this long is offline.
     DEVICE_STALE_SECONDS: int = 90
@@ -101,8 +123,13 @@ class Settings(BaseSettings):
     # with a Header Auth credential.
     AUTOMATION_WEBHOOK_TOKEN: str = ""
     # Which event types are pushed. The rest stay in the pull feed only.
+    # Only types a workflow listens for: a push nobody receives fails (404)
+    # and is retried. door.alarm is not pushed - the backend itself raises
+    # the alert and notifies staff (services/devices.record_door_alarm).
+    # emergency.set: workflow 23 warns everyone inside the lab and checks
+    # that the door applied it.
     AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
-                                  "issue.created,device.offline,door.alarm")
+                                  "issue.created,device.offline,emergency.set")
     AUTOMATION_MAX_ATTEMPTS: int = 6
     # Delivered/skipped outbox rows older than this are pruned.
     AUTOMATION_RETENTION_DAYS: int = 30
@@ -126,6 +153,36 @@ class Settings(BaseSettings):
     SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
                               "co2=:1000,noise=:85")
 
+    # --- PC exam mode ---------------------------------------------------------
+    # Programs (process names) the PC agent reports as a violation while a PC
+    # is in EXAM mode. Websites cannot be seen from a process list: blocking
+    # sites needs a managed / kiosk browser, which is policy, not this list.
+    EXAM_PROHIBITED_PROCESSES: str = "whatsapp.exe,telegram.exe,discord.exe"
+
+    @property
+    def exam_prohibited(self) -> list[str]:
+        return [p.strip().lower() for p in self.EXAM_PROHIBITED_PROCESSES.split(",") if p.strip()]
+
+    # --- face enrollment from the portal ------------------------------------
+    # Staff enroll a person's face from Users & roles: the portal asks the
+    # door camera for a frame and the face server (on this laptop) keeps the
+    # samples and the photo. The portal itself stores no biometric.
+    CAMERA_URL: str = "http://192.168.1.150"
+    FACE_SERVER_URL: str = "http://127.0.0.1:5000"
+
+    # --- security camera (tools/security_vision) ------------------------------
+    # The vision service runs on this laptop next to the face server; the
+    # portal fetches the live frames from it. Each camera's service reports
+    # its own port; this is the host part.
+    SECURITY_VISION_HOST: str = "127.0.0.1"
+
+    # --- emergency (admin) ------------------------------------------------------
+    # The Emergency tab opens only with this password (kept in .env, never in
+    # git). Once changed from the portal, the stored bcrypt hash is used instead.
+    EMERGENCY_PASSWORD: str = ""
+    # How long the emergency controls stay open after the password.
+    EMERGENCY_SESSION_MINUTES: int = 15
+
     # --- AI assistant (optional) --------------------------------------------
     # Two providers:
     #   ollama    - free, runs on your own computer (https://ollama.com).
@@ -139,6 +196,10 @@ class Settings(BaseSettings):
     # browser.
     AI_PROVIDER: str = "auto"
     OLLAMA_URL: str = ""
+    # Project knowledge (admins/staff): the local knowledge agent on this laptop,
+    # tools/knowledge/serve.py on 127.0.0.1:5199 (not reachable from the lab network).
+    KB_SERVICE_URL: str = "http://127.0.0.1:5199"
+    KB_SERVICE_KEY: str = ""
     # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
     OLLAMA_MODEL: str = "qwen2.5:3b"
     # Student helper: answers from a small, pre-fetched context - no tools.
@@ -152,10 +213,35 @@ class Settings(BaseSettings):
     OLLAMA_STUDENT_NUM_CTX: int = 4096
     # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
     # 4k by itself if Ollama's engine crashes.
-    OLLAMA_NUM_CTX: int = 8192
+    OLLAMA_NUM_CTX: int = 4096          # 2026-10-26: = the student size -> one loaded copy when both use one model
     # true = never use the graphics card (slower, but works when the GPU
     # driver cannot run Ollama's CUDA code).
     OLLAMA_CPU_ONLY: bool = False
+    # "auto" (2026-10-20): the GPU only while no security camera is analysing, decided once for both
+    # assistants by the knowledge service (tools/knowledge/gpu_gate.py); "gpu": as before. Ignored while
+    # OLLAMA_CPU_ONLY is true.
+    OLLAMA_GPU_POLICY: str = "gpu"
+    # CPU threads per AI answer (of 12 on the laptop). Ollama's runner is above-normal priority and
+    # takes every core by default, starving the camera analysis (measured 2026-10-18). 0 = default.
+    OLLAMA_NUM_THREAD: int = 4
+    # Answers generated at the same time (each takes OLLAMA_NUM_THREAD cores); others wait up to
+    # OLLAMA_QUEUE_WAIT_S, then get a clear "busy" message - never an unbounded pile-up on the CPU.
+    OLLAMA_MAX_CONCURRENT: int = 1
+    # 2026-10-26: keyword tool router + bounded answers for the local model (docs/LOCAL_AI_BENCHMARK_2026-10-26.md)
+    AI_ROUTER: bool = True
+    OLLAMA_THINK: bool = False          # reasoning models (qwen3 ...) answer directly; True = allow thinking
+    API_THREADS: int = 120              # worker threads for sync routes - must exceed the DB pool (20 + 20 overflow)
+    AI_LOCAL_ONLY: bool = True          # never use a cloud model, even if a key is configured
+    AI_MAX_ANSWER_TOKENS: int = 220
+    AI_ROUTED_RESULT_CHARS: int = 3500
+    AI_DEFAULT_LAB: str = "LAB_01"
+    OLLAMA_QUEUE_WAIT_S: float = 45.0
+    # Incident escalation (2026-10-18): open + not acknowledged for longer than these, or a condition
+    # that keeps repeating / coming back. Every value configurable, none hides an alert.
+    INCIDENT_ESCALATE_CRITICAL_MIN: int = 15
+    INCIDENT_ESCALATE_WARNING_MIN: int = 240
+    INCIDENT_ESCALATE_OCCURRENCES: int = 20
+    INCIDENT_ESCALATE_REOPENS: int = 3
     ANTHROPIC_API_KEY: str = ""
     AI_MODEL: str = "claude-opus-5"
     AI_STUDENT_MODEL: str = "claude-haiku-4-5"

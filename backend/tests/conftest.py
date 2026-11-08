@@ -6,9 +6,48 @@ against a different engine than production uses.
 """
 import os
 
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/smartlab_test")
+# NEVER the live database. The fixtures below DROP and recreate every table, so
+# the URL is forced to a database whose name ends in "_test" - even inside the
+# backend container, where DATABASE_URL points at the live "smartlab" database.
+# (2026-10-05: the old setdefault() kept the container's live URL, and running
+# the suite in the container wiped the live database three times.)
+_live = os.environ.get("DATABASE_URL",
+                       "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/smartlab")
+_test_url = os.environ.get("TEST_DATABASE_URL") or (_live.rsplit("/", 1)[0] + "/smartlab_test")
+if not _test_url.rsplit("/", 1)[-1].split("?")[0].endswith("_test"):
+    raise SystemExit(f"Refusing to run tests: database {_test_url.rsplit('/', 1)[-1]!r} "
+                     "does not end in '_test' - the tests drop every table.")
+os.environ["DATABASE_URL"] = _test_url
+# Everything the test suite writes is, by definition, a software test.
+os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
+os.environ["BACKUP_STATUS_PATH"] = ""      # the real backup status on this machine must not raise alerts in a test
+os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device from a test
+os.environ["MARKER_WARMUP"] = "0"          # no background marker rendering during tests
+os.environ["APPEARANCE_WARMUP"] = "0"      # no background reference loading during tests
+os.environ["ROBOT_CONTROL"] = "dry_run"           # production is "off" (monitoring only, 2026-10-29); the control tests keep checking the parked code
+os.environ["TTL_CACHE"] = "0"              # every read fresh in tests (app/core/ttl.py)
+os.environ["LIVENESS_THROTTLE_S"] = "0"    # tests check outage transitions immediately
+# A device key of the suite's own: never the live one (the container's .env
+# holds the production key), and not the published default either.
+TEST_DEVICE_KEY = "test-suite-device-key"
+os.environ["DEVICE_API_KEY"] = TEST_DEVICE_KEY
+# Laptop-specific settings from the live .env must not change what the tests expect
+# (2026-10-14: OLLAMA_CPU_ONLY=true on this laptop broke two GPU-fallback tests).
+os.environ["OLLAMA_CPU_ONLY"] = "false"
+os.environ["OLLAMA_GPU_POLICY"] = "gpu"      # tests that need "auto" set it themselves
+
+
+def _ensure_test_database(url: str) -> None:
+    """Create the _test database on the same server if it does not exist yet."""
+    import psycopg
+    name = url.rsplit("/", 1)[-1].split("?")[0]
+    admin = url.replace("postgresql+psycopg://", "postgresql://").rsplit("/", 1)[0] + "/postgres"
+    with psycopg.connect(admin, autocommit=True) as c:
+        if c.execute("select 1 from pg_database where datname = %s", (name,)).fetchone() is None:
+            c.execute(f'create database "{name}"')
+
+
+_ensure_test_database(_test_url)
 
 from datetime import datetime, timedelta, timezone  # noqa: E402
 
@@ -25,7 +64,21 @@ from app.models import (Device, DeviceType, Lab, RfidCredential, Role,  # noqa: 
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _schema():
+def _one_run_at_a_time():
+    """Two suites on the same _test database deadlocked (2026-10-14: one held a transaction,
+    the other's TRUNCATE waited on it; 25 min stuck). A session-level advisory lock makes a
+    second run wait for the first to finish instead."""
+    import psycopg
+    c = psycopg.connect(_test_url.replace("postgresql+psycopg://", "postgresql://"), autocommit=True)
+    if not c.execute("select pg_try_advisory_lock(727001)").fetchone()[0]:
+        print("\n[tests] another test run is using smartlab_test - waiting for it to finish...")
+        c.execute("select pg_advisory_lock(727001)")
+    yield
+    c.close()                                     # releases the lock
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _schema(_one_run_at_a_time):
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield
@@ -128,7 +181,7 @@ def alice_card(db, alice) -> RfidCredential:
 
 @pytest.fixture
 def device_headers():
-    return {"X-Device-Key": "dev-device-key-change-me"}
+    return {"X-Device-Key": TEST_DEVICE_KEY}
 
 
 def auth_headers(client: TestClient, email: str,
@@ -182,3 +235,12 @@ def image_bytes(fmt: str = "JPEG", size=(640, 480), color=(40, 90, 160),
     kwargs = {"exif": exif} if exif else {}
     img.save(buf, fmt, **kwargs)
     return buf.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    """Failed-sign-in counts live in memory: every test starts clean."""
+    from app.core import throttle
+    for t in (throttle.login_by_account, throttle.login_by_address):
+        t._hits.clear()
+    yield

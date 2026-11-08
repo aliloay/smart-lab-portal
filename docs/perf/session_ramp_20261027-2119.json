@@ -1,0 +1,236 @@
+{
+ "base": "http://127.0.0.1:8100/api",
+ "levels": [
+  {
+   "sessions": 30,
+   "seconds": 40.0,
+   "logins_ok": 30,
+   "login_p95_ms": 1972.0,
+   "page_loads": 300,
+   "requests": 828,
+   "errors": 0,
+   "error_rate": 0.0,
+   "codes": {
+    "200": 792,
+    "403": 36
+   },
+   "page_ms": {
+    "p50": 30.7,
+    "p95": 404.7,
+    "p99": 787.0
+   },
+   "req_ms": {
+    "p50": 44.2,
+    "p95": 403.7,
+    "p99": 649.9
+   },
+   "req_per_s": 20.7,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 96.6,
+    "smart-lab-portal-db-1": 23.0
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 2.03,
+    "smart-lab-portal-db-1": 8.99
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/anomalies",
+     1102.7,
+     5
+    ],
+    [
+     "/security/cameras",
+     785.1,
+     11
+    ],
+    [
+     "/analytics/system",
+     756.3,
+     5
+    ],
+    [
+     "/alerts",
+     682.9,
+     18
+    ],
+    [
+     "/reliability/briefing",
+     619.2,
+     6
+    ],
+    [
+     "/monitor",
+     581.3,
+     11
+    ],
+    [
+     "/system/health",
+     576.4,
+     5
+    ],
+    [
+     "/labs/environment/all",
+     539.9,
+     22
+    ]
+   ],
+   "stable": true
+  },
+  {
+   "sessions": 50,
+   "seconds": 40.0,
+   "logins_ok": 50,
+   "login_p95_ms": 2865.9,
+   "page_loads": 465,
+   "requests": 1238,
+   "errors": 2,
+   "error_rate": 0.0016,
+   "codes": {
+    "200": 1176,
+    "403": 60,
+    "0": 2
+   },
+   "page_ms": {
+    "p50": 29.8,
+    "p95": 940.0,
+    "p99": 1322.6
+   },
+   "req_ms": {
+    "p50": 43.0,
+    "p95": 877.1,
+    "p99": 1194.1
+   },
+   "req_per_s": 30.9,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 142.8,
+    "smart-lab-portal-db-1": 17.5
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.28,
+    "smart-lab-portal-db-1": 9.19
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/operations",
+     1079.1,
+     8
+    ],
+    [
+     "/reliability/briefing",
+     1074.3,
+     8
+    ],
+    [
+     "/summary",
+     1059.4,
+     119
+    ],
+    [
+     "/devices",
+     1048.7,
+     43
+    ],
+    [
+     "/notifications/unread-count",
+     1036.9,
+     100
+    ],
+    [
+     "/alerts",
+     1000.4,
+     33
+    ],
+    [
+     "/issues/summary",
+     948.2,
+     31
+    ],
+    [
+     "/bookings",
+     939.3,
+     108
+    ]
+   ],
+   "stable": true
+  },
+  {
+   "sessions": 75,
+   "seconds": 40.0,
+   "logins_ok": 75,
+   "login_p95_ms": 13095.9,
+   "page_loads": 328,
+   "requests": 862,
+   "errors": 107,
+   "error_rate": 0.1241,
+   "codes": {
+    "200": 712,
+    "500": 33,
+    "0": 74,
+    "403": 43
+   },
+   "page_ms": {
+    "p50": 81.1,
+    "p95": 15016.0,
+    "p99": 15038.6
+   },
+   "req_ms": {
+    "p50": 146.0,
+    "p95": 15011.9,
+    "p99": 15022.7
+   },
+   "req_per_s": 21.6,
+   "cpu_mean_pct": {
+    "smartlab-loadtest-backend": 129.9,
+    "smart-lab-portal-db-1": 18.7
+   },
+   "mem_max_pct": {
+    "smartlab-loadtest-backend": 3.17,
+    "smart-lab-portal-db-1": 9.26
+   },
+   "slowest_endpoints": [
+    [
+     "/analytics/trends",
+     15035.5,
+     6
+    ],
+    [
+     "/security/cameras",
+     15033.2,
+     17
+    ],
+    [
+     "/monitor",
+     15024.0,
+     17
+    ],
+    [
+     "/analytics/operations",
+     15020.4,
+     6
+    ],
+    [
+     "/alerts",
+     15018.3,
+     23
+    ],
+    [
+     "/labs/overview",
+     15018.2,
+     80
+    ],
+    [
+     "/analytics/me",
+     15018.1,
+     22
+    ],
+    [
+     "/issues",
+     15017.9,
+     80
+    ]
+   ],
+   "stable": false
+  }
+ ]
+}

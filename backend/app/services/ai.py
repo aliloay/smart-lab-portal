@@ -28,11 +28,14 @@ tool results and are treated as data, not instructions (see SYSTEM).
 from __future__ import annotations
 
 import json
+import re
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
+
+import threading
 
 import httpx
 from sqlalchemy import select
@@ -56,7 +59,12 @@ portal's database.
 Rules:
 - Use the tools for every number you state. Never estimate or invent values.
   If a tool returns no data, say plainly that nothing has been recorded.
-- Name the period your figures cover (e.g. "last 7 days").
+- Name the period your figures cover (e.g. "last 7 days"). Never conclude
+  anything about a period your data does not cover (data for the last 24 h
+  says nothing about last Tuesday): say which period you could check.
+- You cannot draw charts or use colours. Never write "Color: ..." lists or
+  describe a chart. For a chart, tell the user to ask e.g. "chart of the last
+  7 days" or "door history from 15 Sep till today": the portal draws it.
 - Sessions only have a duration when an exit was recorded; say "exit not
   recorded" rather than guessing how long someone stayed.
 - For maintenance ordering, use get_maintenance_priorities: its score is the
@@ -70,18 +78,35 @@ Rules:
 
 
 def provider() -> Optional[str]:
+    """2026-10-26 owner requirement: 100 % local. With AI_LOCAL_ONLY (default) a cloud key is ignored - no prompt or
+    lab data ever leaves the laptop, and there is no silent cloud fallback. AI_LOCAL_ONLY=false is an explicit opt-in."""
     p = settings.AI_PROVIDER.strip().lower()
-    if p in ("auto", "anthropic") and settings.ANTHROPIC_API_KEY:
+    if p in ("auto", "anthropic") and settings.ANTHROPIC_API_KEY and not settings.AI_LOCAL_ONLY:
         return "anthropic"
     if p in ("auto", "ollama") and settings.OLLAMA_URL:
         return "ollama"
     return None
 
 
-def _staff_system(extra: str = "") -> str:
+# "How does it work" questions need the guide (~900 tokens); data questions do not. Sending it only when asked keeps
+# the local model's prompt small (2026-10-26: prompt reading was most of a CPU answer's time).
+_HOWTO = re.compile(r"\bhow (do|does|can|to|should)\b|\bwhere (do|can|is)\b|\bcan i\b|\bwhy (doesn'?t|can'?t|won'?t|"
+                    r"isn'?t|is my|does my)\b|\bwhat (is|are) (a |the )?(qr|booking|fingerprint|face|role|guide)\b|"
+                    r"\b(explain|steps?|procedure|instructions?)\b", re.I)
+
+
+def needs_guide(question: Optional[str]) -> bool:
+    return question is None or bool(_HOWTO.search(question))
+
+
+def _staff_system(extra: str = "", question: Optional[str] = None, with_time: bool = True) -> str:
+    """Stable part first (cached by the local engine), the guide only when the question needs it. with_time=False:
+    the caller appends the data, then the time line - a time that changes every minute in the middle of the prompt
+    made the local engine re-read everything after it (measured: only 470 of 1050 tokens reused)."""
     from app.services.ai_guide import guide
-    return (SYSTEM + extra + "\n- For 'how does it work' questions, answer from the guide "
-            "below; for numbers, use the tools.\n\n" + guide() + "\n\n" + _today_line())
+    g = ("\n- For 'how does it work' questions, answer from the guide below; for numbers, use the tools.\n\n"
+         + guide()) if needs_guide(question) else ""
+    return SYSTEM + extra + g + ("\n\n" + _today_line() if with_time else "")
 
 
 def configured() -> bool:
@@ -111,11 +136,22 @@ def health() -> dict:
            "reachable": p == "anthropic", "missing_models": []}
     if p != "ollama":
         return out
-    if time.monotonic() - _health["at"] < 20 and _health["value"] is not None:
+    # Answer from the cache at once; refresh it in the background when older than 20 s. Every page calls
+    # /ai/status, and on expiry each concurrent request used to call Ollama itself (72 ms each in an
+    # 18-request page burst, 2026-10-19). Only the very first call (no value yet) waits for the check.
+    if _health["value"] is not None:
+        if time.monotonic() - _health["at"] >= 20 and not _health.get("busy"):
+            _health["busy"] = True
+            import threading
+            threading.Thread(target=_refresh_health, daemon=True, name="ai-health").start()
         return {**out, **_health["value"]}
+    return {**out, **_refresh_health()}
+
+
+def _refresh_health() -> dict:
     extra: dict[str, Any]
     try:
-        r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=2.5)
+        r = httpx.get(settings.OLLAMA_URL.rstrip("/") + "/api/tags", timeout=httpx.Timeout(2.5, connect=1.0))
         r.raise_for_status()
         have = {m.get("name", "") for m in r.json().get("models", [])}
         have |= {n.removesuffix(":latest") for n in have}
@@ -124,8 +160,8 @@ def health() -> dict:
         extra = {"reachable": True, "missing_models": sorted(missing)}
     except (httpx.HTTPError, ValueError):
         extra = {"reachable": False, "missing_models": []}
-    _health.update(at=time.monotonic(), value=extra)
-    return {**out, **extra}
+    _health.update(at=time.monotonic(), value=extra, busy=False)
+    return extra
 
 
 def _client():
@@ -209,6 +245,15 @@ def _t_readiness(db: Session, lab_code: str = ""):
     return lab_readiness(db, lab)
 
 
+def _t_environment(db: Session, lab_code: str = "", hours: Any = 24):
+    from app.services import environment
+    lab = db.scalar(select(Lab).where(Lab.code == (lab_code or "").upper()))
+    if lab is None:
+        return {"error": f"No laboratory with code {lab_code!r}.",
+                "labs": [l.code for l in db.scalars(select(Lab)).all()]}
+    return environment.history(db, lab, _clamp(hours, 1, 24 * 90, 24))
+
+
 def _t_labs(db: Session):
     return {"labs": [{"code": l.code, "name": l.name, "category": l.category,
                       "capacity": l.capacity, "has_door_controller": l.has_controller,
@@ -254,12 +299,19 @@ TOOLS: list[dict] = [
      "input_schema": {"type": "object", "properties": {
          "lab_code": {"type": "string", "description": "Laboratory code, e.g. LAB_01."}},
          "required": ["lab_code"]}},
+    {"name": "get_environment",
+     "description": "Environment node data for one laboratory over the last N hours: temperature and humidity min/mean/max with reading counts, every smoke/flame/water-leak/emergency episode with start, end and duration, and the current value of each metric with its quality (VALID, STALE, MISSING, DEVICE_OFFLINE, OUT_OF_RANGE). Indicators only - not certified safety systems.",
+     "input_schema": {"type": "object", "properties": {
+         "lab_code": {"type": "string", "description": "Laboratory code, e.g. LAB_01."},
+         "hours": {"type": "integer", "description": "Look-back in hours (1-2160). Default 24."}},
+         "required": ["lab_code"]}},
 ]
 HANDLERS: dict[str, Callable[..., Any]] = {
     "list_labs": _t_labs, "get_operations_overview": _t_overview,
     "get_trends": _t_trends, "get_report": _t_report,
     "get_maintenance_priorities": _t_priorities, "list_open_issues": _t_issues,
     "get_anomalies": _t_anomalies, "get_lab_readiness": _t_readiness,
+    "get_environment": _t_environment,
 }
 
 
@@ -280,6 +332,13 @@ def run_tool(db: Session, name: str, args: dict) -> tuple[str, bool]:
         return f"Unknown tool {name}", True
     try:
         args = args if isinstance(args, dict) else {}
+        # the model's arguments go through the same typed checks as MCP calls, clamped to the documented ranges
+        # (2026-10-27, services/tool_gateway.py) - a wrong type or missing required value is an error, not a crash
+        from app.services.tool_gateway import ToolRefused, validate
+        try:
+            args = validate(name, args, strict=False)
+        except ToolRefused as e:
+            return f"Tool error: {e}", True
         return _json(fn(db, **{k: v for k, v in args.items()
                               if k in fn.__code__.co_varnames})), False
     except Exception as exc:                        # noqa: BLE001
@@ -380,13 +439,56 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 OLLAMA_RESULT_CHARS = 6_000
 # Retry size when the engine crashes: 4k tokens fits any GPU.
 OLLAMA_FALLBACK_CTX = 4096
-OLLAMA_KEEP_ALIVE = "2h"
+OLLAMA_KEEP_ALIVE = "10m"   # was 24h, then 30m: idle unload frees ~1.2 GB on the 16 GB laptop (GPU reload ~3 s); cameras come first
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
+_gate_cache: dict[str, Any] = {"at": 0.0, "cpu": True, "reason": "not asked yet"}
+
+
+def gpu_gate() -> dict:
+    """The camera-first decision both assistants follow (tools/knowledge/gpu_gate.py, served by the
+    knowledge service at /gpu-gate). Asked at most every 5 s; anything wrong -> CPU (cameras first)."""
+    now = time.monotonic()
+    if now - _gate_cache["at"] < 5.0:
+        return _gate_cache
+    cpu, reason = True, "knowledge service not reachable - CPU"
+    if settings.KB_SERVICE_KEY:
+        try:
+            r = httpx.get(settings.KB_SERVICE_URL.rstrip("/") + "/gpu-gate",
+                          headers={"X-KB-Key": settings.KB_SERVICE_KEY}, timeout=httpx.Timeout(6.0, connect=1.0))
+            r.raise_for_status()
+            body = r.json()
+            cpu, reason = body.get("device") != "gpu", str(body.get("reason", ""))[:200]
+        except (httpx.HTTPError, ValueError):
+            pass
+    _gate_cache.update(at=now, cpu=cpu, reason=reason)
+    return _gate_cache
+
+
+def cpu_now() -> bool:
+    """Run the next answer on the processor? OLLAMA_CPU_ONLY wins; OLLAMA_GPU_POLICY=auto asks the
+    camera-first gate; otherwise the GPU (as before), unless Ollama's GPU engine failed here once."""
+    if settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]:
+        return True
+    if settings.OLLAMA_GPU_POLICY == "auto":
+        return gpu_gate()["cpu"]
+    return False
 OLLAMA_EXTRA = """
 - Only call the tools listed. Call a tool before answering any question
   about numbers, labs, issues or devices.
 - Answer in the same language as the question."""
+# First, fast pass: one call, no tools, from the agent's SNAPSHOT. A small
+# local model answers in ~2 s this way instead of ~20 s of tool rounds; it
+# says NEED_TOOLS when the snapshot does not cover the question.
+NEED_TOOLS = "NEED_TOOLS"
+OLLAMA_SNAPSHOT_RULES = """
+- Answer ONLY from the SNAPSHOT below. Copy its numbers exactly; never
+  compute, estimate or add facts that are not in it.
+- If the SNAPSHOT does not contain what is asked (another period, a specific
+  issue, a lab or device not listed), reply with exactly: NEED_TOOLS
+- Never say anything about a period the SNAPSHOT does not cover; never
+  write colour names or describe charts (the portal draws charts itself).
+- At most 5 short bullets, no preamble. Same language as the question."""
 
 
 def _ctx_for(model: str) -> int:
@@ -396,8 +498,41 @@ def _ctx_for(model: str) -> int:
     return settings.OLLAMA_STUDENT_NUM_CTX
 
 
+_gen_slots: Optional[threading.BoundedSemaphore] = None
+
+
+def _slots() -> threading.BoundedSemaphore:
+    global _gen_slots
+    if _gen_slots is None:
+        _gen_slots = threading.BoundedSemaphore(max(1, settings.OLLAMA_MAX_CONCURRENT))
+    return _gen_slots
+
+
 def _ollama_chat(model: str, messages: list[dict],
-                 tools: Optional[list[dict]] = None) -> dict:
+                 tools: Optional[list[dict]] = None, num_predict: Optional[int] = None) -> dict:
+    """Bounded: at most OLLAMA_MAX_CONCURRENT generations at once (2026-10-18 - one answer took camera
+    analysis from 7 to 1.7 frames/s; two in parallel would take twice the cores)."""
+    slots = _slots()
+    if not slots.acquire(timeout=settings.OLLAMA_QUEUE_WAIT_S):
+        raise AIUnavailable("The local AI is answering another question right now - please ask again in a "
+                            "moment (one answer at a time keeps the cameras and the portal fast).")
+    try:
+        return _ollama_chat_unbounded(model, messages, tools, num_predict)
+    finally:
+        slots.release()
+
+
+THINKING_FAMILIES = ("qwen3", "gemma4", "deepseek-r1", "lfm2.5-thinking", "magistral", "gpt-oss")
+
+
+def thinks(model: str) -> bool:
+    """Model families with a separate reasoning ('thinking') mode in Ollama (2026-10-27 model sweep)."""
+    m = (model or "").lower().split("/")[-1]
+    return any(m.startswith(f) for f in THINKING_FAMILIES)
+
+
+def _ollama_chat_unbounded(model: str, messages: list[dict],
+                           tools: Optional[list[dict]] = None, num_predict: Optional[int] = None) -> dict:
     """
     One /api/chat call. If Ollama's engine crashes (seen on Windows with
     small or unsupported GPUs: "llama-server process has terminated"),
@@ -407,7 +542,7 @@ def _ollama_chat(model: str, messages: list[dict],
     # (context size, run on the processor?) - tried in order until one works.
     # A GPU whose driver cannot run Ollama's CUDA code ("device kernel image
     # is invalid") still answers on the processor, just more slowly.
-    cpu_only = settings.OLLAMA_CPU_ONLY or _ollama_state["cpu"]
+    cpu_only = cpu_now()
     attempts = [(_ctx_for(model), cpu_only)]
     if not cpu_only:
         attempts += [(OLLAMA_FALLBACK_CTX, False), (OLLAMA_FALLBACK_CTX, True)]
@@ -417,6 +552,10 @@ def _ollama_chat(model: str, messages: list[dict],
         options: dict[str, Any] = {"temperature": 0.2, "num_ctx": num_ctx}
         if cpu:
             options["num_gpu"] = 0          # no layers on the graphics card
+        if settings.OLLAMA_NUM_THREAD > 0:
+            options["num_thread"] = settings.OLLAMA_NUM_THREAD      # leave cores for the cameras
+        if num_predict:
+            options["num_predict"] = num_predict                    # bounded answers (2026-10-26)
         body: dict[str, Any] = {
             "model": model, "messages": messages, "stream": False,
             "options": options,
@@ -426,9 +565,17 @@ def _ollama_chat(model: str, messages: list[dict],
         }
         if tools:
             body["tools"] = tools
+        if thinks(model) and not settings.OLLAMA_THINK:
+            body["think"] = False          # qwen3 / qwen3.5 / gemma4 ...: no hidden reasoning pass (seconds per answer)
+        # 2026-10-27 fault test (model unreachable): 6.8 s, then "took too long - try a shorter question". A model known
+        # to be down (health check < 20 s old) now fails at once with the real reason; a connect timeout is "not running".
+        h = _health.get("value")
+        if h is not None and h.get("reachable") is False and time.monotonic() - _health["at"] < 20:
+            raise AIUnavailable("The local AI model is not running right now - instant answers still work.")
         try:
-            r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=5.0))
-        except httpx.ConnectError as exc:
+            r = httpx.post(url, json=body, timeout=httpx.Timeout(240.0, connect=2.0))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            _health.update(at=time.monotonic(), value={"reachable": False, "missing_models": []}, busy=False)
             raise AIUnavailable(
                 "Ollama is not running. Install it from ollama.com, start it, "
                 "and try again.") from exc
@@ -475,8 +622,10 @@ def warm_up() -> None:
         return
     for model in dict.fromkeys([settings.OLLAMA_MODEL, settings.ollama_student_model]):
         options: dict[str, Any] = {"num_ctx": _ctx_for(model)}
-        if settings.OLLAMA_CPU_ONLY:
+        if cpu_now():
             options["num_gpu"] = 0
+        if settings.OLLAMA_NUM_THREAD > 0:          # same options as the answers: no reload later
+            options["num_thread"] = settings.OLLAMA_NUM_THREAD
         try:
             httpx.post(settings.OLLAMA_URL.rstrip("/") + "/api/generate",
                        json={"model": model, "prompt": "", "keep_alive": OLLAMA_KEEP_ALIVE,
@@ -493,10 +642,90 @@ def _ollama_tools() -> list[dict]:
         "parameters": t["input_schema"]}} for t in TOOLS]
 
 
+# ------------------------------------------------- deterministic tool router (2026-10-26) ---
+# Measured: qwen2.5:1.5b chose a tool for 0 of 8 tool questions (it answered from the snapshot or guessed). For
+# this fixed, small tool set a keyword router is exact and instant; the model only writes the short answer from
+# that one tool's result. Order matters (first match wins). AI_ROUTER=false restores the model-driven loop.
+_ROUTES: list[tuple[str, str]] = [
+    ("get_environment", r"\b(temperature|humidity|smoke|flame|gas|leak|environment(al)?|air quality)\b"),
+    ("get_maintenance_priorities", r"\bpriorit\w*|\bfix first\b|\bwhat should .* fix\b|\border\b.*\b(fix|repair)"),
+    ("get_trends", r"\btrends?\b|\bweek[- ]over[- ]week\b|\blast \d+ weeks\b|\bweekly (usage|series)\b"),
+    ("get_anomalies", r"\banomal\w*|\bunusual\b|\bsuspicious\b"),
+    ("get_lab_readiness", r"\breadiness\b|\bready\b"),
+    ("list_open_issues", r"\b(list|show|which|what are|titles?)\b.*\b(issues?|tickets?|problems?)\b"),
+    ("get_report", r"\b(daily|weekly)\s+report\b|\breport (for )?(today|this week)\b"),
+    ("list_labs", r"\bcapacity\b|\b(which|what|list|all)\b.*\blabs\b.*\b(exist|are there|have)\b|\blist (the )?labs\b"),
+    ("get_operations_overview", r"\butili[sz]ation\b|\bbusiest\b|\bstatistics\b|\bstats\b"),
+]
+ROUTED_RULES = """
+- Answer ONLY from the TOOL RESULT below (the portal's own data). Copy numbers and names exactly; never add facts
+  that are not in it. If it does not contain what is asked, say so in one sentence.
+- At most 4 short bullets, no preamble. Same language as the question."""
+
+
+def route(question: str) -> Optional[tuple[str, dict]]:
+    """(tool, arguments) when the question clearly needs one of the read-only tools, else None."""
+    q = question.lower()
+    for name, rx in _ROUTES:
+        if not re.search(rx, q):
+            continue
+        args: dict = {}
+        m = re.search(r"\blab[_ ]?0?(\d{1,2})\b", q)
+        if m:
+            args["lab_code"] = f"LAB_{int(m.group(1)):02d}"
+        elif name in ("get_environment", "get_lab_readiness"):
+            args["lab_code"] = settings.AI_DEFAULT_LAB
+        m = re.search(r"\b(\d{1,4})\s*(hours?|h)\b", q)
+        if m and name in ("get_environment", "get_anomalies"):
+            args["hours"] = int(m.group(1))
+        m = re.search(r"\b(\d{1,2})\s*weeks?\b", q)
+        if m and name == "get_trends":
+            args["weeks"] = int(m.group(1))
+        m = re.search(r"\b(\d{1,3})\s*days?\b", q)
+        if m and name == "get_operations_overview":
+            args["days"] = int(m.group(1))
+        if name == "get_report":
+            args["period"] = "daily" if re.search(r"\b(daily|today)\b", q) else "weekly"
+        return name, args
+    return None
+
+
+def _ask_routed(db: Session, question: str, history: Optional[list[dict]], model: str) -> Optional[dict]:
+    r = route(question)
+    if r is None:
+        return None
+    name, args = r
+    out, err = run_tool(db, name, args)
+    if err:
+        return None
+    if len(out) > settings.AI_ROUTED_RESULT_CHARS:
+        out = out[:settings.AI_ROUTED_RESULT_CHARS] + '..."(truncated)"'
+    system = (_staff_system(ROUTED_RULES, question, with_time=False) + f"\n\nTOOL RESULT ({name} {_json(args)}):\n{out}"
+              + "\n\n" + _today_line())
+    msg = _ollama_chat(model, [{"role": "system", "content": system}] + _history(question, history),
+                       num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
+    text = (msg.get("content") or "").strip()
+    return {"answer": text or "No answer was produced.", "tools_used": [name], "model": model, "routed": True}
+
+
 def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> dict:
+    from app.services.agent import snapshot
     model = settings.OLLAMA_MODEL
+    if settings.AI_ROUTER:
+        routed = _ask_routed(db, question, history, model)
+        if routed is not None:
+            return routed
+    first = [{"role": "system",
+              "content": _staff_system(OLLAMA_SNAPSHOT_RULES, question, with_time=False) + "\n\n" + snapshot(db)
+                         + "\n" + _today_line()}]
+    msg = _ollama_chat(model, first + _history(question, history),
+                       num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
+    text = (msg.get("content") or "").strip()
+    if text and NEED_TOOLS not in text:
+        return {"answer": text, "tools_used": ["snapshot"], "model": model}
+    # Not covered by the snapshot: the slower tool loop.
     messages = [{"role": "system",
-                 "content": _staff_system(OLLAMA_EXTRA)}]
+                 "content": _staff_system(OLLAMA_EXTRA, question)}]
     messages += _history(question, history)
     tools = _ollama_tools()
     tools_used: list[str] = []

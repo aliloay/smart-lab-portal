@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react'
 import { api, getToken, setToken, User } from './api'
+import { claimMaster, claimMasterOnce } from './master'
 
 interface AuthCtx {
   user: User | null
@@ -21,7 +22,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!getToken()) { setLoading(false); return }
     api.me()
-      .then(setUser)
+      .then(me => { setUser(me); if (isMasterRole(me.role)) claimMasterOnce(me.id) })
       .catch(() => setToken(null))
       .finally(() => setLoading(false))
   }, [])
@@ -33,6 +34,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // A fresh sign-in shows the "finish your lab access setup" banner again.
     try { sessionStorage.removeItem(`smartlab.setupBanner.${me.id}`) } catch { /* ignore */ }
     setUser(me)
+    if (isMasterRole(me.role)) {                  // the admin / lab engineer who signs in IS the master (any device)
+      try { sessionStorage.setItem(`smartlab.master.${me.id}`, '1') } catch { /* ignore */ }
+      void claimMaster()
+    }
     return me
   }
 
@@ -57,6 +62,8 @@ export const isStaff = (u: User | null) =>
   u?.role === 'ADMIN' || u?.role === 'LAB_STAFF'
 
 export const isAdmin = (u: User | null) => u?.role === 'ADMIN'
+/** Owner 2026-11-03: the lab engineer (LAB_STAFF) gains master access at sign-in, like an admin. */
+const isMasterRole = (role: string | undefined) => role === 'ADMIN' || role === 'LAB_STAFF'
 
 export const roleLabel = (r?: string) =>
   r === 'ADMIN' ? 'Administrator' : r === 'LAB_STAFF' ? 'Laboratory staff' : 'Student'

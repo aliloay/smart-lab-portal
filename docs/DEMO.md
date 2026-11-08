@@ -21,7 +21,7 @@ phone hotspot. Then, on the laptop:
 
 1. Double-click `launch.bat`. It starts Docker Desktop if needed, opens the
    face server in its own window, starts the portal and opens it in the
-   browser. Note the address it prints, e.g. `http://192.168.1.8`.
+   browser. Note the address it prints, e.g. `http://192.168.1.200`.
 2. If the network changed since the boards were flashed, set the camera's
    `SERVER_IP` and the master's `BACKEND_IP` to the printed address, and the
    master's `CAMERA_IP` to the address the camera prints on its Serial.
@@ -30,13 +30,17 @@ phone hotspot. Then, on the laptop:
 Check: the top bar says **System healthy**; the access monitor shows the
 master controller online if the hardware is powered.
 
-Accounts (seed data — change before any real deployment):
+Accounts (seed data):
 
-| Role | Email | Password |
-|---|---|---|
-| Student | `ali@giu-uni.de` | `Student#2026` |
-| Lab staff | `ramy@giu-uni.de` | `Staff#2026` |
-| Administrator | `admin@giu-uni.de` | `Admin#2026` |
+| Role | Email |
+|---|---|
+| Student | `ali@giu-uni.de` |
+| Lab staff | `ramy@giu-uni.de` |
+| Administrator | `admin@giu-uni.de` |
+
+Initial passwords are not published. A new install takes them from `SEED_ADMIN_PASSWORD`, `SEED_STAFF_PASSWORD`
+and `SEED_STUDENT_PASSWORD` in `.env`, or creates random ones; set or reset any account's password on the laptop with
+`docker compose exec backend python set_password.py <email>` (hidden prompt), or on **Users & roles**.
 
 Tip: use two browser profiles (student in one, staff in the other) so both
 views are visible side by side.

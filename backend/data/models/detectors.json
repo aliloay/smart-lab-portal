@@ -1,0 +1,112 @@
+[
+ {
+  "file": "lab_detector.onnx",
+  "note": "2026-11-02 Colab lab_2026-11-02_1731 best=r1_n (YOLO11n, 12 classes). Test split at conf 0.5: bin 15/15, consumables 22/22, environment 34/35, master 26/26, switch 12/29, router 18/18, UR5e 7/7, UR5e pendant 2/2, FANUC 2/6, FANUC pendant 3/3, PC 3/4, door 4/4; mAP50 0.947, mAP50-95 0.839. Report: tools/vision_train/results/lab_2026-11-02_1731. Skipped (file missing) until the model is copied here; while it is loaded it also answers the bin, so bin_detector.onnx is not run twice.",
+  "classes": [
+   {
+    "index": 0,
+    "name": "reusable_bin",
+    "label": "Reusable items bin",
+    "conf": 0.5,
+    "code": "SLAB:D:REUSE_BIN_1"
+   },
+   {
+    "index": 1,
+    "name": "consumables_node",
+    "label": "Consumables bin node",
+    "conf": 0.5,
+    "code": "SLAB:D:BIN_NODE_1"
+   },
+   {
+    "index": 2,
+    "name": "environment_node",
+    "label": "Environment node",
+    "conf": 0.5,
+    "code": "SLAB:D:ENV_LAB01"
+   },
+   {
+    "index": 3,
+    "name": "master_node",
+    "label": "Door controller (master node)",
+    "conf": 0.5,
+    "code": "SLAB:D:MASTER_LAB01"
+   },
+   {
+    "index": 4,
+    "name": "network_switch",
+    "label": "Network switch (TP-Link)",
+    "conf": 0.6,
+    "code": null
+   },
+   {
+    "index": 5,
+    "name": "network_router",
+    "label": "Smart Lab router (Vodafone)",
+    "conf": 0.7,
+    "code": null
+   },
+   {
+    "index": 6,
+    "name": "ur5e_robot",
+    "label": "UR5e robot",
+    "conf": 0.5,
+    "code": "SLAB:D:UR5E_01"
+   },
+   {
+    "index": 7,
+    "name": "ur5e_teach_pendant",
+    "label": "UR5e teach pendant",
+    "conf": 0.5,
+    "code": null
+   },
+   {
+    "index": 8,
+    "name": "fanuc_robot",
+    "label": "FANUC ER-4iA robot",
+    "conf": 0.5,
+    "code": "SLAB:D:FANUC_01"
+   },
+   {
+    "index": 9,
+    "name": "fanuc_teach_pendant",
+    "label": "FANUC teach pendant",
+    "conf": 0.5,
+    "code": null
+   },
+   {
+    "index": 10,
+    "name": "lab_pc",
+    "label": "Lab PC",
+    "conf": 0.5,
+    "code": null
+   },
+   {
+    "index": 11,
+    "name": "lab_door",
+    "label": "Lab door",
+    "conf": 0.5,
+    "code": null
+   }
+  ]
+ },
+ {
+  "file": "all_detector.onnx",
+  "note": "2026-10-30: one YOLO trained in tools/vision_train on data/all_r1 (reusable_bin + network_switch + network_router). The bin is still answered by bin_detector.onnx (the deployed round-4 model, 14/15 unseen, 0/429 false), so class 0 is deliberately NOT listed here; these two only come from this model.",
+  "classes": [
+   {
+    "index": 1,
+    "name": "network_switch",
+    "label": "Network switch (TP-Link)",
+    "conf": 0.6,
+    "code": null
+   },
+   {
+    "index": 2,
+    "name": "network_router",
+    "label": "Smart Lab router (Vodafone)",
+    "conf": 0.7,
+    "code": null
+   }
+  ]
+ }
+]

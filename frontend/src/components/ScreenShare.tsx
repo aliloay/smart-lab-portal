@@ -1,0 +1,246 @@
+/**
+ * Admin -> students screen sharing, and the wall of every lab PC's screen.
+ *
+ * Share: the admin presents from this browser (needs https) or from the master PC's agent; the
+ * students' PCs get a notice and open /share. Wall: every PC's live screen at once; each PC shows
+ * "Lab staff are viewing this screen" while it is watched; nothing is recorded.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Cast, Crown, LayoutGrid, MonitorPlay, MonitorUp, Square, X } from 'lucide-react'
+import { BroadcastState, MasterNow, ShareRequest, api, fetchBlob } from '../lib/api'
+import { relative } from '../lib/time'
+import { cancelPreview, canCaptureHere, goLive, isCapturing, noPictureYet, onShareChange, pendingPreview, pickScreen, stopShare } from '../lib/screenShare'
+import { PcScreenViewer } from './PcControls'
+import { useLiveMessages } from '../lib/live'
+import { Chip } from './ui'
+
+/** Live JPEG from an endpoint, refreshed every `ms` (object URLs revoked). */
+export function useLiveJpeg(path: string | null, ms: number, onGone?: () => void) {
+  const [src, setSrc] = useState<string | null>(null)
+  const gone = useRef(onGone)
+  gone.current = onGone
+  const [at, setAt] = useState<number | null>(null)
+  const url = useRef<string | null>(null)
+  useEffect(() => {
+    if (!path) { setSrc(null); return }
+    let stop = false
+    let t = 0
+    let got = false                       // until the first frame arrives, ask every 200 ms
+    const tick = async () => {
+      try {
+        const b = await fetchBlob(path)
+        if (!stop && b.size > 0) {
+          const u = URL.createObjectURL(b)
+          if (url.current) URL.revokeObjectURL(url.current)
+          url.current = u
+          setSrc(u)
+          setAt(Date.now())
+          got = true
+        }
+      } catch (e) {
+        // 410: the share has ended - drop the last picture now, not at the next status check
+        if ((e as { status?: number }).status === 410) {
+          if (url.current) URL.revokeObjectURL(url.current)
+          url.current = null
+          setSrc(null)
+          gone.current?.()                          // keep asking: the next share must show up again
+        }
+      }
+      if (!stop) t = window.setTimeout(tick, got ? ms : Math.min(ms, 200))
+    }
+    void tick()
+    return () => {
+      stop = true
+      window.clearTimeout(t)
+      if (url.current) URL.revokeObjectURL(url.current)
+      url.current = null
+    }
+  }, [path, ms])
+  return { src, stale: at === null || Date.now() - at > 5000 }
+}
+
+/** Who the master is: the admin who signed in last, on whatever device (owner 2026-10-21). */
+export function MasterLine() {
+  const [m, setM] = useState<MasterNow | null>(null)
+  useEffect(() => {
+    const load = () => api.master().then(setM).catch(() => {})
+    load(); const t = window.setInterval(load, 10000); return () => window.clearInterval(t)
+  }, [])
+  if (!m?.user_name) return null
+  return (
+    <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+      <Crown size={13} className="text-violet-300" />
+      <span>Master: <b className="text-white">{m.user_name}</b> · {m.device}
+        {m.pc_name ? <> · at <b className="text-white">{m.pc_name}</b></> : ' · not at a lab PC'}
+        {m.since ? <span className="text-slate-500"> · since {relative(m.since)}</span> : null}</span>
+    </div>)
+}
+
+export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pcs?: { id: number; name: string; online: boolean }[] }) {
+  const [st, setSt] = useState<BroadcastState | null>(null)
+  const [title, setTitle] = useState('')
+  const [all, setAll] = useState(true)
+  const [chosen, setChosen] = useState<number[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [, force] = useState(0)
+  const preview = useRef<HTMLVideoElement>(null)
+  const load = useCallback(() => { api.broadcastStatus().then(setSt).catch(() => {}) }, [])
+  useEffect(() => {
+    load()
+    const t = window.setInterval(load, 3000)
+    const off = onShareChange(() => { force(n => n + 1); load() })
+    return () => { window.clearInterval(t); off() }
+  }, [load])
+  const [asks, setAsks] = useState<ShareRequest[]>([])
+  const loadAsks = useCallback(() => { api.shareRequests().then(setAsks).catch(() => setAsks([])) }, [])
+  useEffect(() => { loadAsks(); const t = window.setInterval(loadAsks, 5000); return () => window.clearInterval(t) }, [loadAsks])
+  useLiveMessages(m => { if (m.type === 'share_state') { load(); loadAsks() } })
+  const decide = (r: ShareRequest, accept: boolean, audience: 'all' | 'staff' = 'all') =>
+    go(() => api.shareDecide(r.id, accept, audience)).then(loadAsks)
+  const pending = pendingPreview()
+  useEffect(() => { if (preview.current) preview.current.srcObject = pending }, [pending])
+  const { src } = useLiveJpeg(st?.active ? `/equipment/broadcast/frame.jpg?s=${st.since ?? 0}` : null, 1000)
+  const targets = all ? null : chosen
+  const go = async (fn: () => Promise<unknown>) => {
+    if (busy) return                                   // no double starts
+    setBusy(true)
+    setError('')
+    try { await fn() } catch (e) { setError(e instanceof Error ? e.message : 'Could not start sharing') }
+    finally { setBusy(false); load() }
+  }
+  const secure = canCaptureHere()
+  const noTargets = !all && chosen.length === 0
+  return (
+    <div className="card p-4 space-y-3">
+      <div className="flex items-center gap-2 text-sm">
+        <Cast size={15} className="text-accent-300" />
+        <span className="font-medium text-slate-200">Share my screen with the students</span>
+        {st?.active
+          ? <Chip tone="ok" dot className="ml-auto">presenting · {st.by} · {st.source === 'browser' ? 'browser' : 'master PC'} · {st.targets ? `${st.targets.length} PC(s)` : 'all lab PCs'}</Chip>
+          : <Chip tone="idle" className="ml-auto">not sharing</Chip>}
+      </div>
+      <MasterLine />
+      {asks.map(r => (
+        <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-violet-400/50 bg-violet-500/10 px-3 py-2 text-[13px]">
+          <MonitorUp size={15} className="text-violet-300" />
+          <span><b className="text-white">{r.name}</b> asks to share <b className="text-white">{r.pc_name ?? 'their PC'}</b>'s screen</span>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            <button className="btn-primary btn-sm" disabled={busy} onClick={() => decide(r, true, 'all')}>Accept - show everyone</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => decide(r, true, 'staff')}>Accept - only me</button>
+            <button className="btn-ghost btn-sm text-bad-soft" disabled={busy} onClick={() => decide(r, false)}>Reject</button>
+          </span>
+        </div>))}
+      {!st?.active && <>
+        <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+          <span className="text-slate-400">Send to:</span>
+          <label className="flex items-center gap-1"><input type="radio" checked={all} onChange={() => setAll(true)} /> all lab PCs</label>
+          <label className="flex items-center gap-1"><input type="radio" checked={!all} onChange={() => setAll(false)} /> selected PCs</label>
+          {!all && pcs.map(p => <label key={p.id} className={`flex items-center gap-1 px-2 py-0.5 rounded border ${chosen.includes(p.id) ? 'border-accent-400/60' : 'border-ink-600'}`}>
+            <input type="checkbox" checked={chosen.includes(p.id)} onChange={e => setChosen(c => e.target.checked ? [...c, p.id] : c.filter(x => x !== p.id))} />
+            {p.name}{!p.online && <span className="text-slate-500"> (offline)</span>}</label>)}
+          {!all && pcs.length === 0 && <span className="text-slate-500">no PC agent has reported yet</span>}
+        </div>
+        {!pending ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="input !py-1.5 !text-[13px] w-56" placeholder="Title (optional), e.g. PLC demo" value={title}
+                   maxLength={80} onChange={e => setTitle(e.target.value)} />
+            <button className="btn-primary btn-sm" disabled={busy || !secure} onClick={() => go(pickScreen)}
+                    title={secure ? '' : 'Screen capture needs the secure address: https://192.168.1.200'}>
+              <MonitorUp size={14} /> Choose screen or window…</button>
+            <button className="btn-ghost btn-sm" disabled={busy || !hasMasterPc || noTargets}
+                    onClick={() => go(() => api.broadcastStart('master_pc', title, targets))}
+                    title={hasMasterPc ? '' : 'An admin signing in on a lab PC that runs the agent makes it the master PC'}><MonitorPlay size={14} /> Share from master PC</button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[12.5px] text-warn-soft">Preview - only you can see this. Check it is the right screen or window and that nothing private
+              (passwords, e-mail, chats) is visible, then go live.</p>
+            <video ref={preview} autoPlay muted playsInline className="rounded-lg border border-warn/50 max-w-md w-full aspect-video bg-black object-contain" />
+            <div className="flex gap-2">
+              <button className="btn-primary btn-sm" disabled={busy || noTargets} onClick={() => go(() => goLive(title, targets))}><Cast size={13} /> Go live</button>
+              <button className="btn-ghost btn-sm" disabled={busy} onClick={() => go(() => pickScreen())}>Choose another</button>
+              <button className="btn-ghost btn-sm" disabled={busy} onClick={() => cancelPreview()}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </>}
+      {st?.active && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn-ghost btn-sm text-bad-soft border border-bad/40" disabled={busy} onClick={() => go(() => stopShare(true))}>
+            <Square size={13} /> Stop sharing</button>
+          <a className="btn-ghost btn-sm" href="/share" target="_blank" rel="noreferrer">Open the students' view</a>
+          {st.source === 'browser' && !isCapturing() &&
+            <span className="text-[12px] text-warn-soft">This browser is not the one capturing (another tab or device started it).</span>}
+        </div>
+      )}
+      {!secure && !st?.active && <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-400">
+        <span>Browsers allow screen capture only on the secure address. Sharing from the master PC works from here.</span>
+        <a className="btn-ghost btn-sm" href={`https://${window.location.hostname}${window.location.pathname}${window.location.search}`}>
+          Switch to https://{window.location.hostname}</a>
+        <span className="text-slate-500">(a warning there means this computer does not trust the lab certificate yet: import
+          deploy/tls/smartlab-ca.crt once)</span></div>}
+      {st?.active && <div className="rounded-lg overflow-hidden border border-ink-600 bg-black/40 max-w-md w-full h-[252px] grid place-items-center">
+        {src ? <img src={src} alt="What the students see" className="w-full h-full object-contain" />
+          : isCapturing() && noPictureYet()
+            ? <span className="text-[12px] text-warn-soft px-4 text-center">No picture from the shared window yet - it may be
+                minimized or closed. Restore it, or press Stop sharing and share a whole screen instead.</span>
+            : <span className="text-[12px] text-slate-400">Waiting for the first frame…</span>}</div>}
+      <p className="text-[11px] text-slate-500">The chosen lab PCs show it full screen, above everything, within a second or two, and go back when you stop;
+        anyone signed in can also open /share. Nothing is recorded.</p>
+      {error && <p className="text-[12px] text-bad-soft">{error}</p>}
+    </div>
+  )
+}
+
+export type WallPc = { device_id: number; name: string; online: boolean | null; detail?: Record<string, unknown> | null }
+
+function WallTile({ pc, onOpen }: { pc: WallPc; onOpen: () => void }) {
+  const { src, stale } = useLiveJpeg(pc.online === false ? null : `/equipment/${pc.device_id}/screen.jpg`, 1000)
+  const app = pc.detail?.foreground_app ? String(pc.detail.foreground_app).replace(/\.exe$/i, '') : null
+  const user = pc.detail?.os_user ? String(pc.detail.os_user) : null
+  return (
+    <button type="button" onClick={onOpen} className="text-left rounded-xl border border-ink-600 bg-ink-900/60 overflow-hidden hover:border-accent-400/60">
+      <div className="aspect-video bg-black/50 grid place-items-center">
+        {pc.online === false ? <span className="text-[12px] text-slate-500">offline</span>
+          : src ? <img src={src} alt={`Screen of ${pc.name}`} className={`w-full h-full object-contain ${stale ? 'opacity-50' : ''}`} />
+          : <span className="text-[12px] text-slate-400">connecting…</span>}
+      </div>
+      <div className="px-2.5 py-1.5 text-[12px] flex items-center gap-2">
+        <b className="text-slate-100 truncate">{pc.name}</b>
+        <span className="text-slate-400 truncate">{user ?? 'nobody signed in'}{app ? ` · ${app}` : ''}</span>
+        {stale && src && <Chip tone="warn" className="ml-auto">stale</Chip>}
+      </div>
+    </button>
+  )
+}
+
+export function ScreenWall({ pcs, onClose }: { pcs: WallPc[]; onClose: () => void }) {
+  const [open, setOpen] = useState<WallPc | null>(null)
+  useEffect(() => {
+    // A wall of many PCs: low quality, one picture a second each - enough to see what is on 20 screens, without
+    // ~200 KB/s per PC through the relay. Enlarging one PC uses the normal viewer with its own quality.
+    pcs.forEach(p => { if (p.online !== false) api.pcScreenStart(p.device_id, { monitor: 0, quality: 40, fps: 1 }).catch(() => {}) })
+    return () => { pcs.forEach(p => api.pcScreenStop(p.device_id).catch(() => {})) }
+  }, [pcs])
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !open) onClose() }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [onClose, open])
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-ink-950/95 backdrop-blur p-5 overflow-auto">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <LayoutGrid size={18} className="text-accent-300" />
+        <h2 className="text-white font-semibold text-lg">All lab PC screens</h2>
+        <span className="text-[12px] text-slate-400">Each PC shows a notice while it is viewed · nothing is recorded · click a screen to enlarge</span>
+        <button className="btn-ghost btn-sm ml-auto" onClick={onClose}><X size={14} /> Close</button>
+      </div>
+      {pcs.length === 0 ? <p className="text-slate-400">No lab PC is reporting.</p> :
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {pcs.map(p => <WallTile key={p.device_id} pc={p} onOpen={() => setOpen(p)} />)}
+        </div>}
+      {open && <PcScreenViewer deviceId={open.device_id} name={open.name} onClose={() => setOpen(null)} />}
+    </div>, document.body)
+}

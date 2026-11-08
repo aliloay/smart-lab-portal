@@ -1,15 +1,20 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
+import NetworkedEquipment from '../components/NetworkedEquipment'
+import AddEquipment from '../components/AddEquipment'
+import RobotTwinPanels from '../components/robot/RobotTwinPanel'
+import EnvironmentOverview from '../components/EnvironmentOverview'
+import { ConsumableBins, ReusableItems } from './Inventory'
 import { assetStatusLabel, assetTone } from '../lib/labels'
 import { fmtDate } from '../lib/time'
 import {
-  Chip, EmptyState, ErrorBanner, Field, MetricCard, Modal, PageHeader, Select, Skeleton,
+  Chip, EmptyState, ErrorBanner, Field, MetricCard, Modal, PageHeader, Select, Skeleton, Tabs,
 } from '../components/ui'
 
-export default function Equipment() {
+function EquipmentRegister() {
   const [rows, setRows] = useState<Asset[] | null>(null)
   const [labs, setLabs] = useState<Lab[]>([])
   const [q, setQ] = useState('')
@@ -42,10 +47,13 @@ export default function Equipment() {
 
   return (
     <div>
-      <PageHeader eyebrow="Assets" title="Equipment"
-        sub="Every registered instrument, machine and device, with its status and maintenance record."
-        actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>} />
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <p className="text-[13px] text-slate-400">Every registered instrument, machine and device, with its status
+          and maintenance record.</p>
+        <button className="btn-primary shrink-0" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>
+      </div>
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <MetricCard label="Registered" value={rows ? rows.length : null} icon={<Boxes size={15} />} />
@@ -124,7 +132,7 @@ export default function Equipment() {
             </div>
           )}
       </div>
-      {adding && <AddAsset labs={labs} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />}
+      {adding && <AddEquipment onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load() }} />}
     </div>
   )
 }
@@ -174,5 +182,46 @@ function AddAsset({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => void
         </div>
       </form>
     </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The Robotics Lab's four systems, one tab each, plus the full register.
+// ---------------------------------------------------------------------------
+type Tab = 'environment' | 'noncons' | 'consumables' | 'reusables' | 'register'
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'environment', label: '1 · Physical environment' },
+  { key: 'noncons', label: '2 · Robots & PCs' },
+  { key: 'consumables', label: '3 · Consumables' },
+  { key: 'reusables', label: '4 · Reusables' },
+  { key: 'register', label: 'Equipment register' },
+]
+
+export default function Equipment() {
+  const [params, setParams] = useSearchParams()
+  const tab = (TABS.some(t => t.key === params.get('tab')) ? params.get('tab') : 'environment') as Tab
+  const [adding, setAdding] = useState(false)
+  const [version, setVersion] = useState(0)        // remounts the shown system after an addition
+  // Robots & PCs stays mounted (hidden) once opened (2026-10-21, owner: "very slow, freezes"): starting a
+  // robot's 3D view costs ~1 s of the main thread (WebGL context, model, shaders - profiled), and leaving the
+  // tab threw both views away, so every return paid it again. Hidden, the views draw nothing (off screen).
+  const [robotsOpened, setRobotsOpened] = useState(tab === 'noncons')
+  useEffect(() => { if (tab === 'noncons') setRobotsOpened(true) }, [tab])
+  return (
+    <div className="space-y-5">
+      <PageHeader eyebrow="Robotics Lab" title="Equipment"
+        sub="The lab's four systems: environment, robots & PCs, consumables and reusables."
+        actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>} />
+      {adding && <AddEquipment onClose={() => setAdding(false)}
+        onSaved={t => { setAdding(false); setParams({ tab: t }, { replace: true }); setVersion(v => v + 1) }} />}
+      <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
+      <div key={version} className="contents">
+      {tab === 'environment' && <EnvironmentOverview />}
+      {robotsOpened && <div className={tab === 'noncons' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /><NetworkedEquipment /></div>}
+      {tab === 'consumables' && <ConsumableBins />}
+      {tab === 'reusables' && <ReusableItems />}
+      {tab === 'register' && <EquipmentRegister />}
+      </div>
+    </div>
   )
 }

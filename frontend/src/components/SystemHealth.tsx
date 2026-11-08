@@ -13,6 +13,7 @@ import { SystemStatus, api } from '../lib/api'
 import { useLive } from '../lib/live'
 import { relative } from '../lib/time'
 import { Dot } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 export default function SystemHealth() {
   const { connected } = useLive()
@@ -26,7 +27,7 @@ export default function SystemHealth() {
       .then(r => { setS(r); setApiUp(true) })
       .catch(() => setApiUp(false))
     load()
-    const t = window.setInterval(load, 30000)
+    const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [])
 
@@ -40,11 +41,16 @@ export default function SystemHealth() {
   }, [open])
 
   const healthy = apiUp === true && s?.database === true
-  const label = apiUp === null ? 'Checking' : healthy ? 'System healthy'
+  // "Healthy" only when the controllers are up too: a working portal with the
+  // door / sensors offline is not a healthy lab (audit 2026-10-12).
+  const devicesOff = s?.offline_devices?.length ?? 0
+  const label = apiUp === null ? 'Checking'
+    : healthy ? (devicesOff ? `Portal OK · ${devicesOff} device${devicesOff > 1 ? 's' : ''} offline` : 'System healthy')
     : apiUp === false ? 'API unreachable' : 'Degraded'
-  const tone = apiUp === null ? 'idle' : healthy ? 'ok' : 'bad'
+  const tone = apiUp === null ? 'idle' : healthy ? (devicesOff ? 'warn' : 'ok') : 'bad'
 
   const rows: { name: string; tone: 'ok' | 'bad' | 'idle' | 'warn'; value: string }[] = [
+    ...(devicesOff ? [{ name: 'Offline', tone: 'warn' as const, value: s!.offline_devices!.join(', ') }] : []),
     { name: 'API', tone: apiUp === null ? 'idle' : apiUp ? 'ok' : 'bad',
       value: apiUp === null ? 'Checking' : apiUp ? 'Online' : 'Unreachable' },
     { name: 'Database', tone: !s ? 'idle' : s.database ? 'ok' : 'bad',
@@ -59,6 +65,10 @@ export default function SystemHealth() {
       value: !s ? 'Unknown' : s.controllers_total === 0 ? 'None registered'
         : `${s.controllers_online} / ${s.controllers_total} online`,
     },
+    // Optional: the lab runs offline. Never counted against "healthy".
+    { name: 'Internet', tone: !s || s.internet == null ? 'idle' : s.internet ? 'ok' : 'idle',
+      value: !s || s.internet == null ? 'Unknown'
+        : s.internet ? 'Available' : 'Offline (lab unaffected)' },
   ]
 
   return (

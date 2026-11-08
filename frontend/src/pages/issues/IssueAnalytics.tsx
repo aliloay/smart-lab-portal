@@ -5,7 +5,7 @@ import {
 import { BarChart3 } from 'lucide-react'
 import type { IssueSummary } from '../../lib/api'
 import { SectionTitle } from '../../components/ui'
-import { C, ChartCard, PALETTE, axisProps, tooltipProps } from '../../components/charts'
+import { C, ChartCard, PALETTE, axisProps, tooltipProps, xTitle, yTitle } from '../../components/charts'
 
 /** Admin maintenance analytics. Real counts only; empty means empty. */
 export default function IssueAnalytics({ summary }: { summary: IssueSummary | null }) {
@@ -33,8 +33,8 @@ export default function IssueAnalytics({ summary }: { summary: IssueSummary | nu
                 </linearGradient>
               </defs>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-              <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} minTickGap={24} />
-              <YAxis {...axisProps} allowDecimals={false} width={28} />
+              <XAxis dataKey="day" {...axisProps} tickFormatter={d => d.slice(5)} minTickGap={24} {...xTitle('Day (MM-DD)')} />
+              <YAxis {...axisProps} allowDecimals={false} {...yTitle('Issues')} />
               <Tooltip {...tooltipProps} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Area type="monotone" dataKey="created" name="Reported" stroke={C.accent} fill="url(#gCreated)" strokeWidth={2} />
@@ -47,8 +47,8 @@ export default function IssueAnalytics({ summary }: { summary: IssueSummary | nu
           <ResponsiveContainer>
             <BarChart data={summary.by_lab}>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" vertical={false} />
-              <XAxis dataKey="label" {...axisProps} />
-              <YAxis {...axisProps} allowDecimals={false} width={28} />
+              <XAxis dataKey="label" {...axisProps} {...xTitle('Laboratory')} />
+              <YAxis {...axisProps} allowDecimals={false} {...yTitle('Open issues')} />
               <Tooltip {...tooltipProps} />
               <Bar dataKey="count" name="Open issues" radius={[6, 6, 0, 0]} fill={C.accent} />
             </BarChart>
@@ -59,8 +59,8 @@ export default function IssueAnalytics({ summary }: { summary: IssueSummary | nu
           <ResponsiveContainer>
             <BarChart data={summary.by_category} layout="vertical" margin={{ left: 20 }}>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-              <XAxis type="number" {...axisProps} allowDecimals={false} />
-              <YAxis type="category" dataKey="label" {...axisProps} width={110} />
+              <XAxis type="number" {...axisProps} allowDecimals={false} {...xTitle('Open issues')} />
+              <YAxis type="category" dataKey="label" {...axisProps} {...yTitle('Category', 110)} />
               <Tooltip {...tooltipProps} />
               <Bar dataKey="count" name="Issues" radius={[0, 6, 6, 0]}>
                 {summary.by_category.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
@@ -74,8 +74,8 @@ export default function IssueAnalytics({ summary }: { summary: IssueSummary | nu
           <ResponsiveContainer>
             <BarChart data={summary.by_asset} layout="vertical" margin={{ left: 20 }}>
               <CartesianGrid stroke={C.grid} strokeDasharray="3 5" horizontal={false} />
-              <XAxis type="number" {...axisProps} allowDecimals={false} />
-              <YAxis type="category" dataKey="label" {...axisProps} width={150} />
+              <XAxis type="number" {...axisProps} allowDecimals={false} {...xTitle('Reports (count)')} />
+              <YAxis type="category" dataKey="label" {...axisProps} {...yTitle('Equipment', 150)} />
               <Tooltip {...tooltipProps} />
               <Bar dataKey="count" name="Reports" radius={[0, 6, 6, 0]} fill={C.violet} />
             </BarChart>

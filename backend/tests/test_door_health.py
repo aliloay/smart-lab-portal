@@ -6,6 +6,17 @@ door left open, and a reader or sensor that stopped answering - each as an
 alert and a notification, and each cleared when it is no longer true.
 """
 from app.models import AccessEvent, Alert, AlertSeverity, EventType, Notification
+import pytest
+
+from app.services import devices as _devices
+
+
+@pytest.fixture(autouse=True)
+def _no_confirmation_wait(monkeypatch):
+    # These tests cover the alert lifecycle; the 45 s confirmation of a component fault (one missed
+    # self-test reply is not a fault, 2026-10-18) is covered in test_component_health.py.
+    monkeypatch.setattr(_devices, "COMPONENT_FAULT_AFTER_S", 0)
+    _devices._component_bad_since.clear()
 
 
 def _heartbeat(client, headers, lab, **components):
@@ -112,3 +123,39 @@ def test_other_alarm_reasons_do_not_create_door_alerts(client, db, staff, lab,
     _event(client, device_headers, lab, "ALARM", "SOMETHING_ELSE", "x")
     db.expire_all()
     assert db.query(Alert).count() == 0
+
+
+def test_door_or_lock_change_pushes_live_refresh(client, lab, device_headers,
+                                                 monkeypatch):
+    """Open pages refetch the door at once instead of waiting for their poll."""
+    from app.ws.manager import manager
+    sent = []
+    monkeypatch.setattr(manager, "publish", sent.append)
+
+    def beat(door_closed=True, relay_locked=True):
+        return client.post("/api/access/heartbeat", headers=device_headers, json={
+            "device_uid": "MASTER_LAB01", "lab_id": lab.code,
+            "door_closed": door_closed,
+            "components": {"rfid": True, "fingerprint": True, "camera": True,
+                           "relay_locked": relay_locked}})
+
+    beat()
+    sent.clear()
+    beat()                                   # nothing changed: no push
+    assert sent == []
+    beat(door_closed=False)                  # door opened
+    beat(door_closed=False, relay_locked=False)   # lock released
+    assert sent == [{"type": "door_state", "lab_id": lab.id}] * 2
+
+
+def test_entry_camera_online_when_it_answers_without_the_door(db, lab, monkeypatch):
+    """Audit 2026-10-12: the ESP32-CAM showed 'no data' while answering, because
+    its state came only from the (offline) door controller."""
+    from app.models import Device, DeviceType
+    from app.services import devices as dv
+    cam = Device(device_uid="CAM_T", name="cam", lab_id=lab.id, device_type=DeviceType.CAMERA)
+    db.add(cam); db.commit()
+    monkeypatch.setattr(dv, "_entry_camera_up", lambda: True)
+    assert dv.device_out(cam).state == "ONLINE"
+    monkeypatch.setattr(dv, "_entry_camera_up", lambda: False)
+    assert dv.device_out(cam).state == "NO_DATA"

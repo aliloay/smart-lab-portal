@@ -1,0 +1,301 @@
+{
+  "id": "smartlab-23",
+  "name": "Smart Lab 23 - Emergency: warn people inside, check the door",
+  "active": false,
+  "nodes": [
+    {
+      "id": "75b36062-5037-5050-a6d2-40ba3a853fc9",
+      "name": "Emergency Set",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "smartlab-emergency-set",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived"
+      },
+      "webhookId": "63d6e822-d2f6-585b-a59a-ab331b5f8d29",
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab webhook token"
+        }
+      }
+    },
+    {
+      "id": "47f37e75-c170-5b09-a0bd-27489b1fcd0e",
+      "name": "Get Emergency State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://backend:8000/api/automation/emergency/{{ $json.body.lab_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "188b7ce4-83e6-5c34-aa13-6bb9b8b47cb0",
+      "name": "One Item Per Person Inside",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "notices"
+      }
+    },
+    {
+      "id": "86b612b0-d934-5110-ac2f-e5e0afd21b03",
+      "name": "Warn Person Inside",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"EMERGENCY\", title: $json.title, body: $json.body, link: \"/\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "80c0440d-511d-52ec-a39a-c236fda3801d",
+      "name": "Give The Door 30 s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        500,
+        450
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 30,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "8f8f8783-f56a-5442-a696-13d5f70334c4",
+      "name": "Check Door Applied It",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        700,
+        450
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://backend:8000/api/automation/emergency/{{ $json.lab_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "918dffa6-6a05-5787-a94f-08efbcc84ec9",
+      "name": "Door Has Not Applied It?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        450
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.active && $json.has_door && !$json.applied }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "a03941bb-cc0a-51cb-a173-453df39485f3",
+      "name": "Alert Admins",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        450
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"EMERGENCY\", title: String(\"Door at \" + $json.lab_code + \" has NOT applied the emergency\").slice(0, 160), body: ($json.controller_online === false ? \"The door controller is offline. \" : \"The door controller has not confirmed after 30 s. \") + \"Act at the door in person.\", link: \"/admin/emergency\", severity: \"critical\", dedupe_key: \"emergency-unapplied:\" + $json.lab_id + \":v\" + $json.version }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      }
+    },
+    {
+      "id": "419e2a66-adf5-5835-addb-d4a287167d0b",
+      "name": "Record Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        900,
+        600
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: \"23-emergency\", status: \"success\", summary: $json.lab_code + \" v\" + $json.version + ($json.has_door ? \": door \" + ($json.applied ? \"applied it\" : \"did not confirm\") : \": no door controller\"), execution_id: $execution.id }) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Smart Lab automation key"
+        }
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "8574ef2c-692c-56ec-af7c-c00741ef38c0",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        450
+      ],
+      "parameters": {
+        "content": "## Emergency\nSet by an admin in the Emergency tab. 1) Everyone INSIDE that lab gets a notice telling them what to do (leave / lockdown / the admin's message). 2) After 30 s: if the door controller has not confirmed the new state, the admins are told to act at the door.\n\nThis workflow NEVER opens or locks anything - the door applies the state itself.",
+        "color": 3
+      }
+    }
+  ],
+  "connections": {
+    "Emergency Set": {
+      "main": [
+        [
+          {
+            "node": "Get Emergency State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Emergency State": {
+      "main": [
+        [
+          {
+            "node": "One Item Per Person Inside",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Give The Door 30 s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One Item Per Person Inside": {
+      "main": [
+        [
+          {
+            "node": "Warn Person Inside",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Give The Door 30 s": {
+      "main": [
+        [
+          {
+            "node": "Check Door Applied It",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Door Applied It": {
+      "main": [
+        [
+          {
+            "node": "Door Has Not Applied It?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Record Run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Door Has Not Applied It?": {
+      "main": [
+        [
+          {
+            "node": "Alert Admins",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": []
+}

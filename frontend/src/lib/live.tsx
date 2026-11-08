@@ -16,7 +16,33 @@ import { AccessEvent, Notification, api, getToken } from './api'
 export type LiveMessage =
   | { type: 'access_event'; event: AccessEvent }
   | { type: 'notification'; user_id: number; notification: Notification }
-  | { type: 'staff'; kind: string; issue_id?: number; event?: string }
+  /** A lab camera's people / names / box states changed (staff). */
+  | { type: 'security_state'; device_id: number; lab_id: number }
+  | { type: 'pc_state'; device_id: number | null }            // a lab PC changed: refetch /equipment (staff)
+  | { type: 'share_state' }                                    // screen sharing started / stopped
+  | { type: 'staff'; kind: string; issue_id?: number; event?: string
+      command_id?: number; status?: string; step?: string | null }
+  /** The administrator's emergency message / alarm for one lab (everyone). */
+  | { type: 'emergency_broadcast'; lab_id: number; lab_code: string; message: string; speak: boolean
+      alarm: boolean; version: number; active: boolean; at: string | null }
+  /** The door sensor or lock changed: refetch the lab's status. */
+  | { type: 'door_state'; lab_id: number }
+  /** Staff advisory: comfort limit or motion while the lab is closed. */
+  | { type: 'env_warning'; state: 'raised' | 'cleared'; kind: string; lab_id: number
+      lab_code: string; title: string; detail: string; value: number | null
+      alert_id: number | null; at: string }
+  /** New environment readings for a lab: refetch. */
+  | { type: 'env_update'; lab_id: number }
+  | { type: 'inventory_update'; bins: string[] }
+  /** Live robot joints (staff, up to 5 a second per robot). */
+  | { type: 'robot_state'; device_id: number; lab_id: number; state: string; q: number[] | null
+      qd: number[] | null; joints_moving: boolean[]; home: string; source: string; telemetry_age_ms: number | null }
+  /** A robot's moving / stationary / home summary changed (everyone). */
+  | { type: 'robot_status'; device_id: number; lab_id: number; state: string; home: string; source: string }
+  /** An environment node raised or cleared a smoke / flame alarm. */
+  | { type: 'hazard'; state: 'raised' | 'cleared'; lab_id: number; lab_code: string
+      metric: string; label: string; title: string; detail: string
+      alert_id: number | null; at: string }
 
 type Handler = (m: LiveMessage) => void
 

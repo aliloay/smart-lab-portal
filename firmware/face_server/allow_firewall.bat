@@ -29,19 +29,29 @@ if not defined FACEPY (
 )
 
 set "PYEXE="
-for /f "usebackq delims=" %%i in (`"%FACEPY%" -c "import sys; print(sys.executable)"`) do set "PYEXE=%%i"
+rem 2026-11-03: no quotes around %FACEPY% here - "py" -c "..." inside for /f was mangled by cmd ('py" -c "import'
+rem is not recognized) and the script stopped before any rule was written. FACEPY never contains spaces.
+for /f "usebackq delims=" %%i in (`%FACEPY% -c "import sys; print(sys.executable)"`) do set "PYEXE=%%i"
 if not defined PYEXE (
   echo Could not locate the Python program.
   pause & exit /b 1
 )
 
-echo Allowing incoming connections for:
+rem 2026-11-03 lab (Gemini ACT-04 reviewed): GIU PCs never reach this laptop directly - the engineer PC's relay
+rem connects from its Smart Lab cable address (192.168.1.104), so the GIU subnets (10.30.x, 10.40.x) are NOT opened
+rem here: least privilege = the Smart Lab LAN only.
+set "LABNETS=192.168.1.0/24"
+echo Allowing incoming connections (from %LABNETS% only) for:
 echo   %PYEXE%
+rem the old catch-all rule "Smart Lab" (any address) is replaced too
+netsh advfirewall firewall delete rule name="Smart Lab" >nul 2>&1
 netsh advfirewall firewall delete rule name="Smart Lab face server" >nul 2>&1
-netsh advfirewall firewall add rule name="Smart Lab face server" dir=in action=allow program="%PYEXE%" enable=yes profile=any
-rem Ports too (portal on 80, API on 8000, face server on 5000), for any profile.
+netsh advfirewall firewall add rule name="Smart Lab face server" dir=in action=allow program="%PYEXE%" enable=yes profile=any remoteip=%LABNETS%
+rem Ports too (portal on 80, API on 8000, face server on 5000, security camera
+rem service on 5100), for any profile but ONLY from the Smart Lab LAN and the GIU lab LAN:
+rem a phone hotspot / cafe Wi-Fi peer cannot reach them (Gemini audit 2026-11-03).
 netsh advfirewall firewall delete rule name="Smart Lab ports" >nul 2>&1
-netsh advfirewall firewall add rule name="Smart Lab ports" dir=in action=allow protocol=TCP localport=80,5000,8000 enable=yes profile=any
+netsh advfirewall firewall add rule name="Smart Lab ports" dir=in action=allow protocol=TCP localport=80,443,5000,5100,8000,8080,8443 enable=yes profile=any remoteip=%LABNETS%
 echo.
 echo Done. This does not need to be run again.
 pause

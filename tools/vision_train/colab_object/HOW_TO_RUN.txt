@@ -1,0 +1,18 @@
+Smart Lab - train an object detector on Google Colab (free GPU)
+
+1. Upload the photos to the Smart Lab Drive folder as ONE zip with "switch" in its name (e.g. tplink_switch.zip).
+   Photos and / or videos (.mov / .mp4 - 2 frames a second are used), the more the better: near / far, all sides,
+   from above and low, lights on and dimmed, with other things around it.
+2. Open https://colab.research.google.com -> File -> Upload notebook -> SmartLab_train_object.ipynb
+3. Runtime -> Change runtime type -> T4 GPU -> Save
+4. Runtime -> Run all. Allow Google Drive access when asked. Wait ~15-25 min until the last cell prints DONE.
+5. Results land in Google Drive: MyDrive/SmartLab_results/network_switch_<date>/ (+ a .zip of it):
+     test_report.json        found / false alarms per threshold
+     boxes_*.jpg             every automatic box (green) - a quick visual check
+     run/weights/best.onnx   the model for the portal
+6. Tell Claude "Colab done" and drag the results .zip into the Smart Lab Drive folder (the one with the photos).
+   Claude downloads it, checks every box and the report, tests the model through the portal's own code and deploys it
+   only if it passes. Colab does not send anything to Claude by itself.
+
+Another object later (UR5e, FANUC, PCs, door...): in cell 2 change ZIP_NAME_HAS, CLASS and PROMPT, then Run all.
+Keep faces out of the photos. Nothing from the lab cameras goes to Colab.

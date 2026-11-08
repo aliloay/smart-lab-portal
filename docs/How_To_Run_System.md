@@ -26,6 +26,7 @@ PGadmin for observing tables of db in windows
 ------------------------------------------------------------------------------------------------------------------------
 LogIn Credentials:
 
-ali@giu-uni.de	        Student#2026	     Student — you, USER1
-admin@giu-uni.de	Admin#2026	     Administrator
-ramy@giu-uni.de	        Staff#2026	      Lab staff — Dr. Ramy, USER2
+ali@giu-uni.de	        (password: see README - not stored here)	     Student — you, USER1
+admin@giu-uni.de     	(password: see README - not stored here)	         Administrator
+ramy@giu-uni.de	        (password: see README - not stored here)	         Lab staff — Dr. Ramy, USER2
+hemaly@giu-uni.de	(password: see README - not stored here)	         Lab staff — Eng. Hemaly (lab engineer, master PC), USER5

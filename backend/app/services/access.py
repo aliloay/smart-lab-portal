@@ -78,6 +78,9 @@ def validate_qr(db: Session, token_value: str, lab_code: str,
     both are true, because it tells you someone took a credential somewhere
     it was never meant to go.
     """
+    if token_value.startswith(PERSONAL_QR_PREFIX):
+        return validate_personal_qr(db, token_value, lab_code, device_uid)
+
     lab = get_lab_by_code(db, lab_code)
     device = get_device(db, device_uid)
 
@@ -272,3 +275,71 @@ def _record(db: Session, lab, device, user, booking, method: AuthMethod,
         method=method, result=result, denial_reason=reason,
         credential_ref=credential_ref,
     ))
+
+
+# ------------------------------------------------------------ personal QR ---
+# Starts with the booking prefix "SLB:" so the door sends it to the portal
+# unchanged (no reflash); "~" never occurs in booking tokens (token_urlsafe).
+PERSONAL_QR_PREFIX = "SLB:~"
+
+
+def personal_qr_hash(token_value: str) -> str:
+    import hashlib
+    return hashlib.sha256(token_value.encode()).hexdigest()
+
+
+def issue_personal_qr(db: Session, user: User, actor: Optional[User] = None) -> str:
+    """New door QR for the person; any previous one stops working. Returns the
+    secret once - only its hash is kept."""
+    import secrets
+    from app.models import PersonalQrCredential
+    now = _now()
+    for old in db.scalars(select(PersonalQrCredential).where(
+            PersonalQrCredential.user_id == user.id, PersonalQrCredential.revoked_at.is_(None))).all():
+        old.revoked_at = now
+    token = PERSONAL_QR_PREFIX + secrets.token_urlsafe(24)
+    db.add(PersonalQrCredential(user_id=user.id, token_sha256=personal_qr_hash(token),
+                                issued_at=now, issued_by_id=actor.id if actor else user.id))
+    return token
+
+
+def validate_personal_qr(db: Session, token_value: str, lab_code: str,
+                         device_uid: Optional[str] = None) -> ValidationResult:
+    """A personal door QR as step 1: exactly the RFID card's rules."""
+    from app.models import PersonalQrCredential
+    lab = get_lab_by_code(db, lab_code)
+    device = get_device(db, device_uid)
+    ref = _ref(token_value)
+    if lab is None:
+        _record(db, None, device, None, None, AuthMethod.QR, AccessResult.DENIED,
+                DenialReason.DEVICE_UNKNOWN, credential_ref=ref)
+        db.commit()
+        return ValidationResult(False, DenialReason.DEVICE_UNKNOWN)
+
+    def deny(reason: DenialReason, user=None) -> ValidationResult:
+        _record(db, lab, device, user, None, AuthMethod.QR, AccessResult.DENIED, reason, credential_ref=ref)
+        log_event(db, EventType.QR_REJECTED, lab_id=lab.id, user_id=user.id if user else None,
+                  device_id=device.id if device else None, method=AuthMethod.QR,
+                  result=AccessResult.DENIED, reason=reason.value,
+                  message=f"Personal QR rejected: {reason.value}")
+        db.commit()
+        return ValidationResult(False, reason, user=user, lab=lab)
+
+    cred = db.scalar(select(PersonalQrCredential).where(
+        PersonalQrCredential.token_sha256 == personal_qr_hash(token_value)))
+    if cred is None or cred.revoked_at is not None:
+        return deny(DenialReason.TOKEN_UNKNOWN)
+    user = db.get(User, cred.user_id)
+    if user is None or not user.is_active:
+        return deny(DenialReason.USER_INACTIVE, user=user)
+    booking = _active_booking(db, user.id, lab.id)
+    if lab.require_booking_for_rfid and booking is None:
+        return deny(DenialReason.NO_ACTIVE_BOOKING, user=user)
+
+    _record(db, lab, device, user, booking, AuthMethod.QR, AccessResult.PENDING, None, credential_ref=ref)
+    log_event(db, EventType.QR_VALIDATED, lab_id=lab.id, user_id=user.id,
+              booking_id=booking.id if booking else None, device_id=device.id if device else None,
+              method=AuthMethod.QR, result=AccessResult.PENDING,
+              message=f"Personal QR accepted for {user.full_name} - awaiting biometric")
+    db.commit()
+    return ValidationResult(True, None, user=user, booking=booking, lab=lab)

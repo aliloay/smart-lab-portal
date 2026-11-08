@@ -5,12 +5,36 @@
  * says so rather than implying a lock exists, and "available" means no
  * confirmed booking is running right now - not a guess.
  */
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarPlus, CircuitBoard, MapPin, TriangleAlert, Users } from 'lucide-react'
 import type { LabOverview } from '../lib/api'
 import { fmtTime } from '../lib/time'
 import { Chip, Dot } from './ui'
 import { LabArt, categoryMeta } from './labArt'
+import RoboticsCover from './RoboticsCover'
+
+/** Card banners (generated illustrations, 1400x520 WebP, public/assets/labs) matched to the lab
+ *  records by name/category. Labs not listed keep their drawn category art. */
+const CARD_IMAGE: Record<string, { src: string; alt: string }> = {
+  LAB_02: { src: '/assets/labs/plc-lab-card-zoom.webp', alt: 'Illustration of a Siemens SIMATIC PLC with its I/O modules and an HMI panel' },
+  LAB_03: { src: '/assets/labs/production-lab-card-drill-mill.webp', alt: 'Illustration of a drilling machine and a CNC milling spindle' },
+  LAB_04: { src: '/assets/labs/materials-lab-card-tensile-hardness.webp', alt: 'Illustration of a tensile testing machine and a hardness tester' },
+  LAB_05: { src: '/assets/labs/lab-automotive.webp', alt: 'Illustration of an automotive lab: vehicle chassis on an alignment rig and an electric drive unit' },
+  LAB_06: { src: '/assets/labs/01-pcb-lab-card.webp', alt: 'Illustration of a PCB prototyping machine with a circuit layout on a monitor' },
+  LAB_07: { src: '/assets/labs/01-microcontroller-lab-card.webp', alt: 'Illustration of a microcontrollers lab seen through its glass doors: benches with oscilloscopes and workstations' },
+  LAB_08: { src: '/assets/labs/01-power-lab-card.webp', alt: 'Illustration of a power and process lab: water-tank rig, control panel and motor test bench' },
+  LAB_09: { src: '/assets/labs/design_lab_card.webp', alt: 'Illustration of a design and fabrication lab: laser cutter, workbenches and tool walls' },
+  LAB_11: { src: '/assets/labs/fashion_lab_card.webp', alt: 'Illustration of a fashion lab seen through glass doors: sewing stations, mannequins and fabric shelves' },
+}
+
+function CardImage({ code, category }: { code: string; category: string }) {
+  const [ok, setOk] = useState(true)
+  const img = CARD_IMAGE[code]
+  if (!img || !ok) return <LabArt category={category} className="absolute inset-0 w-full h-full transition-transform duration-500 group-hover:scale-[1.03]" />
+  return <img src={img.src} alt={img.alt} width={1400} height={520} loading="lazy" decoding="async" onError={() => setOk(false)}
+              className="absolute inset-0 w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-[1.03]" />
+}
 
 export default function LabCard({ o, canBook = true }: { o: LabOverview; canBook?: boolean }) {
   const { lab } = o
@@ -22,22 +46,23 @@ export default function LabCard({ o, canBook = true }: { o: LabOverview; canBook
     : { tone: 'ok' as const, text: 'Available' }
 
   return (
-    <article className="group card card-hover overflow-hidden flex flex-col">
+    <article className={`group card card-hover overflow-hidden flex flex-col ${lab.code === 'LAB_01' ? 'ray-border' : ''}`}>
       <Link to={`/labs/${lab.id}`} className="relative block h-36 overflow-hidden"
             aria-label={`${lab.name} (${lab.code})`}>
-        <LabArt category={lab.category}
-                className="absolute inset-0 w-full h-full transition-transform
-                           duration-500 group-hover:scale-[1.03]" />
+        {lab.code === 'LAB_01'
+          ? <RoboticsCover className="absolute inset-0 w-full h-full"
+              fallback={<LabArt category={lab.category} className="absolute inset-0 w-full h-full" />} />
+          : <CardImage code={lab.code} category={lab.category} />}
         <div className="absolute inset-0 bg-gradient-to-t from-ink-800 via-ink-800/20
                         to-transparent" />
         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1
-                        rounded-md bg-ink-900/75 backdrop-blur border border-white/10
+                        rounded-md bg-ink-900/85 border border-white/10
                         text-[11px] font-medium text-slate-100">
           <span style={{ color: meta.hue }}>{meta.icon}</span>
           {lab.category}
         </div>
         <div className="absolute top-3 right-3">
-          <Chip tone={status.tone} dot className="!bg-ink-900/80 backdrop-blur">
+          <Chip tone={status.tone} dot className="!bg-ink-900/90">
             {status.text}
           </Chip>
         </div>

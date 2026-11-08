@@ -64,7 +64,7 @@ def main() -> int:
 
     print("\n=== 1. Student signs in ===")
     r = c.post(f"{API}/auth/login",
-               json={"email": "ali@giu-uni.de", "password": "Student#2026"})
+               json={"email": "ali@giu-uni.de", "password": os.environ["E2E_STUDENT_PASSWORD"]})
     check("login succeeds", r.status_code == 200, r.text)
     tok = r.json()["access_token"]
     student = {"Authorization": f"Bearer {tok}"}
@@ -179,7 +179,7 @@ def main() -> int:
 
     print("\n=== 11. The audit trail tells the whole story ===")
     admin = c.post(f"{API}/auth/login",
-                   json={"email": "admin@giu-uni.de", "password": "Admin#2026"})
+                   json={"email": "admin@giu-uni.de", "password": os.environ["E2E_ADMIN_PASSWORD"]})
     ah = {"Authorization": f"Bearer {admin.json()['access_token']}"}
     events = c.get(f"{API}/access-events?limit=40", headers=ah).json()
     kinds = [e["event_type"] for e in events]

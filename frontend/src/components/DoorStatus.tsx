@@ -14,6 +14,7 @@ import { LabStatus, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { fmtTime, relative } from '../lib/time'
 import { Dot } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 export default function DoorStatus({ onNavigate }: { onNavigate?: () => void }) {
   const [labId, setLabId] = useState<number | null>(null)
@@ -31,13 +32,14 @@ export default function DoorStatus({ onNavigate }: { onNavigate?: () => void }) 
 
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 30000)
+    const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [load])
 
   // Door and access events for this laboratory refresh it immediately.
   useLiveMessages(m => {
     if (m.type === 'access_event' && m.event.lab_id === labId) load()
+    if (m.type === 'door_state' && m.lab_id === labId) load()
   })
 
   if (labId === null || !s) return null

@@ -306,7 +306,7 @@ function QuickBooking({ labs }: { labs: LabOverview[] }) {
           {bookable.map(o => <option key={o.lab.id} value={o.lab.id}>
             {o.lab.code} · {o.lab.name}</option>)}
         </select>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {[['Today', todayStr()], ['Tomorrow', dateStr(tomorrow)]].map(([t, v]) => (
             <button key={v} onClick={() => setDate(v)}
               className={`flex-1 btn-sm btn ${date === v

@@ -1,0 +1,29 @@
+{
+  "_about": "Approved configuration baseline (no secrets). Checked by app/services/drift.py. Change it only together with the approval it records. Versions come from the repository sources (firmware/*, tools/*) as of the date below.",
+  "version": "2026-10-18.2",
+  "approved_by": "project owner (software defaults agreed in the Smart Lab missions)",
+  "settings": {
+    "ENVIRONMENT": {"expected": "production", "severity": "high", "why": "production refuses default secrets"},
+    "ROBOT_CONTROL": {"expected": "dry_run", "severity": "high", "why": "no robot motion until commissioning sign-off"},
+    "UR5E_HOME_METHOD": {"expected": "program", "severity": "high", "why": "Home = the pendant's validated program"},
+    "UR5E_HOME_PROGRAM": {"expected": "home.urp", "severity": "medium", "why": "name of the validated Home program"},
+    "OLLAMA_CPU_ONLY": {"expected": true, "severity": "medium", "why": "LLMs stay on the CPU - the GPU is for the cameras"},
+    "OLLAMA_NUM_THREAD": {"expected": 4, "severity": "medium", "why": "bounded AI threads protect the camera analysis (measured 2026-10-18)"},
+    "DEVICE_PROBES": {"expected": "1", "severity": "medium", "why": "background health checks on"},
+    "AI_STUDENT_ENABLED": {"expected": true, "severity": "low", "why": "student assistant available"}
+  },
+  "secrets_present": ["SECRET_KEY", "DEVICE_API_KEY", "KB_SERVICE_KEY"],
+  "secrets_not_default": {"SECRET_KEY": "dev-only-change-me", "DEVICE_API_KEY": "dev-device-key-change-me",
+                          "DATABASE_PASSWORD": "smartlab"},
+  "firmware": {
+    "MASTER_LAB01": "portal-1.0",
+    "BIN_NODE_1": "bin-0.3",
+    "REUSE_BIN_1": "reuse-mod-0.1",
+    "ENV_LAB01": "env-0.1.1",
+    "PC_*": "pc-agent-0.8",
+    "UR5E_01": "robot-collector-0.2 (ur)",
+    "FANUC_01": "robot-collector-0.2 (fanuc)"
+  },
+  "camera_ports": {"SECCAM_LAB01": 5100, "SECCAM_LAB02": 5101},
+  "backups": {"every_hours": 6, "max_age_hours": 7}
+}

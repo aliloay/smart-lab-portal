@@ -1,0 +1,13 @@
+== SIMULATED load, 120 s after 25 s warm-up, against http://127.0.0.1:8100 (isolated test DB)
+  /health                          n   24  p50    16.4  p95    99.4  max   103.3 ms
+  /labs/hazards/active             n   68  p50    25.7  p95   138.4  max   173.5 ms
+  /monitor                         n   47  p50   133.4  p95   363.7  max   553.6 ms
+  /robots                          n   59  p50    24.6  p95   147.8  max   195.5 ms
+  /robots/:id/events               n   59  p50    48.1  p95   267.9  max   536.3 ms
+  /security/cameras                n   59  p50    41.6  p95   339.2  max   384.6 ms
+  /summary                         n   12  p50    98.3  p95   259.9  max   259.9 ms
+  /system/status                   n   24  p50    27.1  p95   215.2  max   303.5 ms
+  API errors: 0 []
+  camera :5102 {'engines': {'detector': 'directml-gpu1 (24 ms)', 'reid': 'directml-gpu1 (21 ms/crop)'}, 'capture_fps': 12.28, 'analysis_fps': 6.63, 'pass_p50': 103.0, 'pass_p95': 133.0, 'frame_age_p95': 78.0, 'skipped': 732}
+  camera :5103 {'engines': {'detector': 'directml-gpu1 (35 ms)', 'reid': 'directml-gpu1 (21 ms/crop)'}, 'capture_fps': 12.29, 'analysis_fps': 6.81, 'pass_p50': 94.0, 'pass_p95': 120.0, 'frame_age_p95': 79.0, 'skipped': 732}
+  workload procs 8: cpu 274.2% (p50, sum)  rss 1792->1655 MB  threads 311->282  GPU p50 55.0%  VRAM 2537.0 MB  system CPU p50 61.4%

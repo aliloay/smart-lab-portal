@@ -1,26 +1,43 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
+import { useNewVersion } from '../lib/freshness'
+import { startJankProbe } from '../lib/jankProbe'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
-  Gauge, LayoutDashboard, LogOut, Menu, Radar, Settings, ShieldCheck, TriangleAlert,
+  ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
+  ShieldCheck, TriangleAlert,
   Sparkles, UserRound, Users, Wrench, X,
-} from 'lucide-react'
+  Cctv, Siren,
+  FlaskConical,
+  Bot, Search, Cast } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
+import CommandPalette, { openPalette } from './CommandPalette'
 import { AccessSetupBanner } from './AccessSetup'
 import ErrorBoundary from './ErrorBoundary'
 import { InstitutionLogo, SmartLabMark, Wordmark } from './Brand'
 import NotificationBell from './NotificationBell'
+import HazardAlarm from './HazardAlarm'
+import EmergencyMessage from './EmergencyMessage'
+import NotificationToasts from './NotificationToasts'
+import EnvWarnings from './EnvWarnings'
 import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
 import { Summary, api } from '../lib/api'
+import { warmRoute } from '../lib/warm'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
+import { isCapturing, syncShare } from '../lib/screenShare'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
-interface Item { to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean }
+interface Item {
+  to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean
+  /** Opens in its own window (the wall screen), not in the portal frame. */
+  window?: boolean
+}
 interface Section { title: string; items: Item[] }
 
 /**
@@ -39,8 +56,10 @@ const STUDENT_NAV: Section[] = [
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
     { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
     { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
   ]},
   { title: 'Support', items: [
+    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
     { to: '/issues', label: 'My reports', icon: <Wrench size={17} /> },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
     { to: '/profile', label: 'Profile', icon: <UserRound size={17} /> },
@@ -48,38 +67,69 @@ const STUDENT_NAV: Section[] = [
 ]
 
 const STAFF_NAV: Section[] = [
-  { title: 'Operations', items: [
+  { title: 'Overview', items: [
     { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
-    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
   ]},
-  { title: 'Facility', items: [
+  { title: 'Live lab', items: [
+    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
+    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
+    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
+  ]},
+  { title: 'Safety & access', items: [
+    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
+  ]},
+  { title: 'Equipment', items: [
+    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
-    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+  ]},
+  { title: 'Incidents & alerts', items: [
+    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
     { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
+  ]},
+  { title: 'Insight', items: [
+    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
+    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/users', label: 'Users', icon: <Users size={17} /> },
   ]},
 ]
 
 const ADMIN_NAV: Section[] = [
-  { title: 'Operations', items: [
+  { title: 'Overview', items: [
     { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
     { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
   ]},
-  { title: 'Access & audit', items: [
-    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
-    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Radar size={17} /> },
-    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
+  { title: 'Live lab', items: [
+    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
+    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
+    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
+    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
+    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
   ]},
-  { title: 'Facility', items: [
+  { title: 'Safety & access', items: [
+    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
+    { to: '/admin/emergency', label: 'Emergency', icon: <Siren size={17} /> },
+  ]},
+  { title: 'Equipment', items: [
+    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
+    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
     { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-    { to: '/admin/devices', label: 'Devices', icon: <Cpu size={17} /> },
-    { to: '/admin/equipment', label: 'Equipment', icon: <Boxes size={17} /> },
+  ]},
+  { title: 'Incidents & alerts', items: [
+    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
     { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
+    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
+  ]},
+  { title: 'Insight & reports', items: [
+    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
+    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
+    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
   ]},
   { title: 'Administration', items: [
     { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
@@ -111,23 +161,42 @@ function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
   )
 }
 
+
 function NavItem({ item, badge, onNavigate }: {
   item: Item; badge?: number; onNavigate: () => void
 }) {
+  const { user: me } = useAuth()          // before any return (rules of hooks)
+  if (item.window) {
+    // Its own window, so it can go on a second screen and full screen.
+    return (
+      <a href={item.to} onClick={e => {
+           e.preventDefault(); onNavigate()
+           window.open(item.to, 'smartlab-monitor', 'popup,width=1600,height=900')
+         }}
+         className="group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+                    transition-colors text-slate-300 hover:text-white hover:bg-white/[0.04]">
+        <span className="text-slate-400 group-hover:text-slate-200">{item.icon}</span>
+        <span className="flex-1">{item.label}</span>
+        <ExternalLink size={13} className="text-slate-500" />
+      </a>
+    )
+  }
+  const warm = () => warmRoute(me?.role, item.to)
   return (
     <NavLink to={item.to} end={item.end} onClick={onNavigate}
+      onPointerEnter={warm} onFocus={warm} onTouchStart={warm}
       className={({ isActive }) =>
-        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 min-h-[40px] rounded-xl text-[13.5px]
          transition-colors ${isActive
           ? 'text-white bg-gradient-to-r from-accent-400/[0.14] to-transparent'
           : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'}`}>
       {({ isActive }) => (
         <>
           {isActive && (
-            <motion.span layoutId="nav-active"
-              className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
-                         shadow-[0_0_8px_rgba(56,189,248,.55)]"
-              transition={{ type: 'spring', stiffness: 500, damping: 40 }} />
+            // plain span (was a framer-motion shared layout "slide"): that re-measured the page's scroll
+            // containers on every route change - up to ~200 ms of main thread per click (2026-10-20)
+            <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
+                             shadow-[0_0_8px_rgba(56,189,248,.55)]" />
           )}
           <span className={isActive ? 'text-accent-300'
             : 'text-slate-400 group-hover:text-slate-200'}>{item.icon}</span>
@@ -200,6 +269,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { unread } = useLive()
   const loc = useLocation()
   const staff = isStaff(user)
+  const outdated = useNewVersion(loc.pathname)
+  useEffect(() => { if (staff) startJankProbe() }, [staff])
 
   // A permanent column on a desktop, an off-canvas drawer on a phone - a fixed
   // sidebar on a 390px screen would squeeze the entry QR to an unscannable
@@ -213,11 +284,12 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (!staff) return
     const load = () => api.summary().then(setSummary).catch(() => {})
     load()
-    const t = window.setInterval(load, 60000)
+    const t = visibleInterval(load, 60000)
     return () => window.clearInterval(t)
   }, [staff])
   useLiveMessages(m => {
     if (staff && m.type === 'staff') api.summary().then(setSummary).catch(() => {})
+    if (m.type === 'share_state' && isCapturing()) void syncShare(user?.id)   // Stop pressed elsewhere: release now
   })
 
   const badges: Record<BadgeKey, number> = {
@@ -234,14 +306,14 @@ export default function Layout({ children }: { children: ReactNode }) {
   const sidebar = (
     <>
       <div className="relative mx-3 px-2 pt-5 pb-4 mb-2 border-b border-ink-600/60">
-        <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab home">
+        <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab - dashboard" title="Dashboard">
           <SmartLabMark size={38} animated />
           <Wordmark tight />
         </Link>
         {/* Pinned inside the drawer: in the brand row it overflowed the
             264px column and showed through while the drawer was closed. */}
         <button onClick={() => setOpen(false)} aria-label="Close navigation"
-                className="lg:hidden absolute top-2 right-2 text-slate-400 hover:text-white p-1.5">
+                className="lg:hidden absolute top-2 right-2 grid place-items-center w-10 h-10 rounded-lg text-slate-400 hover:text-white">
           <X size={18} />
         </button>
       </div>
@@ -250,6 +322,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           room, and simply follows the menu on short screens - it never takes
           space from a navigation item. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        <button type="button" onClick={openPalette}
+          className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 hover:border-ink-500">
+          <Search size={14} /> Search <kbd className="ml-auto text-[10px] border border-ink-600 rounded px-1">Ctrl K</kbd></button>
         <nav className="px-3 pb-3" aria-label="Main">
           {navFor(user?.role).map((section, i) => (
             <div key={section.title}>
@@ -303,12 +378,12 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* phone header */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14
-                         bg-ink-900/80 backdrop-blur-xl border-b border-white/[0.07]">
+                         bg-ink-900/95 border-b border-white/[0.07]">
         <button onClick={() => setOpen(v => !v)} aria-label="Open navigation"
                 className="p-2 -ml-2 text-slate-300 hover:text-white">
           <Menu size={20} />
         </button>
-        <Link to="/" className="flex items-center gap-2 flex-1 min-w-0">
+        <Link to="/" className="flex items-center gap-2 flex-1 min-w-0" aria-label="Smart Lab - dashboard" title="Dashboard">
           <SmartLabMark size={28} />
           <Wordmark compact />
         </Link>
@@ -326,7 +401,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       <aside className={`fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[264px]
                          shrink-0 flex flex-col border-r border-white/[0.07] overflow-hidden
-                         bg-ink-900/95 lg:bg-ink-900/60 backdrop-blur-xl
+                         bg-ink-900/95 lg:bg-ink-900/85
                          transition-transform duration-200 ease-out
                          ${open ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
         {sidebar}
@@ -336,7 +411,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* desktop top bar */}
         {/* Left: the university. Right: system and account actions. */}
         <div className="hidden lg:flex sticky top-0 z-30 items-center gap-2.5
-                        h-16 px-8 bg-ink-900/55 backdrop-blur-xl border-b border-white/[0.07]">
+                        h-16 px-8 bg-ink-900/90 border-b border-white/[0.07]">
           <div className="mr-auto flex items-center min-w-0">
             <InstitutionLogo strong className="!h-10"
                              textClass="!text-[11px] !tracking-[0.14em] !text-slate-200 whitespace-nowrap" />
@@ -351,6 +426,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
 
         <main className="flex-1">
+          {outdated && (
+            <div className="sticky top-0 z-30 flex items-center gap-3 bg-accent-500/15 border-b border-accent-400/40 px-4 py-1.5 text-[12.5px] text-slate-200">
+              A new version of the portal is ready - it loads on your next page change.
+              <button type="button" className="btn-primary btn-sm ml-auto" onClick={() => window.location.reload()}>Reload now</button>
+            </div>)}
           {/* Bottom padding on phones keeps the last content clear of the
               floating Report button. */}
           <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 lg:py-8">
@@ -375,6 +455,11 @@ export default function Layout({ children }: { children: ReactNode }) {
         </main>
         <ChatBubble />
       </div>
+      <CommandPalette staff={staff} pages={navFor(user?.role).flatMap(s => s.items.map(i => ({ to: i.to, label: i.label, section: s.title })))} />
+      <HazardAlarm />
+      <EmergencyMessage />
+      <NotificationToasts />
+      <EnvWarnings />
 
       {/* phone quick action - hidden where it could cover the entry QR */}
       {showFab && (

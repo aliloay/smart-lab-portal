@@ -1,24 +1,14 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
+import './login.css'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  ArrowRight, Fingerprint, UserPlus, QrCode, ScanFace, ShieldCheck, Lock, Eye, EyeOff,
-} from 'lucide-react'
+import { ArrowRight, Bot, Cpu, Eye, EyeOff, Lock, ShieldCheck, UserPlus } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { suggestUsername, USERNAME_HINT, validUsername } from '../lib/usernames'
 import { api } from '../lib/api'
 import { ErrorBanner, Notice } from '../components/ui'
 import { InstitutionLogo, SmartLabMark, Wordmark } from '../components/Brand'
-import { AccessFlow, Bloom, GridField, NodeField, RoboticArm, SystemBadge } from '../components/visual'
-
-const FLOW = [
-  { icon: <QrCode size={18} />, title: 'QR code or RFID card',
-    detail: 'Step 1 identifies you and your booking.' },
-  { icon: <span className="flex -space-x-1"><Fingerprint size={16} /><ScanFace size={16} /></span>,
-    title: 'Fingerprint or face',
-    detail: 'Step 2 must match the identity from step 1.' },
-  { icon: <ShieldCheck size={18} />, title: 'Authorized access',
-    detail: 'Only then does the door controller unlock.' },
-]
+import { GridField } from '../components/visual'
 
 export default function Login() {
   const { login } = useAuth()
@@ -29,32 +19,54 @@ export default function Login() {
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [portalUp, setPortalUp] = useState<boolean | null>(null)
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [signupCfg, setSignupCfg] = useState<{ enabled: boolean; email_domains: string[]; requires_approval: boolean } | null>(null)
   const [fullName, setFullName] = useState('')
+  // sign-up: firstname.lastname, pre-filled from the name until the person edits it (2026-10-20)
+  const [username, setUsername] = useState('')
+  const [usernameEdited, setUsernameEdited] = useState(false)
+  const shownUsername = usernameEdited ? username : suggestUsername(fullName)
   const [studentId, setStudentId] = useState('')
   const [department, setDepartment] = useState('')
   const [done, setDone] = useState('')
 
+  // Restrained parallax for the background layer (desktop, pointer only, never with reduced motion).
+  const stage = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = stage.current
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(pointer: fine)').matches) return
+    let raf = 0
+    const on = (e: PointerEvent) => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        el.style.setProperty('--lx', ((e.clientX / window.innerWidth) - 0.5).toFixed(3))
+        el.style.setProperty('--ly', ((e.clientY / window.innerHeight) - 0.5).toFixed(3))
+      })
+    }
+    window.addEventListener('pointermove', on, { passive: true })
+    return () => { window.removeEventListener('pointermove', on); cancelAnimationFrame(raf) }
+  }, [])
   useEffect(() => { api.signupConfig().then(setSignupCfg).catch(() => setSignupCfg(null)) }, [])
   const signingUp = mode === 'signup'
 
-  // A real check, not a decorative "SYSTEM ONLINE" label.
-  useEffect(() => {
-    fetch('/api/health').then(r => r.json())
-      .then(b => setPortalUp(b.status === 'ok'))
-      .catch(() => setPortalUp(false))
-  }, [])
-
   async function submit(e: FormEvent) {
     e.preventDefault()
+    // Chrome's saved-password autofill shows the values but does not tell the
+    // page until the user clicks somewhere - read them straight from the
+    // fields so Enter works on an autofilled form too.
+    const f = e.currentTarget as HTMLFormElement
+    const emailNow = (f.querySelector('#email') as HTMLInputElement | null)?.value ?? email
+    const pwNow = (f.querySelector('#password') as HTMLInputElement | null)?.value ?? password
+    if (!emailNow || !pwNow) { setError(signingUp ? 'Enter your email and password.' : 'Enter your email or username and your password.'); return }
+    if (signingUp && !validUsername(shownUsername)) { setError(`Username: ${USERNAME_HINT}.`); return }
+    if (emailNow !== email) setEmail(emailNow)
+    if (pwNow !== password) setPassword(pwNow)
     setError('')
     setBusy(true)
     try {
       if (signingUp) {
         const r = await api.signup({
-          email: email.trim().toLowerCase(), full_name: fullName.trim(), password,
+          email: email.trim().toLowerCase(), username: shownUsername.trim().toLowerCase(), full_name: fullName.trim(), password,
           student_id: studentId.trim() || undefined, department: department.trim() || undefined,
         })
         if (r.pending_approval) {
@@ -63,9 +75,16 @@ export default function Login() {
           return
         }
       }
-      await login(email.trim().toLowerCase(), password)
+      await login((signingUp ? emailNow : emailNow).trim().toLowerCase(), pwNow)
       const next = params.get('next')
-      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/', { replace: true })
+      // The IoT Command Center has its own port (8080 / 8443): land there, not on the overview.
+      // After every sign-in: the /welcome story; it stays until Skip / Enter Dashboard, which go to
+      // "/" = this role's own dashboard. A deep link (?next=) still wins; the Command Center port too.
+      // Owner 2026-10-18: the welcome shows after EVERY sign-in, also when the sign-in came from an
+      // expired session or a link - its Enter button then continues to that page.
+      const ok = next && next.startsWith('/') && !next.startsWith('//')
+      nav(['8080', '8443'].includes(window.location.port) ? (ok ? next! : '/command')
+          : ok ? `/welcome?next=${encodeURIComponent(next!)}` : '/welcome', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
@@ -73,76 +92,73 @@ export default function Login() {
     }
   }
 
-  const badge = portalUp === null ? { t: 'CHECKING PORTAL', tone: 'idle' as const }
-    : portalUp ? { t: 'PORTAL ONLINE', tone: 'ok' as const }
-    : { t: 'PORTAL UNREACHABLE', tone: 'warn' as const }
-
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[1.15fr_1fr]">
+    <div ref={stage} className="login-stage relative min-h-screen overflow-x-hidden bg-ink-950 lg:grid lg:grid-cols-[1.15fr_1fr]">
+      {/* One environment behind both halves: grid, glows, and light paths that leave the robot
+          picture, cross the seam and fade out above / below the sign-in card. Decorative, CSS/SVG only. */}
+      <div aria-hidden className="login-env pointer-events-none absolute inset-0 hidden lg:block">
+        <div className="login-env-grid" />
+        <div className="login-env-glow" />
+        <svg className="login-env-paths" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            {/* both trails fade out well before the sign-in card */}
+            <linearGradient id="lp-c" x1="0" x2="1"><stop offset="0" stopColor="#22d3ee" stopOpacity=".05" /><stop offset=".45" stopColor="#22d3ee" stopOpacity=".7" /><stop offset=".75" stopColor="#22d3ee" stopOpacity=".3" /><stop offset="1" stopColor="#22d3ee" stopOpacity="0" /></linearGradient>
+            <linearGradient id="lp-a" x1="0" x2="1"><stop offset="0" stopColor="#fbbf24" stopOpacity="0" /><stop offset=".45" stopColor="#fbbf24" stopOpacity=".5" /><stop offset="1" stopColor="#fbbf24" stopOpacity="0" /></linearGradient>
+          </defs>
+          {/* amber trail stays on the left */}
+          <path d="M-2 84 C 20 80, 38 88, 52 90" stroke="url(#lp-a)" strokeWidth=".16" fill="none" className="login-path login-path-slow" />
+        </svg>
+      </div>
       {/* ------------------------------------------------------ identity */}
-      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden
-                        p-12 border-r border-ink-600/60 bg-ink-900/60">
-        <GridField className="!opacity-80" />
-        <Bloom />
-        <Bloom tone="teal" className="!left-auto !right-0 !top-auto !bottom-0" />
-        <NodeField className="absolute inset-0 w-full h-full opacity-60" />
-        <RoboticArm className="absolute -right-10 bottom-0 w-[500px] h-auto opacity-80" />
+      <aside className="relative z-[1] hidden lg:flex flex-col justify-between overflow-hidden p-12">
+        {/* The seam between the two halves: two light rays (cyan, amber) running along it. CSS only. */}
+        <div aria-hidden className="absolute top-0 right-0 h-full w-px bg-gradient-to-b from-transparent via-cyan-400/30 to-transparent z-10">
+          <span className="seam-ray" /><span className="seam-ray seam-ray-amber" />
+        </div>
+        {/* The lab's own UR5e (left) and FANUC (right): /assets/labs/login-robots.jpg, a crop of our two
+            photos so the robots, not the frame, fill the picture. Decorative only. */}
+        <img src="/assets/labs/login-robots.jpg" alt="" aria-hidden decoding="async"
+             className="absolute top-0 inset-x-0 w-full h-[64%] object-cover object-center opacity-85" />
+        {/* Both robots stay visible across the top; the picture fades into navy under the headline. */}
+        <div aria-hidden className="absolute top-0 inset-x-0 h-[64%] bg-gradient-to-b from-ink-950/65 via-ink-950/10 to-ink-950" />
+        <div aria-hidden className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_80%,rgba(34,211,238,.18),transparent_55%),radial-gradient(ellipse_at_85%_20%,rgba(251,191,36,.10),transparent_50%)]" />
+        <style>{`.login-trail{animation:lt 6s linear infinite}.login-trail-slow{animation-duration:9s}
+          .login-node{animation:ln 3.2s ease-in-out infinite}@keyframes lt{to{stroke-dashoffset:-32}}
+          @keyframes ln{50%{opacity:.25}}.seam-ray{position:absolute;left:-1px;width:3px;height:22%;border-radius:2px;background:linear-gradient(transparent,#22d3ee,transparent);box-shadow:0 0 12px 2px rgba(34,211,238,.55);animation:sr 5s linear infinite}.seam-ray-amber{background:linear-gradient(transparent,#67e8f9,transparent);box-shadow:0 0 12px 2px rgba(103,232,249,.5);animation-duration:7s;animation-direction:reverse;animation-delay:-2s}@keyframes sr{from{top:-25%}to{top:105%}}@media (prefers-reduced-motion:reduce){.login-trail,.login-node,.seam-ray{animation:none}.seam-ray{display:none}}`}</style>
 
         <div className="relative flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
-            <SmartLabMark size={46} animated />
-            <Wordmark />
-          </div>
-          <InstitutionLogo className="!h-12 xl:!h-14" />
+          <div className="flex items-center gap-4"><SmartLabMark size={60} animated /><Wordmark /></div>
+          <InstitutionLogo className="!h-9 xl:!h-10 ml-auto -mr-9 drop-shadow-[0_2px_8px_rgba(0,0,0,.6)]" />
         </div>
 
-        <div className="relative max-w-lg">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: .45 }}>
-            <div className="eyebrow">German International University · Cairo</div>
-            <h1 className="mt-4 font-display text-[46px] leading-[1.02] font-semibold
-                           tracking-tight text-white">
-              SMART LAB
-              <span className="block mt-2 text-[26px] leading-tight font-medium
-                               bg-gradient-to-r from-accent-200 via-signal-300 to-teal-300
-                               bg-clip-text text-transparent">
-                Intelligent Research Laboratory
-              </span>
-            </h1>
-            <p className="mt-5 text-[16px] text-slate-300 leading-relaxed">
-              Connected laboratories. Secure access. Smarter research.
-            </p>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: .15, duration: .45 }}
-                      className="mt-9 card !bg-ink-850/80 p-5 max-w-sm">
-            <div className="label mb-4">How entry works</div>
-            <AccessFlow steps={FLOW} />
-          </motion.div>
-        </div>
-
-        <div className="relative flex flex-wrap gap-2">
-          <SystemBadge label={badge.t} tone={badge.tone} />
-          <SystemBadge label="TWO-FACTOR ACCESS" tone="idle" />
-          <SystemBadge label="GIU · CAIRO" tone="idle" />
-        </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }}
+                    className="relative max-w-xl">
+          <h1 className="font-display text-[50px] xl:text-[58px] leading-[1.02] font-semibold tracking-tight text-white">
+            Multiple labs.<span className="block bg-gradient-to-r from-accent-200 via-cyan-300 to-amber-200 bg-clip-text text-transparent">
+              One connected system.</span></h1>
+          <p className="mt-5 text-[16.5px] text-slate-300 leading-relaxed max-w-md">
+            Where robotics, intelligent automation, and connected research work together.</p>
+          <ul className="mt-9 flex flex-wrap xl:flex-nowrap items-center gap-x-5 gap-y-2.5 text-[11px] font-semibold tracking-[.1em] text-slate-100">
+            {[[<Bot size={15} />, 'ROBOTICS & DIGITAL TWINS'], [<Cpu size={15} />, 'INTELLIGENT AUTOMATION'],
+              [<ShieldCheck size={15} />, 'SECURE LAB ACCESS']].map(([icon, t]) => (
+              <li key={t as string} className="flex items-center gap-1.5 whitespace-nowrap"><span className="text-cyan-300 shrink-0">{icon}</span>{t}</li>))}
+          </ul>
+        </motion.div>
+        <div />
       </aside>
 
       {/* ------------------------------------------------------- sign in */}
-      <main className="relative flex items-center justify-center px-5 py-12">
+      <main className="relative z-[3] flex items-center justify-center px-5 py-12">
         <GridField className="lg:hidden" />
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: .35 }} className="relative w-full max-w-[400px]">
-          <div className="lg:hidden mb-8 space-y-6">
-            <InstitutionLogo className="!h-11" />
-            <div className="flex items-center gap-3">
-              <SmartLabMark size={40} animated />
-              <Wordmark />
-            </div>
+          <div className="lg:hidden mb-6 flex flex-col items-start gap-4">
+            <InstitutionLogo className="!h-9" />
+            <div className="flex items-center gap-2.5"><SmartLabMark size={34} animated /><Wordmark /></div>
           </div>
 
-          <div className="card p-7 sm:p-8">
+          <div aria-hidden className="login-card-glow" />
+          <div className="card login-glass relative p-7 sm:p-8">
             <div className="flex items-center gap-2.5">
               <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-500/15
                                border border-accent-500/30 text-accent-300">
@@ -181,13 +197,23 @@ export default function Login() {
                   <input id="full_name" className="input" value={fullName} autoComplete="name"
                          required minLength={2} onChange={e => setFullName(e.target.value)} />
                 </div>)}
+              {signingUp && (
+                <div>
+                  <label htmlFor="username" className="label block mb-1.5">Username</label>
+                  <input id="username" className="input mono" value={shownUsername} autoComplete="off" spellCheck={false}
+                         required maxLength={64} placeholder="firstname.lastname"
+                         onChange={e => { setUsernameEdited(true); setUsername(e.target.value.toLowerCase()) }} />
+                  <p className={`mt-1 text-[11.5px] ${shownUsername && !validUsername(shownUsername) ? 'text-warn-soft' : 'text-slate-500'}`}>
+                    {USERNAME_HINT}. You can sign in with it or with your email.</p>
+                </div>)}
 
               <div>
-                <label htmlFor="email" className="label block mb-1.5">Email</label>
-                <input id="email" className="input" type="email" value={email}
-                       autoFocus autoComplete="username" required
-                       placeholder={signingUp && signupCfg?.email_domains.length
-                         ? `you@${signupCfg.email_domains[0]}` : 'you@giu-uni.de'}
+                <label htmlFor="email" className="label block mb-1.5">{signingUp ? 'Email' : 'Email or username'}</label>
+                {/* sign-in takes an e-mail OR a username (firstname.lastname), so not type=email there */}
+                <input id="email" className="input" type={signingUp ? 'email' : 'text'} value={email}
+                       autoFocus autoComplete="username" required spellCheck={false} autoCapitalize="none"
+                       placeholder={signingUp ? (signupCfg?.email_domains.length
+                         ? `you@${signupCfg.email_domains[0]}` : 'you@giu-uni.de') : 'you@giu-uni.de or firstname.lastname'}
                        onChange={e => setEmail(e.target.value)} />
               </div>
               <div>
@@ -223,8 +249,8 @@ export default function Login() {
               </>)}
 
               <button type="submit" className="btn-primary w-full !py-3"
-                      disabled={busy || !email || !password
-                        || (signingUp && (fullName.trim().length < 2 || password.length < 8))}>
+                      disabled={busy
+                        || (signingUp && (fullName.trim().length < 2 || password.length < 8 || !validUsername(shownUsername)))}>
                 {busy ? (signingUp ? 'Creating account…' : 'Signing in…')
                   : (signingUp ? 'Create account' : 'Sign in')}
                 {!busy && <ArrowRight size={16} />}
@@ -239,10 +265,6 @@ export default function Login() {
             door — entry also needs your fingerprint or face, enrolled by lab staff.
           </p>
 
-          <div className="lg:hidden mt-8 card p-5">
-            <div className="label mb-4">How entry works</div>
-            <AccessFlow steps={FLOW} />
-          </div>
         </motion.div>
       </main>
     </div>

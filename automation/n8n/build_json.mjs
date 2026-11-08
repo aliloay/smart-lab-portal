@@ -12,10 +12,12 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const { parseWorkflowCode } = require('@n8n/workflow-sdk')
-const here = new URL('.', import.meta.url).pathname
+// fileURLToPath, not URL.pathname: the latter is '/C:/...' on Windows.
+const here = fileURLToPath(new URL('.', import.meta.url))
 const manifest = JSON.parse(readFileSync(here + 'workflows.json', 'utf8')).workflows
 
 // Both credentials are Header Auth; the node kind tells them apart: webhook
@@ -31,7 +33,7 @@ const uuid = s => {
 
 mkdirSync(here + 'json', { recursive: true })
 for (const file of readdirSync(here + 'src').filter(f => f.endsWith('.ts')).sort()) {
-  const code = readFileSync(here + 'src/' + file, 'utf8').replace(/^import .*\n/m, '')
+  const code = readFileSync(here + 'src/' + file, 'utf8').replace(/^import .*\r?\n/m, '')
   const wf = parseWorkflowCode(code)
   const entry = manifest.find(m => m.file === 'src/' + file)
   let notes = 0

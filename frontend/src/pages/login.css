@@ -1,0 +1,42 @@
+/* Login: one continuous background behind both halves + a legible glass card. Decorative only. */
+.login-stage{--lx:0;--ly:0}
+.login-env{z-index:2}
+.login-env-grid,.login-env-glow,.login-env-paths{position:absolute;inset:-2%;transition:transform .6s ease-out}
+.login-env-grid{background-image:linear-gradient(rgba(148,184,226,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(148,184,226,.055) 1px,transparent 1px);
+  background-size:34px 34px;-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 45%,#000 100%);mask-image:linear-gradient(180deg,transparent 0,#000 45%,#000 100%);
+  transform:translate3d(calc(var(--lx) * -6px),calc(var(--ly) * -6px),0)}
+.login-env-glow{background:radial-gradient(ellipse 34% 40% at 76% 52%,rgba(34,211,238,.10),transparent 70%),
+  radial-gradient(ellipse 30% 30% at 52% 18%,rgba(34,211,238,.08),transparent 70%),radial-gradient(ellipse 28% 26% at 58% 92%,rgba(251,191,36,.07),transparent 70%);
+  transform:translate3d(calc(var(--lx) * 10px),calc(var(--ly) * 8px),0)}
+.login-env-paths{width:104%;height:104%;transform:translate3d(calc(var(--lx) * -12px),calc(var(--ly) * -8px),0)}
+.login-path{stroke-dasharray:1.2 2.4;animation:loginPath 14s linear infinite}
+.login-path-slow{animation-duration:20s;animation-direction:reverse}
+@keyframes loginPath{to{stroke-dashoffset:-36}}
+.login-node{animation:loginNode 4.5s ease-in-out infinite}
+@keyframes loginNode{50%{opacity:.3}}
+
+/* The card: translucent navy, restrained blur, still clearly readable. */
+.login-glass{background:linear-gradient(160deg,rgba(17,32,58,.86),rgba(9,19,36,.84))!important;
+  -webkit-backdrop-filter:blur(14px) saturate(1.15);backdrop-filter:blur(14px) saturate(1.15);
+  border:1px solid rgba(34,211,238,.22)!important;
+  box-shadow:0 30px 80px -30px rgba(0,0,0,.85),inset 0 1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(34,211,238,.05)}
+.login-card-glow{position:absolute;inset:8% -6% -4%;border-radius:32px;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 40%,rgba(34,211,238,.16),transparent 70%);filter:blur(28px)}
+
+@media (prefers-reduced-motion:reduce){
+  .login-path,.login-node{animation:none}
+  .login-env-grid,.login-env-glow,.login-env-paths{transform:none;transition:none}
+}
+
+/* right half: calm - a localized glow behind the card, an amber tint at the divider */
+.login-env-glow{background:radial-gradient(ellipse 26% 42% at 76% 48%,rgba(56,189,248,.16),rgba(34,211,238,.06) 55%,transparent 75%),
+  radial-gradient(ellipse 12% 34% at 54% 52%,rgba(251,191,36,.07),transparent 70%),
+  radial-gradient(ellipse 30% 30% at 40% 20%,rgba(34,211,238,.06),transparent 70%)}
+/* a faint light travelling slowly along the card border; the card itself does not move */
+@property --lg-a{syntax:'<angle>';inherits:false;initial-value:0deg}
+.login-glass::before{content:'';position:absolute;inset:-1.5px;border-radius:inherit;padding:2px;pointer-events:none;filter:drop-shadow(0 0 6px rgba(103,232,249,.85));
+  background:conic-gradient(from var(--lg-a),transparent 0 68%,rgba(34,211,238,.5) 78%,#a5f3fc 86%,rgba(103,232,249,.55) 92%,transparent 97%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+  animation:loginEdge 14s linear infinite}
+@keyframes loginEdge{to{--lg-a:360deg}}
+@media (prefers-reduced-motion:reduce){.login-glass::before{animation:none;opacity:0}}

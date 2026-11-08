@@ -1,0 +1,15 @@
+{
+  "checked": "2026-10-27 against scan.registry (the live registry) - payloads must equal the asset's record key",
+  "verified": [
+    {"slug": "entry-camera", "payload": "SLAB:D:CAM_LAB01"},
+    {"slug": "face-server", "payload": "SLAB:D:FACESRV_01"},
+    {"slug": "door-master", "payload": "SLAB:D:MASTER_LAB01"},
+    {"slug": "admin-laptop", "payload": "SLAB:D:PC_ADMIN_LAPTOP"},
+    {"slug": "ur5e-robot", "payload": "SLAB:D:UR5E_01"},
+    {"slug": "fanuc-robot", "payload": "SLAB:D:FANUC_01"}
+  ],
+  "rejected": [
+    {"slug": "consumables-bin", "payload": "SLAB:D:CONS_BIN_01", "reason": "no such asset; real: SLAB:D:BIN_NODE_1 (node), SLAB:B:BIN-R10K (bin) - rendered from the real payload instead"},
+    {"slug": "security-node", "payload": "SLAB:D:SEC_NODE_01", "reason": "no such asset; real: SLAB:D:SECCAM_LAB01, SLAB:D:SECCAM_LAB02 - rendered from the real payloads instead"}
+  ]
+}

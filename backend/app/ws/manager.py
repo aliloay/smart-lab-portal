@@ -60,8 +60,44 @@ class ConnectionManager:
             if client.lab_filter is not None and ev.get("lab_id") != client.lab_filter:
                 return False
             return client.is_staff or ev.get("user_id") == client.user_id
-        if kind == "staff":
+        if kind in ("staff", "security_state"):
             return client.is_staff
+        if kind == "robot_state":
+            # Live joint telemetry (up to 5 a second per robot): staff only.
+            return client.is_staff and (client.lab_filter is None or message.get("lab_id") == client.lab_filter)
+        if kind == "robot_status":
+            # Moving / stationary / offline changed - the same summary GET /robots
+            # shows everyone (availability), no joint values.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
+        if kind == "emergency_broadcast":
+            # The admin's emergency message and alarm: for everyone signed in.
+            return True
+        if kind == "hazard":
+            # A smoke / flame alarm: safety information for everyone signed in,
+            # whatever their role - every open page shows the full-screen alarm.
+            return True
+        if kind == "env_warning":
+            # Comfort advisories and motion in a closed lab: for the staff who
+            # can act on them (ventilation, checking the room).
+            return client.is_staff
+        if kind == "env_update":
+            # "New readings for this lab - refetch": the same facts GET
+            # /labs/{id}/environment shows any signed-in user.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
+        if kind == "inventory_update":
+            # "A bin was weighed - refetch": staff pages (GET /inventory/bins is staff-only).
+            return client.is_staff
+        if kind == "pc_state":
+            # "A lab PC changed (agent on/off, cable, user, mode, action) - refetch /equipment":
+            # staff pages only (GET /equipment is staff-only).
+            return client.is_staff
+        if kind == "share_state":
+            # Screen sharing started / stopped: everyone signed in may watch /share.
+            return True
+        if kind == "door_state":
+            # Door open/closed and lock state: the same facts GET /labs/{id}
+            # already shows any signed-in user. Only a "refetch" hint.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
         return False
 
     async def _send(self, message: dict[str, Any]) -> None:

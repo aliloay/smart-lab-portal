@@ -1,0 +1,1 @@
+BSD-3-Clause - from https://raw.githubusercontent.com/Kinovarobotics/ros_kortex/noetic-devel/kortex_description/ (Kinova ros_kortex).

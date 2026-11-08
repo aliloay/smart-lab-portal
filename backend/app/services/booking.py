@@ -9,7 +9,7 @@ live booking alone would lose the record of what was issued. Both.
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -49,9 +49,15 @@ def find_conflicts(db: Session, lab_id: int, start: datetime, end: datetime,
     return db.scalars(stmt).all()
 
 
+def lock_lab(db: Session, lab_id: int) -> None:
+    """Serialise booking writes for one lab until this transaction ends (PostgreSQL advisory lock)."""
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :lab)"), {"ns": 51_001, "lab": lab_id})
+
+
 def create_booking(db: Session, user: User, lab: Lab, start: datetime,
                    end: datetime, reason: str,
-                   actor: Optional[User] = None) -> Booking:
+                   actor: Optional[User] = None, equipment=None) -> Booking:
     start, end = _as_utc(start), _as_utc(end)
 
     if start >= end:
@@ -69,6 +75,11 @@ def create_booking(db: Session, user: User, lab: Lab, start: datetime,
     if not lab.is_active:
         raise BookingError("LAB_INACTIVE", "This laboratory is not bookable.")
 
+    # Two requests for the same lab at the same moment both passed the overlap check and both were saved
+    # (2026-10-26 audit). A transaction-level lock per lab serialises check + insert; it is released at commit /
+    # rollback. No schema change (an exclusion constraint would fail on any overlap already in the live data).
+    lock_lab(db, lab.id)
+
     if lab.exclusive_booking:
         conflicts = find_conflicts(db, lab.id, start, end)
         if conflicts:
@@ -79,11 +90,20 @@ def create_booking(db: Session, user: User, lab: Lab, start: datetime,
                 f"{_as_utc(c.start_time):%H:%M}-{_as_utc(c.end_time):%H:%M} "
                 f"on {_as_utc(c.start_time):%Y-%m-%d}.")
 
+    from app.services.booking_equipment import EquipmentError, resolve
+    try:
+        items = resolve(db, lab.id, start, end, equipment)
+    except EquipmentError as e:
+        raise BookingError(e.code, e.message)
+
     booking = Booking(user_id=user.id, lab_id=lab.id, start_time=start,
                       end_time=end, reason=reason,
                       status=BookingStatus.PENDING)
     db.add(booking)
     db.flush()
+    for it in items:
+        it.booking_id = booking.id
+        db.add(it)
 
     on_behalf = actor is not None and actor.id != user.id
     log_event(db, EventType.BOOKING_CREATED, lab_id=lab.id, user_id=user.id,

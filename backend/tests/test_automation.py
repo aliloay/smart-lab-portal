@@ -18,6 +18,7 @@ from app.models import (AccessEvent, Alert, Booking, BookingStatus, Device,
                         IssueCategory, IssueSeverity, IssueStatus, Notification,
                         SensorReading)
 from app.services import integration
+from tests.conftest import auth_headers
 
 KEY = {"X-Automation-Key": "test-automation-key"}
 
@@ -321,9 +322,37 @@ def test_run_is_recorded(client, db):
         "summary": "sent"}).json()["recorded"]
 
 
-def test_component_fault_is_not_a_door_alarm(client, db, lab, device_headers):
+def test_component_fault_is_not_a_door_alarm(client, db, lab, device_headers, monkeypatch):
+    from app.services import devices as _devices
+    monkeypatch.setattr(_devices, "COMPONENT_FAULT_AFTER_S", 0)     # confirmation wait: test_component_health.py
     client.post("/api/access/heartbeat", headers=device_headers, json={
         "device_uid": "MASTER_LAB01", "lab_id": lab.code, "door_closed": True,
         "components": {"rfid": False, "fingerprint": True, "camera": True}})
     types = {r.event_type for r in db.query(IntegrationEvent).all()}
     assert "device.component_fault" in types and "door.alarm" not in types
+
+
+def test_inbox_tells_n8n_from_portal_and_filters(client, db, staff, admin):
+    """The Notifications page: n8n notifications are tagged n8n, the portal's
+    own are tagged portal; tabs, type filter, search and paging work."""
+    from app.services.notifications import notify
+    client.post("/api/automation/notify", headers=KEY, json={
+        "audience": "staff", "kind": "DAILY_REPORT", "title": "Daily report ready",
+        "body": "x", "dedupe_key": "daily-report:inbox", "severity": "warning"})
+    notify(db, [staff.id], "BOOKING_CONFIRMED", "Booking confirmed", severity="info")
+    notify(db, [staff.id], "DEVICE_OFFLINE", "Door offline", severity="critical")
+    db.commit()
+    h = auth_headers(client, staff.email)
+    r = client.get("/api/notifications/inbox", headers=h).json()
+    assert r["counts"] == {"all": 3, "unread": 3, "n8n": 1, "portal": 2, "critical": 1}
+    assert {n["title"]: n["source"] for n in r["items"]} == {
+        "Daily report ready": "n8n", "Booking confirmed": "portal", "Door offline": "portal"}
+    assert sorted(r["kinds"]) == ["BOOKING_CONFIRMED", "DAILY_REPORT", "DEVICE_OFFLINE"]
+    n8n = client.get("/api/notifications/inbox?tab=n8n", headers=h).json()
+    assert [n["title"] for n in n8n["items"]] == ["Daily report ready"]
+    assert client.get("/api/notifications/inbox?q=offline", headers=h).json()["total"] == 1
+    assert client.get("/api/notifications/inbox?kind=BOOKING_CONFIRMED", headers=h).json()["total"] == 1
+    page = client.get("/api/notifications/inbox?limit=2&offset=2", headers=h).json()
+    assert page["total"] == 3 and len(page["items"]) == 1
+    # Only one's own.
+    assert client.get("/api/notifications/inbox", headers=auth_headers(client, admin.email)).json()["counts"]["portal"] == 0

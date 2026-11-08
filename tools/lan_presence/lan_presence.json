@@ -1,0 +1,10 @@
+{
+  "_doc": "Lab PCs checked on the lab LAN by MAC (tools/lan_presence/lan_presence.py). source_ip = this laptop's address on the lab cable. Add one entry per PC: its MAC from `getmac` on the PC (or the router's client list); ip is only a first hint - the MAC is followed.",
+  "source_ip": "192.168.1.200",
+  "lab": "LAB_01",
+  "portal": "http://127.0.0.1:8000/api",
+  "pcs": [
+    {"device_uid": "PC_01", "asset_tag": "PC-01", "mac": "60-EB-69-6B-C8-50", "ip": "192.168.1.101",
+     "_note": "owner's old HP laptop (Windows 7 SP1) on LAN3 as the test PC, 2026-10-21"}
+  ]
+}
