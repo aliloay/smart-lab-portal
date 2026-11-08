@@ -1,0 +1,234 @@
+---
+type: "source-mirror"
+source_kind: "source-code"
+source_path: "docker-compose.yml"
+source_hash: "1c3a732a243078a88351bdf8cc10a21162a792a3c75df49063707799b2207c07"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+redactions: ["secret-assignment"]
+---
+> Read-only mirror of `docker-compose.yml` - edit the original in the repository, not this note.
+
+Systems: [[Backend and data]]
+
+## Related
+- [[docs_AI_ASSISTANT.md]] - mentioned by docs
+- [[docs_AUTOMATION.md]] - mentioned by docs
+- [[docs_DATABASE.md]] - mentioned by docs
+- [[docs_ROBOT_CONTROL.md]] - mentioned by docs
+- [[docs_SECURITY.md]] - mentioned by docs
+
+```yml
+# A fixed project name keeps ONE database no matter which folder or clone
+# this is started from: the volumes are always smart-lab-portal_pgdata and
+# smart-lab-portal_uploads, reused by every start and every rebuild.
+name: smart-lab-portal
+
+services:
+  db:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smartlab
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartlab}
+      POSTGRES_DB: smartlab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartlab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Reachable from this laptop only (pgAdmin, psql, pg_dump) on port 5433:
+    # 5432 is usually taken by a locally installed PostgreSQL, and the
+    # database has no business being open to the Wi-Fi. The backend reaches
+    # it inside the compose network as db:5432.
+    ports: ["127.0.0.1:5433:5432"]
+
+  # Automatic backups: a full dump at start and every BACKUP_EVERY_HOURS, into
+  # ./backups (gitignored; inside OneDrive, so also copied off the laptop), each
+  # dump checked readable before it is kept; uploads (photos, snapshots) once a
+  # day. Old backups are never deleted - a dump is ~200 KB. backup_status.json
+  # tells the portal how the last run went (app.services.backups alerts on a
+  # failure). Restore: docs/DATABASE.md.
+  backup:
+    image: postgres:16-alpine
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGHOST: db
+      PGUSER: smartlab
+      PGPASSWORD: ${POSTGRES_PASSWORD:-smartlab}
+      PGDATABASE: smartlab
+      TZ: Africa/Cairo
+      BACKUP_EVERY_HOURS: ${BACKUP_EVERY_HOURS:-6}
+    volumes:
+      - ./backups:/backups
+      - uploads:/uploads:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        status() {
+          echo "{\"ok\": $$1, \"last_attempt\": \"$$2\", \"last_success\": $$3, \"file\": $$4, \"size_kb\": $$5, \"every_hours\": $$BACKUP_EVERY_HOURS}" > /backups/backup_status.json
+        }
+        last_ok=null
+        while true; do
+          f=/backups/auto_smartlab_$$(date +%Y%m%d_%H%M).dump
+          now=$$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+          if pg_dump -Fc -f "$$f.part" && pg_restore --list "$$f.part" >/dev/null; then
+            mv "$$f.part" "$$f"
+            kb=$$(du -k "$$f" | cut -f1)
+            last_ok="\"$$now\""
+            echo "backup saved: $$f ($$kb KB)"
+            u=/backups/auto_uploads_$$(date +%Y%m%d).tar.gz
+            [ -f "$$u" ] || tar czf "$$u" -C /uploads . || echo "uploads backup failed"
+            status true "$$now" "$$last_ok" "\"$$(basename $$f)\"" "$$kb"
+          else
+            echo "BACKUP FAILED at $$now"
+            rm -f "$$f.part"
+            status false "$$now" "$$last_ok" null null
+            # A failure (e.g. a moment without DNS) is retried in 5 min, not
+            # after a whole interval - one glitch once left 26 h without a backup.
+            sleep 300
+            continue
+          fi
+          sleep $$((BACKUP_EVERY_HOURS * 3600))
+        done
+    restart: unless-stopped
+
+  backend:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
+    build: ./backend
+    depends_on:
+      db: { condition: service_healthy }
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: postgresql+psycopg://smartlab:${POSTGRES_PASSWORD:-smartlab}@db:5432/smartlab
+      SECRET_KEY: ${SECRET_KEY:-dev-only-change-me}
+      [REDACTED:secret-assignment]
+      BACKUP_STATUS_PATH: /backups/backup_status.json
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost}
+      # Automation (n8n) - all optional. Unset = the portal runs exactly as
+      # before and /api/automation answers 503. See docs/AUTOMATION.md.
+      AUTOMATION_API_KEY: ${AUTOMATION_API_KEY:-}
+      AUTOMATION_WEBHOOK_BASE: ${AUTOMATION_WEBHOOK_BASE:-}
+      AUTOMATION_WEBHOOK_TOKEN: ${AUTOMATION_WEBHOOK_TOKEN:-}
+      # AI assistant - optional. See docs/AI_ASSISTANT.md.
+      # Free: Ollama installed on this computer, reached from the container
+      # via host.docker.internal. If Ollama is not installed the assistant
+      # just says so; nothing else is affected.
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      # Face enrollment from the portal: the door camera on the lab Wi-Fi and
+      # the face server running on this laptop (outside Docker).
+      CAMERA_URL: ${CAMERA_URL:-http://192.168.1.150}
+      FACE_SERVER_URL: ${FACE_SERVER_URL:-http://host.docker.internal:5000}
+      SECURITY_VISION_HOST: ${SECURITY_VISION_HOST:-host.docker.internal}
+      # Project knowledge (staff/admin): tools/knowledge/serve.py on this laptop, 127.0.0.1 only.
+      KB_SERVICE_URL: ${KB_SERVICE_URL:-http://host.docker.internal:5199}
+      KB_SERVICE_KEY: ${KB_SERVICE_KEY:-}
+      # Voice for the assistant (2026-10-26): tools/voice/voice_service.py on this laptop, 127.0.0.1:5320.
+      VOICE_URL: ${VOICE_URL:-http://host.docker.internal:5320}
+      VOICE_KEY: ${VOICE_KEY:-}
+      # OPC UA feed (tools/opcua/opcua_server.py): read-only; empty = off.
+      OPCUA_KEY: ${OPCUA_KEY:-}
+      # Robot control (docs/ROBOT_CONTROL.md): dry_run until the owner signs off a commissioning step.
+      ROBOT_CONTROL: ${ROBOT_CONTROL:-off}     # 2026-10-29 owner: monitoring only
+      UR5E_CONTROL_PATH: ${UR5E_CONTROL_PATH:-local_agent}
+      UR_AGENT_URL: ${UR_AGENT_URL:-http://host.docker.internal:5310}
+      UR_AGENT_KEY: ${UR_AGENT_KEY:-}
+      # Hardware stop relay (firmware/SmartLab_Robot_Stop): empty = not used.
+      ROBOT_STOP_RELAY_UID: ${ROBOT_STOP_RELAY_UID:-}
+      ROBOT_STOP_RELAY_ROBOT: ${ROBOT_STOP_RELAY_ROBOT:-UR5E_01}
+      EMERGENCY_PASSWORD: ${EMERGENCY_PASSWORD:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      # Smaller student model, loaded next to the staff one (empty = share it).
+      OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
+      OLLAMA_CPU_ONLY: ${OLLAMA_CPU_ONLY:-false}
+      OLLAMA_GPU_POLICY: ${OLLAMA_GPU_POLICY:-gpu}
+      # CPU threads one AI answer may use (2026-10-18): Ollama runs above normal priority with every
+      # core by default - one answer took camera 2 from 7 to 1.7 analyses/s. 0 = Ollama's default.
+      OLLAMA_NUM_THREAD: ${OLLAMA_NUM_THREAD:-4}
+      AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
+      # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the
+      # free model even when this key is present.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
+      SIGNUP_EMAIL_DOMAINS: ${SIGNUP_EMAIL_DOMAINS:-}
+      SIGNUP_REQUIRES_APPROVAL: ${SIGNUP_REQUIRES_APPROVAL:-false}
+    # Migrations run before the API accepts traffic, so a fresh volume comes
+    # up with the right schema without a manual step. seed.py only creates
+    # what is missing (accounts, laboratories, devices, equipment) and never
+    # overwrites or invents activity, so it is safe on every start; set
+    # SEED_DEMO_DATA=false to skip it.
+    command: >
+      sh -c "alembic upgrade head &&
+             if [ ${SEED_DEMO_DATA:-true} = true ]; then python seed.py; fi &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    # Issue photos. A named volume so they survive rebuilding the container.
+    volumes:
+      - uploads:/app/uploads
+      - ./backups:/backups:ro    # read backup_status.json (backup monitor)
+    # Published on every interface: the ESP32 master calls
+    # http://<laptop LAN IP>:8000/api directly.
+    ports: ["8000:8000"]
+
+  frontend:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
+    build: ./frontend
+    depends_on: [backend]
+    # The portal for browsers and phones: http://<laptop LAN IP>/
+    # nginx serves the app and forwards /api and /ws to the backend, so the
+    # browser only ever talks to this one address (no CORS, no API URL).
+    #   80    the portal                       8080  the IoT Command Center (opens on /command)
+    #   443 / 8443  the same over HTTPS, only once deploy/tls has a certificate
+    #               from tools/tls/make_local_ca.py (docs/SECURITY.md)
+    ports: ["80:80", "8080:8080", "443:443", "8443:8443"]
+    volumes:
+      - ./deploy/tls:/etc/nginx/tls:ro
+
+  # Optional self-hosted n8n: `docker compose --profile automation up -d`.
+  # It reaches the API as http://backend:8000 inside this network, so no
+  # tunnel is needed. It is never on the door path: the ESP32 talks to the
+  # backend only, and nothing in n8n can open or lock a door.
+  n8n:
+    # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
+    # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
+    restart: unless-stopped
+    image: n8nio/n8n:latest
+    profiles: ["automation"]
+    depends_on: [backend]
+    environment:
+      GENERIC_TIMEZONE: ${TZ_NAME:-Africa/Cairo}
+      TZ: ${TZ_NAME:-Africa/Cairo}
+      N8N_SECURE_COOKIE: "false"
+      # IPv4: n8n binds "::" by default and exits on hosts with IPv6 disabled.
+      N8N_LISTEN_ADDRESS: 0.0.0.0
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+      # The lab runs on a router with no internet: no telemetry or update
+      # checks, which otherwise fill the log with ENOTFOUND errors.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./automation/n8n/json:/workflows:ro
+    # Editor on this laptop only.
+    ports: ["127.0.0.1:5678:5678"]
+
+# The data. `docker compose up`, `down`, restarts and rebuilds all keep it;
+# only `docker compose down -v` (or deleting the volume) erases it.
+volumes:
+  pgdata:
+  uploads:
+  n8ndata:
+
+```

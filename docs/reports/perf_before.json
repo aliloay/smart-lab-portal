@@ -1,0 +1,218 @@
+{
+ "label": "before",
+ "at": "2026-10-17T10:41:29.130Z",
+ "base": "http://192.168.1.200",
+ "runs": 3,
+ "login_to_app_ms": 3617,
+ "routes": {
+  "/dashboard": {
+   "median": 2462,
+   "p95": 3008
+  },
+  "/labs": {
+   "median": 994,
+   "p95": 1129
+  },
+  "/labs/1": {
+   "median": 1301,
+   "p95": 1645
+  },
+  "/bookings": {
+   "median": 1071,
+   "p95": 1258
+  },
+  "/access": {
+   "median": 1286,
+   "p95": 1507
+  },
+  "/reports": {
+   "median": 1377,
+   "p95": 1400
+  },
+  "/admin/system": {
+   "median": 1028,
+   "p95": 1275
+  },
+  "/admin/equipment": {
+   "median": 1937,
+   "p95": 2413
+  },
+  "/security": {
+   "median": 2382,
+   "p95": 2594
+  },
+  "/monitor": {
+   "median": 60005,
+   "p95": 60008
+  },
+  "/admin/devices": {
+   "median": 2135,
+   "p95": 2186
+  },
+  "/alerts": {
+   "median": 1235,
+   "p95": 2596
+  },
+  "/analytics": {
+   "median": 1237,
+   "p95": 1419
+  }
+ },
+ "api": {
+  "GET /api/labs/:id/activity": {
+   "n": 3,
+   "median": 609,
+   "p95": 851
+  },
+  "GET /api/alerts": {
+   "n": 18,
+   "median": 524,
+   "p95": 941
+  },
+  "GET /api/devices": {
+   "n": 21,
+   "median": 493,
+   "p95": 1290
+  },
+  "GET /api/labs/overview": {
+   "n": 21,
+   "median": 475,
+   "p95": 771
+  },
+  "GET /api/reports/access": {
+   "n": 18,
+   "median": 467,
+   "p95": 699
+  },
+  "GET /api/issues": {
+   "n": 18,
+   "median": 466,
+   "p95": 630
+  },
+  "GET /api/labs/:id": {
+   "n": 39,
+   "median": 464,
+   "p95": 1449
+  },
+  "GET /api/bookings": {
+   "n": 3,
+   "median": 422,
+   "p95": 587
+  },
+  "GET /api/system/status": {
+   "n": 90,
+   "median": 413,
+   "p95": 1164
+  },
+  "GET /api/summary": {
+   "n": 54,
+   "median": 400,
+   "p95": 934
+  },
+  "GET /api/analytics/system": {
+   "n": 3,
+   "median": 366,
+   "p95": 506
+  },
+  "GET /api/access-events": {
+   "n": 36,
+   "median": 353,
+   "p95": 686
+  },
+  "GET /api/labs/environment/all": {
+   "n": 3,
+   "median": 347,
+   "p95": 380
+  },
+  "GET /api/assets": {
+   "n": 3,
+   "median": 314,
+   "p95": 388
+  },
+  "GET /api/analytics/labs/:id": {
+   "n": 3,
+   "median": 299,
+   "p95": 452
+  },
+  "POST /api/auth/login": {
+   "n": 1,
+   "median": 297,
+   "p95": 297
+  },
+  "GET /api/issues/summary": {
+   "n": 18,
+   "median": 289,
+   "p95": 576
+  },
+  "GET /api/emergency/active": {
+   "n": 36,
+   "median": 226,
+   "p95": 414
+  },
+  "GET /api/reusable/items": {
+   "n": 3,
+   "median": 222,
+   "p95": 261
+  },
+  "GET /api/labs/:id/environment": {
+   "n": 6,
+   "median": 202,
+   "p95": 368
+  },
+  "GET /api/ai/status": {
+   "n": 36,
+   "median": 175,
+   "p95": 419
+  },
+  "GET /api/notifications/unread-count": {
+   "n": 39,
+   "median": 170,
+   "p95": 383
+  },
+  "GET /api/system/data-mode": {
+   "n": 3,
+   "median": 138,
+   "p95": 258
+  },
+  "GET /api/experiments": {
+   "n": 3,
+   "median": 137,
+   "p95": 201
+  },
+  "GET /api/labs/hazards/active": {
+   "n": 36,
+   "median": 127,
+   "p95": 249
+  },
+  "GET /api/auth/me/access-setup": {
+   "n": 36,
+   "median": 95,
+   "p95": 185
+  },
+  "GET /api/labs": {
+   "n": 42,
+   "median": 92,
+   "p95": 252
+  },
+  "GET /api/monitor": {
+   "n": 18,
+   "median": 65,
+   "p95": 239
+  },
+  "GET /api/auth/signup-config": {
+   "n": 1,
+   "median": 45,
+   "p95": 45
+  },
+  "GET /api/security/cameras/:id/frame.jpg": {
+   "n": 617,
+   "median": 23,
+   "p95": 59
+  },
+  "GET /api/auth/me": {
+   "n": 40,
+   "median": 17,
+   "p95": 33
+  }
+ }
+}

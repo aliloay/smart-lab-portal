@@ -1,0 +1,23 @@
+{
+ "stamp": "20261018_140134",
+ "kind": "LIVE_SYSTEM (isolated copy)",
+ "drill_db": "smartlab_drill_20261018_140134",
+ "dump_s": 2.15,
+ "dump_ok": true,
+ "integrity_ok": true,
+ "toc_entries": 547,
+ "dump_file": "backups\\smartlab_drill_source_20261018_140134.dump",
+ "dump_kb": 1127,
+ "restore_s": 5.7,
+ "restore_exit": 0,
+ "restore_errors": [],
+ "tables": 42,
+ "rows_restored": 55855,
+ "count_mismatches": {
+  "sensor_readings": {
+   "production_now": 32762,
+   "restored": 32757
+  }
+ },
+ "alembic_version_restored": "d5e8b2c4f917"
+}

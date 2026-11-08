@@ -1,0 +1,138 @@
+{
+  "report": "SmartLab_Engineering_Dossier_2026-10-18.pdf",
+  "generated": "2026-10-18",
+  "labels": [
+    "VERIFIED",
+    "SIMULATED",
+    "PHYSICAL_VALIDATION_REQUIRED",
+    "BLOCKED",
+    "PARTIAL",
+    "NOT_AVAILABLE"
+  ],
+  "evidence": [
+    {
+      "claim": "Backend suite 529 passed, 0 failed",
+      "label": "VERIFIED",
+      "files": [
+        "backend/tests/"
+      ]
+    },
+    {
+      "claim": "Evidence run: 41 PASS, 13 FAIL (devices not connected), 7 N/A, 3 SIM, 4 PHYS, 1 BLOCKED",
+      "label": "VERIFIED",
+      "files": [
+        "docs/reports/evidence_20261018_112213.md",
+        "docs/reports/evidence_20261018_112213.json"
+      ]
+    },
+    {
+      "claim": "Restore drill: restore 5.4-5.7 s, 42 tables, migration up/down/up OK",
+      "label": "VERIFIED",
+      "files": [
+        "docs/reports/restore_drill_20261018_024401.json",
+        "docs/reports/restore_drill_20261018_140134.json"
+      ]
+    },
+    {
+      "claim": "Final deploy f5eaeff-dirty-20261018144505 (7 smoke checks) and post-deploy load: single p50 31/p95 80 ms; 10 users+2 viewers p50 65/p95 271 ms, frames p50 44/p95 91 ms, 0 errors",
+      "label": "VERIFIED",
+      "files": [
+        "docs/reports/perf_final_20261018.json",
+        "backups/deploy_history.jsonl"
+      ]
+    },
+    {
+      "claim": "Portal latency before/after",
+      "label": "VERIFIED",
+      "files": [
+        "docs/reports/perf_before.json",
+        "docs/reports/perf_after.json",
+        "docs/reports/perf_after2.json"
+      ]
+    },
+    {
+      "claim": "Identity bench: 180 runs, 0 wrong-name frames",
+      "label": "SIMULATED",
+      "files": [
+        "tools/security_vision/scenario_bench.py",
+        "tools/security_vision/test_scenario_bench.py"
+      ]
+    },
+    {
+      "claim": "FANUC identity and 220 installed options from SUMMARY.DG",
+      "label": "VERIFIED",
+      "files": [
+        "tools/robot_monitor/fanuc_summary.py",
+        "tools/robot_monitor/test_fanuc_summary.py"
+      ]
+    },
+    {
+      "claim": "STOP latch survives backend restart (ready 26.6 s)",
+      "label": "VERIFIED",
+      "files": [
+        "backend/app/services/robot_control.py",
+        "backend/tests/test_robot_control.py"
+      ]
+    },
+    {
+      "claim": "Camera event HTTP 500 after resolved alert fixed",
+      "label": "VERIFIED",
+      "files": [
+        "backend/app/services/alert_grouping.py",
+        "backend/tests/test_security.py",
+        "backend/tests/test_alert_grouping.py"
+      ]
+    },
+    {
+      "claim": "Reliability centre, search, navigation (e2e)",
+      "label": "VERIFIED",
+      "files": [
+        "frontend/e2e/reliability.mjs",
+        "backend/tests/test_reliability.py"
+      ]
+    },
+    {
+      "claim": "Robot readiness panels (e2e 16/16)",
+      "label": "VERIFIED",
+      "files": [
+        "frontend/e2e/robot_readiness.mjs"
+      ]
+    },
+    {
+      "claim": "Security findings (admin seed password High, HTTP Medium)",
+      "label": "VERIFIED",
+      "files": [
+        "docs/SECURITY_FINDINGS_2026-10-18.md"
+      ]
+    },
+    {
+      "claim": "Runbook, backlog, lab day plan",
+      "label": "VERIFIED",
+      "files": [
+        "docs/OPERATIONS.md",
+        "docs/BACKLOG.md",
+        "docs/LAB_GO_NOGO_2026-10-18.md"
+      ]
+    },
+    {
+      "claim": "Robot commissioning plans (UR5e, FANUC)",
+      "label": "PHYSICAL_VALIDATION_REQUIRED",
+      "files": [
+        "docs/ROBOT_CONTROL.md"
+      ]
+    },
+    {
+      "claim": "GPIO assignments",
+      "label": "VERIFIED (source code only, not measured)",
+      "files": [
+        "firmware/",
+        "docs/BRINGUP_LOG.md"
+      ]
+    },
+    {
+      "claim": "Python CVE scan",
+      "label": "NOT_AVAILABLE",
+      "files": []
+    }
+  ]
+}

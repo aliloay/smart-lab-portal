@@ -1,0 +1,98 @@
+---
+type: "source-mirror"
+source_kind: "documentation"
+source_path: "docs/reports/evidence_20261018_112213.md"
+source_hash: "e65850daab9a7312eb8f86ce8466ee5977d52c348fb2519d0c7c67907798ff58"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+---
+> Read-only mirror of `docs/reports/evidence_20261018_112213.md` - edit the original in the repository, not this note.
+
+Systems: none
+
+## Related
+- [[docs_PROGRESS_CHECKPOINT.md]] - mentioned by docs
+- [[docs_LAB_GO_NOGO_2026-10-18.md]] - mentioned by docs
+- [[docs_ROBOT_CONTROL.md]] - mentioned by docs
+- [[tools_security_vision_scenario_bench.py]] - mentioned by docs
+
+# Smart Lab evidence run 2026-10-18T11:22:13+00:00
+
+Environment: {"base": "http://192.168.1.200", "started": "2026-10-18T11:22:13.571262+00:00", "host": "ALI", "runs": 20}
+
+Summary: {'PASS': 41, 'FAIL': 13, 'NOT_AVAILABLE': 7, 'SIMULATION': 3, 'PHYSICAL_VALIDATION_REQUIRED': 4, 'BLOCKED': 1}
+
+Evidence classes: REAL_HARDWARE (observed from a device now), LIVE_SYSTEM (running software), OFFLINE (historical rows), SIMULATION (never physical validation).
+
+| Area | Check | Procedure | Expected | Observed | Result | Evidence |
+|---|---|---|---|---|---|---|
+| API | health | GET /api/health | HTTP 200 | HTTP 200 in 69 ms | PASS | LIVE_SYSTEM |
+| Security | admin sign-in | POST /auth/login | token | token received | PASS | LIVE_SYSTEM |
+| Security | anonymous refused | GET /incidents without a token | 401 | HTTP 401 | PASS | LIVE_SYSTEM |
+| Performance | /summary | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 53 ms, p95 82 ms | PASS | LIVE_SYSTEM |
+| Performance | /labs/overview | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 25 ms, p95 42 ms | PASS | LIVE_SYSTEM |
+| Performance | /devices | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 33 ms, p95 50 ms | PASS | LIVE_SYSTEM |
+| Performance | /system/status | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 25 ms, p95 57 ms | PASS | LIVE_SYSTEM |
+| Performance | /system/health | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 51 ms, p95 91 ms | PASS | LIVE_SYSTEM |
+| Performance | /alerts?open_only=true | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 26 ms, p95 49 ms | PASS | LIVE_SYSTEM |
+| Performance | /incidents?state=ACTIVE | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 65 ms, p95 73 ms | PASS | LIVE_SYSTEM |
+| Performance | /reports-center/alerts?days=7 | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 45 ms, p95 59 ms | PASS | LIVE_SYSTEM |
+| Performance | /analytics/system?days=7 | GET x20 (warm, laptop over LAN) | p95 < 500 ms | median 114 ms, p95 159 ms | PASS | LIVE_SYSTEM |
+| Data freshness | environment | latest row of sensor_readings | live (recent for its cadence) | live - last 2026-10-18T11:22:01.952131+00:00 (32957 rows) | PASS | REAL_HARDWARE |
+| Data freshness | door | latest row of access_events | live (recent for its cadence) | stale - last 2026-10-17T15:01:49.108261+00:00 (1309 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | robots | latest row of robot_events | live (recent for its cadence) | stale - last 2026-10-14T15:26:08.717312+00:00 (8629 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | consumables | latest row of inventory_measurements | live (recent for its cadence) | stale - last 2026-10-12T23:51:19.930628+00:00 (4926 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | inventory | latest row of inventory_transactions | live (recent for its cadence) | stale - last 2026-10-12T22:45:51.772237+00:00 (63 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | cameras | latest row of security_events | live (recent for its cadence) | stale - last 2026-10-18T04:57:58.717426+00:00 (658 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | pcs | latest row of equipment_sessions | live (recent for its cadence) | live - last 2026-10-17T20:38:52.023058+00:00 (42 rows) | PASS | REAL_HARDWARE |
+| Data freshness | automation | latest row of integration_events | live (recent for its cadence) | stale - last 2026-10-17T15:01:49.162155+00:00 (845 rows) | NOT_AVAILABLE | OFFLINE |
+| Data freshness | alerts | latest row of alerts | live (recent for its cadence) | live - last 2026-10-18T11:20:21.091011+00:00 (377 rows) | PASS | REAL_HARDWARE |
+| Health | PostgreSQL | background probe / heartbeat | ONLINE | ONLINE - query answered | PASS | LIVE_SYSTEM |
+| Health | Backend API | background probe / heartbeat | ONLINE | ONLINE - answering this request | PASS | LIVE_SYSTEM |
+| Health | Live stream | background probe / heartbeat | ONLINE | UNKNOWN - 0 browser(s) connected | NOT_AVAILABLE | LIVE_SYSTEM |
+| Health | Face server | background probe / heartbeat | ONLINE | ONLINE - HTTP 200 | PASS | LIVE_SYSTEM |
+| Health | AI (local model, Ollama) | background probe / heartbeat | ONLINE | ONLINE - HTTP 200 | PASS | LIVE_SYSTEM |
+| Health | Automation (n8n) | background probe / heartbeat | ONLINE | ONLINE - HTTP 200 | PASS | LIVE_SYSTEM |
+| Health | Project knowledge service | background probe / heartbeat | ONLINE | ONLINE - HTTP 200 | PASS | LIVE_SYSTEM |
+| Health | Door camera (ESP32-CAM) | background probe / heartbeat | ONLINE | OFFLINE - ConnectTimeout | FAIL | LIVE_SYSTEM |
+| Health | Entry Camera (ESP32-CAM) (CAM_LAB01) | background probe / heartbeat | ONLINE | UNKNOWN - has never reported | FAIL | REAL_HARDWARE |
+| Health | Door Controller (Master ESP32) (MASTER_LAB01) | background probe / heartbeat | ONLINE | OFFLINE - last report 2026-10-12T23:51:13.773208+00:00 | FAIL | REAL_HARDWARE |
+| Health | ADMIN-LAPTOP (PC_ADMIN_LAPTOP) | background probe / heartbeat | ONLINE | ONLINE - last report 2026-10-18T11:22:01.952131+00:00 | PASS | REAL_HARDWARE |
+| Health | FANUC ER-4iA (physical) (FANUC_01) | background probe / heartbeat | ONLINE | DEGRADED - collector running, but no joint data from the controller | FAIL | REAL_HARDWARE |
+| Health | UR5e (physical) (UR5E_01) | background probe / heartbeat | ONLINE | DEGRADED - collector running, but no joint data from the controller | FAIL | REAL_HARDWARE |
+| Health | Security camera (SECCAM_LAB02) | background probe / heartbeat | ONLINE | ONLINE - last report 2026-10-18T11:22:21.319902+00:00 | PASS | REAL_HARDWARE |
+| Health | Security camera (SECCAM_LAB01) | background probe / heartbeat | ONLINE | DEGRADED - camera service running, but no picture from the camera | FAIL | REAL_HARDWARE |
+| Health | BIN_NODE_1 (BIN_NODE_1) | background probe / heartbeat | ONLINE | OFFLINE - last report 2026-10-12T23:51:19.930628+00:00 | FAIL | REAL_HARDWARE |
+| Health | Environment node (ENV_LAB01) | background probe / heartbeat | ONLINE | OFFLINE - last report 2026-10-11T19:17:34.336720+00:00 | FAIL | REAL_HARDWARE |
+| Health | REUSE_BIN_1 (REUSE_BIN_1) | background probe / heartbeat | ONLINE | OFFLINE - last report 2026-10-12T23:51:04.276434+00:00 | FAIL | REAL_HARDWARE |
+| Cameras | SECCAM_LAB01 | GET :5100/health | camera picture with fps > 0 | camera=False fps=0.0 analysis_age=None s, errors=0 | FAIL | LIVE_SYSTEM |
+| Cameras | SECCAM_LAB02 | GET :5101/health | camera picture with fps > 0 | camera=True fps=7.0 analysis_age=0.1 s, errors=0 | PASS | REAL_HARDWARE |
+| Robots | UR5E_SIM | GET /robots (collector telemetry) | fresh joint values | state=OFFLINE joints=yes stale=None | SIMULATION | SIMULATION |
+| Robots | UR5E_SIM master control | GET control (UR5e) | mode dry_run until sign-off; truthful phase | mode=dry_run phase=STOP_REQUESTED (STOP latched by System Administrator; waiting for feedback that the arm has stopped (no fresh telemetry)) | PASS | LIVE_SYSTEM |
+| Robots | FANUC_SIM | GET /robots (collector telemetry) | fresh joint values | state=OFFLINE joints=yes stale=None | SIMULATION | SIMULATION |
+| Robots | UR5E_01 | GET /robots (collector telemetry) | fresh joint values | state=TELEMETRY_STALE joints=no stale=None | FAIL | REAL_HARDWARE |
+| Robots | UR5E_01 master control | GET control (UR5e) | mode dry_run until sign-off; truthful phase | mode=dry_run phase=BLOCKED (no fresh telemetry - robot state unknown) | PASS | LIVE_SYSTEM |
+| Robots | FANUC_01 | GET /robots (collector telemetry) | fresh joint values | state=IDLE joints=no stale=None | FAIL | REAL_HARDWARE |
+| PCs | enrolled PC agents | GET /equipment (kind PC) | >= 1 pilot PC reporting | 1 PC(s); online: 1 | PASS | REAL_HARDWARE |
+| Reports | source traceability | GET /reports-center/access | names its source table and warns on stale data | source=access_events, rows=1309, warnings=1 | PASS | OFFLINE |
+| Incidents | open incidents | GET /incidents?state=ACTIVE | listed with counts and escalation flags | {'OPEN': 65, 'ACKNOWLEDGED': 0, 'INVESTIGATING': 0, 'MITIGATED': 0, 'RESOLVED': 0} escalations=59 | PASS | LIVE_SYSTEM |
+| AI | which labs are free now | POST /ai/ask (lab data) | answer contains ['Free']; < 3 s | HTTP 200 in 81 ms via ['instant:free_labs'] | PASS | LIVE_SYSTEM |
+| AI | what is the UR5e home position | POST /ai/ask (project knowledge) | answer contains ['ROBOT_CONTROL.md']; < 3 s | HTTP 200 in 51 ms via ['instant:knowledge_lookup'] | PASS | LIVE_SYSTEM |
+| AI | how does the global STOP work for the UR5e | POST /ai/ask (project knowledge) | answer contains ['STOP']; < 3 s | HTTP 200 in 44 ms via ['instant:knowledge_lookup'] | PASS | LIVE_SYSTEM |
+| AI | how does the door controller decide to open the door | POST /ai/ask (project knowledge) | answer contains ['ACCESS', 'door']; < 3 s | HTTP 200 in 41 ms via ['instant:knowledge_lookup'] | PASS | LIVE_SYSTEM |
+| AI | what is offline | POST /ai/ask (lab data) | answer contains ['Offline']; < 3 s | HTTP 200 in 29 ms via ['instant:offline'] | PASS | LIVE_SYSTEM |
+| Reliability | configuration drift | GET /reliability/drift vs app/config_baseline.json | matches the approved baseline (secrets only checked for presence / not default) | baseline 2026-10-18.1: 0 open difference(s)  | PASS | LIVE_SYSTEM |
+| Backups | restore drill (isolated database) | tools/evidence/restore_drill.py result via /reliability/backups | last drill ok, < 30 days old | ok=True at 2026-10-18T11:02:41.741101+00:00: restore 5.7 s, 42 tables, 55855 rows | PASS | LIVE_SYSTEM |
+| Reliability | dependency model | GET /reliability/graph | every part with a state and evidence class; likely roots | {'HEALTHY': 16, 'DEGRADED': 3, 'STALE DATA': 0, 'OFFLINE': 8, 'SIMULATED': 0, 'UNKNOWN': 3} roots: ['Door camera (ESP32-CAM)', 'Robot controller FANUC_01', 'Robot controller UR5E_01', 'Camera hardware SECCAM_LAB01', 'Security camera'] | PASS | LIVE_SYSTEM |
+| Performance | service objectives | GET /reliability/performance (since backend start) | objectives met or no data yet | api_p95_ms met=True n=1999; api_success met=True n=1999 | PASS | LIVE_SYSTEM |
+| Incidents | alert quality | GET /incidents/quality?days=30 | grouping active; storms visible | 377 incidents / 377 reports, 76 conditions, storms 3 | PASS | LIVE_SYSTEM |
+| Clock | clock agreement | tools/evidence/clock_check.py | all local clocks within limits | laptop vs pool.ntp.org -1850.5 ms; backend (Docker VM) 21.3 ms; database (Docker VM) 20.9 ms; n8n container 195.8 ms; camera 1 service (5100) -462.0 ms; camera 2 service (5101) -474.0 ms; face server (5000) -494.0 ms; knowledge service (5199) -511.0 ms; Ollama (11434) -520.0 ms; PC PC_ADMIN_LAPTOP 20.0 ms | PASS | LIVE_SYSTEM |
+| Clock | laptop vs internet time | SNTP pool.ntp.org | within 1 s | laptop vs pool.ntp.org -1850.5 ms | FAIL | LIVE_SYSTEM |
+| Vision identity | scenario bench (12 scenarios + two cameras) | tools/security_vision/scenario_bench.py | 0 frames with someone else's name, 0 name switches | SIMULATED - 14 scenarios in 2.9 s; false names / name switches: NONE | SIMULATION | SIMULATION |
+| Robots | UR5e Home / STOP live test | physical procedure | done with people on site | commissioning steps 1-10 with the qualified operator (docs/ROBOT_CONTROL.md) | PHYSICAL_VALIDATION_REQUIRED | REAL_HARDWARE |
+| Robots | FANUC motion | physical procedure | done with people on site | BLOCKED: remote interface not configured, no HOME TP program, no tested stop | BLOCKED | REAL_HARDWARE |
+| Cameras | camera 2 mounting + floor calibration + identity scenarios | physical procedure | done with people on site | docs/LAB_GO_NOGO_2026-10-18.md section 1 | PHYSICAL_VALIDATION_REQUIRED | REAL_HARDWARE |
+| Hardware | ESP32 nodes (door, bins, environment) | physical procedure | done with people on site | power / fuse / voltage bench checks; nodes offline since 11-13 Oct | PHYSICAL_VALIDATION_REQUIRED | REAL_HARDWARE |
+| PCs | student-PC agent pilot | physical procedure | done with people on site | needs university IT approval | PHYSICAL_VALIDATION_REQUIRED | REAL_HARDWARE |
+| Backups | automatic dump | backups/backup_status.json via /system/health | state OK (recent, readable) | state=OK last_success=2026-10-18T09:04:57+00:00 file=auto_smartlab_20261018_1204.dump (1116 KB) | PASS | LIVE_SYSTEM |
+

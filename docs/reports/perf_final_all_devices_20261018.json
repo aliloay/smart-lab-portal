@@ -1,0 +1,74 @@
+{
+ "label": "final_realistic_all_devices",
+ "users": 10,
+ "think_s": 3.0,
+ "duration_s": 60.0,
+ "requests": 195,
+ "req_per_s": 3.2,
+ "errors": 0,
+ "error_sample": [],
+ "p50": 102.8,
+ "p95": 406.1,
+ "frames": {
+  "viewers": 2,
+  "n": 644,
+  "per_s": 10.7,
+  "p50": 51.8,
+  "p95": 150.1,
+  "codes": {
+   "200": 644
+  }
+ },
+ "by_endpoint": {
+  "/summary": {
+   "n": 20,
+   "p50": 172.9,
+   "p95": 524.6
+  },
+  "/labs": {
+   "n": 19,
+   "p50": 59.3,
+   "p95": 220.2
+  },
+  "/system/health": {
+   "n": 20,
+   "p50": 160.2,
+   "p95": 358.8
+  },
+  "/system/services": {
+   "n": 19,
+   "p50": 67.9,
+   "p95": 277.7
+  },
+  "/robots": {
+   "n": 19,
+   "p50": 44.8,
+   "p95": 153.0
+  },
+  "/equipment": {
+   "n": 20,
+   "p50": 242.5,
+   "p95": 696.9
+  },
+  "/security/cameras": {
+   "n": 19,
+   "p50": 87.0,
+   "p95": 237.4
+  },
+  "/alerts?open_only=true": {
+   "n": 20,
+   "p50": 105.7,
+   "p95": 323.0
+  },
+  "/reports-center": {
+   "n": 20,
+   "p50": 67.8,
+   "p95": 175.0
+  },
+  "/analytics/anomalies": {
+   "n": 19,
+   "p50": 67.3,
+   "p95": 273.9
+  }
+ }
+}

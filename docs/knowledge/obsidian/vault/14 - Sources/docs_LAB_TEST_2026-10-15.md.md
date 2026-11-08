@@ -1,0 +1,243 @@
+---
+type: "source-mirror"
+source_kind: "documentation"
+source_path: "docs/LAB_TEST_2026-10-15.md"
+source_hash: "e0bc0f927286515f688fb6c0f3a59fa9db32fea7aaa5370b61122e202d7cb9f1"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+---
+> Read-only mirror of `docs/LAB_TEST_2026-10-15.md` - edit the original in the repository, not this note.
+
+Systems: none
+
+## Related
+- [[tools_robot_monitor_robot_collector.py]] - mentioned by docs
+- [[docs_LAB_TEST_2026-10-14.md]] - mentioned by docs
+- [[backend_app_api_routes_robots.py]] - mentioned by docs
+- [[tools_security_vision_vision.py]] - mentioned by docs
+- [[docs_PROGRESS_CHECKPOINT.md]] - mentioned by docs
+
+# Lab test 2026-10-15 - UR5e live twin + security camera
+
+Prepared 2026-10-14 night at home (no robot, no lab camera reachable). Everything marked
+**UNKNOWN** must be read at the lab - nothing here is guessed. Robots stay **read-only**: no
+program, motion, dashboard or safety command is ever sent; nobody changes a controller or
+router setting without the owner's explicit OK on the spot.
+
+Status going in:
+
+| Subsystem | Label | Why |
+|---|---|---|
+| UR5e software path (collector -> backend -> twin) | **READY_FOR_LIVE_TELEMETRY_TEST** | tested with a fake RTDE receiver and the backend tests; never with the real controller |
+| UR5e network | **READY_FOR_NETWORK_TEST** | robot IP / mask / RTDE service state UNKNOWN |
+| Camera GPU detector | **READY_FOR_HARDWARE_TEST** | whole YOLO26s graph verified on DirectML device 1 (CPU fallback disabled); the running service still has the old code until it is restarted |
+| Camera identity / tracking | **UNVERIFIED live** | 100 offline tests pass (crossing, swap, crowd change, occlusion, leave/return); live accuracy only from section B-C |
+| Camera-to-portal delay | **UNVERIFIED** | never measured live with the new code |
+
+---
+
+## A. UR5e
+
+### A1. Cabling (switch)
+```
+UR5e controller (Ethernet port in the control box) ──┐
+Smart_Lab router LAN port ───────────────────────────┤  switch
+Laptop "Ethernet" (Realtek, static 192.168.1.200/24) ┘
+```
+Do **not** plug the robot into a port that leads to the university network or the internet.
+The Smart_Lab router has no internet (by design).
+
+### A2. Network worksheet
+
+| Item | Value | Source |
+|---|---|---|
+| Laptop Ethernet | 192.168.1.200 /24, no gateway, DHCP off, metric 10 | measured 2026-10-14 |
+| Laptop Wi-Fi | at home: 192.168.1.8 /24 gw 192.168.1.1 (Vodafone) - **same subnet as the lab** | measured |
+| Smart_Lab LAN | 192.168.1.0/24 | devices below |
+| Taken on Smart_Lab | .150 ESP32-CAM, .151 door tablet, .152 env node, .155 MC210 camera, .200 laptop | project notes |
+| Smart_Lab router LAN IP | **UNKNOWN** (often .1 - check router label/admin page) | |
+| UR5e IP / mask / gateway / DHCP or static | **UNKNOWN** - pendant: Settings > System > Network | |
+| 192.168.1.101 | the **ROS laptop** on the External Control screen, not the robot | pendant, 2026-10-12 |
+| RTDE service enabled | **UNKNOWN** - pendant: Settings > Security > Services (read only, don't toggle without OK) | |
+| Protocol / port | RTDE, TCP 30004, receive only (`ur_rtde` 1.6.5, Python 3.12) | code: `tools/robot_monitor/robot_collector.py` |
+| Collector -> portal | `http://127.0.0.1:8000/api/robots/telemetry` every 0.2 s, device `UR5E_01` | `start_ur5e_monitor.bat` |
+
+**Wi-Fi warning (measured tonight):** with Wi-Fi on a 192.168.1.x network too, Windows resolved
+192.168.1.155 via **Wi-Fi**. At the lab: if your Wi-Fi is also 192.168.1.x, switch Wi-Fi off for
+the robot test, or check each device with `Find-NetRoute` (step 3).
+
+Decision once the pendant IP is known:
+* **robot on 192.168.1.x, address free** -> no change anywhere; just put `UR5E_IP=` in `robot.env`.
+* **robot on another subnet** -> two options, both need the owner's OK:
+  (a) laptop only: add a second address in the robot's subnet to the laptop's Ethernet
+  (`New-NetIPAddress`, reversible with `Remove-NetIPAddress`) - robot untouched;
+  (b) change the robot's IP on the pendant - affects whatever else talks to it (the ROS laptop
+  .101). Prefer (a).
+* **address clash** (ping answers before the robot is plugged in) -> stop, pick another address.
+
+### A3. Morning diagnostic (PowerShell, in the repo folder) - stop at the first FAIL
+
+| # | Command | PASS | FAIL -> next |
+|---|---|---|---|
+| 1 | `Get-NetAdapter Ethernet` | Status Up, 100 Mbps / 1 Gbps | Down: cable/switch power; try another switch port |
+| 2 | (before plugging the robot) `ping -n 2 <robot IP>` | no answer (address free) | answer = another device has it -> stop |
+| 3 | `Find-NetRoute -RemoteIPAddress <robot IP> \| select -First 1 InterfaceAlias` | `Ethernet` | `Wi-Fi`: switch Wi-Fi off, repeat |
+| 4 | `ping -n 4 -S 192.168.1.200 <robot IP>` | 4 replies, < 5 ms | timeout: subnet differs (A2), wrong IP, robot not booted |
+| 5 | `Test-NetConnection <robot IP> -Port 30004` | `TcpTestSucceeded : True` | False with ping OK: RTDE service disabled (Settings > Security > Services - owner decides) |
+| 6 | `py -3.12 tools\robot_monitor\rtde_check.py <robot IP>` | 5 lines `fresh`, J1-J6 equal to the pendant Move tab within 0.1°, `PASS` | `NOT ADVANCING`: controller not streaming; `connect FAIL`: step 5 |
+| 7 | write `UR5E_IP=<robot IP>` in `tools\robot_monitor\robot.env`, run `tools\robot_monitor\start_ur5e_monitor.bat` | prints `[robot] connected`, no `[portal] ... unreachable` | portal unreachable: is Docker/portal up (`http://localhost/api/health`)? `HTTP 401`: DEVICE_API_KEY in `.env` |
+| 8 | Portal -> Equipment -> Robots & PCs -> UR5e | badge **LIVE · physical robot**, ~50 samples/s, sample age < 100 ms | `PREVIEW`: see the state text under the twin (stale / offline) |
+
+### A4. Twin checks (the operator moves the robot from the pendant - never the portal/AI)
+- [ ] Pendant Move tab vs portal joint values: all 6 within 0.1° while still.
+- [ ] Operator jogs **one joint at a time** (J1 ... J6), small and slow: only that joint turns in the
+      twin, in the **same direction** as the real arm; its row turns green while moving.
+      Wrong joint = order problem; mirrored = sign problem -> note it, don't fix in the lab.
+- [ ] Overall pose looks the same as the real arm from the same side (base orientation: if the
+      twin is turned by a fixed angle, it is the mounting, not the telemetry).
+- [ ] History page (`/robots/<id>`) shows MOVEMENT_STARTED / JOINT_MOVED / MOVEMENT_STOPPED.
+
+### A5. Disconnect / recovery (what the fix tonight is for)
+- [ ] Pull the **robot's** cable from the switch. Within ~2-3 s the panel leaves LIVE: "Telemetry
+      stale" / greyed "Last known pose" - never "Stationary" with frozen joints.
+- [ ] Plug it back: monitor prints `[robot] connected`, panel LIVE again within ~5-10 s.
+- [ ] Note both times in the table.
+
+---
+
+## B. Security camera
+
+### B1. Restart with tonight's code (**needs the owner's OK** - the service is live)
+The running camera window (Python 3.14, port 5100) still runs the old code. Tonight's change:
+the detector's GPU session refuses partial CPU execution, and `/metrics` + the portal show
+which engine runs. Restart: close "Smart Lab - Security camera", run `launch.bat`.
+
+Update 2026-10-14 03:00: the owner relaunched `launch.bat`; the service then reported detector
+`directml-gpu1 (24 ms)` but **re-id `onnxruntime-cpu`** - the single start-up timing was taken while everything
+was starting. Fixed in `vision.py` (re-measures before falling back, logs why; regression test). Also: the camera
+address is now passed via the environment (not visible in Task Manager) and masked in logs. These need one more
+camera restart - which happens anyway when the camera window is started at the lab.
+
+### B2. Provider evidence
+- [ ] Console once each: `[detector] YOLO26 on directml-gpu1 (NN ms)` and
+      `[vision] re-id on directml-gpu1 (NN ms/crop)`. `openvino-cpu` / `onnxruntime-cpu` = **GPU NOT USED**.
+- [ ] Portal Command Center camera panel: chip **Detector GPU · Re-ID GPU** (amber "CPU" otherwise).
+- [ ] `nvidia-smi`: memory rises from ~0.5 GB when the service starts; stays flat for 30 min.
+- [ ] Ask Claude to read `/metrics` (device-key endpoint, key never printed): `engines`,
+      capture fps, analysis fps (target 5), `detect_ms` p50 (tonight offline: 24 ms), `pass_ms`,
+      frame age p50/p95, render fps, serve frame age, reconnects, skipped frames.
+
+### B3. Freshness / stale frames
+- [ ] Frame age p95 < 1 s and not growing over 30 min (growth = a backlog).
+- [ ] Unplug the camera's cable for 10 s: portal shows the source not sending frames; plug back:
+      `reconnects` +1, picture back, frame age back to normal.
+- [ ] Camera-to-portal delay: phone stopwatch in view, photograph phone + portal screen together;
+      difference = end-to-end delay. 5 shots, record median and worst.
+
+### B4. Tracking / identity
+Use section 1 B-D of `docs/LAB_TEST_2026-10-14.md` (one person; two people crossing, swapping,
+occluding, leaving and returning, 3 repetitions; crowd 1 -> 3+). A track ID that persists is
+**not** a verified identity; a name is only as good as the face/door evidence on the
+`/identity` panel. Unknown = UNCERTAIN, never FAIL; wrong name = FAIL with the time.
+
+### B5. Logs without secrets
+Copy console lines starting `[detector]`, `[vision]`, `[identity]`, `[record]`, `[robot]` only.
+Never paste `camera.env`, the RTSP address, `.env` or anything with `rtsp://`, `password`, `key`.
+
+---
+
+## C. Baseline measured tonight (2026-10-14, home, no robot/camera connected)
+
+| What | Result | Command |
+|---|---|---|
+| Robot collector + motion tests | 22 passed (new: link lost, frozen timestamp, NaN/short/long q, reconnect) | `py -m pytest -q tools/robot_monitor` |
+| New tests on the OLD collector | frozen link -> `STATIONARY` (should be stale): **fails**, proving the fix | scratch copy of HEAD |
+| Camera offline suite | 100 passed | `py -m pytest -q tools/security_vision` |
+| Backend suite (smartlab_test, current code in a one-off container) | full run 431 passed; failures were 2 parallel runs deadlocking on smartlab_test + 1 real bug (NaN -> 500), fixed; re-run of robots/agent/qr: 46 passed | `docker compose run --rm --no-deps -v .\backend:/app backend python -m pytest -q` |
+| Frontend | `npx tsc --noEmit -p frontend` clean | |
+| YOLO26s on DirectML device 1, dummy 640 input | strict (no CPU fallback) loads; median 23.8 ms, p95 26.6 ms; same as default | inline script |
+| Python / ORT | 3.14.7, onnxruntime-directml 1.24.4, providers Dml + CPU | |
+| GPU | GTX 1650 4 GB, 495 MiB used with all Ollama models on CPU | `nvidia-smi` |
+| Camera service (running, old code) | camera false (lab not reachable), 0 frames | `/health`, `/metrics` |
+| `rtde_check.py` without a robot | clear FAIL after 2 s (refused) | |
+
+Not verified: anything with the real UR5e, live camera latency, live identity accuracy.
+
+## D. What changed tonight, rollback, boundaries
+
+Changed (one local commit, not pushed; snapshot branch `snapshot/before-lab-readiness-20261014`):
+* `tools/robot_monitor/robot_collector.py` - refuses data after the RTDE link is lost; ignores
+  repeated controller timestamps (frozen data becomes TELEMETRY_STALE); validates 6 finite joints.
+  `test_collector.py`, `rtde_check.py` new.
+* `backend/app/api/routes/robots.py` - telemetry with NaN/inf is rejected (422), + 1 test.
+  **Not deployed**: the backend container runs the old image until the next rebuild (owner's call).
+* `tools/security_vision/vision.py` - detector DirectML session with CPU fallback disabled.
+  `security_vision.py` - `detector_gpu` / `reid_gpu` in the heartbeat, `engines` in `/metrics`.
+* `frontend` - camera panel chips (analysed fps, Detector/Re-ID GPU or CPU); robot panel sample age.
+  Shown after the next frontend build.
+
+Rollback: `git checkout snapshot/before-lab-readiness-20261014 -- <file>` per file, or
+`git revert <commit>`. Camera only, no code: `set SMARTLAB_DETECTOR=openvino` in `camera.env`.
+
+Still needs the owner's OK: restarting the camera service; rebuilding/restarting the backend or
+frontend; any robot/router setting; adding an IP to the laptop; enabling RTDE on the pendant; push.
+
+---
+## LIVE RESULTS - UR5e (2026-10-14, at the lab)
+| Step | Result |
+|---|---|
+| Pendant network | static 192.168.1.102 / 255.255.255.0, gateway 0.0.0.0 - same subnet as laptop .200, **no change made** |
+| External Control screen | Host IP 192.168.1.101 = the PC it would hand control to (not used; program not run) |
+| Route / ping | via Ethernet; 4/4 replies, 1 ms |
+| RTDE port 30004 | TcpTestSucceeded True |
+| rtde_check.py | PASS: 5 fresh samples, robot_mode 7, safety_mode 1; J1 -64.74 J2 -59.86 J3 17.93 J4 -47.46 J5 89.76 J6 65.03 deg |
+| Monitor -> portal | UR5E_01 source RTDE, 48 samples/s, telemetry age 0.0-0.2 s, joints identical to rtde_check |
+| Digital twin in portal | **owner confirmed working** |
+| Joint mapping | owner jogged J1-J6 one at a time from the pendant: **each twin joint moved, same joint, same direction** |
+| Second motion source | robot also moved by a classmate's project PC on the other LAN cable: the twin followed (read-only observer, nothing sent by us) |
+| Movement log (portal) | 26 MOVEMENT_STARTED/STOPPED pairs + 145 JOINT_MOVED events, 09:52-10:13 UTC, joints named correctly (e.g. J5 alone, J4 alone, J6 alone) |
+| Cable pull | TELEMETRY_STALE at 10:04:58.9 UTC, **2.0 s** after the last sample; TELEMETRY_RESTORED 1.5 s later (link down 3.5 s in total); back to STATIONARY at 48 Hz, no restart needed |
+| Verdict | **UR5e telemetry + digital twin: LIVE_VERIFIED** |
+
+## LIVE RESULTS - security camera (2026-10-14, at the lab)
+| Step | Result |
+|---|---|
+| Camera on Smart_Lab | 192.168.1.155 seen on the laptop's Ethernet; picture live in the portal |
+| Engines (live) | detector `directml-gpu1` (22 ms start-up timing), re-ID `directml-gpu1` (9-12 ms/crop) - **GPU verified live** |
+| Fault found | first service: analysis stopped after 45 passes (~9 s) while capture continued at 15 fps; `/health` kept reporting 5 fps / 2 people -> **frozen boxes in the portal**. A restart then started a 2nd copy that could not take port 5100 |
+| Fixes (c2da330, 381286f) | a failing pass is logged and analysis continues; fps reported 0 when no pass for 3 s; `/health` shows analysis age + error count; start script refuses a 2nd copy. Root cause of the original stop: **not captured** (old window closed) - if it recurs, `analysis_errors` > 0 and the window shows the traceback |
+| After relaunch (new code) | analysis 5.0 passes/s, 0 errors over 60 s, analysis age 0.0-0.2 s, people count changing live 1 -> 2 -> 1 |
+| Measured stage times (live) | capture 15 fps; detect p50 66 ms; frame age when analysed p50 30-33 ms / p95 105-109 ms; frame age when served p50 93 ms / p95 163 ms (first run) |
+| Still to do | people tests (cross, swap, occlusion, leave/return), camera-to-portal delay with a stopwatch, identity/naming |
+
+### Camera crash - root cause and fix (2026-10-14 ~14:00)
+- Symptom: the camera window ended with "service has stopped", no traceback.
+- Evidence: Windows Application log - 4 python.exe crashes 13:44-13:55, access violation 0xc0000005 in
+  **nvwgf2umx.dll** (NVIDIA D3D12 driver), each right after the 2nd DirectML model (equipment search) loaded.
+- Reproduced offline: analysis + a 2nd DirectML detector in parallel -> 2/2 runs crash (exit 139).
+- Fix d2de096: equipment search shares the live detector's GPU session (no 2nd model) + one GPU lock.
+  Stress after: 5/5 runs x 40 s clean (~250 analysis passes + ~105 equipment searches each).
+- Also a25cfbd: console QuickEdit off (a click in the window blocked print() and froze analysis).
+- Live after restart_all: equipment search 14 items; 200 s at 5.0 fps, 0 analysis errors, 0 python crashes in the
+  event log; UR5e still LIVE (RTDE 40 Hz) in parallel.
+
+### Identity FAIL found and fixed - Nour's name on the wrong person (2026-10-14 14:11-14:14)
+- Seen: Ali, Eng. Hemaly correct; "nour ramy USER6" shown on the woman seated next to Ali; Nour herself "Unknown".
+  Screenshots kept privately (git-ignored): backups/lab-evidence-20261014/.
+- Identity log (14:11): `CONFIRMED track 22 USER6 by face` (Nour, correct) then `CONFIRMED track 21 USER6 by crossing` x2
+  -> the look-only re-deal after two seated people touched moved a face-confirmed name to the neighbour.
+- Fix 94f1099: a track whose current face votes agree on its name keeps it; nobody takes a name their own face
+  contradicts. The tracker-swap case (no fresh face evidence) still uses the look. Regression test fails on old code.
+- Also c1215c0: name tags no longer drawn over each other. Re-test needed: same seating, 3 repetitions.
+
+### Camera speed + identity work (2026-10-14 afternoon, at the lab)
+| Change | Evidence |
+|---|---|
+| Zoomed re-detection (person seated behind another) | lab frame: Ali behind Nour missed full-frame, found at 0.76 in the zoom; slivers rejected |
+| Door naming: widened door zone; watcher refreshes entry; door decisions logged | Ali named "by door" live after the fix |
+| Hand-back while touching a neighbour; face outranks look in the crossing fix | tests reproduce both lab cases (fail on old code) |
+| Home desk (USER5 Eng. Hemaly at PC-09/PC-10) - only after door/face, seated, at desk scale | live: "Eng. Hemaly by desk"; front-row false match fixed |
+| Speed: re-ID only for people touching (others every 2 s) and >= 80 px; one zoom per pass | 13 people: re-ID 138 ms -> ~30 ms; pass p50 150-270 -> 85 ms, p95 106 ms |
+| Analysis 5 -> 7 passes/s | live 6.96-6.99 fps, frame age p50 32-36 ms, GPU 36 %, 0 errors |
+| Identity decisions persisted (recordings/identity_log.jsonl, git-ignored) | survives restarts |
+

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ALIoT Smart Lab - Engineering Dossier 2026-10-18</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.2pt; line-height: 1.42; color: #1b2330; }
+h1 { font-size: 22pt; margin: 0 0 6pt; color: #0f2a4a; }
+h2 { font-size: 14.5pt; color: #0f2a4a; border-bottom: 2px solid #2b6cb0; padding-bottom: 3pt; margin-top: 22pt; page-break-after: avoid; }
+h3 { font-size: 11.5pt; color: #234; margin: 14pt 0 4pt; page-break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 8.8pt; page-break-inside: auto; }
+th, td { border: 1px solid #c9d3df; padding: 3pt 5pt; vertical-align: top; text-align: left; }
+th { background: #e8eef6; }
+tr { page-break-inside: avoid; }
+.title { height: 245mm; display: flex; flex-direction: column; justify-content: center; page-break-after: always; }
+.sub { font-size: 12.5pt; color: #456; }
+.box { border: 1px solid #c9d3df; background: #f6f9fc; padding: 8pt 10pt; margin: 8pt 0; }
+.warn { border-color: #d69e2e; background: #fffaf0; }
+.bad { border-color: #c53030; background: #fff5f5; }
+.ok { color: #276749; font-weight: 600; } .no { color: #c53030; font-weight: 600; } .mid { color: #b7791f; font-weight: 600; }
+.small { font-size: 8.6pt; color: #555; }
+code { font-family: Consolas, monospace; font-size: 8.8pt; background: #eef2f7; padding: 0 2pt; }
+.toc a { color: #1a4f8a; text-decoration: none; } .toc li { margin: 2pt 0; }
+.pb { page-break-before: always; }
+figure { margin: 8pt 0; text-align: center; } figcaption { font-size: 8.8pt; color: #555; }
+</style></head><body>
+
+<div class="title">
+  <h1>ALIoT Smart Lab</h1>
+  <div class="sub">Engineering dossier - current state, changes, evidence, outstanding work and roadmap</div>
+  <p style="margin-top:24pt">Report version 1.0 · generated 2026-10-18 · system snapshot 2026-10-18 (live portal http://192.168.1.200, laptop host)</p>
+  <p>GIU BSc thesis project · repository <code>smart-lab-portal</code>, branch <code>offline-router-door-photos</code> (changes deployed, <b>not committed</b>)</p>
+  <div class="box warn" style="margin-top:30pt">Every result is labelled: <b>VERIFIED</b> (measured / tested on the running system or by automated tests),
+  <b>SIMULATED</b> (synthetic data, never physical evidence), <b>PHYSICAL VALIDATION REQUIRED</b>, <b>BLOCKED</b> (a named prerequisite missing),
+  <b>PARTIAL</b>. During this snapshot the laptop was <b>not at the lab</b>: camera 1, both robots and all ESP32 nodes were unreachable,
+  so no hardware result in this report is a new physical test.</div>
+</div>
+
+<h2>Executive summary</h2>
+<p>The Smart Lab is a FastAPI + PostgreSQL + React portal running in Docker on the lab laptop, with native Windows services for two security
+cameras (YOLO26s on the GTX 1650 via DirectML), a face server, a local LLM (Ollama, CPU), a project-knowledge service, read-only robot
+collectors (UR5e RTDE, FANUC web pages), a PC agent, n8n automations (26 workflows) and ESP32 nodes (door master, ESP32-CAM, consumables bin,
+reusable bin, environment node).</p>
+<p><b>Software state: VERIFIED.</b> The full automated backend suite, the camera/vision suite, the knowledge, PC-agent and robot-monitor suites,
+TypeScript checks, production builds and browser end-to-end checks pass (section 7). The final evidence run: 41 PASS, 13 FAIL, 7 NOT AVAILABLE,
+3 SIMULATION, 4 PHYSICAL VALIDATION REQUIRED, 1 BLOCKED - every FAIL is a physical device that is not connected here.</p>
+<p><b>Most important changes in this round</b> (all deployed, tested; section 3):</p>
+<ul>
+<li>Data-integrity defect fixed: a resolved camera alert made the next camera event fail (HTTP 500, event and snapshot lost).</li>
+<li>Safety: a latched robot STOP was silently cleared by a backend restart - now rebuilt from the audit log.</li>
+<li>Identity: four defects found with a new simulated scenario bench (stale track stealing a runner's name, velocity overshoot swapping
+neighbours, door naming by timing alone, cross-camera names never shared). 180 simulated runs now show 0 wrong-name frames.</li>
+<li>Camera protection: one AI answer used every CPU core at above-normal priority and took camera analysis from 7 to 1.7 frames/s;
+now bounded (4 threads, one answer at a time, cameras above normal priority, instant answers for status questions: ~50 s -&gt; &lt; 0.2 s).</li>
+<li>Reliability centre: alert grouping and quality, dependency model with what-if simulation, investigation, configuration drift,
+performance objectives, restore drills, action policy, global search, regrouped navigation, safe deploy script with rollback.</li>
+</ul>
+<p><b>Most important risks:</b> (1) the administrator still uses the published seed password (owner action); (2) the laptop is at its memory
+limit with everything open (commit 95 %) and its clock drifts ~55 ms/h; (3) no physical camera-identity, robot or ESP32 test has been
+repeated since 14 Oct - the day plan is in <code>docs/LAB_GO_NOGO_2026-10-18.md</code>.</p>
+
+<h2>Contents</h2>
+<ol class="toc">
+<li><a href="#s1">Scope and architecture</a></li><li><a href="#s2">Inventory: software, hardware, data</a></li>
+<li><a href="#s3">Change register (this round)</a></li><li><a href="#s4">Hardware and wiring (from firmware sources)</a></li>
+<li><a href="#s5">Portal guide and navigation map</a></li><li><a href="#s6">AI and camera performance dossier</a></li>
+<li><a href="#s7">Test and acceptance matrix</a></li><li><a href="#s8">Reliability, security and recovery</a></li>
+<li><a href="#s9">Procedures: install, deploy, backup, restore</a></li><li><a href="#s10">Outstanding items register</a></li>
+<li><a href="#s11">Roadmap and hardware recommendations</a></li><li><a href="#s12">Glossary, references, evidence index</a></li>
+</ol>
+
+<h2 id="s1" class="pb">1. Scope and architecture</h2>
+<figure>
+<svg viewBox="0 0 760 360" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" font-size="11">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#4a5568"/></marker></defs>
+<rect x="10" y="10" width="740" height="40" rx="6" fill="#e8eef6" stroke="#9fb3c8"/><text x="380" y="35" text-anchor="middle" font-weight="600">Browsers (staff / students) - http(s)://192.168.1.200</text>
+<rect x="250" y="70" width="260" height="34" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="380" y="92" text-anchor="middle">nginx (frontend container) - React app + /api proxy</text>
+<rect x="250" y="122" width="260" height="34" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="380" y="144" text-anchor="middle">FastAPI backend (Docker) - health monitor, perfmon</text>
+<rect x="290" y="176" width="180" height="30" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="380" y="196" text-anchor="middle">PostgreSQL smartlab</text>
+<rect x="40" y="122" width="170" height="34" rx="6" fill="#fff" stroke="#718096"/><text x="125" y="144" text-anchor="middle">n8n (26 workflows)</text>
+<rect x="40" y="176" width="170" height="30" rx="6" fill="#fff" stroke="#718096"/><text x="125" y="196" text-anchor="middle">Backup job (6 h)</text>
+<rect x="550" y="122" width="190" height="34" rx="6" fill="#fff" stroke="#718096"/><text x="645" y="144" text-anchor="middle">Ollama (LLM, CPU) / knowledge</text>
+<rect x="550" y="176" width="190" height="30" rx="6" fill="#fff" stroke="#718096"/><text x="645" y="196" text-anchor="middle">Face server :5000</text>
+<rect x="10" y="240" width="230" height="110" rx="6" fill="#f0fff4" stroke="#38a169"/><text x="125" y="258" text-anchor="middle" font-weight="600">Laptop native services</text>
+<text x="20" y="278">Camera services :5100 / :5101 (YOLO26s,</text><text x="20" y="293">re-ID, tracker, DirectML GTX 1650)</text><text x="20" y="310">Robot collectors (UR5e RTDE, FANUC HTTP)</text><text x="20" y="327">PC agent (pilot: this laptop)</text>
+<rect x="265" y="240" width="230" height="110" rx="6" fill="#fffaf0" stroke="#d69e2e"/><text x="380" y="258" text-anchor="middle" font-weight="600">Smart_Lab router 192.168.1.1</text>
+<text x="275" y="278">MC210 cam 1 .155 · MC200 cam 2 .156</text><text x="275" y="295">UR5e .102 · FANUC ER-4iA .100</text><text x="275" y="312">ESP32: door master, ESP32-CAM,</text><text x="275" y="329">consumables bin, reusable bin, env node</text>
+<rect x="520" y="240" width="230" height="110" rx="6" fill="#fff5f5" stroke="#c53030"/><text x="635" y="258" text-anchor="middle" font-weight="600">Safety boundary</text>
+<text x="530" y="278">Door opened ONLY by the master ESP32</text><text x="530" y="295">Robots: DRY RUN; pendant / cell E-stops</text><text x="530" y="312">Portal STOP = software stop, not</text><text x="530" y="329">safety-rated</text>
+<line x1="380" y1="50" x2="380" y2="70" stroke="#4a5568" marker-end="url(#a)"/><line x1="380" y1="104" x2="380" y2="122" stroke="#4a5568" marker-end="url(#a)"/>
+<line x1="380" y1="156" x2="380" y2="176" stroke="#4a5568" marker-end="url(#a)"/><line x1="250" y1="139" x2="210" y2="139" stroke="#4a5568" marker-end="url(#a)"/>
+<line x1="510" y1="139" x2="550" y2="139" stroke="#4a5568" marker-end="url(#a)"/><line x1="210" y1="191" x2="290" y2="191" stroke="#4a5568" marker-end="url(#a)"/>
+<line x1="125" y1="240" x2="300" y2="156" stroke="#4a5568" marker-end="url(#a)"/><line x1="380" y1="240" x2="380" y2="206" stroke="#999" stroke-dasharray="4 3"/>
+</svg>
+<figcaption>Figure 1 - Deployment and data flows (from docker-compose.yml, launch.bat and the services' code).</figcaption></figure>
+<p>Data flows: ESP32 nodes POST heartbeats / telemetry / access events to the backend; camera services post state and events and serve frames that
+the backend proxies; robot collectors post telemetry (read-only towards the robots); the PC agent posts state and frames and long-polls for
+viewer / action changes; n8n calls backend endpoints on schedules; the backend serves the portal and the live WebSocket stream.</p>
+
+<h2 id="s2">2. Inventory</h2>
+<h3>2.1 Services (VERIFIED running at the snapshot unless stated)</h3>
+<table><tr><th>Component</th><th>Location in repo</th><th>Interface</th><th>State at snapshot</th></tr>
+<tr><td>Backend API</td><td><code>backend/app</code> (23 routers incl. new reliability, search)</td><td>/api, :8000 behind nginx</td><td class="ok">healthy; deployed version f5eaeff-dirty-20261018144505</td></tr>
+<tr><td>PostgreSQL</td><td>docker-compose <code>db</code>; migrations <code>backend/alembic</code> (head d5e8b2c4f917)</td><td>internal</td><td class="ok">healthy, 35 MB</td></tr>
+<tr><td>Frontend</td><td><code>frontend/src</code> (React/TS/Tailwind, Vite)</td><td>:80 / :443 (local CA)</td><td class="ok">serving; CSP and security headers</td></tr>
+<tr><td>n8n</td><td><code>automation/n8n/json</code> (repo copies)</td><td>:5678</td><td class="ok">26 workflows, all active; 405 runs / 24 h, 0 failed (read-only check)</td></tr>
+<tr><td>Backups</td><td>docker-compose <code>backup</code></td><td>./backups</td><td class="ok">every 6 h, verified with pg_restore --list; restore drill VERIFIED</td></tr>
+<tr><td>Security camera services</td><td><code>tools/security_vision</code></td><td>:5100, :5101</td><td>cam 2 <span class="ok">streaming 7 fps</span>; cam 1 <span class="no">no picture (camera unreachable)</span></td></tr>
+<tr><td>Face server</td><td><code>firmware/face_server</code></td><td>:5000</td><td class="ok">online</td></tr>
+<tr><td>Ollama</td><td>native app; portal model qwen2.5:3b, knowledge qwen2.5:1.5b</td><td>:11434</td><td class="ok">online (CPU)</td></tr>
+<tr><td>Knowledge service</td><td><code>tools/knowledge</code></td><td>:5199 (key)</td><td class="ok">online (restarted with new settings)</td></tr>
+<tr><td>Robot collectors</td><td><code>tools/robot_monitor</code></td><td>RTDE / HTTP GET (read-only)</td><td class="mid">running, no joint data (robots not reachable)</td></tr>
+<tr><td>PC agent 0.8</td><td><code>tools/pc_agent</code></td><td>HTTPS/HTTP to the API</td><td class="ok">pilot on this laptop; student PCs need IT approval</td></tr>
+</table>
+<h3>2.2 Registered devices (devices table, 13 rows)</h3>
+<table><tr><th>Device</th><th>Kind</th><th>Firmware / agent (reported)</th><th>Last report (Cairo)</th><th>Status</th></tr>
+<tr><td>MASTER_LAB01</td><td>door master ESP32</td><td>portal-1.0</td><td>10-13 02:51</td><td class="no">offline - physical check</td></tr>
+<tr><td>CAM_LAB01</td><td>ESP32-CAM (door)</td><td>-</td><td>never (device row)</td><td class="no">unreachable</td></tr>
+<tr><td>BIN_NODE_1</td><td>consumables bin</td><td>bin-0.2</td><td>10-13 02:51</td><td class="no">offline</td></tr>
+<tr><td>REUSE_BIN_1</td><td>reusable bin</td><td>reuse-mod-0.1</td><td>10-13 02:51</td><td class="no">offline</td></tr>
+<tr><td>ENV_LAB01</td><td>environment node</td><td>env-0.1.1</td><td>10-11 22:17</td><td class="no">offline</td></tr>
+<tr><td>SECCAM_LAB01 / 02</td><td>security cameras (MC210 / MC200)</td><td>-</td><td>live</td><td>01 no picture · 02 OK</td></tr>
+<tr><td>UR5E_01 / FANUC_01</td><td>robots (collectors)</td><td>robot-collector-0.2</td><td>live (collector)</td><td class="mid">no joint data</td></tr>
+<tr><td>UR5E_SIM / FANUC_SIM</td><td>simulators</td><td>robot-collector-0.2 (sim)</td><td>10-08</td><td>SIMULATION (never evidence)</td></tr>
+<tr><td>PC_ADMIN_LAPTOP</td><td>PC agent</td><td>pc-agent-0.8</td><td>live</td><td class="ok">online, clock +0.02 s</td></tr>
+<tr><td>FACESRV_01</td><td>face server record</td><td>-</td><td>-</td><td>checked by the health monitor</td></tr></table>
+<p class="small">Configuration drift check: every reported firmware/agent version matches the repository source (baseline 2026-10-18.1).
+The three ESP32 nodes went silent in the same minute on 13 Oct, five minutes after the door master rebooted (COMPONENT_FAULT alarm) while the
+portal kept running: a shared supply or Wi-Fi cause is most likely (correlation, not proof) - to be checked at the bench.</p>
+<h3>2.3 Data held (exact counts at the snapshot)</h3>
+<table><tr><th>Table</th><th>Rows</th><th>Table</th><th>Rows</th></tr>
+<tr><td>users</td><td>8</td><td>sensor_readings</td><td>33,012</td></tr><tr><td>labs</td><td>11</td><td>robot_events</td><td>8,629</td></tr>
+<tr><td>devices</td><td>13</td><td>audit_logs</td><td>3,684</td></tr><tr><td>assets</td><td>26</td><td>notifications</td><td>2,273</td></tr>
+<tr><td>bookings</td><td>23</td><td>access_events</td><td>1,309</td></tr><tr><td>alerts (incidents)</td><td>377</td><td>security_events</td><td>658</td></tr>
+<tr><td>issues</td><td>4</td><td>inventory_transactions</td><td>63</td></tr></table>
+<p class="small">Retention: indefinite; no automatic deletion anywhere. Production data was only read during this round (one additive migration).</p>
+
+<h2 id="s3" class="pb">3. Change register (this round, 17-18 Oct 2026)</h2>
+<p class="small">Pre-existing functionality (portal pages, access control, incidents lifecycle, reports centre, anomalies, PC screen sharing, robot
+twins, camera identity pipeline) is retained; items below are new or changed, with their tests.</p>
+<table><tr><th>Area</th><th>Change</th><th>Where</th><th>Tests / evidence</th><th>Status</th></tr>
+<tr><td>Robots</td><td>UR5e Home = pendant program (load+play), readiness checklist, STOP / STOPPED from feedback, conflicting Home refused; FANUC identity + installed options parsed from its own page; FANUC motion blocked with 5 dependencies; STOP latch survives restarts</td><td>robot_control.py, robots.py, fanuc_summary.py, RobotControlPanel.tsx</td><td>36 backend robot tests; 4 parser tests; e2e robot_readiness (ALL PASS); live restart check</td><td>VERIFIED (software); physical BLOCKED / pending</td></tr>
+<tr><td>Cameras</td><td>Reconnect with exponential backoff + FFmpeg timeouts, stream states, real CPU / memory / GPU metrics, above-normal priority</td><td>security_vision.py, latency.py</td><td>test_camera_reconnect, test_load_sampler; live test instance (RTSP stream, dead camera states)</td><td>VERIFIED on a test instance; active after camera-service restart</td></tr>
+<tr><td>Identity</td><td>Door naming only for a person first seen at the door after the entry and alone (else review event); posture-change association; staged association; turn handling; crossing re-deal flagged; cross-camera state fix</td><td>vision.py, identity.py, crosscam.py</td><td>187+ vision tests; scenario bench 180 runs: 0 false names</td><td>SIMULATED + unit tests; real accuracy PHYSICAL VALIDATION REQUIRED</td></tr>
+<tr><td>Incidents</td><td>Grouping by fingerprint (occurrences, last seen, reopen), MITIGATED, escalation on repeats, alert quality, camera "no picture" incident, stale offline incidents cleared; camera-event HTTP 500 fixed</td><td>alert_grouping.py, incidents.py, devices.py, security.py; migration d5e8b2c4f917</td><td>test_alert_grouping (12), updated security / environment tests</td><td>VERIFIED (deployed)</td></tr>
+<tr><td>Reliability centre</td><td>Briefing, dependency graph + what-if, drift, performance + objectives, alert quality, backups + restore drill, action policy, investigation, global search, regrouped navigation</td><td>reliability.py, search.py, dependency_graph.py, investigate.py, drift.py, perfmon.py, briefing.py, policy.py, Reliability.tsx, CommandPalette.tsx</td><td>test_reliability (11), authz sweep, e2e reliability.mjs (ALL PASS)</td><td>VERIFIED</td></tr>
+<tr><td>AI</td><td>Instant answers for robot / camera / PC / alert status; 4 threads; one generation at a time; knowledge embed keep-alive 2 h</td><td>agent.py, ai.py, config.py, tools/knowledge</td><td>test_agent, test_ai_local (incl. concurrency), live timing</td><td>VERIFIED</td></tr>
+<tr><td>PC fleet</td><td>Agent 0.8: host name, own IPv4 (virtual adapters filtered), agent version, clock offset shown</td><td>pc_agent.py, equipment.py, NetworkedEquipment.tsx</td><td>agent + equipment tests; live on the laptop</td><td>VERIFIED (pilot)</td></tr>
+<tr><td>Operations</td><td>clock_check.py, restore_drill.py, run_evidence.py extended, deploy.py (version, smoke, rollback), /api/health version + db_time</td><td>tools/evidence, tools/deploy, main.py</td><td>runs recorded in docs/reports</td><td>VERIFIED</td></tr>
+</table>
+
+<h2 id="s4">4. Hardware and wiring (pin assignments from firmware source code)</h2>
+<div class="box warn">Pins below are what the firmware <b>defines</b>; they are physical wiring only where the bring-up log or the owner verified
+it (marked ✓). Nothing here was measured during this round. Supply plan (bring-up log): 12 V / 10 A PSU -&gt; master DC switch -&gt; WAGO
+distribution -&gt; fused branches (Environment, Consumable, Reusable, Door) -&gt; XL4016 buck to 5.00 V per node. Branch fuse values must come
+from <b>measured</b> branch current (BRINGUP_LOG P1.9) - not yet recorded.</div>
+<table><tr><th>Node</th><th>Function</th><th>GPIO (firmware)</th><th>Notes</th></tr>
+<tr><td rowspan="6">Door master (SmartLab_Master_Portal)</td><td>Lock relay</td><td>26</td><td>✓ via BC557 PNP; lock on NO = locked when the ESP32 stops driving (fail-secure). Manual egress: check physically.</td></tr>
+<tr><td>PN532 NFC (I2C)</td><td>SDA 19, SCL 18</td><td>✓ HW-147, 0x24; IRQ/RESET not wired</td></tr>
+<tr><td>Door reed</td><td>27</td><td>INPUT_PULLUP, LOW = closed</td></tr>
+<tr><td>TFT (SPI)</td><td>SCK 13, MOSI 2, CS 25, DC 32, RST 33</td><td>MOSI moved off GPIO4 (fingerprint)</td></tr>
+<tr><td>Fingerprint UART</td><td>RX 16, TX 17</td><td></td></tr>
+<tr><td>LEDs / buzzer / audio</td><td>green 14, red+buzzer 21, red 15, audio 22</td><td>audio: PAM8403 via 3.3 k + 100 nF</td></tr>
+<tr><td rowspan="4">Environment node</td><td>DHT22</td><td>4</td><td>read every 2.5 s; stale after 15 s</td></tr>
+<tr><td>PIR x2</td><td>27, 26</td><td>60 s warm-up</td></tr>
+<tr><td>MQ-2</td><td>AO 39 (10k/15k divider), DO 25</td><td>not a certified smoke detector</td></tr>
+<tr><td>5-channel flame</td><td>13, 32, 33, 35, 36</td><td>active level to verify per output</td></tr>
+<tr><td rowspan="2">Consumables bin</td><td>HX711 load cell</td><td>DT 32, SCK 33</td><td></td></tr>
+<tr><td>LCD (I2C)</td><td>SDA 21, SCL 22</td><td></td></tr>
+<tr><td rowspan="5">Reusable bin (modular)</td><td>HX711 (5 kg cell)</td><td>DT 32, SCK 33</td><td>✓ cal -518.04 counts/g vs 200 g reference; accuracy with independent masses NOT checked</td></tr>
+<tr><td>PN532 NFC</td><td>SDA 18, SCL 19</td><td>✓ (reversed vs the door)</td></tr>
+<tr><td>Lid servo MG90S</td><td>25 (signal)</td><td>power from external 5 V; max hold 15 s</td></tr>
+<tr><td>Reed (lid)</td><td>27</td><td>pull-up</td></tr>
+<tr><td>LCD 16x2 (I2C)</td><td>SDA 21, SCL 22</td><td>pull-up voltage on 5 V backpack NOT measured (risk to GPIO)</td></tr>
+<tr><td>ESP32-CAM (door)</td><td>OV2640, AI Thinker</td><td>board pins</td><td>VGA JPEG, CAMERA_GRAB_LATEST, frame buffers in PSRAM; results with age so stale ones are ignored</td></tr></table>
+<p><b>Review items:</b> LCD backpack pull-ups at 5 V on 3.3 V GPIO (measure); fuse ratings unrecorded; MQ-2 / flame are indicators, a certified
+detector must stay the authority; ESP32 nodes have no RTC and no offline queue (data during a Wi-Fi gap is lost).</p>
+
+<h2 id="s5" class="pb">5. Portal guide and navigation map</h2>
+<p>The staff/admin sidebar is grouped by purpose (no page removed; deep links unchanged). Ctrl+K opens search across pages and devices,
+incidents, equipment and labs (navigation only - no action is started from search).</p>
+<table><tr><th>Group</th><th>Page (route)</th><th>Purpose</th><th>Roles</th></tr>
+<tr><td>Overview</td><td>System overview / Operations (/), Laboratories (/labs, /labs/:id)</td><td>lab state at a glance, lab pages with equipment galleries</td><td>all (content by role)</td></tr>
+<tr><td>Live lab</td><td>IoT Dashboard (/command), Live monitor (/monitor, own window), Security camera (/admin/security), Robots (/robots, /robots/:id), Operations Center (/admin/operations)</td><td>live sensors, camera views (split), robot twins + master controls (DRY RUN)</td><td>staff</td></tr>
+<tr><td>Safety &amp; access</td><td>Access &amp; audit (/admin/access), Bookings (/admin/bookings), Emergency (/admin/emergency)</td><td>door events, booking approvals, emergency broadcast</td><td>staff / admin</td></tr>
+<tr><td>Equipment</td><td>Lab Equipment (/admin/equipment: robots, PCs, inventory), System Devices (/admin/devices), Maintenance (/issues)</td><td>PC preview / sharing / visible lock, inventory, device registry, tickets</td><td>staff</td></tr>
+<tr><td>Incidents &amp; alerts</td><td>Incidents (/admin/incidents), Alerts (/admin/alerts), Notifications</td><td>grouped incidents, lifecycle, investigation</td><td>staff</td></tr>
+<tr><td>Insight &amp; reports</td><td>System analytics (/admin/system), Reliability (/admin/reliability), Reports (/admin/reports)</td><td>health, drift, performance, backups, policy; reports centre + PDF</td><td>staff / admin</td></tr>
+<tr><td>Administration</td><td>Users &amp; roles, Settings</td><td>accounts, data mode, settings</td><td>admin</td></tr>
+<tr><td>Students</td><td>Dashboard, Laboratories, New booking, My bookings (+ QR), Robots, My reports, Notifications, Profile, Share (/share)</td><td>booking, entry QR, viewing a shared screen</td><td>students</td></tr></table>
+<p class="small">Other routes kept: /welcome, /sessions/:id, /equipment/:id, /issues/new, /issues/:id, /admin/experiments, /demo, /me, redirects /inventory,
+/admin/assets, /admin/access-events. Backend authorisation is authoritative (route sweep test covers every API route).</p>
+
+<h2 id="s6">6. AI and camera performance dossier (measured 2026-10-18 on the laptop: i7 6C/12T, 15.8 GB RAM, GTX 1650 4 GB)</h2>
+<h3>6.1 Live-lab AI (portal assistant)</h3>
+<table><tr><th>Question type</th><th>Before</th><th>After</th><th>How</th></tr>
+<tr><td>"Which robots are online?" / "any alerts?" / cameras / PCs</td><td>~48-50 s (LLM with full snapshot, CPU)</td><td class="ok">44-142 ms warm, 0.8 s first call</td><td>exact answer from device records (no model)</td></tr>
+<tr><td>Lab status, occupancy, reports, bookings</td><td>30-100 ms</td><td>50-690 ms</td><td>existing instant answers</td></tr>
+<tr><td>Open questions (LLM qwen2.5:3b)</td><td>48 s, camera 2 fell to 4.6 fps (min 1.7)</td><td>157-231 s, camera 6.6-6.9 fps (min 3.8-6.0)</td><td>4 threads, one answer at a time - deliberate trade-off for camera priority</td></tr></table>
+<h3>6.2 Project AI (knowledge)</h3>
+<table><tr><th>Path</th><th>Measured</th></tr>
+<tr><td>Cited lookup (no model)</td><td>0.21-0.75 s; cached 0.07 s; cold before the keep-alive fix 2.6 s</td></tr>
+<tr><td>Written answer (qwen2.5:1.5b, k=3)</td><td>sources at 0.3 s, first text 14-18 s, total 18-31 s under camera load (idle 17 Oct: 4.4 s / 7.5 s); repeat 0.06 s (cache)</td></tr></table>
+<p class="small">Option for the owner: moving the 1.5B model to the GPU would cut written answers to a few seconds but shares the GPU with camera analysis
+(rule today: LLMs stay on the CPU) - measure first.</p>
+<h3>6.3 Cameras</h3>
+<table><tr><th>Camera</th><th>Hardware / stream</th><th>Measured</th><th>Status</th></tr>
+<tr><td>Security camera 2 (SECCAM_LAB02)</td><td>Mercusys MC200, 192.168.1.156, RTSP stream2 1280x720</td><td>capture 15 fps, analysis 6.8-7.0 /s, detect p50 56-61 ms, frame age p50 37 / p95 98 ms, served frame age p50 104 ms, 0 reconnects</td><td class="ok">VERIFIED (at home)</td></tr>
+<tr><td>Security camera 1 (SECCAM_LAB01)</td><td>MC210, 192.168.1.155</td><td>unreachable from here (694 open attempts; new code backs off to 30 s)</td><td class="no">PHYSICAL VALIDATION REQUIRED</td></tr>
+<tr><td>Two pipelines together</td><td>cam 2 + a 2nd pipeline on a lab recording</td><td>6.95 + 6.97 /s, pass p95 100 / 138 ms, GPU 36 %, 1083 MB of 4096</td><td>VERIFIED (2nd source simulated)</td></tr>
+<tr><td>ESP32-CAM (door)</td><td>AI Thinker OV2640, VGA JPEG</td><td>not reachable (ConnectTimeout)</td><td class="no">PHYSICAL VALIDATION REQUIRED</td></tr></table>
+<h3>6.4 Identity regression (SIMULATED)</h3>
+<table><tr><th>Noise level</th><th>Runs</th><th>Wrong-name frames</th><th>Name switches</th><th>Track splits</th></tr>
+<tr><td>normal (re-ID cos ~0.9, 4 % misses)</td><td>60</td><td class="ok">0</td><td class="ok">0</td><td>1</td></tr>
+<tr><td>hard (~0.7, 10 %)</td><td>60</td><td class="ok">0</td><td class="ok">0</td><td>8</td></tr>
+<tr><td>harder (~0.5, 15 %)</td><td>60</td><td class="ok">0</td><td class="ok">0</td><td>33</td></tr></table>
+<p class="small">Before the fixes the same bench produced 331 (running) and 276 (side by side) wrong-name frames under hard noise. IDF1 0.95-0.998
+(normal). HOTA not computed. Real-world accuracy is not claimed.</p>
+<h3>6.5 Whole system under load</h3>
+<table><tr><th>Scenario</th><th>Result</th></tr>
+<tr><td>Single user, 10 main reads</td><td>before p50 36 / p95 99 ms; <b>after final deploy p50 31 / p95 80 ms</b> (825 requests, 0 errors)</td></tr>
+<tr><td>10 users (3 s think) + 2 live viewers</td><td>before: API p50 121 / p95 376 ms, frames p50 53 / p95 178 ms; <b>after final deploy: API p50 65 / p95 271 ms, frames (11.7/s) p50 44 / p95 91 ms</b>; 0 errors (docs/reports/perf_final_20261018.json)</td></tr>
+<tr><td>12 users, no think time (stress)</td><td>~21 requests/s capacity (one backend process); p95 1.1-1.9 s; 0 errors</td></tr>
+<tr><td>10 min sustained, everything incl. LLM before the fix</td><td>CPU 99-100 %, RAM 94-98 %; camera 2 dropped to 0.5-3 fps; network 0 % loss (router / camera ping avg 3-4 ms) - led to the AI bounds</td></tr>
+<tr><td>Memory growth over 10 min</td><td>backend +14 MB (warm-up), camera test instance flat ~1240 MB, PC agent flat ~420 MB: no leak observed</td></tr></table>
+
+<h2 id="s7" class="pb">7. Test and acceptance matrix</h2>
+<table><tr><th>ID</th><th>Suite / check</th><th>Command</th><th>Result</th><th>Date / env</th></tr>
+<tr><td>T1</td><td>Backend full suite</td><td><code>docker compose run ... pytest -q</code></td><td class="ok">529 passed, 0 failed (18 min)</td><td>2026-10-18, smartlab_test (isolated)</td></tr>
+<tr><td>T1b</td><td>Safe deploy (tests, schema, build, readiness, 7 smoke checks)</td><td><code>py -I tools/deploy/deploy.py</code></td><td class="ok">DEPLOYED f5eaeff-dirty-20261018144505, no rollback needed</td><td>2026-10-18 14:47 live</td></tr>
+<tr><td>T2</td><td>Camera / vision suite</td><td><code>py -3.14 -m pytest tools/security_vision</code></td><td class="ok">187 passed (+30 bench/sampler)</td><td>2026-10-18 laptop</td></tr>
+<tr><td>T3</td><td>Knowledge suite</td><td><code>py -m pytest tools/knowledge</code></td><td class="ok">40 passed</td><td>2026-10-18</td></tr>
+<tr><td>T4</td><td>PC agent</td><td><code>py -m pytest tools/pc_agent</code></td><td class="ok">5 passed</td><td>2026-10-18</td></tr>
+<tr><td>T5</td><td>FANUC summary parser</td><td><code>py -m pytest tools/robot_monitor/test_fanuc_summary.py</code></td><td class="ok">4 passed (incl. the real saved page)</td><td>2026-10-18</td></tr>
+<tr><td>T6</td><td>Frontend types + build</td><td><code>npx tsc --noEmit</code>, <code>npx vite build</code></td><td class="ok">pass</td><td>2026-10-18</td></tr>
+<tr><td>T7</td><td>e2e robot panels</td><td><code>node e2e/robot_readiness.mjs</code></td><td class="ok">16/16 PASS</td><td>live portal</td></tr>
+<tr><td>T8</td><td>e2e reliability, investigation, search, navigation</td><td><code>node e2e/reliability.mjs</code></td><td class="ok">ALL PASS (21 menu entries, 7 tabs)</td><td>live portal</td></tr>
+<tr><td>T9</td><td>Concurrency + controls (SIM robot, dry run)</td><td>reliability_live.py</td><td class="ok">360 req, 0 errors; conflict 409; duplicate click DUPLICATE; STOP priority; audit rows</td><td>live</td></tr>
+<tr><td>T10</td><td>Backend restart recovery</td><td>docker compose restart backend</td><td class="ok">ready 26.6 s; STOP latch kept; PC agent back by itself</td><td>live</td></tr>
+<tr><td>T11</td><td>Restore drill + migration</td><td><code>tools/evidence/restore_drill.py --migrate-test</code></td><td class="ok">restore 5.4-5.7 s, 42 tables; up/down/up OK</td><td>isolated DB</td></tr>
+<tr><td>T12</td><td>Clock agreement</td><td><code>tools/evidence/clock_check.py</code></td><td>local clocks within 53 ms <span class="no">laptop 1.3-1.9 s behind internet time</span></td><td>live</td></tr>
+<tr><td>T13</td><td>Evidence run</td><td><code>tools/evidence/run_evidence.py --runs 20</code></td><td>41 PASS · 13 FAIL (devices not connected) · 7 N/A · 3 SIM · 4 PHYS · 1 BLOCKED</td><td>live</td></tr>
+<tr><td>T14</td><td>Frontend dependency audit</td><td><code>npm audit --omit=dev</code></td><td class="ok">0 vulnerabilities</td><td>2026-10-18</td></tr>
+<tr><td>T15</td><td>Python dependency audit</td><td>pip-audit</td><td class="mid">NOT AVAILABLE (needs install approval)</td><td>-</td></tr></table>
+<h3>Physical tests (outstanding - none executed in this round)</h3>
+<table><tr><th>Test</th><th>Expected</th><th>Status</th></tr>
+<tr><td>Camera 2 mounting, floor calibration (worst fit &lt; 0.15 m), identity scenarios 1-10</td><td>no wrong names; Unknown when unsure</td><td class="no">PHYSICAL VALIDATION REQUIRED</td></tr>
+<tr><td>UR5e commissioning steps 1-10 (docs/ROBOT_CONTROL.md)</td><td>Home reached from feedback; STOP latched; nothing restarts</td><td class="no">PHYSICAL VALIDATION REQUIRED</td></tr>
+<tr><td>FANUC remote interface decision + HOME TP + stop</td><td>-</td><td class="no">BLOCKED</td></tr>
+<tr><td>ESP32 nodes: supply, fuses, voltages, sensors, reconnect after router outage</td><td>nodes report; safe output states after power loss</td><td class="no">PHYSICAL VALIDATION REQUIRED</td></tr>
+<tr><td>Student-PC agent pilot</td><td>visible preview, broadcast, lock, audit</td><td class="no">BLOCKED (IT approval)</td></tr></table>
+
+<h2 id="s8">8. Reliability, security and recovery</h2>
+<ul>
+<li><b>Alert grouping:</b> fingerprint per condition; repeats counted; reopen within 30 min; MITIGATED; escalation (unacknowledged CRITICAL 15 min / WARNING 4 h, 20 repeats, 3 reopenings). Historical analysis: 376 incidents were only 75 distinct conditions (80 % repeats) - the noise grouping now removes. Safety alarms still notify on every occurrence.</li>
+<li><b>Dependency model / what-if:</b> live states per part with evidence class (live / inferred / simulated); likely roots; simulated failure impact and recovery order.</li>
+<li><b>Configuration drift:</b> baseline <code>backend/app/config_baseline.json</code>; compliant at the snapshot; secrets checked only for presence / non-default.</li>
+<li><b>Performance:</b> per-route p50/p95/p99, regression detection (minimum samples, cooldown), objectives with error budget.</li>
+<li><b>Backups:</b> 6-hourly, integrity-checked; restore drill into isolated databases with table comparison; deploy tool with rollback.</li>
+<li><b>Security:</b> strong headers, sign-in lockout, authorisation on every route, audit trail. Open: <span class="no">admin on the published seed password (High)</span>; HTTP on the LAN (Medium). Details: docs/SECURITY_FINDINGS_2026-10-18.md.</li>
+<li><b>Action policy:</b> robot motion, door logic, firmware, safety settings, production data: never automatic. The portal STOP is not a safety-rated emergency stop.</li></ul>
+
+<h2 id="s9">9. Procedures</h2>
+<p>Start-up, shut-down, deploy, recovery, backup and restore are in <code>docs/OPERATIONS.md</code> (the runbook); the lab day plan in
+<code>docs/LAB_GO_NOGO_2026-10-18.md</code>; robot commissioning in <code>docs/ROBOT_CONTROL.md</code>; node bring-up in <code>docs/BRINGUP_LOG.md</code>.
+Deploy: <code>py -I tools/deploy/deploy.py</code> (tests, schema check, rollback point, version stamp, readiness, smoke tests, automatic
+rollback). Restore drill: <code>py -I tools/evidence/restore_drill.py</code>. Evidence: <code>py -I tools/evidence/run_evidence.py --runs 20</code>.</p>
+
+<h2 id="s10">10. Outstanding items register</h2>
+<table><tr><th>#</th><th>Item</th><th>Why not done</th><th>Who / next step</th></tr>
+<tr><td>1</td><td>Change the admin password</td><td>credentials change needs the owner</td><td>owner: Profile &gt; password; tests via environment variables</td></tr>
+<tr><td>2</td><td>Physical camera, robot, ESP32 tests</td><td>laptop not at the lab; devices unreachable</td><td>owner + operator: LAB_GO_NOGO sections 1-5</td></tr>
+<tr><td>3</td><td>Restart the camera services with the new code</td><td>restarting active monitoring needs the owner</td><td><code>launch.bat</code> at the lab start</td></tr>
+<tr><td>4</td><td>Laptop clock sync, memory headroom</td><td>OS settings / closing apps are the owner's</td><td>Settings &gt; Time &gt; Sync now; close unused apps; optional WSL cap</td></tr>
+<tr><td>5</td><td>ESP32 offline queue + timestamps</td><td>needs firmware change and bench flashing</td><td>implement + flash with approval (RTC module helps)</td></tr>
+<tr><td>6</td><td>FANUC interface</td><td>needs the qualified operator</td><td>choose RSR/PNS or KAREL socket server</td></tr>
+<tr><td>7</td><td>Student-PC pilot, browser-tab visibility</td><td>IT approval / managed extension</td><td>request from university IT</td></tr>
+<tr><td>8</td><td>HTTP to HTTPS redirect</td><td>CA must be trusted on lab browsers first</td><td>import deploy/tls/smartlab-ca.crt, then redirect</td></tr>
+<tr><td>9</td><td>Commit the work</td><td>commits need the owner's go</td><td>review git status; commit on request</td></tr></table>
+
+<h2 id="s11" class="pb">11. Roadmap and hardware recommendations</h2>
+<h3>Immediate (days)</h3>
+<ul><li>Admin password; camera-service restart; clock sync; lab day tests (identity scenarios with the scoring metrics of the bench).</li>
+<li>Calibrate both floor maps so names can cross cameras; record real ID-switch counts.</li></ul>
+<h3>Medium term (weeks)</h3>
+<ul><li>ESP32 firmware: bounded offline queue with event ids and capture time, idempotent batch ingestion (backend), RTC.</li>
+<li>Serve camera frames directly from nginx (or MJPEG) so live viewers do not load the API process.</li>
+<li>Move Docker services to a small dedicated mini PC: the laptop is at its memory limit with cameras + AI + dev tools.</li>
+<li>Per-branch power monitoring (INA219) feeding the portal: detect a failing supply before nodes go silent together.</li></ul>
+<h3>Research ideas (thesis follow-up)</h3>
+<ul><li>Learned re-ID fine-tuned on consented lab data (needs privacy approval); evaluation corpus with ground truth for IDF1 / HOTA.</li>
+<li>Predictive maintenance only after enough labelled outcomes exist (today: rules + robust baselines).</li></ul>
+<h3>Hardware purchasing recommendations (indicative prices - retail snapshots, not quotes)</h3>
+<table><tr><th>Item</th><th>Problem addressed</th><th>Priority</th><th>Indicative price</th><th>Source (seen 2026-10-18)</th></tr>
+<tr><td>Small UPS 600-650 VA for laptop, router, 12 V PSU</td><td>the 13 Oct same-minute outage pattern; clean shutdown</td><td>Recommended</td><td>~US$60-90 (US retail)</td><td>Staples / Saitech listings via web search</td></tr>
+<tr><td>Mini PC (Intel N100, 16 GB) as dedicated server</td><td>laptop RAM commit 95 %; services independent of the dev laptop</td><td>Recommended</td><td>~EUR 189-255; ~AUD 390-480</td><td>Notebookcheck (Aoostar N100), Evotech listings</td></tr>
+<tr><td>INA219 current sensor per fused branch</td><td>branch current for fuse sizing; supply health in the portal</td><td>Recommended</td><td>~US$7-11 each</td><td>Walmart / Electrokit / Hubtronics listings</td></tr>
+<tr><td>DS3231 RTC for ESP32 nodes</td><td>real capture timestamps for buffered data</td><td>Optional (with the offline queue)</td><td>~US$5-8 each</td><td>Walmart / Adafruit listings</td></tr>
+<tr><td>Wired camera (PoE) or Ethernet for camera 1</td><td>Wi-Fi cameras drop; RTSP over cable is steadier</td><td>Optional</td><td>not sourced</td><td>-</td></tr>
+<tr><td>Certified smoke detector (if not already in the room)</td><td>MQ-2 / flame boards are indicators only</td><td>Essential if missing (building safety)</td><td>not sourced</td><td>-</td></tr></table>
+<p class="small">Sources: <a href="https://staples.com/apc-back-ups-600va-120v-1-usb-charging-port-7-nema-outlets-2-surge/product_24645593">Staples APC 600VA</a>,
+<a href="https://esaitech.com/products/apc-back-ups-pro-be600m1-600va-120v-tower-ups-system">Saitech BE600M1</a>,
+<a href="https://www.notebookcheck.com/Mini-PC-zum-Schnaeppchenpreis-Aoostar-N100-mit-Intel-Alder-Lake-CPU-fuer-nur-189-Euro.975924.0.html">Notebookcheck N100</a>,
+<a href="https://evotech.au/products/16gb-ram-n100-512gb">Evotech N100</a>,
+<a href="https://www.walmart.com/ip/INA219-DC-Current-Sensor-Module-Breakout-Module-2-7-60V-5A-Urrent-Sensor-Module/8760954521">INA219 listing</a>,
+<a href="https://www.electrokit.com/en/current-and-voltage-sensor-ina219-26v-3.2a-qwiic">Electrokit INA219</a>,
+<a href="https://www.walmart.com/c/kp/ds3231">DS3231 listings</a>. Prices vary by region (Egyptian prices not sourced); confirm with a local supplier.</p>
+<p><b>Simplify, do not grow:</b> no new node is needed for the thesis claims; the highest value is finishing the physical validation and the
+ESP32 offline queue, not more features.</p>
+
+<h2 id="s12">12. Glossary, references, evidence index</h2>
+<table><tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>DRY RUN</td><td>robot command evaluated and logged, nothing sent (ROBOT_CONTROL=dry_run)</td></tr>
+<tr><td>Fingerprint</td><td>stable key of a continuing condition (device | lab | title, or a source key)</td></tr>
+<tr><td>IDF1</td><td>identity F1 score of a tracker against ground truth</td></tr>
+<tr><td>Drift</td><td>difference between running configuration and the approved baseline</td></tr>
+<tr><td>RTDE</td><td>UR real-time data exchange (read-only use here)</td></tr></table>
+<p><b>Evidence index</b> (machine-readable copy: <code>docs/reports/dossier/evidence_index.json</code>):</p>
+<table><tr><th>Claim</th><th>Evidence</th></tr>
+<tr><td>Final load test after deploy</td><td>docs/reports/perf_final_20261018.json; perf_before.json / perf_after*.json</td></tr>
+<tr><td>Evidence run summary</td><td>docs/reports/evidence_20261018_112213.md / .json</td></tr>
+<tr><td>Restore drill + migration test</td><td>docs/reports/restore_drill_20261018_024401.json, restore_drill_20261018_140134.json</td></tr>
+<tr><td>Identity bench</td><td>tools/security_vision/recordings/scenario_bench_*.json (local), test_scenario_bench.py</td></tr>
+<tr><td>FANUC identity</td><td>tools/robot_monitor/fanuc_probe_out/*SUMMARY.DG.txt (local) + fanuc_summary.py</td></tr>
+<tr><td>Robot procedures</td><td>docs/ROBOT_CONTROL.md (2026-10-18 section)</td></tr>
+<tr><td>Security</td><td>docs/SECURITY_FINDINGS_2026-10-18.md</td></tr>
+<tr><td>Runbook, backlog, day plan</td><td>docs/OPERATIONS.md, docs/BACKLOG.md, docs/LAB_GO_NOGO_2026-10-18.md</td></tr></table>
+</body></html>

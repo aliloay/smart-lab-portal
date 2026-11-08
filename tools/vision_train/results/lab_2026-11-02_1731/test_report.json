@@ -1,0 +1,278 @@
+{
+ "r1_n": {
+  "per_class": {
+   "reusable_bin": {
+    "test_objects": 15,
+    "found": 15,
+    "false_on_no_object": 0
+   },
+   "consumables_node": {
+    "test_objects": 22,
+    "found": 22,
+    "false_on_no_object": 1
+   },
+   "environment_node": {
+    "test_objects": 35,
+    "found": 34,
+    "false_on_no_object": 0
+   },
+   "master_node": {
+    "test_objects": 26,
+    "found": 26,
+    "false_on_no_object": 0
+   },
+   "network_switch": {
+    "test_objects": 29,
+    "found": 12,
+    "false_on_no_object": 0
+   },
+   "network_router": {
+    "test_objects": 18,
+    "found": 18,
+    "false_on_no_object": 0
+   },
+   "ur5e_robot": {
+    "test_objects": 7,
+    "found": 7,
+    "false_on_no_object": 0
+   },
+   "ur5e_teach_pendant": {
+    "test_objects": 2,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "fanuc_robot": {
+    "test_objects": 6,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "fanuc_teach_pendant": {
+    "test_objects": 3,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "lab_pc": {
+    "test_objects": 4,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "lab_door": {
+    "test_objects": 4,
+    "found": 4,
+    "false_on_no_object": 0
+   }
+  },
+  "speed_ms": 4.9,
+  "multi_object_photos": 0,
+  "multi_object_all_found": 0,
+  "mAP50": 0.947,
+  "mAP50_95": 0.839
+ },
+ "r1_s": {
+  "per_class": {
+   "reusable_bin": {
+    "test_objects": 15,
+    "found": 15,
+    "false_on_no_object": 0
+   },
+   "consumables_node": {
+    "test_objects": 22,
+    "found": 22,
+    "false_on_no_object": 0
+   },
+   "environment_node": {
+    "test_objects": 35,
+    "found": 32,
+    "false_on_no_object": 1
+   },
+   "master_node": {
+    "test_objects": 26,
+    "found": 25,
+    "false_on_no_object": 0
+   },
+   "network_switch": {
+    "test_objects": 29,
+    "found": 25,
+    "false_on_no_object": 0
+   },
+   "network_router": {
+    "test_objects": 18,
+    "found": 18,
+    "false_on_no_object": 0
+   },
+   "ur5e_robot": {
+    "test_objects": 7,
+    "found": 7,
+    "false_on_no_object": 0
+   },
+   "ur5e_teach_pendant": {
+    "test_objects": 2,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "fanuc_robot": {
+    "test_objects": 6,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "fanuc_teach_pendant": {
+    "test_objects": 3,
+    "found": 2,
+    "false_on_no_object": 1
+   },
+   "lab_pc": {
+    "test_objects": 4,
+    "found": 4,
+    "false_on_no_object": 0
+   },
+   "lab_door": {
+    "test_objects": 4,
+    "found": 4,
+    "false_on_no_object": 0
+   }
+  },
+  "speed_ms": 8.4,
+  "multi_object_photos": 0,
+  "multi_object_all_found": 0,
+  "mAP50": 0.971,
+  "mAP50_95": 0.832
+ },
+ "r2_n": {
+  "per_class": {
+   "reusable_bin": {
+    "test_objects": 15,
+    "found": 15,
+    "false_on_no_object": 0
+   },
+   "consumables_node": {
+    "test_objects": 22,
+    "found": 22,
+    "false_on_no_object": 0
+   },
+   "environment_node": {
+    "test_objects": 35,
+    "found": 33,
+    "false_on_no_object": 0
+   },
+   "master_node": {
+    "test_objects": 26,
+    "found": 26,
+    "false_on_no_object": 0
+   },
+   "network_switch": {
+    "test_objects": 29,
+    "found": 8,
+    "false_on_no_object": 0
+   },
+   "network_router": {
+    "test_objects": 18,
+    "found": 18,
+    "false_on_no_object": 0
+   },
+   "ur5e_robot": {
+    "test_objects": 7,
+    "found": 7,
+    "false_on_no_object": 0
+   },
+   "ur5e_teach_pendant": {
+    "test_objects": 2,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "fanuc_robot": {
+    "test_objects": 6,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "fanuc_teach_pendant": {
+    "test_objects": 3,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "lab_pc": {
+    "test_objects": 4,
+    "found": 0,
+    "false_on_no_object": 0
+   },
+   "lab_door": {
+    "test_objects": 4,
+    "found": 4,
+    "false_on_no_object": 0
+   }
+  },
+  "speed_ms": 3.6,
+  "multi_object_photos": 0,
+  "multi_object_all_found": 0,
+  "mAP50": 0.905,
+  "mAP50_95": 0.771
+ },
+ "r2_s": {
+  "per_class": {
+   "reusable_bin": {
+    "test_objects": 15,
+    "found": 15,
+    "false_on_no_object": 0
+   },
+   "consumables_node": {
+    "test_objects": 22,
+    "found": 22,
+    "false_on_no_object": 0
+   },
+   "environment_node": {
+    "test_objects": 35,
+    "found": 27,
+    "false_on_no_object": 0
+   },
+   "master_node": {
+    "test_objects": 26,
+    "found": 23,
+    "false_on_no_object": 0
+   },
+   "network_switch": {
+    "test_objects": 29,
+    "found": 16,
+    "false_on_no_object": 0
+   },
+   "network_router": {
+    "test_objects": 18,
+    "found": 18,
+    "false_on_no_object": 0
+   },
+   "ur5e_robot": {
+    "test_objects": 7,
+    "found": 7,
+    "false_on_no_object": 0
+   },
+   "ur5e_teach_pendant": {
+    "test_objects": 2,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "fanuc_robot": {
+    "test_objects": 6,
+    "found": 3,
+    "false_on_no_object": 0
+   },
+   "fanuc_teach_pendant": {
+    "test_objects": 3,
+    "found": 1,
+    "false_on_no_object": 0
+   },
+   "lab_pc": {
+    "test_objects": 4,
+    "found": 2,
+    "false_on_no_object": 0
+   },
+   "lab_door": {
+    "test_objects": 4,
+    "found": 4,
+    "false_on_no_object": 0
+   }
+  },
+  "speed_ms": 8.0,
+  "multi_object_photos": 0,
+  "multi_object_all_found": 0,
+  "mAP50": 0.976,
+  "mAP50_95": 0.818
+ }
+}
