@@ -5,7 +5,7 @@ from app.models.enums import (AccessResult, AlertSeverity, AssetStatus,
                               IssueStatus, Role, SessionEndReason)
 from app.models.tables import (AccessAttempt, AccessEvent, AccessSession, Alert, IncidentNote,
                                Asset, AssetTransaction, AuditLog, Booking, BookingItem, PersonalQrCredential,
-                               Device, DeviceCommand, FaceSubmission,
+                               Device, DeviceCommand, FaceSubmission, PcAccountKey,
                                IntegrationEvent, InventoryBin,
                                InventoryMeasurement, InventoryTransaction, Issue,
                                EquipmentSession, PolicyViolation, RobotEvent, RobotHomeCalibration, WorkcellSetup,
@@ -17,6 +17,7 @@ from app.models.tables import (AccessAttempt, AccessEvent, AccessSession, Alert,
                                User, utcnow, Experiment, ExperimentTrial, PROVENANCES)
 
 __all__ = [
+    "PcAccountKey",
     "AccessResult", "AlertSeverity", "AssetStatus", "AuthMethod",
     "BookingStatus", "DenialReason", "DeviceType", "EventType", "Role",
     "IssueCategory", "IssueEventType", "IssuePhotoStage", "IssueSeverity",

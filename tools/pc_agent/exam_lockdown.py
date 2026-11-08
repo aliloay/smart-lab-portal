@@ -35,11 +35,13 @@ WM_CLOSE = 0x0010
 
 
 def find_chrome() -> Optional[str]:
-    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("LOCALAPPDATA")):
-        if base:
-            p = os.path.join(base, "Google", "Chrome", "Application", "chrome.exe")
-            if os.path.isfile(p):
-                return p
+    """Chrome, else Microsoft Edge (on every Windows 10/11 PC; same kiosk switches)."""
+    for rel in (("Google", "Chrome", "Application", "chrome.exe"), ("Microsoft", "Edge", "Application", "msedge.exe")):
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("LOCALAPPDATA")):
+            if base:
+                p = os.path.join(base, *rel)
+                if os.path.isfile(p):
+                    return p
     return None
 
 
@@ -82,6 +84,12 @@ class Lockdown:
     def _ours(self) -> set[int]:
         """PIDs of the exam browser (its process tree) and of this agent."""
         pids = {self.my_pid}
+        # 2026-11-04 lab: the agent ran in a PowerShell window; the lockdown closed that window and the
+        # agent died with it. The programs that host this agent (its parent chain) are never closed.
+        try:
+            pids |= {p.pid for p in psutil.Process(self.my_pid).parents()}
+        except psutil.Error:
+            pass
         if self.proc is not None:
             try:
                 root = psutil.Process(self.proc.pid)
@@ -150,12 +158,13 @@ class Lockdown:
         if self.proc is None or self.proc.poll() is not None:            # exam window closed: back it comes
             self.report("EXAM_LOCKDOWN", "the exam window was closed - it was opened again")
             self._launch()
-            return
+            # no return: other programs are still closed in this same pass (a failed launch never
+            # leaves the PC unenforced)
         ours = self._ours()
         exam_windows = []
         for hwnd, pid, cls, title in self.windows():
             name = self._name(pid)
-            if pid in ours and name == "chrome.exe":
+            if pid in ours and name in ("chrome.exe", "msedge.exe"):
                 exam_windows.append(hwnd)
                 continue
             if pid in ours:

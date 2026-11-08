@@ -70,10 +70,12 @@ async def lifespan(_: FastAPI):
             print(f"[robots] STOP still latched after restart for robot id(s) {latched} - admin recovery needed")
     except Exception as e:                          # never block start-up; the robots stay in dry run anyway
         print(f"[robots] could not restore STOP latches: {e.__class__.__name__}: {e}")
-    # Optional local AI: load the model now so the first question is quick.
+    # Local AI: NOT loaded at start-up any more (2026-11-04). Launch is the laptop's tightest moment (cameras loading their
+    # models) and the assistant held about 1 GB for nobody; the first question costs ~3 s more. OLLAMA_WARMUP=1 brings it back.
     import os
-    from app.services import ai
-    threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
+    if os.environ.get("OLLAMA_WARMUP", "0") == "1":
+        from app.services import ai
+        threading.Thread(target=ai.warm_up, name="ollama-warm-up", daemon=True).start()
     # Markers page: every registered marker rendered once now, not on the first visit (2026-10-27).
     if os.environ.get("MARKER_WARMUP", "1") != "0":
         from app.services import marker_pack

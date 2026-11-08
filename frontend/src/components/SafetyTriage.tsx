@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { getToken } from '../lib/api'
+import { visibleInterval } from '../lib/visibleInterval'
 
 interface Item { priority: number; lab_code: string; title: string; action: string; key: string
   evidence: { source: string; value: string; age_s: number | null }[] }
@@ -23,7 +24,7 @@ export default function SafetyTriage({ labId, compact = false }: { labId?: numbe
       fetch(`/api/safety/triage${labId ? `?lab_id=${labId}` : ''}`, { cache: 'no-store', headers: token ? { Authorization: `Bearer ${token}` } : {} })
         .then(r => r.ok ? r.json() : null).then(d => { if (live && d) { setItems(d.items); setAdvisory(d.advisory) } }).catch(() => {})
     }
-    load(); const t = window.setInterval(load, 10000)
+    load(); const t = visibleInterval(load, 10000)
     return () => { live = false; window.clearInterval(t) }
   }, [labId])
   if (items === null) return null

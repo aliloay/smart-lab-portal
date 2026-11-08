@@ -12,6 +12,7 @@ import { Circle, Download, Play, Square, Trash2, X } from 'lucide-react'
 import { Recording, RecordingStatus, api } from '../lib/api'
 import { isAdmin, useAuth } from '../lib/auth'
 import { EmptyState, ErrorBanner, Spinner } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const hms = (s: number) => s >= 3600 ? `${Math.floor(s / 3600)}:${mmss(s % 3600)}` : mmss(s)
 const mmss = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${Math.floor(s % 60).toString().padStart(2, '0')}`
@@ -30,7 +31,7 @@ export function RecordButton({ deviceId, onChange }: { deviceId: number; onChang
   useEffect(() => {
     if (!isAdmin(user)) return
     load()
-    const t = window.setInterval(load, 5000)
+    const t = visibleInterval(load, 5000)
     return () => window.clearInterval(t)
   }, [load, user])
   useEffect(() => {                         // the timer runs between status checks
@@ -76,7 +77,7 @@ export function TrainingPictures({ deviceId }: { deviceId: number }) {
   const [st, setSt] = useState<Awaited<ReturnType<typeof api.datasetStatus>> | null>(null)
   const [error, setError] = useState('')
   const load = useCallback(() => { api.datasetStatus(deviceId).then(setSt).catch(() => setSt(null)) }, [deviceId])
-  useEffect(() => { load(); const t = window.setInterval(load, 3000); return () => window.clearInterval(t) }, [load])
+  useEffect(() => { load(); const t = visibleInterval(load, 3000); return () => window.clearInterval(t) }, [load])
   if (!st) return null
   async function flip(action: 'start' | 'stop') {
     setError('')

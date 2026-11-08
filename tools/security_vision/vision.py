@@ -1990,6 +1990,23 @@ def head_crop(frame: np.ndarray, box) -> Optional[np.ndarray]:
     return crop
 
 
+FACE_CROP_MAX_W = 480
+
+
+def face_crop(frame: np.ndarray, full: Optional[np.ndarray], box) -> Optional[np.ndarray]:
+    """The head crop for the face server, cut from the camera's full-resolution picture when there is one (Gemini OPT-09,
+    Claude audit P2-A): frames are downscaled to 960 px for analysis, which halved a distant face on camera 1.
+    `box` is in analysis-frame pixels. A near person's crop stays small enough to send quickly."""
+    if full is None:
+        return head_crop(frame, box)
+    k = full.shape[1] / frame.shape[1]
+    crop = head_crop(full, tuple(v * k for v in box))
+    if crop is not None and crop.shape[1] > FACE_CROP_MAX_W:
+        f = FACE_CROP_MAX_W / crop.shape[1]
+        crop = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
+    return crop
+
+
 # --------------------------------------------------------------- drawing ---
 COLORS = {"ADMIN": (246, 92, 139), "LAB_STAFF": (250, 165, 96), "STUDENT": (129, 199, 52),
           None: (36, 191, 251)}                          # BGR: violet / blue / green / amber

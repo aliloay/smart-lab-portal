@@ -301,9 +301,14 @@ async def appearance_match(request: Request, _: User = Depends(require_staff)):
         r = m.match(img)
         # 2026-10-28 (owner's 116 photos: floor / table / near / far): the matcher needs the textured front up close;
         # when it finds nothing, the trained bin detector gets a look (far away, side views, QR turned away)
+        # 2026-11-02: every object the detectors see in the frame is returned (several at once), not only the best one
+        from app.services import bin_detector
+        hits = bin_detector.detect_all(img)        # the bin + every model in data/models/detectors.json (lab-wide, ...)
+        r = {**r, "detections": [{"code": h["code"], "class": h["class"] or "reusable_items_dock", "label": h["label"],
+                                  "confidence": h["confidence"], "box": h["box"],
+                                  "registered": not h["code"].startswith("type:")} for h in hits]}
         if r.get("decision") == "UNKNOWN":
-            from app.services import bin_detector
-            d = bin_detector.detect_any(img)       # the bin + every model in data/models/detectors.json (switch, ...)
+            d = hits[0] if hits else None
             if d:
                 cls = d["class"] or next((x.cls for x in m.refs if x.code == d["code"]), "reusable_items_dock")
                 best = {"code": d["code"], "class": cls, "inliers": 0, "box": d["box"], "box_kind": "detector",

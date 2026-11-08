@@ -7,7 +7,9 @@ import type { PcLan } from './api'
 export type PcStatus = { word: string; tone: 'ok' | 'idle' | 'warn' | 'bad'; agent: boolean }
 
 export function pcStatus(e: { online: boolean | null; state: string | null; lan?: PcLan | null }): PcStatus {
-  if (e.lan && !e.lan.present) return { word: 'off', tone: 'bad', agent: false }
+  // 2026-11-03 lab: PC-6 reports through the engineer PC's relay (GIU network) - the laptop's LAN scan only sees
+  // the Smart Lab cable, so it said "off" while the agent reported every 30 s. A live agent wins over the scan.
+  if (e.lan && !e.lan.present && !e.online) return { word: 'off', tone: 'bad', agent: false }
   if (e.online) {
     const s = (e.state ?? 'on').toLowerCase()
     return { word: s, tone: e.state === 'FAULT' ? 'bad' : e.state === 'RUNNING' ? 'ok' : 'idle', agent: true }

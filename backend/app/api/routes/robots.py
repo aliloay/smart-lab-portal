@@ -256,6 +256,12 @@ def events(req: EventsIn, db: Session = Depends(get_db), identity: str = Depends
         at = datetime.fromtimestamp(e.t, tz=timezone.utc)
         if abs((at - now).total_seconds()) > 3600:          # an unsynchronised clock: keep arrival time
             at = now
+        # 2026-11-04 lab: a slow reply made the collector re-send a batch - one movement was stored 8 times.
+        # The controller's own timestamp identifies an event: a re-send is accepted and not stored again.
+        if db.scalar(select(RobotEvent.id).where(RobotEvent.device_id == d.id, RobotEvent.kind == e.kind,
+                                                 RobotEvent.joint == e.joint if e.joint is not None else RobotEvent.joint.is_(None),
+                                                 RobotEvent.occurred_at == at).limit(1)) is not None:
+            continue
         booking_id, ctx = _context(db, d, at)
         sev = _severity(e.kind, e.source, booking_id, ctx)
         ev = RobotEvent(device_id=d.id, lab_id=d.lab_id, kind=e.kind, joint=e.joint,

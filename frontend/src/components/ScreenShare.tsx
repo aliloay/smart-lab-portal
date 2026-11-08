@@ -187,7 +187,7 @@ export function SharePanel({ hasMasterPc, pcs = [] }: { hasMasterPc: boolean; pc
             ? <span className="text-[12px] text-warn-soft px-4 text-center">No picture from the shared window yet - it may be
                 minimized or closed. Restore it, or press Stop sharing and share a whole screen instead.</span>
             : <span className="text-[12px] text-slate-400">Waiting for the first frame…</span>}</div>}
-      <p className="text-[11px] text-slate-500">The chosen PCs (with the lab agent) get a notice and open the presentation in their browser;
+      <p className="text-[11px] text-slate-500">The chosen lab PCs show it full screen, above everything, within a second or two, and go back when you stop;
         anyone signed in can also open /share. Nothing is recorded.</p>
       {error && <p className="text-[12px] text-bad-soft">{error}</p>}
     </div>
@@ -219,7 +219,9 @@ function WallTile({ pc, onOpen }: { pc: WallPc; onOpen: () => void }) {
 export function ScreenWall({ pcs, onClose }: { pcs: WallPc[]; onClose: () => void }) {
   const [open, setOpen] = useState<WallPc | null>(null)
   useEffect(() => {
-    pcs.forEach(p => { if (p.online !== false) api.pcScreenStart(p.device_id).catch(() => {}) })
+    // A wall of many PCs: low quality, one picture a second each - enough to see what is on 20 screens, without
+    // ~200 KB/s per PC through the relay. Enlarging one PC uses the normal viewer with its own quality.
+    pcs.forEach(p => { if (p.online !== false) api.pcScreenStart(p.device_id, { monitor: 0, quality: 40, fps: 1 }).catch(() => {}) })
     return () => { pcs.forEach(p => api.pcScreenStop(p.device_id).catch(() => {})) }
   }, [pcs])
   useEffect(() => {

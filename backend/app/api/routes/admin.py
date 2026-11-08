@@ -463,12 +463,19 @@ def issue_device_key(device_id: int, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
     key = secrets.token_urlsafe(24)
     d.key_hash = hash_device_key(key)
+    _drop_account_keys(db, d.id)
     db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_ISSUED",
                     entity_type="device", entity_id=str(d.id),
                     detail={"device_uid": d.device_uid}))
     db.commit()
     return {"device_uid": d.device_uid, "device_key": key,
             "note": "Put this in the device's secrets.h as DEVICE_KEY. It is not shown again."}
+
+
+def _drop_account_keys(db: Session, device_id: int) -> None:
+    from sqlalchemy import delete
+    from app.models import PcAccountKey
+    db.execute(delete(PcAccountKey).where(PcAccountKey.device_id == device_id))
 
 
 @router.delete("/devices/{device_id}/key")
@@ -478,6 +485,7 @@ def revoke_device_key(device_id: int, db: Session = Depends(get_db),
     if d is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
     d.key_hash = None
+    _drop_account_keys(db, d.id)
     db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_KEY_REVOKED",
                     entity_type="device", entity_id=str(d.id),
                     detail={"device_uid": d.device_uid}))

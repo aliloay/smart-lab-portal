@@ -110,6 +110,7 @@ export function PcMessageModal({ deviceId, name, open, onClose }: {
   deviceId: number; name: string; open: boolean; onClose: () => void
 }) {
   const [text, setText] = useState('')
+  const [minutes, setMinutes] = useState(0)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
   useEffect(() => { if (open) { setText(''); setResult(null) } }, [open])
@@ -117,9 +118,18 @@ export function PcMessageModal({ deviceId, name, open, onClose }: {
   async function send() {
     setBusy(true)
     try {
-      await api.pcMessage(deviceId, text.trim())
-      setResult({ ok: true, text: 'Sent. It pops up on the PC within about 2 seconds.' })
+      await api.pcMessage(deviceId, text.trim(), minutes)
+      setResult({ ok: true, text: 'Sent. It pops up in the centre of the PC within about 2 seconds.' })
       setText('')
+    } catch (e) {
+      setResult({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally { setBusy(false) }
+  }
+  async function clearOpen() {
+    setBusy(true)
+    try {
+      await api.pcMessageClear(deviceId)
+      setResult({ ok: true, text: 'Cleared: open messages close on the PC within about 2 seconds.' })
     } catch (e) {
       setResult({ ok: false, text: e instanceof Error ? e.message : String(e) })
     } finally { setBusy(false) }
@@ -130,6 +140,7 @@ export function PcMessageModal({ deviceId, name, open, onClose }: {
       <MessageSquare size={15} /> Message to {name}</span>}
       footer={<>
         <button className="btn-ghost" onClick={onClose}>Close</button>
+        <button className="btn-ghost" disabled={busy} onClick={clearOpen}>Clear message</button>
         <button className="btn-primary" disabled={busy || !text.trim()} onClick={send}>Send</button>
       </>}>
       <div className="space-y-3">
@@ -139,6 +150,11 @@ export function PcMessageModal({ deviceId, name, open, onClose }: {
           {PRESETS.map(p => (
             <button key={p} className="btn-quiet btn-sm !text-[11.5px]" onClick={() => setText(p)}>{p}</button>))}
         </div>
+        <label className="flex items-center gap-2 text-[12.5px] text-slate-400">Closes by itself after
+          <select className="input !w-auto" value={minutes} onChange={e => setMinutes(Number(e.target.value))}>
+            <option value={0}>never (until OK)</option><option value={1}>1 minute</option><option value={5}>5 minutes</option>
+            <option value={15}>15 minutes</option><option value={60}>1 hour</option>
+          </select></label>
         {result && <div className={`text-[12.5px] ${result.ok ? 'text-ok-soft' : 'text-bad-soft'}`}>{result.text}</div>}
       </div>
     </Modal>

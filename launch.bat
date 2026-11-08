@@ -38,7 +38,7 @@ pause & exit /b 1
 rem ---- What is already running: ONE snapshot of process command lines + listening ports (2026-10-27).
 rem "tasklist /v" per service took 10-60 s each on Windows 11 and made the start lag; this takes ~1 s.
 set "RUN=%TEMP%\smartlab_running.txt"
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'py%%' or Name='cmd.exe'\" | ForEach-Object { $_.CommandLine }" > "%RUN%" 2>nul
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name like 'py%%' or Name='cmd.exe' or Name='powershell.exe'\" | ForEach-Object { $_.CommandLine }" > "%RUN%" 2>nul
 netstat -ano | findstr LISTENING >> "%RUN%"
 
 rem ---- Face server (own window, own lifecycle) --------------------------------
@@ -167,6 +167,11 @@ findstr /i /c:"mdns\announce.py" "%RUN%" >nul || (
   start "Smart Lab - Name smartlab.local" /min /belownormal cmd /k py "%~dp0tools\mdns\announce.py"
 )
 
+rem ---- One live overview of every service, port, container and free RAM / GPU (2026-11-03) ----------
+findstr /i /c:"scripts\status.ps1" "%RUN%" >nul || (
+  start "Smart Lab - Status" /belownormal powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\status.ps1" -Watch
+)
+
 rem ---- Automation (n8n) is optional: on only when .env configures it ----------
 set "PROFILE="
 if exist ".env" findstr /r /c:"^AUTOMATION_WEBHOOK_BASE=..*" ".env" >nul && set "PROFILE=--profile automation"
@@ -174,7 +179,7 @@ if exist ".env" findstr /r /c:"^AUTOMATION_WEBHOOK_BASE=..*" ".env" >nul && set 
 rem ---- Addresses ----------------------------------------------------------------
 rem The address phones and the ESP32 boards must use: the adapter with a
 rem default gateway (Wi-Fi or hotspot), not VMware/WSL virtual adapters.
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress"`) do set LANIP=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$lab = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like '192.168.1.*' -and $_.AddressState -eq 'Preferred' } | Sort-Object { $_.IPAddress -ne '192.168.1.200' } | Select-Object -First 1; if ($lab) { $lab.IPAddress } else { (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress }"`) do set LANIP=%%i
 
 echo.
 echo  Smart Lab is starting (the first build takes a few minutes).
@@ -237,6 +242,9 @@ if errorlevel 1 (
   copy /y "%FP%" ".last_build_fingerprint" >nul
 )
 :start_portal
+rem A compose "recreate" cut short (a kill, a forced power-off) leaves a never-started copy of a container in state
+rem Created, named <id>_smart-lab-portal-...: it holds a name and confuses the next start. It never ran: it has no data.
+for /f "delims=" %%c in ('docker ps -a --filter "status=created" --filter "name=smart-lab-portal" --format "{{.Names}}" 2^>nul') do docker rm "%%c" >nul 2>&1
 docker compose %PROFILE% up --no-build
 
 rem ---- Stopped: close the face server we opened -----------------------------

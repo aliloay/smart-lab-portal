@@ -86,3 +86,13 @@ gives 3V3 for the logic. The voltage on each module's VCC pin (PN532, ST7735, fi
 4. The fuse value in the door branch and the lock's current.
 5. ~~Whether the PAM8403 + speaker are fitted~~ - answered 2026-10-20: removed.
 6. Whether GPIO4 / 5 / 23 still have wires on them.
+
+## Relay drive as rebuilt on 2026-11-08 (owner's change; supersedes the BC557 stage above)
+
+- Relay module VCC ("VR") on **5 V**, its voltage jumper on 5 V (was 12 V). Lock side unchanged: COM to 12 V +, NO to lock +, lock - to 12 V -, capacitor across the 12 V rail. All grounds common.
+- GPIO26 drives the relay IN through a **base resistor and an NPN transistor** (replaces the BC557 PNP stage). Part number and resistor values: not yet recorded.
+- **Resistors from GPIO26 to 3.3 V** (pull-up; owner: "between 26 and 3.3") hold the pin at the locked level while the ESP32 resets or boots. Do NOT fit a base-to-GND resistor: it pulls towards unlocked on this wiring.
+- Measured: GPIO26 = 3.18-3.2 V when booted and locked, so **HIGH = LOCKED, LOW = UNLOCKED** (firmware constants unchanged).
+- Firmware (flashed 2026-11-08): `setup()` writes the locked level with `gpio_set_level()` before `pinMode(OUTPUT)`; `setRelay()` no longer calls `pinMode`.
+- Owner's checks after the change: no lock movement on resets or USB replugs; stays closed with the ESP32 unpowered and 12 V on; no longer sticks open or heats; green LED on grant, red LED on denial (LEDs replaced). Trial counts not recorded.
+- Still to do: record the transistor part and resistor values; consider a flyback diode across the solenoid; lock-power time limit (needs approval).

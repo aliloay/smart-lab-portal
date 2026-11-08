@@ -186,6 +186,19 @@ class Lab(Base):
     bookings: Mapped[list["Booking"]] = relationship(back_populates="lab")
 
 
+class PcAccountKey(Base):
+    """A lab PC's key for one Windows account (2026-11-07): each account keeps its own, so accounts on one PC do not
+    replace each other's. Only the SHA-256 is stored; `account` is a hash, not the account's name."""
+    __tablename__ = "pc_account_keys"
+    __table_args__ = (UniqueConstraint("device_id", "account", name="uq_pc_account_keys_device_account"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False)
+    account: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                 default=lambda: datetime.now(timezone.utc))
+
+
 class Device(Base):
     """Every physical device belongs to exactly one laboratory."""
     __tablename__ = "devices"

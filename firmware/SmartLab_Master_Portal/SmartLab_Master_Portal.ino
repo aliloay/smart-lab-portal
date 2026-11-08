@@ -1025,7 +1025,6 @@ void printDoorStatus() {
 
 void setRelay(bool unlock) {
   if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
-  pinMode(RELAY_PIN, OUTPUT);
   gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);   // see setup()
   digitalWrite(RELAY_PIN, unlock ? RELAY_UNLOCKED_LEVEL : RELAY_LOCKED_LEVEL);
   relayUnlocked   = unlock;
@@ -2396,11 +2395,15 @@ bool emergencyOverride() {
 
 void setup() {
   // =========================================================================
-  // RELAY FIRST - driven LOCKED before anything else. INPUT_PULLUP here is
-  // NOT a driven level and left the door sitting open on the old NC wiring,
-  // so it is not used. With the lock on NO, LOCKED = LOW = coil off - the
-  // same as an undriven pin, so a reset or a flash leaves the door locked.
+  // RELAY FIRST - driven LOCKED before anything else. INPUT_PULLUP is not
+  // used: it is not a driven level. Measured 2026-11-08 with the NPN stage
+  // fitted: GPIO26 reads 3.2 V when booted and locked, so LOCKED = HIGH.
+  // The level is written BEFORE the pin becomes an output, so it never
+  // drives LOW: on ESP32 core 3.x, digitalWrite() does nothing on a pin
+  // pinMode() has not claimed yet, hence gpio_set_level() for this first
+  // write. pinMode() changes only the direction, not the level.
   // =========================================================================
+  gpio_set_level((gpio_num_t)RELAY_PIN, RELAY_LOCKED_LEVEL);
   pinMode(RELAY_PIN, OUTPUT);
   // Strongest output drive (~40 mA, default ~20 mA): at the default the
   // module's input pulled the HIGH level down far enough that the relay

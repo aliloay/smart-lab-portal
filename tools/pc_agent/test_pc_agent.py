@@ -36,7 +36,15 @@ def test_capture_returns_a_downscaled_jpeg(monitor):
 def test_gdi_fallback_without_pillow(monkeypatch):
     pytest.importorskip("cv2")
     j = a._grab_gdi(a.monitors()[0]["bbox"], 60)
-    assert j is not None and j[:2] == b"\xff\xd8"
+    if j is None:
+        pytest.skip("no interactive desktop for GDI (background session or locked screen)")
+    assert j[:2] == b"\xff\xd8"
+
+
+def test_web_pages_follow_the_portal_address():
+    assert a.derive_web("http://127.0.0.1:8000/api") == "http://127.0.0.1"
+    assert a.derive_web("http://10.40.20.17:8000/api") == "https://10.40.20.17"      # relayed: HTTPS for sharing
+    assert a.derive_web("http://192.168.1.200:8000/api") == "https://192.168.1.200"
 
 
 def test_runs_on_python_3_8_for_windows_7():
@@ -90,7 +98,7 @@ def test_second_copy_exits_and_reports_carry_the_start_stamp(monkeypatch):
     finally:
         first.shutdown()
     info = a.identity_info()
-    assert info["agent_started"] == a.AGENT_STARTED and info["agent_version"] == "0.9"
+    assert info["agent_started"] == a.AGENT_STARTED and info["agent_version"] == a.AGENT_VERSION
 
 
 def test_portal_opens_once_per_windows_sign_in(monkeypatch, tmp_path):
@@ -123,3 +131,18 @@ def test_restart_and_shutdown_force_close_after_the_warning(monkeypatch):
         assert ok and "60 s" in msg
         assert calls[-1][:5] == ["shutdown", flag, "/f", "/t", "60"] and "/c" in calls[-1]
     assert shown == [(60, "restart"), (60, "shut down")]                   # the 60 s countdown window
+
+
+def test_a_message_is_shown_once_even_after_an_agent_restart(tmp_path):
+    import pc_agent as A
+    p = str(tmp_path / "seen.json")
+    assert A.first_time(7, p) is True
+    assert A.first_time(7, p) is False
+    assert A.first_time(8, p) is True
+    assert A.first_time(7, p) is False
+
+
+def test_notices_are_centred():
+    import notice as N
+    assert N.center_xy(1920, 1080, 1000, 600) == (460, 240)
+    assert N.center_xy(1920, 1080, 3000, 2000) == (0, 0)

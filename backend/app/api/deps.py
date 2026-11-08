@@ -9,7 +9,7 @@ import hashlib
 import hmac
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -61,7 +61,14 @@ def hash_device_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def require_device(x_device_key: Optional[str] = Header(None),
+def pc_enroll_code() -> str:
+    """What the flash-drive kit carries instead of DEVICE_API_KEY (2026-11-04, Gemini + Claude audit P0-A). It can do
+    one thing: register a lab PC and get that PC's own key. Derived one-way, so the door boards' key cannot be
+    recovered from it. It changes if DEVICE_API_KEY is ever rotated, so a rotation also needs a new kit."""
+    return hmac.new(settings.DEVICE_API_KEY.encode(), b"smartlab-pc-enroll-v1", hashlib.sha256).hexdigest()
+
+
+def require_device(request: Request, x_device_key: Optional[str] = Header(None),
                    db: Session = Depends(get_db)) -> str:
     """
     Guards every endpoint the hardware calls. Without it, anything on the LAN
@@ -74,6 +81,8 @@ def require_device(x_device_key: Optional[str] = Header(None),
       * a device's own key (issued on Devices) -> returns that device_uid,
         and device_scope() then lets it report only as itself.
     DEVICE_SHARED_KEY=false refuses the shared key once every device has its own.
+    A lab PC's own key opens the PC endpoints (/api/equipment/...) and nothing else: anyone signed in to a lab
+    PC can read that file, and it must not reach door, sensor, robot or inventory reports.
     """
     if not x_device_key:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device key")
@@ -81,12 +90,18 @@ def require_device(x_device_key: Optional[str] = Header(None),
     if settings.DEVICE_SHARED_KEY and hmac.compare_digest(
             x_device_key.encode(), settings.DEVICE_API_KEY.encode()):
         return SHARED
-    from app.models import Device
-    uid = db.scalar(select(Device.device_uid).where(
-        Device.key_hash == hash_device_key(x_device_key)))
-    if uid is None:
+    from app.models import Device, DeviceType
+    from app.models import PcAccountKey
+    hashed = hash_device_key(x_device_key)
+    row = db.execute(select(Device.device_uid, Device.device_type).where(Device.key_hash == hashed)).first()
+    if row is None:
+        row = db.execute(select(Device.device_uid, Device.device_type).join(
+            PcAccountKey, PcAccountKey.device_id == Device.id).where(PcAccountKey.key_hash == hashed)).first()
+    if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid device key")
-    return uid
+    if row.device_type == DeviceType.PC and not request.url.path.startswith("/api/equipment/"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A lab PC's key only works for the PC endpoints")
+    return row.device_uid
 
 
 def device_scope(identity: str, device_uid: Optional[str]) -> None:

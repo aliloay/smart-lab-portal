@@ -24,6 +24,7 @@ import LiveCameraFeed from '../components/LiveCameraFeed'
 import { Chip, ErrorBanner, Skeleton, Tone } from '../components/ui'
 import { DemoBadge, RobotStateChip, useRobots } from '../components/robot/robotLive'
 import './CommandCenterWall.css'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const STATUS_REFRESH_MS = 3000          // status-driven page refresh, at most this often
 
@@ -692,7 +693,7 @@ export default function CommandCenter({ wall = false }: { wall?: boolean }) {
 
   useEffect(() => {
     loadPageData()
-    const timer = window.setInterval(loadPageData, 20000)
+    const timer = visibleInterval(loadPageData, 20000)
     return () => {
       window.clearInterval(timer)
       if (refreshTimer.current != null) window.clearTimeout(refreshTimer.current)

@@ -21,11 +21,13 @@ every action is audited.
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
@@ -35,7 +37,8 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingStatus,
                         Device, DeviceCommand, DeviceType, EquipmentSession, Lab,
-                        PolicyViolation, Role, SensorReading, User)
+                        PcAccountKey, PolicyViolation, Role, SensorReading, User)
+from app.services import agent_bundle
 from app.services import commands as cmds
 from app.services import lan_presence
 
@@ -65,6 +68,7 @@ router = APIRouter(prefix="/equipment", tags=["equipment"])
 STATES = ("RUNNING", "IDLE", "FAULT")
 MODES = ("NORMAL", "EXAM", "MAINTENANCE", "LOCKED")
 PC_MESSAGE = "PC_MESSAGE"
+PC_MESSAGE_CLEAR = "PC_MESSAGE_CLEAR"     # staff closed the messages open on a PC; waits up to 1 h for an agent that is off
 
 
 def _utc(dt: datetime) -> datetime:
@@ -220,8 +224,9 @@ def list_equipment(db: Session = Depends(get_db), _: User = Depends(require_staf
     now = datetime.now(timezone.utc)
     close_offline_sessions(db, now)
     db.commit()
+    # Cards renamed "TEST - ..." are retired duplicates: their history stays in the database, the card does not.
     devices = db.scalars(select(Device).where(Device.device_type.in_(
-        (DeviceType.ROBOT, DeviceType.PC))).order_by(Device.device_uid)).all()
+        (DeviceType.ROBOT, DeviceType.PC)), Device.name.notlike("TEST -%")).order_by(Device.device_uid)).all()
     if not devices:
         return []
     ids = [d.id for d in devices]
@@ -390,7 +395,9 @@ def _proof_ok(d: Device, nonce: str, proof: str) -> bool:
     import hashlib
     import hmac as _hmac
     from app.api.deps import hash_device_key
+    from sqlalchemy.orm import object_session
     hashes = [h for h in (d.key_hash, hash_device_key(settings.DEVICE_API_KEY) if settings.DEVICE_SHARED_KEY else None) if h]
+    hashes += list(object_session(d).scalars(select(PcAccountKey.key_hash).where(PcAccountKey.device_id == d.id)))
     return any(_hmac.compare_digest(_hmac.new(h.encode(), nonce.encode(), hashlib.sha256).hexdigest(), proof)
                for h in hashes)
 
@@ -556,10 +563,21 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
             c.status, c.sent_at, c.completed_at = "DONE", now, now
             c.message = "Shown on the PC."
             who = db.get(User, c.requested_by_id) if c.requested_by_id else None
-            message = {"id": c.id, "text": (c.args or {}).get("text", ""), "from": who.full_name if who else None}
+            message = {"id": c.id, "text": (c.args or {}).get("text", ""), "from": who.full_name if who else None,
+                       "expires_s": (c.args or {}).get("expires_s") or 0}
         cmds.publish_later(db, c)
         db.commit()
         cmds.flush_published(db)
+    clear_messages = False
+    clr = db.scalar(select(DeviceCommand).where(
+        DeviceCommand.device_id == d.id, DeviceCommand.command == PC_MESSAGE_CLEAR,
+        DeviceCommand.status == "PENDING").order_by(DeviceCommand.created_at))
+    if clr is not None:
+        now = datetime.now(timezone.utc)
+        clear_messages = now <= _utc(clr.expires_at)
+        clr.status, clr.completed_at = ("DONE" if clear_messages else "EXPIRED"), now
+        clr.message = "Messages closed on the PC." if clear_messages else "The PC stayed off."
+        db.commit()
     b = pc_control.broadcast_state()
     capture = bool(b["active"] and ((b["source"] == "master_pc" and d.is_master_pc)
                                     or (b["source"] == "pc" and b.get("device_id") == d.id)))
@@ -567,7 +585,8 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
             # 2026-11-03 lab: Exam on PC-6 with no page "did nothing" (report-only). Exam = lockdown always;
             # without a page the agent opens the portal at the address IT reaches (url None).
             "exam": {"url": _exam_url_for(db, d), "lockdown": True} if (d.mode or "NORMAL") == "EXAM" else None,
-            "message": message, "action": _hand_over_action(db, d),
+            "message": message, "clear_messages": clear_messages, "action": _hand_over_action(db, d),
+            "agent_bundle": agent_bundle.current(),
             # Presenting: students' PCs open the portal's /share page; the master PC uploads frames
             # when the admin chose it as the source.
             "broadcast": {"active": b["active"] and (b["targets"] is None or d.id in b["targets"]),
@@ -583,18 +602,21 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
 
 @router.post("/pc/frame", tags=["devices"], status_code=status.HTTP_204_NO_CONTENT)
 async def pc_frame(request: Request, device_uid: str = Query(max_length=64),
-                   db: Session = Depends(get_db), identity: str = Depends(require_device)):
-    """One JPEG of the PC's screen, accepted only while staff are watching."""
+                   identity: str = Depends(require_device)):
+    """One JPEG of the PC's screen, accepted only while staff are watching.
+    2026-11-04 lab: this async handler used a blocking DB session on the event loop; 13 PCs x 2 frames/s
+    (screen wall) froze the whole backend. The PC id now comes from the cached lookup, off the loop."""
+    from fastapi.concurrency import run_in_threadpool
     device_scope(identity, device_uid)
-    d = get_device(db, device_uid)
-    if d is None or d.device_type != DeviceType.PC:
+    did = await run_in_threadpool(_pc_id_for, device_uid)
+    if did is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown PC")
-    if not pc_control.is_watched(d.id):
+    if not pc_control.is_watched(did):
         raise HTTPException(status.HTTP_409_CONFLICT, "Nobody is viewing this screen")
     body = await request.body()
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
-    pc_control.put_frame(d.id, body)
+    pc_control.put_frame(did, body)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -642,6 +664,7 @@ def screen_stop(device_id: int, db: Session = Depends(get_db),
 
 class MessageRequest(BaseModel):
     text: str = Field(min_length=1, max_length=200)
+    expires_minutes: Optional[int] = Field(default=None, ge=1, le=240)   # closes by itself on the PC after this
 
 
 @router.post("/{device_id}/message", status_code=status.HTTP_201_CREATED)
@@ -661,7 +684,7 @@ def send_message(device_id: int, req: MessageRequest, db: Session = Depends(get_
     if waiting is not None:
         waiting.status, waiting.completed_at = "EXPIRED", now
         waiting.message = "The PC did not take the message in time (agent off)."
-    c = DeviceCommand(device_id=d.id, command=PC_MESSAGE, args={"text": text},
+    c = DeviceCommand(device_id=d.id, command=PC_MESSAGE, args={"text": text, "expires_s": (req.expires_minutes or 0) * 60},
                       status="PENDING", requested_by_id=staff.id, created_at=now,
                       expires_at=now + cmds.PICKUP_WINDOW)
     db.add(c)
@@ -674,6 +697,28 @@ def send_message(device_id: int, req: MessageRequest, db: Session = Depends(get_
     cmds.flush_published(db)
     pc_control.signal(d.id)
     return cmds.out(c)
+
+
+@router.post("/{device_id}/message/clear")
+def clear_message(device_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    """Close the messages open on this PC and cancel one not delivered yet."""
+    d = _pc(db, device_id, staff)
+    now = datetime.now(timezone.utc)
+    for w in db.scalars(select(DeviceCommand).where(
+            DeviceCommand.device_id == d.id, DeviceCommand.command == PC_MESSAGE,
+            DeviceCommand.status == "PENDING")).all():
+        w.status, w.completed_at, w.message = "EXPIRED", now, "Cleared by staff before it was shown."
+    pending = db.scalar(select(DeviceCommand).where(
+        DeviceCommand.device_id == d.id, DeviceCommand.command == PC_MESSAGE_CLEAR,
+        DeviceCommand.status == "PENDING"))
+    if pending is None:
+        db.add(DeviceCommand(device_id=d.id, command=PC_MESSAGE_CLEAR, args={}, status="PENDING",
+                             requested_by_id=staff.id, created_at=now, expires_at=now + timedelta(hours=1)))
+    db.add(AuditLog(actor_user_id=staff.id, action="PC_MESSAGE_CLEARED", entity_type="device",
+                    entity_id=str(d.id), detail={"device": d.device_uid}))
+    db.commit()
+    pc_control.signal(d.id)
+    return {"device_id": d.id, "cleared": True}
 
 
 # ------------------------------------------------ PC actions (allowlisted) ---
@@ -972,13 +1017,24 @@ async def broadcast_frame_from_browser(request: Request, admin: User = Depends(r
 
 @router.post("/pc/broadcast-frame", tags=["devices"], status_code=status.HTTP_204_NO_CONTENT)
 async def broadcast_frame_from_master(request: Request, device_uid: str = Query(max_length=64),
-                                      db: Session = Depends(get_db), identity: str = Depends(require_device)):
-    """A frame from the PC that presents: the admin's master PC, or a student's PC an admin accepted."""
+                                      identity: str = Depends(require_device)):
+    """A frame from the PC that presents: the admin's master PC, or a student's PC an admin accepted.
+    The DB lookup runs in the thread pool (never on the event loop - see pc_frame)."""
+    from fastapi.concurrency import run_in_threadpool
     device_scope(identity, device_uid)
-    d = get_device(db, device_uid)
+
+    def lookup() -> tuple[Optional[int], bool]:
+        from app.db.session import SessionLocal
+        s = SessionLocal()
+        try:
+            d = get_device(s, device_uid)
+            return (d.id, bool(d.is_master_pc)) if d is not None else (None, False)
+        finally:
+            s.close()
+    did, is_master = await run_in_threadpool(lookup)
     st = pc_control.broadcast_state()
-    ok = d is not None and st["active"] and ((st["source"] == "master_pc" and d.is_master_pc)
-                                             or (st["source"] == "pc" and st.get("device_id") == d.id))
+    ok = did is not None and st["active"] and ((st["source"] == "master_pc" and is_master)
+                                               or (st["source"] == "pc" and st.get("device_id") == did))
     if not ok:
         raise HTTPException(status.HTTP_409_CONFLICT, "Not presenting from this PC")
     body = await request.body()
@@ -999,13 +1055,17 @@ def broadcast_frame(viewer: User = Depends(get_current_user)):
     return _frame_response()
 
 
-def _frame_response() -> Response:
-    jpeg = pc_control.broadcast_frame()
+def _frame_response(if_none_match: Optional[str] = None) -> Response:
+    jpeg, stamp = pc_control.broadcast_frame_stamped()
     if jpeg is None:
         if not pc_control.broadcast_state()["active"]:
             return Response(status_code=status.HTTP_410_GONE)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    # The viewers ask faster than the presenter sends: an unchanged picture is answered with a few bytes.
+    etag = f'"{stamp}"'
+    if if_none_match == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag, "Cache-Control": "no-store"})
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store", "ETag": etag})
 
 
 # ---------------------------- watch a share on a lab PC without signing in again (2026-11-03) ---
@@ -1015,6 +1075,65 @@ def _frame_response() -> Response:
 # picture of an everyone-audience share and nothing else.
 _watch_tokens: dict[str, float] = {}                    # token -> expires (monotonic)
 WATCH_TOKEN_S = 4 * 3600.0
+
+
+class EnrollRequest(BaseModel):
+    device_uid: str = Field(pattern=r"^PC_[A-Za-z0-9_-]{1,40}$")
+    lab_id: str = Field(max_length=32)
+    # A hash that tells Windows accounts on one PC apart. Kits before 2026-11-07 send none and replace the PC's one key.
+    account: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+
+
+@router.post("/pc/enroll", tags=["devices"])
+def pc_enroll(req: EnrollRequest, x_enroll_key: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """First start of the agent from the flash-drive kit: the kit's enrollment code -> this PC's own key. The same
+    PC_<computer name> keeps its one row (its name and history stay, the old key stops working), so running the
+    installer again never makes a duplicate card. Every enrollment is in the audit log."""
+    import hmac as _hmac
+    import secrets
+
+    from app.api.deps import hash_device_key, pc_enroll_code
+    if not settings.PC_ENROLL_OPEN or not x_enroll_key \
+            or not _hmac.compare_digest(x_enroll_key.encode(), pc_enroll_code().encode()):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid enrollment code")
+    if "ADMIN" in req.device_uid.upper():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The administrator's PC does not enroll from the kit")
+    lab = get_lab_by_code(db, req.lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
+    d = get_device(db, req.device_uid)
+    if d is not None and d.device_type != DeviceType.PC:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That device is not a lab PC")
+    created = d is None
+    if created:
+        d = Device(device_uid=req.device_uid, name=req.device_uid, device_type=DeviceType.PC, lab_id=lab.id)
+        db.add(d)
+        db.flush()
+    key = secrets.token_urlsafe(32)
+    if req.account:
+        row = db.execute(select(PcAccountKey).where(PcAccountKey.device_id == d.id,
+                                                    PcAccountKey.account == req.account)).scalar_one_or_none()
+        if row is None:
+            db.add(PcAccountKey(device_id=d.id, account=req.account, key_hash=hash_device_key(key)))
+        else:
+            row.key_hash = hash_device_key(key)
+    else:
+        d.key_hash = hash_device_key(key)
+    db.add(AuditLog(actor_user_id=None, action="PC_ENROLLED", entity_type="device", entity_id=str(d.id),
+                    detail={"device": d.device_uid, "new_row": created, "account": req.account}))
+    db.commit()
+    _pc_changed(None)
+    return {"device_uid": d.device_uid, "device_key": key}
+
+
+@router.get("/pc/agent-bundle", tags=["devices"])
+def pc_agent_bundle(identity: str = Depends(require_device)):
+    """The signed agent update (tools/pc_agent/make_bundle.py). Public code, no secrets: the signature, checked on
+    the PC against a public key it already holds, is what makes it trustworthy."""
+    path = agent_bundle.path()
+    if not os.path.isfile(path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No agent bundle on this portal")
+    return FileResponse(path, media_type="application/json")
 
 
 @router.get("/pc/watch-token", tags=["devices"])
@@ -1044,12 +1163,12 @@ def broadcast_watch_status(t: str = Query(max_length=64)):
 
 
 @router.get("/broadcast/watch/frame.jpg")
-def broadcast_watch_frame(t: str = Query(max_length=64)):
+def broadcast_watch_frame(t: str = Query(max_length=64), if_none_match: Optional[str] = Header(None)):
     if not _watch_ok(t):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Watch link expired")
     if pc_control.broadcast_state().get("audience") == "staff":
         return Response(status_code=status.HTTP_410_GONE)
-    return _frame_response()
+    return _frame_response(if_none_match)
 
 
 # ------------------------------------------------ agent long-poll (2026-10-17) ---

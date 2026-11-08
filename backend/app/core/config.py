@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Accept the shared key above. Set false once every device has its own
     # key (Devices -> Issue key), so a leaked shared key opens nothing.
     DEVICE_SHARED_KEY: bool = True
+    # Lab PCs swap the flash-drive kit's enrollment code for their own device key (POST /equipment/pc/enroll).
+    # false: no PC can enroll; set it once the lab is installed and the stick is put away.
+    PC_ENROLL_OPEN: bool = True
     # The backup service's status file (docker-compose mounts ./backups read-only);
     # empty = not watched (tests, a bare install).
     BACKUP_STATUS_PATH: str = ""

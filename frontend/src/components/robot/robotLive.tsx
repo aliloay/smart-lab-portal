@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Robot, RobotState, HomeState, api } from '../../lib/api'
 import { useLiveMessages } from '../../lib/live'
 import { Chip, Tone } from '../ui'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 const STALE_S = 3, OFFLINE_S = 30
 
@@ -36,7 +37,7 @@ export function useRobots({ includeStoppedDemos = false } = {}) {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 15000)
+    const t = visibleInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {

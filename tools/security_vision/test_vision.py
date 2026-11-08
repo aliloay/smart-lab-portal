@@ -845,3 +845,29 @@ def test_robot_in_use_survives_a_missed_frame_and_holds_20_s():
     last = 1.0 + ZoneWatcher.IN_USE_AFTER_S
     assert zw.update(ROBOT, _scene(), [], last + 10.0)[0].status == "IN_USE"      # stepped away 10 s: held
     assert zw.update(ROBOT, _scene(), [], last + ZoneWatcher.ROBOT_HOLD_S + 1.0)[0].status != "IN_USE"
+
+
+def test_face_crop_uses_the_full_resolution_picture():
+    """A distant face keeps its pixels (Gemini OPT-09): the crop comes from the camera's picture, not the 960 px frame."""
+    import numpy as np
+    import vision
+    full = np.random.randint(0, 255, (1080, 1920, 3), dtype=np.uint8)
+    frame = cv2.resize(full, (960, 540))
+    box = (480, 100, 150, 400)                                     # analysis-frame pixels
+    k = 2
+    x0, y0 = int(480 * k - 0.1 * 150 * k), int(100 * k - 0.05 * 400 * k)
+    crop_full = vision.head_crop(full, tuple(v * k for v in box))
+    got = vision.face_crop(frame, full, box)
+    assert got.shape[1] == min(crop_full.shape[1], vision.FACE_CROP_MAX_W)
+    assert crop_full.shape[1] > vision.head_crop(frame, box).shape[1]
+    small = (480, 100, 40, 120)                                    # a distant person: real pixels, not enlarged ones
+    assert np.array_equal(vision.face_crop(frame, full, small)[:5, :5], vision.head_crop(full, tuple(v * k for v in small))[:5, :5])
+    assert np.array_equal(vision.face_crop(frame, None, box), vision.head_crop(frame, box))    # no downscale happened
+
+
+def test_near_person_crop_stays_small():
+    import numpy as np
+    import vision
+    full = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    frame = np.zeros((540, 960, 3), dtype=np.uint8)
+    assert vision.face_crop(frame, full, (100, 10, 500, 500)).shape[1] == vision.FACE_CROP_MAX_W

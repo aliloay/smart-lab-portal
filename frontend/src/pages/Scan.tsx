@@ -20,7 +20,7 @@ import { Box, Camera, CameraOff, SwitchCamera, ZoomIn, ZoomOut, FileVideo, Loade
   Square, Users, Volume2, VolumeX, X } from 'lucide-react'
 import { Recording, VoiceStatus, isSpeaking, micSupported, replayLast, speak, spokenSummary, stopSpeaking, transcribe, unlockAudio, voiceStatus } from '../lib/voice'
 import { AiText } from '../components/ai'
-import { ScanAnswer, ScanCard, api, scanAppearance, scanAsk, scanIdentify, scanPeople } from '../lib/api'
+import { AppearanceHint, ScanAnswer, ScanCard, api, scanAppearance, scanAsk, scanIdentify, scanPeople, type ScanPeople } from '../lib/api'
 import { Chip } from '../components/ui'
 import LiveTargetPanel, { LiveSummary, RobotBars, fmtAge } from '../components/live/LiveTargetPanel'
 import { PersonTracker, Track, faceCrop } from '../components/live/tracker'
@@ -31,7 +31,29 @@ type CardState = { card?: ScanCard; error?: string; fetchedAt: number }
 type Target = { kind: 'marker'; code: string } | { kind: 'person'; track: number }
 interface BarcodeDetectorLike { detect(src: CanvasImageSource): Promise<{ rawValue: string; cornerPoints: Pt[] }[]> }
 
-const DECODE_EVERY_MS = 120           // ~8 marker checks a second
+const DECODE_EVERY_MS = 250           // ~4 marker checks a second (2026-11-03: was 120 - the phone got hot)
+const PEOPLE_EVERY_MS = 800           // people frames at most this often (was back-to-back)
+// Motion gating (2026-11-04, Gemini audit P2, adapted): a people frame is uploaded only when the view changed. A 32x32
+// grey thumbnail is compared with the one of the last frame that was really SENT (so a slow drift still adds up).
+// "Unchanged" = mean difference < STILL_MAD AND fewer than STILL_PIXELS pixels differ by more than PIXEL_STEP - the
+// second test catches one person moving in an otherwise still view, which barely moves the mean. While unchanged the
+// last server answer is applied again - the answer an unchanged picture would get - so tracks stay alive (tracker
+// LOST_MS = 1500 ms: skipping outright made the boxes vanish). At most STILL_MAX_MS between real uploads.
+const MOTION_THUMB = 32, STILL_MAD = 4, PIXEL_STEP = 14, STILL_PIXELS = 3, STILL_MAX_MS = 3000
+function thumbOf(src: CanvasImageSource, c: HTMLCanvasElement): Uint8ClampedArray {
+  c.width = c.height = MOTION_THUMB
+  const x = c.getContext('2d', { willReadFrequently: true })!
+  x.drawImage(src, 0, 0, MOTION_THUMB, MOTION_THUMB)
+  const d = x.getImageData(0, 0, MOTION_THUMB, MOTION_THUMB).data
+  const g = new Uint8ClampedArray(MOTION_THUMB * MOTION_THUMB)
+  for (let i = 0; i < g.length; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8
+  return g
+}
+function viewUnchanged(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
+  let t = 0, moved = 0
+  for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); t += d; if (d > PIXEL_STEP) moved++ }
+  return t / a.length < STILL_MAD && moved < STILL_PIXELS
+}
 // Live history (2026-10-28, owner: "a small history of my live detections under the camera"): one line per NEW
 // detection (same thing again within 15 s is not repeated), newest first, max 30; kept across Refresh.
 type HistItem = { at: number; kind: 'person' | 'marker' | 'look' | 'answer'; text: string; icon?: string }
@@ -73,11 +95,13 @@ export default function Scan() {
   const grab = useRef<HTMLCanvasElement | null>(null)
   const hqGrab = useRef<HTMLCanvasElement | null>(null)
   const cropC = useRef<HTMLCanvasElement | null>(null)
+  const motionC = useRef<HTMLCanvasElement | null>(null)
   const session = useRef<{
     stream?: MediaStream; raf?: number; worker?: Worker; native?: BarcodeDetectorLike; decoding: boolean
     lastDecode: number; people?: AbortController; peopleBusy: boolean; fileUrl?: string; stopped: boolean
-    face?: AbortController; faceBusy?: boolean; paused?: boolean; peopleBackoff?: number; mirror?: boolean
+    face?: AbortController; faceBusy?: boolean; paused?: boolean; peopleBackoff?: number; lastPeople?: number; mirror?: boolean
     dz?: number          // digital zoom (1..4) when the camera has no zoom of its own (2026-11-02)
+    peopleLast?: { boxes: ScanPeople['boxes']; objects: ScanPeople['objects']; thumb: Uint8ClampedArray; at: number }
   }>({ decoding: false, lastDecode: 0, peopleBusy: false, stopped: true })
   const seen = useRef(new Map<string, Seen>())
   const tracker = useRef(new PersonTracker())
@@ -167,7 +191,7 @@ export default function Scan() {
   inViewRef.current = inView
   const [selected, setSelected] = useState<Target | null>(null)
   const [sessionNo, setSessionNo] = useState(0)
-  const [stats, setStats] = useState({ decodeMs: 0, peopleMs: 0, peopleRtt: 0, faceMs: 0, decoder: '' })
+  const [stats, setStats] = useState({ decodeMs: 0, peopleMs: 0, peopleRtt: 0, faceMs: 0, decoder: '', peopleSent: 0, peopleReused: 0 })
   const cardsRef = useRef(cards); cardsRef.current = cards
   const peopleRef = useRef(peopleOn); peopleRef.current = peopleOn
   const selectedRef = useRef(selected); selectedRef.current = selected
@@ -311,8 +335,19 @@ export default function Scan() {
     setStats(st => ({ ...st, decodeMs: Math.round(ms) }))
     s.decoding = false
     // people: one request in flight at most, on the same 640-px frame
-    if (peopleRef.current && !s.peopleBusy && now >= (s.peopleBackoff ?? 0)) {
-      s.peopleBusy = true
+    if (peopleRef.current && !s.peopleBusy && now >= (s.peopleBackoff ?? 0) && now - (s.lastPeople ?? 0) >= PEOPLE_EVERY_MS) {
+      const thumb = thumbOf(g, motionC.current ?? (motionC.current = document.createElement('canvas')))
+      const last = s.peopleLast
+      if (last && now - last.at < STILL_MAX_MS && viewUnchanged(thumb, last.thumb)) {
+        s.lastPeople = now                                  // view unchanged: the last answer again, no upload
+        tracker.current.update(last.boxes, now)
+        objects.current = { at: now, list: last.objects ?? [] }
+        syncTracks()
+        setStats(st => ({ ...st, peopleReused: st.peopleReused + 1 }))
+        if (last.boxes.length) checkFace()
+        return
+      }
+      s.peopleBusy = true; s.lastPeople = now
       g.toBlob(async blob => {
         if (!blob || session.current.stopped) { s.peopleBusy = false; return }
         const ac = new AbortController(); s.people = ac
@@ -320,11 +355,12 @@ export default function Scan() {
         try {
           const r = await scanPeople(blob, ac.signal)
           if (r && !session.current.stopped) {
+            session.current.peopleLast = { boxes: r.boxes, objects: r.objects, thumb, at: now }
             tracker.current.update(r.boxes, Date.now())
             setNote(n => (n?.startsWith('People boxes') ? '' : n))
             objects.current = { at: Date.now(), list: r.objects ?? [] }
             syncTracks()
-            setStats(st => ({ ...st, peopleMs: r.ms, peopleRtt: Math.round(performance.now() - t1) }))
+            setStats(st => ({ ...st, peopleMs: r.ms, peopleRtt: Math.round(performance.now() - t1), peopleSent: st.peopleSent + 1 }))
             if (r.boxes.length) checkFace()
           }
         } catch (e) {
@@ -383,9 +419,30 @@ export default function Scan() {
         ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 3; ctx.strokeStyle = '#38bdf8'; ctx.globalAlpha = 1
         ctx.strokeRect(x, y, ab.w * pw, ab.h * ph); ctx.restore()
       }
+      // every other object the detectors saw in the same frame (2026-11-02, owner: "detect everything in frame")
+      const al = apAll.current
+      if (al && now - al.at < 5000) for (const d of al.list) {
+        const x = s.mirror ? mx(ox + (d.box.x + d.box.w) * pw) : ox + d.box.x * pw, y = oy + d.box.y * ph
+        ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 2.5; ctx.strokeStyle = d.registered ? '#38bdf8' : '#a78bfa'
+        ctx.strokeRect(x, y, d.box.w * pw, d.box.h * ph); ctx.setLineDash([])
+        const label = `${cardsRef.current[d.code]?.card?.name ?? d.label ?? d.class.replace(/_/g, ' ')} ${Math.round(d.confidence * 100)}%`
+        ctx.font = '600 12px Inter, sans-serif'
+        const tw = ctx.measureText(label).width, ly = Math.max(14, y - 4)
+        ctx.fillStyle = 'rgba(2,6,23,0.75)'; ctx.fillRect(x, ly - 13, tw + 8, 18)
+        ctx.fillStyle = '#e0f2fe'; ctx.fillText(label, x + 4, ly); ctx.restore()
+      }
       // equipment (generic class): named only when one of OUR markers sits inside its box
       const ob = objects.current
+      // 2026-11-03: a generic COCO box ("laptop") over something the lab detector already named is noise - skip it
+      const labBoxes = [...(apAll.current && now - apAll.current.at < 5000 ? apAll.current.list.map(d => d.box) : []),
+                        ...(apBox.current && now - apBox.current.at < 5000 ? [apBox.current] : [])]
+      const covered = (o: { x: number; y: number; w: number; h: number }) => labBoxes.some(b => {
+        const iw = Math.max(0, Math.min(o.x + o.w, b.x + b.w) - Math.max(o.x, b.x))
+        const ih = Math.max(0, Math.min(o.y + o.h, b.y + b.h) - Math.max(o.y, b.y))
+        return iw * ih > 0.5 * Math.min(o.w * o.h, b.w * b.h)
+      })
       if (ob && now - ob.at < 1500) for (const o of ob.list) {
+        if (covered(o)) continue
         const x = s.mirror ? mx(ox + (o.x + o.w) * pw) : ox + o.x * pw, y = oy + o.y * ph
         const m = [...seen.current.values()].find(mk => now - mk.at <= SEEN_HOLD_MS && mk.cx >= o.x && mk.cx <= o.x + o.w
                                                  && mk.top >= o.y - 0.05 && mk.top <= o.y + o.h)
@@ -466,6 +523,7 @@ export default function Scan() {
   const [boxHint, setBoxHint0] = useState<string>('')
   const boxAt = useRef(0)
   const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number; cls: string } | null>(null)
+  const apAll = useRef<{ at: number; list: NonNullable<AppearanceHint['detections']> } | null>(null)
   const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
   // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
   // "my face - it says looks like the reusable bin" = the bin's verdict still on screen)
@@ -491,11 +549,17 @@ export default function Scan() {
       if (!b) return
       scanAppearance(b).then(r => {
         // 2026-10-29: objects that are not registered assets (e.g. the network switch) come as type:<class> + a label
-        const name = (code: string) => cardsRef.current[code]?.card?.name ?? (code.startsWith('type:') ? (r.best?.label ?? code.slice(5).replace(/_/g, ' ')) : code)
+        // 2026-11-03: the detector's own label before the raw code ("SLAB:D:MASTER_LAB01" read badly on the phone)
+        const name = (code: string) => cardsRef.current[code]?.card?.name
+          ?? (r.best?.code === code ? r.best?.label : undefined) ?? r.detections?.find(d => d.code === code)?.label
+          ?? (code.startsWith('type:') ? code.slice(5).replace(/_/g, ' ') : code)
         if (r.decision === 'PROBABLE' && r.best) logHistory('look', 'a:' + r.best.code,
           `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}%` : `${r.best.inliers} points`}, unverified)`,
           iconFor(r.best.class.replace(/_/g, ' ')))
         apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
+        // the best one already has its frame; the rest are drawn with their own labels
+        const rest = (r.detections ?? []).filter(d => !(r.best && r.best.box_kind === 'detector' && d.code === r.best.code))
+        apAll.current = rest.length ? { at: Date.now(), list: rest } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}% sure` : `${r.best.inliers} matching points`})${r.best.registered === false ? ' - not a registered asset yet, so no live data.' : ' - scan its marker to see its live data.'}`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
           : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
@@ -520,8 +584,9 @@ export default function Scan() {
   const refreshView = () => {
     stopSpeaking()
     select(null); lastTarget.current = null
-    apBox.current = null; setBoxHint0(''); boxBusy.current = false; setNote('')
+    apBox.current = null; apAll.current = null; setBoxHint0(''); boxBusy.current = false; setNote('')
     tracker.current.clear(); seen.current.clear(); objects.current = null; setInView([]); setTracks([])
+    session.current.peopleLast = undefined         // never re-apply boxes from before the refresh
     setSessionNo(n => n + 1)                       // the voice panel starts fresh
     void applyZoom(1)                              // a fresh start is 1x
     // the camera keeps running (restarting it made iPhone draw the selfie view small) - just make sure it is live
@@ -741,6 +806,7 @@ export default function Scan() {
       {boxHint && <p className="text-[12.5px] text-sky-200">{boxHint}</p>}
       {running && <p className="text-[11px] text-slate-500">Markers: {stats.decoder}, {stats.decodeMs} ms per check
         {peopleOn && ` · people: detector ${stats.peopleMs} ms, round trip ${stats.peopleRtt} ms · face check ${stats.faceMs} ms`}
+        {peopleOn && stats.peopleSent + stats.peopleReused > 0 && ` · uploads saved while still: ${stats.peopleReused} of ${stats.peopleSent + stats.peopleReused}`}
         {' '}- a person is named only on a clear face match of their own box; anything less stays "person".</p>}
 
       {pins.length > 1 && <div className="flex flex-wrap gap-1.5 items-center">

@@ -191,7 +191,9 @@ def merge_targets(pcs: list[Pc], targets: list[dict]) -> list[str]:
         p = by_uid.get(t["device_uid"])
         if p is None:
             p = Pc({"device_uid": t["device_uid"], "asset_tag": t.get("asset_tag"), "macs": sorted(macs),
-                    "ip": (t.get("ips") or [None])[0]})
+                    # 2026-11-03: a dual-NIC PC also reports its GIU 10.40.20.x address - ping the Smart Lab one
+                    "ip": next((ip for ip in t.get("ips") or [] if ip.startswith("192.168.1.")),
+                               (t.get("ips") or [None])[0])})
             pcs.append(p)
             by_uid[p.uid] = p
             added.append(p.tag or p.uid)

@@ -18,6 +18,7 @@ import { useLiveMessages } from '../lib/live'
 import {
   Chip, Drawer, EmptyState, ErrorBanner, Field, PageHeader, SectionTitle, Spinner, Tabs,
 } from '../components/ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const QUALITY: Record<InventoryBin['quality'], { tone: 'ok' | 'warn' | 'idle' | 'bad'; label: string }> = {
   VALID: { tone: 'ok', label: 'live' }, STALE: { tone: 'warn', label: 'stale' },
@@ -47,7 +48,7 @@ export function ConsumableBins() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 15000)       // fallback if the live link drops
+    const t = visibleInterval(load, 15000)       // fallback if the live link drops
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => { if (m.type === 'inventory_update') load() })   // each weighing, at once
@@ -262,7 +263,7 @@ function StaffBinAction({ mode }: { mode: 'take' | 'return' }) {
   }, [])
   useEffect(() => { load(); setAsset(''); setPicked([]); setMsg(''); setError('') }, [load, mode])
   // Items come and go at the bin (scans, takes): keep the lists current.
-  useEffect(() => { const t = window.setInterval(load, 4000); return () => window.clearInterval(t) }, [load])
+  useEffect(() => { const t = visibleInterval(load, 4000); return () => window.clearInterval(t) }, [load])
   useLiveMessages(m => { if (m.type === 'staff' || m.type === 'access_event') load() })
   useEffect(() => { if (mode === 'take') api.users().then(setPeople).catch(() => {}) }, [mode])
   const list = (items ?? []).filter(i => mode === 'take' ? i.status === 'AVAILABLE' : i.status === 'CHECKED_OUT')

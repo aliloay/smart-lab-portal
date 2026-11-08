@@ -1,0 +1,250 @@
+{
+ "_about": "Consumables (resistor) bin base - desk console: scale on the flat top, LCD in the sloped front, electronics on the floor plate. Clearance fits = part + 0.3 (owner); insert holes / self-tap pilots undersize on purpose. Built by build.ps1 with door_enclosure/Build.cs + env_enclosure/EnvParts.cs + BinParts.cs.",
+ "kind": "bin",
+ "name_prefix": "BinEnclosure",
+ "inside_views": false,
+ "envelope": {
+  "width": 150,
+  "depth": 165,
+  "height": 75,
+  "wall": 3.0
+ },
+ "print": {
+  "clearance": 0.3
+ },
+ "fasteners": {
+  "insert_hole_d": 4.0,
+  "insert_hole_depth": 7.0,
+  "screw_clear_d": 3.3,
+  "corner_boss_d": 10.0,
+  "corner_boss_inset": 7.0,
+  "pilot_m25_d": 2.2
+ },
+ "bin_body": {
+  "front_h": 30,
+  "top_flat": 115,
+  "column_h": 20,
+  "_status": "Side profile: back 75 high, flat top 115 deep (the scale), then the front slopes down to 30 at 165 (42 degrees) - the LCD reads well standing at the bench (owner: 'the angle as the image')."
+ },
+ "scale": {
+  "x": 0,
+  "z": 57.5,
+  "recess_d": 101.35,
+  "recess_depth": 1.0,
+  "cable_x": 58,
+  "cable_w": 6.0,
+  "cable_l": 12.5,
+  "top_y": 95.89,
+  "_status": "MEASURED (owner) acrylic discs D101.05, 2.05 thick, whole scale 21.89 high. Owner: double-sided tape, not screws -> 1 mm recess D101.35 (+0.3) centres the BOTTOM disc only; nothing else touches the top disc. Load-cell cable (4 wires + Dupont 10.2 x 2.5) through a 6 x 12.5 slot beside the recess."
+ },
+ "lcd": {
+  "window_w": 74.13,
+  "window_h": 24.42,
+  "hole_dx": 75.0,
+  "hole_dy": 31.0,
+  "boss_d": 5.0,
+  "boss_h": 5.6,
+  "offset_up": 0.0,
+  "_status": "MEASURED (owner) black frame 73.83 x 24.12 -> window 74.13 x 24.42 (+0.3); green PCB 79.89 x 35.86 = standard 1602 (80 x 36) -> holes 75 x 31 (owner: 'do the holes okay' = standard pattern), M2.5 self-tap into 2.2 pilots. Boss 5.6 = frame ~8.6 above the PCB (ESTIMATE) - 3 wall: frame flush with the outside."
+ },
+ "usb_access": {
+  "y": 7,
+  "z": 33,
+  "w": 14.0,
+  "h": 14.0,
+  "_status": "ESP32 flat on the floor, back right, USB-C end at the right wall (notch from the bottom edge)."
+ },
+ "dc_in": {
+  "x": -38,
+  "y": 45,
+  "d": 16.3,
+  "_status": "12 V in through the back wall: M16 gland 16.0 + 0.3, beside the buck (own buck - owner)."
+ },
+ "vents": {
+  "y": [
+   50,
+   58
+  ],
+  "z0": 20,
+  "z1": 90,
+  "slot_w": 3.0
+ },
+ "front_text": {
+  "title": "CONSUMABLES",
+  "y": 10.5,
+  "height": 9.0,
+  "raised_height": 0.8
+ },
+ "floor": {
+  "thickness": 4.0,
+  "slot_w": 3.3,
+  "slot_len": 20.0,
+  "slot_rows_z": [
+   18,
+   30,
+   42,
+   54,
+   66,
+   78,
+   90,
+   102,
+   114,
+   126,
+   138
+  ],
+  "slot_cols_x": [
+   -54,
+   -27,
+   0,
+   27,
+   54
+  ],
+  "zone_labels": [
+   {
+    "text": "BUCK 12>5V",
+    "x": -36,
+    "z": 36
+   },
+   {
+    "text": "ESP32  USB >",
+    "x": 40,
+    "z": 24
+   },
+   {
+    "text": "BB 5V",
+    "x": -45,
+    "z": 84
+   },
+   {
+    "text": "BB 3.3V",
+    "x": 45,
+    "z": 84
+   },
+   {
+    "text": "HX711",
+    "x": 0,
+    "z": 120
+   }
+  ],
+  "tab_len": 30.0,
+  "tab_t": 2.0,
+  "tab_h": 0.0,
+  "feet_x": [
+   -60,
+   60
+  ],
+  "feet_z": [
+   15,
+   150
+  ],
+  "feet_d": 10,
+  "feet_h": 3,
+  "_tabs": "2026-10-25: no locating tabs - tabs on top + feet below meant the plate could not lie flat on the bed. Print TOP face down (feet up). The 4 M3 screws locate it."
+ },
+ "cup_ring": {
+  "id": 80.66,
+  "wall": 2.0,
+  "base_t": 1.2,
+  "h": 8.0,
+  "_status": "MEASURED (owner) glass cup OD 80.36 -> ring ID 80.66 (+0.3); taped on the top acrylic, part of the tare."
+ },
+ "assembly_parts": [
+  {
+   "name": "Body",
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  {
+   "name": "Floor",
+   "x": 0,
+   "y": 0,
+   "z": 0
+  },
+  {
+   "name": "CupRing",
+   "x": 0,
+   "y": 0,
+   "z": 0
+  }
+ ],
+ "components": [
+  {
+   "id": "buck",
+   "label": "buck 12>5 V",
+   "x": -36,
+   "y": 13.1,
+   "z": 13.55,
+   "w": 64.0,
+   "h": 26.2,
+   "d": 46.9,
+   "conf": "MEASURED 63.7 x 46.6 x 25.9 + 0.3"
+  },
+  {
+   "id": "esp32",
+   "label": "ESP32 flat + Dupont",
+   "x": 40,
+   "y": 15,
+   "z": 13.85,
+   "w": 52.7,
+   "h": 30,
+   "d": 38.3,
+   "conf": "MEASURED 51.4 x 28.03 + 0.3"
+  },
+  {
+   "id": "bb_5v",
+   "label": "breadboard 5 V",
+   "x": -45,
+   "y": 9,
+   "z": 67.65,
+   "w": 46.3,
+   "h": 18,
+   "d": 34.7,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  },
+  {
+   "id": "bb_3v3",
+   "label": "breadboard 3.3 V",
+   "x": 45,
+   "y": 9,
+   "z": 67.65,
+   "w": 46.3,
+   "h": 18,
+   "d": 34.7,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  },
+  {
+   "id": "hx711",
+   "label": "HX711 + wires",
+   "x": 0,
+   "y": 5,
+   "z": 109.7,
+   "w": 50.3,
+   "h": 10,
+   "d": 20.83,
+   "conf": "MEASURED 20.53 x 50 with wires + 0.3"
+  },
+  {
+   "id": "scale",
+   "label": "acrylic scale (square inside the discs)",
+   "x": 0,
+   "y": 84.945,
+   "z": 21.8,
+   "w": 71.4,
+   "h": 21.89,
+   "d": 71.4,
+   "conf": "MEASURED D101.05 x 21.89"
+  },
+  {
+   "id": "cup",
+   "label": "glass cup (square inside)",
+   "x": 0,
+   "y": 127.29,
+   "z": 29.1,
+   "w": 56.8,
+   "h": 60.4,
+   "d": 56.8,
+   "conf": "MEASURED OD 80.36 x 60.4"
+  }
+ ]
+}

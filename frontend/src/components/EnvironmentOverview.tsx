@@ -11,6 +11,7 @@ import { relative } from '../lib/time'
 import { useLiveMessages } from '../lib/live'
 import SafetyStates from './SafetyStates'
 import { EmptyState, Spinner } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 export default function EnvironmentOverview() {
   const [rows, setRows] = useState<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[] | null>(null)
@@ -20,7 +21,7 @@ export default function EnvironmentOverview() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 20000)
+    const t = visibleInterval(load, 20000)
     return () => window.clearInterval(t)
   }, [load])
   // New readings arrive every ~10 s and on every change: show them at once.

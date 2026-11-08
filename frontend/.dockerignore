@@ -6,3 +6,6 @@ dist/
 .env
 .env.*
 *.log
+# Collada (.dae) robot meshes are the SOURCES for scripts/dae_to_glb.mjs; the browser loads only the .glb next to
+# each one (MeshArm.tsx swaps .dae -> .glb), so the ~16 MB of .dae stay on disk but out of the image (2026-11-04).
+public/models/**/*.dae

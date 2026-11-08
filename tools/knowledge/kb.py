@@ -505,7 +505,7 @@ def embed(cfg: dict, texts: list, prefix: str):
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", url):
         raise RuntimeError("non-local embedding endpoint refused")
     body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
-            "keep_alive": "2h", "options": {"num_gpu": 0}}     # was 15m: 2.5 s reload after a pause
+            "keep_alive": "30m", "options": {"num_gpu": 0}}    # was 15m (2.5 s reload), then 2h; 30m since 2026-11-03 (RAM)
     req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=cfg.get("embed_timeout_s", 120)) as r:
         v = np.asarray(json.loads(r.read())["embeddings"], dtype=np.float32)

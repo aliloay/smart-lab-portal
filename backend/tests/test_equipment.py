@@ -409,3 +409,21 @@ def test_aas_export_v3_shape(client, db, staff, lab, device_headers):
     assert plate["AssetTag"] == "UR5E-01" and plate["Category"] == "robot"
     op = {e["idShort"]: e for e in sms["OperationalData"]["submodelElements"]}
     assert op["DeviceUid"]["value"] == "UR5E_01" and op["Online"]["valueType"] == "xs:boolean"
+
+
+def test_message_timer_once_only_and_clear(client, staff, lab, device_headers):
+    """2026-11-04: the timer reaches the agent, a message is handed over once, Clear reaches the PC once."""
+    dev, admin_headers = device_headers, auth_headers(client, staff.email)
+    uid = "PC_MSG_TEST"
+    assert client.post("/api/equipment/state", headers=dev, json={"device_uid": uid, "lab_id": lab.code, "kind": "PC",
+                       "state": "IDLE"}).status_code == 200
+    rows = client.get("/api/equipment", headers=admin_headers).json()
+    did = next(r["device_id"] for r in rows if r["device_uid"] == uid)
+    assert client.post(f"/api/equipment/{did}/message", headers=admin_headers,
+                       json={"text": "hello", "expires_minutes": 5}).status_code == 201
+    first = client.get("/api/equipment/pc/poll", headers=dev, params={"device_uid": uid}).json()
+    assert first["message"]["text"] == "hello" and first["message"]["expires_s"] == 300
+    assert client.get("/api/equipment/pc/poll", headers=dev, params={"device_uid": uid}).json()["message"] is None
+    assert client.post(f"/api/equipment/{did}/message/clear", headers=admin_headers).status_code == 200
+    assert client.get("/api/equipment/pc/poll", headers=dev, params={"device_uid": uid}).json()["clear_messages"] is True
+    assert client.get("/api/equipment/pc/poll", headers=dev, params={"device_uid": uid}).json()["clear_messages"] is False

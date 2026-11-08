@@ -20,6 +20,7 @@ if not _test_url.rsplit("/", 1)[-1].split("?")[0].endswith("_test"):
 os.environ["DATABASE_URL"] = _test_url
 # Everything the test suite writes is, by definition, a software test.
 os.environ["DATA_MODE_DEFAULT"] = "SOFTWARE_TEST"
+os.environ["BACKUP_STATUS_PATH"] = ""      # the real backup status on this machine must not raise alerts in a test
 os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device from a test
 os.environ["MARKER_WARMUP"] = "0"          # no background marker rendering during tests
 os.environ["APPEARANCE_WARMUP"] = "0"      # no background reference loading during tests

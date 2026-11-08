@@ -29,6 +29,10 @@ def _load(path: str):
         import onnxruntime as ort
         o = ort.SessionOptions()
         o.intra_op_num_threads, o.inter_op_num_threads = 2, 1
+        # Explicit for readers; these are ONNX Runtime's defaults already (checked 2026-11-04 on ort 1.23: same
+        # speed with and without these two lines on lab_detector.onnx), so this is not a speed-up.
+        o.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        o.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         s = ort.InferenceSession(path, o, providers=["CPUExecutionProvider"])
         return ("ort", s, s.get_inputs()[0].name)
     except ImportError:
@@ -193,10 +197,13 @@ def detect_all(img) -> list:
     [{"code", "class", "label", "confidence", "box"}, ...]."""
     hits = []
     lb = letterbox(img)                      # one resize / colour / normalise for every model (all use 640 + grey 114)
-    d = detect(img, lb)
-    if d:
-        hits.append({"code": CODE, "class": None, "label": None, **d})
-    for spec, rt in extras():
+    loaded = extras()
+    # 2026-11-02: the lab-wide model also answers the bin; then the one-class bin model is not run a second time
+    if not any(c.get("code") == CODE for spec, _ in loaded for c in spec.get("classes") or []):
+        d = detect(img, lb)
+        if d:
+            hits.append({"code": CODE, "class": None, "label": None, **d})
+    for spec, rt in loaded:
         if spec.get("classes"):
             hits += _infer_multi(rt, spec, img, lb)
             continue
@@ -204,7 +211,34 @@ def detect_all(img) -> list:
         if e:
             hits.append({"code": spec.get("code") or f"type:{spec['class']}", "class": spec["class"],
                          "label": spec.get("label"), **e})
-    return sorted(hits, key=lambda h: -h["confidence"])
+    best = {}                                # two models naming the same object: keep the more confident hit
+    for h in hits:
+        if h["code"] not in best or h["confidence"] > best[h["code"]]["confidence"]:
+            best[h["code"]] = h
+    return _suppress_overlaps(sorted(best.values(), key=lambda h: -h["confidence"]))
+
+
+def _suppress_overlaps(hits: list, iou_max: float = 0.5, inside_max: float = 0.7) -> list:
+    """hits sorted most confident first -> drop a hit whose box mostly covers a kept one of another class
+    (2026-11-03 phone test: the master node was also called "router 81%" on the same box)."""
+    def area(b): return b["w"] * b["h"]
+    kept = []
+    for h in hits:
+        b = h["box"]
+        for k in kept:
+            c = k["box"]
+            iw = max(0.0, min(b["x"] + b["w"], c["x"] + c["w"]) - max(b["x"], c["x"]))
+            ih = max(0.0, min(b["y"] + b["h"], c["y"] + c["h"]) - max(b["y"], c["y"]))
+            inter = iw * ih
+            small, big = sorted((area(b), area(c)))
+            # same spot AND similar size = one object named twice; a much smaller box inside a big one is usually a
+            # different object in front of it (a switch before a robot) and stays
+            if inter and (inter / (area(b) + area(c) - inter) > iou_max
+                          or (inter / max(small, 1e-9) > inside_max and small / max(big, 1e-9) > 0.4)):
+                break
+        else:
+            kept.append(h)
+    return kept
 
 
 def detect_any(img) -> Optional[dict]:

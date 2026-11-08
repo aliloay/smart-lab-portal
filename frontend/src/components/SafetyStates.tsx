@@ -10,6 +10,7 @@ import { Activity, Droplets, Flame, Wind } from 'lucide-react'
 import { EnvQuality, LabEnvironment, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const ITEMS = [
   { key: 'smoke', label: 'Smoke / gas', icon: Wind, hazard: true },
@@ -30,7 +31,7 @@ export default function SafetyStates({ labId }: { labId: number }) {
   }, [labId])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 15000)
+    const t = visibleInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
   // A hazard raises an alarm event for this lab: refresh at once.

@@ -55,6 +55,9 @@ rem The camera forgets its clock when it loses power: set it from this laptop.
 echo Do NOT click inside this window: Windows pauses the program while text is
 echo selected. If the title says "Select", press Esc.
 echo.
-%PY% security_vision.py --lab %LAB% --device %DEVICE% --port %PORT% --portal http://127.0.0.1:8000/api
+rem Two cameras + portal on the 16 GB Dell G3: 6 analysed / 10 drawn frames a second (2026-11-03 lab).
+if not defined DET_FPS set "DET_FPS=6"
+if not defined SV_RENDER_FPS set "SV_RENDER_FPS=10"
+%PY% security_vision.py --lab %LAB% --device %DEVICE% --port %PORT% --portal http://127.0.0.1:8000/api --det-fps %DET_FPS%
 echo.
 echo The security camera service has stopped.

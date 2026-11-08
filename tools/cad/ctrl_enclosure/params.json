@@ -1,0 +1,247 @@
+{
+ "_about": "Reusable (smart) bin control box - ESP32 + 5 V / 3.3 V breadboards + buck beside the finished bin. Clearance fits = part + 0.3 (owner); insert holes / self-tap pilots undersize on purpose. Same body / plate generator as the door box.",
+ "kind": "ctrl",
+ "name_prefix": "CtrlEnclosure",
+ "inside_views": false,
+ "envelope": {
+  "width": 160,
+  "height": 170,
+  "depth": 80,
+  "wall": 3.0,
+  "corner_radius": 8.0
+ },
+ "print": {
+  "clearance": 0.3
+ },
+ "fasteners": {
+  "insert_hole_d": 4.0,
+  "insert_hole_depth": 7.0,
+  "screw_clear_d": 3.3,
+  "corner_boss_d": 10.0,
+  "corner_boss_inset": 7.0,
+  "pilot_m25_d": 2.2
+ },
+ "front_panel": {
+  "thickness": 4.0,
+  "locating_tab_len": 30.0,
+  "locating_tab_t": 2.0,
+  "locating_tab_h": 3.0,
+  "title": "REUSABLE BIN",
+  "title_y": 104,
+  "title_height": 10.0,
+  "raised_height": 0.8,
+  "labels": [
+   {
+    "text": "12V IN",
+    "x": -50,
+    "y": 14,
+    "h": 6.0
+   },
+   {
+    "text": "TO BIN",
+    "x": 22.5,
+    "y": 14,
+    "h": 6.0
+   }
+  ]
+ },
+ "glands": {
+  "z": 40,
+  "holes": [
+   {
+    "name": "DC IN 12V",
+    "x": -50,
+    "d": 16.3
+   },
+   {
+    "name": "BIN A",
+    "x": 0,
+    "d": 16.3
+   },
+   {
+    "name": "BIN B",
+    "x": 45,
+    "d": 16.3
+   }
+  ],
+  "tie_bar_w": 12,
+  "tie_bar_h": 6,
+  "tie_bar_d": 12,
+  "tie_bar_y": 28,
+  "tie_slot_w": 4.0,
+  "tie_slot_h": 2.5,
+  "_status": "3 x M16 glands (16.0 + 0.3): 12 V in, and the ~17 bin wires (load cell 4, LCD 4, PN532 4, servo 3, reed 2) split over two, Dupont housings pass one at a time; a zip tie on the bar inside each takes any pull."
+ },
+ "usb_access": {
+  "side": "left",
+  "y": 62,
+  "z": 18,
+  "w": 14.0,
+  "h": 14.0,
+  "_status": "ESP32 flat on the plate, USB-C end at the left wall"
+ },
+ "vents": {
+  "y_list": [
+   130,
+   138,
+   146
+  ],
+  "z_from": 20,
+  "z_to": 60,
+  "slot_h": 3.0
+ },
+ "keyholes": {
+  "x": [
+   -40,
+   40
+  ],
+  "y": 130,
+  "head_d": 9.5,
+  "slot_w": 4.3,
+  "slot_len": 11.0
+ },
+ "wall_ears": {
+  "x": [
+   -50,
+   50
+  ],
+  "w": 24.0,
+  "reach": 16.0,
+  "t": 5.0,
+  "hole_d": 4.3,
+  "hole_from_edge": 8.0
+ },
+ "electronics_plate": {
+  "thickness": 4.0,
+  "boss_h": 6.0,
+  "boss_d": 9.0,
+  "hole_inset": 6.0,
+  "x_margin": 17.0,
+  "y_bottom": 34.0,
+  "y_top_margin": 14.0,
+  "slot_w": 3.3,
+  "slot_len": 20.0,
+  "slot_pitch_x": 27.0,
+  "slot_pitch_y": 12.0,
+  "zone_labels": [
+   {
+    "text": "BUCK 12>5V",
+    "x": -30,
+    "y": 130
+   },
+   {
+    "text": "BB 5V",
+    "x": 35,
+    "y": 130
+   },
+   {
+    "text": "WAGO 12V | GND",
+    "x": -15,
+    "y": 94
+   },
+   {
+    "text": "470uF",
+    "x": 35,
+    "y": 94
+   },
+   {
+    "text": "ESP32 USB <",
+    "x": -33,
+    "y": 70
+   },
+   {
+    "text": "BB 3.3V",
+    "x": 35,
+    "y": 58
+   }
+  ],
+  "_wires": "2026-10-24 owner: keep room for all power and wires. Middle row: WAGO 12 V + WAGO GND (power distribution) and a 470 uF bulk cap for the servo's current spikes; box 80 deep = 37 mm free above the tallest module for Dupont wires."
+ },
+ "components": [
+  {
+   "id": "buck",
+   "label": "buck 12>5 V",
+   "on": "plate",
+   "x": -30,
+   "y": 128,
+   "z": 13,
+   "w": 64.0,
+   "h": 46.9,
+   "d": 26.2,
+   "conf": "MEASURED 63.7 x 46.6 x 25.9 + 0.3"
+  },
+  {
+   "id": "bb_5v",
+   "label": "breadboard 5 V",
+   "on": "plate",
+   "x": 35,
+   "y": 131,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  },
+  {
+   "id": "wago1",
+   "label": "WAGO 12V",
+   "on": "plate",
+   "x": -30,
+   "y": 93,
+   "z": 13,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 21 x 12.5 x 14.5 +1 (as the door box)"
+  },
+  {
+   "id": "wago2",
+   "label": "WAGO GND",
+   "on": "plate",
+   "x": 0,
+   "y": 93,
+   "z": 13,
+   "w": 22,
+   "h": 13.5,
+   "d": 15.5,
+   "conf": "VARIANT PCT-212 +1"
+  },
+  {
+   "id": "cap",
+   "label": "470uF 25V",
+   "on": "plate",
+   "round": true,
+   "x": 35,
+   "y": 93,
+   "z": 13,
+   "w": 11,
+   "h": 11,
+   "d": 21,
+   "conf": "REFERENCE D10 x 20 radial"
+  },
+  {
+   "id": "esp32",
+   "label": "ESP32 flat + Dupont",
+   "on": "plate",
+   "x": -33,
+   "y": 62,
+   "z": 13,
+   "w": 52.7,
+   "h": 38.3,
+   "d": 30,
+   "conf": "MEASURED 51.4 x 28.03 + 0.3"
+  },
+  {
+   "id": "bb_3v3",
+   "label": "breadboard 3.3 V",
+   "on": "plate",
+   "x": 35,
+   "y": 60,
+   "z": 13,
+   "w": 46.3,
+   "h": 34.7,
+   "d": 18,
+   "conf": "MEASURED 46 x 34.4 x 8.3 + 0.3"
+  }
+ ]
+}

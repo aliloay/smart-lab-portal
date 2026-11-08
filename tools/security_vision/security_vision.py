@@ -62,7 +62,7 @@ from robotvision import RobotVisualMotion
 from recorder import Recorder
 import realign
 from vision import EQUIPMENT_CLASSES, find_equipment
-from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, drop_slivers, head_crop, iou, zoom_people
+from vision import PERSON, Appearance, Detector, DoorWatcher, Labeler, Tracker, ZoneWatcher, draw, drop_slivers, face_crop, head_crop, iou, zoom_people
 # Equipment classes the phone view shows as generic boxes (COCO ids of the same detector, see vision.EQUIPMENT_CLASSES)
 PHONE_OBJECTS = {62: "monitor", 63: "laptop", 66: "keyboard"}
 PHONE_OBJECT_MIN = 0.35
@@ -113,6 +113,7 @@ class Camera:
                  start: bool = True):
         self.source, self.max_width = source, max_width
         self.frame: Optional[np.ndarray] = None
+        self.frame_full: Optional[np.ndarray] = None
         self.at = 0.0
         self.seq = 0                                  # frames received so far (skips = latest-frame policy)
         self.ok = False
@@ -132,7 +133,11 @@ class Camera:
         if os.path.isfile(s) and s.lower().endswith((".jpg", ".jpeg", ".png")):
             return None                                   # a still image, for tests/demos
         if s.startswith("rtsp://"):
-            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+            # Low-delay demuxing (2026-11-04, Gemini audit P1): FFmpeg's own input buffering off. The OpenCV-side
+            # queue is already empty - _stream() reads in its own thread and keeps only the newest frame - and
+            # CAP_PROP_BUFFERSIZE is ignored by the FFMPEG backend, so it is not set. Effect is UNMEASURED until the
+            # stopwatch test (docs/LATENCY.md); a camera.env OPENCV_FFMPEG_CAPTURE_OPTIONS still wins (setdefault).
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay")
             params = []
             for prop, ms in (("CAP_PROP_OPEN_TIMEOUT_MSEC", self.OPEN_TIMEOUT_MS),
                              ("CAP_PROP_READ_TIMEOUT_MSEC", self.READ_TIMEOUT_MS)):
@@ -161,10 +166,12 @@ class Camera:
     def _store(self, frame, read_ms: float = 0.0):
         now = time.time()
         h, w = frame.shape[:2]
+        full = None
         if w > self.max_width:
+            full = frame                          # the decoded picture: heads are cut from it (face_crop), nothing else keeps it
             frame = cv2.resize(frame, (self.max_width, int(h * self.max_width / w)))
         with self._lock:
-            self.frame, self.at, self.ok = frame, now, True
+            self.frame, self.frame_full, self.at, self.ok = frame, full, now, True
             self.seq += 1
         if self.state != "STREAMING":
             self.fails_in_row = 0
@@ -254,6 +261,12 @@ class Camera:
         with self._lock:
             return (None if self.frame is None else self.frame.copy()), self.at
 
+    def full_for(self, seq: int):
+        """The full-resolution picture of frame `seq`; None if a newer frame came or it was never downscaled.
+        Not copied: nothing writes to it. One extra decoded frame per camera (about 6 MB at 1080p)."""
+        with self._lock:
+            return self.frame_full if self.seq == seq else None
+
     def latest_seq(self):
         """(frame, received at, sequence number) - the newest only; older frames are gone."""
         with self._lock:
@@ -292,7 +305,7 @@ class Service:
     CONFIG_PERIOD_S = 3.0
     EXTRA_PERSON_HOLD_S = 8.0          # more people than entered for this long -> event
     EVENT_COOLDOWN_S = 120.0
-    RENDER_FPS = 15                    # pictures drawn per second for the live views
+    RENDER_FPS = int(os.environ.get("SV_RENDER_FPS", "15"))   # pictures drawn per second for the live views
     FACE_EVERY_S = 1.5                 # a face check per unnamed person at most this often
     FACE_MARGIN = 0.08                 # the best face must beat the next person by this (cosine; was 0.05)
     FACE_MAX_AGE_S = 1.0               # a detection older than this is not used for a face crop
@@ -500,6 +513,7 @@ class Service:
             if frame is None or t0 - at > 5:
                 time.sleep(0.2)
                 continue
+            frame_full = self.camera.full_for(seq)
             try:
                 age_ms = (t0 - at) * 1000
                 h, w = frame.shape[:2]
@@ -602,7 +616,7 @@ class Service:
                     # so a face can never be cropped from a later frame where the
                     # box already holds someone else (2026-10-12 root cause #1).
                     self.det_frame = (frame, t0, {t.id: tuple(t.box) for t in tracks},
-                                      {t.id for t in tracks if t.crowded})
+                                      {t.id for t in tracks if t.crowded}, frame_full)
                 self.check(tracks, occupants, states)
                 zones_ms = (time.perf_counter() - z0) * 1000
                 self.metrics.analysed(seq, age_ms, detect_ms, track_ms, zones_ms, (time.time() - t0) * 1000)
@@ -1060,7 +1074,7 @@ class Service:
                 det = self.det_frame
             if det is None:
                 continue
-            frame, det_at, det_boxes, crowded = det
+            frame, det_at, det_boxes, crowded, frame_full = det
             if time.time() - det_at > self.FACE_MAX_AGE_S:
                 continue                             # detection too old: no face from it
             now = time.time()
@@ -1074,7 +1088,7 @@ class Service:
                 box = det_boxes.get(t.id)
                 if box is None or t.id in crowded:
                     continue                         # not in that frame, or touching someone: the crop may hold them
-                crop = head_crop(frame, box)
+                crop = face_crop(frame, frame_full, box)
                 if crop is None:
                     continue
                 jpg = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()

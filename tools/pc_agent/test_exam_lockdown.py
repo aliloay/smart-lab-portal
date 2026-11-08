@@ -72,3 +72,32 @@ def test_leaving_ends_the_exam_browser(monkeypatch):
     lk.enter("https://exam.example/test")
     lk.leave()
     assert killed == [777] and not lk.active and reports[-1][0] == "EXAM_ENDED"
+
+
+def test_the_window_hosting_the_agent_is_never_closed(monkeypatch):
+    """2026-11-04 lab: the agent ran in a PowerShell window; the lockdown closed it and the agent died."""
+    import os as _os
+    import psutil
+    lk = L.Lockdown(lambda k, d: None, windows=lambda: [], launcher=lambda a: FakeProc(777), chrome="x", my_pid=_os.getpid())
+    parent = psutil.Process(_os.getpid()).parent()
+    assert parent is not None and parent.pid in lk._ours()
+
+
+def test_a_failed_exam_window_still_closes_other_programs(monkeypatch):
+    """No browser could be opened: other programs must still be closed in the same pass."""
+    wins = [(1, 100, "Notepad", "notes.txt")]
+    lk, reports, launched = make(monkeypatch, wins, {100: "notepad.exe"})
+    lk.enter("https://exam.example/test")
+    lk.pending.clear()
+    lk.proc = None                                          # the exam window is gone
+    lk.check()
+    assert 100 in lk.pending                                # notepad still closed
+
+
+def test_edge_is_used_when_chrome_is_missing(monkeypatch, tmp_path):
+    edge = tmp_path / "Microsoft" / "Edge" / "Application"
+    edge.mkdir(parents=True)
+    (edge / "msedge.exe").write_text("")
+    for v in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        monkeypatch.setenv(v, str(tmp_path))
+    assert L.find_chrome().endswith("msedge.exe")

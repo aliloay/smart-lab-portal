@@ -23,6 +23,7 @@ import { BoxesToggle } from '../lib/cameraView'
 import { RecordButton, RecordingsPanel } from '../components/Recording'
 import { isAdmin, useAuth } from '../lib/auth'
 import { Chip, EmptyState, ErrorBanner, PageHeader, Spinner, Tabs } from '../components/ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type Tab = 'wall' | 'live' | 'boxes' | 'events' | 'recordings'
 const ZONE_TONE = { OK: 'ok', IN_USE: 'info', CHANGED: 'bad', MOTION: 'warn', LEARNING: 'idle' } as const
@@ -45,7 +46,7 @@ export default function Security() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 2000)
+    const t = visibleInterval(load, 2000)
     return () => window.clearInterval(t)
   }, [load])
   useEffect(() => { api.labs().then(setLabs).catch(() => {}) }, [])

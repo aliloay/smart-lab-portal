@@ -12,6 +12,7 @@ import {
 } from '../../components/ui'
 import { Bloom, GridField, LabNetworkMap } from '../../components/visual'
 import { DeviceHealth, LiveActivity, MaintenanceQueue } from './widgets'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 type Day = { day: string; granted: number; denied: number }
 
@@ -41,7 +42,7 @@ export default function AdminDashboard() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 30000)
+    const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })

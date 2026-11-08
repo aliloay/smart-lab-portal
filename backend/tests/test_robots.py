@@ -251,3 +251,15 @@ def test_camera_config_gives_robot_boxes_the_live_robot_state(client, db, lab, d
     assert r.status_code == 200, r.text
     zs = {z["name"]: z["robot_state"] for z in r.json()["zones"]}
     assert zs["UR5e"] == "MOVING" and zs["PC-01"] is None
+
+
+def test_a_resent_event_batch_is_stored_once(client, db, lab, device_headers):
+    """2026-11-04 lab: a slow reply made the collector re-send - one movement was stored 8 times."""
+    tele(client, device_headers)
+    now = datetime.now(timezone.utc).timestamp()
+    body = {"device_uid": "UR5E_TEST", "events": [{"kind": "MOVEMENT_STOPPED", "t": now, "detail": {}},
+                                                  {"kind": "JOINT_MOVED", "t": now, "joint": 2, "detail": {}},
+                                                  {"kind": "JOINT_MOVED", "t": now, "joint": 5, "detail": {}}]}
+    assert client.post("/api/robots/events", headers=device_headers, json=body).json() == {"stored": 3}
+    assert client.post("/api/robots/events", headers=device_headers, json=body).json() == {"stored": 0}
+    assert db.query(RobotEvent).count() == 3

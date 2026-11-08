@@ -1,5 +1,85 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-11-03 00:10 (lab-wide 12-class detector LIVE, not committed)
+- Colab lab_2026-11-02_1731 (Drive zip unpacked in tools/vision_train/results/lab_2026-11-02_1731/drive): best r1_n
+  (YOLO11n) -> backend/data/models/lab_detector.onnx (byte-identical to r1_n/weights/best.onnx). Colab test split
+  (conf 0.5, IoU>=0.5): bin 15/15, consumables 22/22, environment 34/35, master 26/26, switch 12/29, router 18/18,
+  UR5e 7/7, UR5e pendant 2/2, FANUC 2/6, FANUC pendant 3/3, PC 3/4, door 4/4; mAP50 0.947, mAP50-95 0.839.
+  Local check with the backend parser (class found, no IoU): no-object photos with a hit 1/200; CPU 2 threads median 77 ms.
+- Live-verified after deploy: health 200, extras [lab_detector, all_detector], a UR5e test photo -> SLAB:D:UR5E_01 0.896.
+- Code: detect_all skips the one-class bin model when the lab model answers the bin, keeps one hit per code;
+  /scan/appearance returns `detections` (all hits); Scan.tsx draws every detection with label + %.
+  Tests: test_bin_detector 14 passed; full backend 730 passed, 2 skipped; tsc 0 errors.
+- launch.bat: 13 helper services start hidden via scripts/bg.ps1 (logs/<service>.log); backup backups/launch.bat.2026-11-02.bak.
+  Helper tested; a full launch.bat run is NOT yet tested.
+- Open: r1_s has switch 25/29 (later switch upgrade); one box per class (two PCs = one box); responsive/perf audit
+  needs E2E_ADMIN_PW / E2E_PW; Gemini review request 2026-11-02-225500 pending.
+
+## RESUME HERE - 2026-10-30 ~00:15 (bin round 5 scored - round 4 stays; switch round 1 training)
+- Bin round 5 (round-4 weights + 33 owner-video frames, 30 epochs, data/bin_r5): scored with eval_bin.py on the same
+  15 unseen bins + 429 no-bin pictures. conf 0.3-0.4: 15/15 found but 2/429 wrongly called a bin (top no-bin 0.58);
+  deployed round 4: 14/15, 0/429 (top no-bin 0.19) and still 14/15 at 0.6 where round 5 falls to 9/15. Round 5 is NOT
+  better - round 4 stays deployed (backend/data/models/bin_detector.onnx, conf 0.4). Log: data/eval_r4_vs_r5.log.
+- Switch round 1 (data/switch_r1: 150 boxes + 657 no-switch frames in train, 16 val, 29 test; YOLO11n 40 epochs, CPU):
+  RUNNING since 23:29 (epoch 8/40 at 00:05, ~4:40/epoch, ETA ~02:45). Windows Update is paused until 2026-11-05, so no
+  reboot should kill it. Mid-run checkpoint (epoch 7) through the new tools/vision_train/eval_switch.py (29 held-out
+  switch photos + 461 no-switch pictures): 7/29 found, 20/461 false at 0.3 - not usable yet; the round may need more
+  boxed switch photos (only 150 positives).
+- finish_switch.cmd (detached) waits for sw_done.txt, then scores the final weights with eval_switch.py and exports
+  best.onnx: data/switch_r1/switch_eval.log, marker switch_eval_done.txt. Nothing is deployed from it.
+- Router drop (Drive, 2026-10-30 00:20): SmartLab_router.zip 211 MB = 113 iPhone HEIC + 1 MOV, a white Vodafone home
+  router on a table / carpet / floor. The switch zip in the folder is the one already used; the bin photos are the same
+  615 MB zip already used - no new bin images. New tools: prepare_photos.py (HEIC/EXIF-safe + 2 fps video frames ->
+  data/router_set, 211 images, 98 of them video frames) and make_object_round.py (YOLO-World boxes + shooting-order
+  split + negatives + contact sheets). YOLO-World found the router in 121 of 211 at conf 0.08/960; the misses are
+  edge-on, tiny/far and blurred frames. conf 0.05/1280 found 120 with visibly oversized boxes and 0.03/1280 146 with
+  sloppy boxes, so 0.08/960 was kept. data/router_r1: 91 boxed + 237 lab no-object frames in train, 12 val, 18 test;
+  the held-out no-object sets (lab_neg_test 221, coco_val/negtest 200) were kept OUT of training.
+- (DROPPED 00:50 - superseded by the ALL-IN-ONE round below; the script was removed, data/router_r1 is a source of
+  data/all_r1) router-only round: run_router.cmd waited for switch_eval_done.txt, trained YOLO11n 40 epochs (rt11) on
+  data/router_r1, scored it with eval_object.py and exported best.onnx.
+- ALL-IN-ONE round (owner, 2026-10-30 00:45: "train all ... so that it detects all at any time, anywhereee"): ONE
+  3-class detector - reusable_bin / network_switch / network_router - from build_all.py -> data/all_r1. Train 995
+  images (390 boxes + 607 no-object frames), val 113 (33 + 80), test 483 (62 boxes + 421 held-out no-object photos;
+  per class 15 bin / 29 switch / 18 router). Sources bin_r5 + switch_r1 + router_r1; a photo that appears in two sources
+  keeps both boxes (matched by file hash). Leak check: 0 overlap between train no-object photos and the held-out test
+  ones. This replaces the per-object models: switch/router confusion cannot happen inside one model.
+- run_all.cmd (detached, waits for switch_eval_done.txt = one CPU job at a time) trains YOLO11n (all11) then YOLO26n
+  (all26), 30 epochs each, then eval_all.py per class + ONNX export: data/all_r1/all11{,_eval}.log, all26{,_eval}.log,
+  markers all11_done.txt / all26_done.txt. eval_all.py re-ran the deployed bin round-5 weights on this test split:
+  15/15 bins, 1/421 false at 0.3-0.4 - same as eval_bin.py, so the combined test set is comparable.
+- The router-only round (run_router.cmd) was dropped when the all-in-one round replaced it; data/router_r1 is now a
+  source of data/all_r1.
+- Bin drop re-check (2026-10-30 01:30, Drive link shared publicly): Resuables_Bin.zip (626 MB) is a RE-UPLOAD - 117 of
+  its 119 files are byte-identical to the zip used in rounds 1-5; only ReusableBin_Video.MOV (already mined for round 5)
+  and the report PDF are new. It contains NO new bin photos. The one thing never used before is IMG_6882.MOV inside it:
+  37 s, 2160x3840, 2158 frames - the real LAB bin station (grey bin with the 3D-printed lid, the black control box, the
+  cable nest, the phone showing the portal, the printed markers), a scene the models have never seen. Mined with
+  prepare_photos.py (74 frames at 2 fps -> data/bin_v2_set), auto-boxed with make_object_round.py -> data/bin_v2: 59 of
+  74 frames got a box. Those boxes are inconsistent (sometimes the control box, sometimes the bin), so data/bin_v2 is a
+  TRAIN-ONLY source of data/all_r1 (build_all.py 'forced split'): bin train boxes 149 -> 208, test unchanged at 15/29/18
+  so the deployed round-4/5 comparison stays comparable. The 15 undetected frames were left out (they do contain the bin - as
+  negatives they would teach the opposite). NEXT quality step for the bin: hand-box this lab video (station = bin +
+  control box, as make_dataset.py does) so the lab scene can also appear in the scored test split.
+- Lab frames as NEGATIVES (2026-10-30 02:00): 202 frames pulled with ffmpeg keyframe seeks (one per 45 s) from the four
+  long Oct-12 camera recordings in tools/security_vision/recordings -> data/lab3_raw (own lab view: UR5e cell, FANUC,
+  PCs, staff). The auto-labels there were JUNK and were deleted: YOLO-World drew "reusable bin" (113 frames) and
+  "router" (63) boxes on the GREEN BLOCKS in the UR5e cell, and found 0 switches (the switch is out of that view). They
+  are used as no-object pictures only (build_all.py), train negatives 607 -> 809.
+  data/all_r1 FINAL for this round: train 1256 (390 boxes: 208 bin / 150 switch / 91 router + 809 no-object frames),
+  val 113, test 483 (15 bin / 29 switch / 18 router + 421 held-out no-object photos).
+- PORTAL, multi-class support (2026-10-30 02:10): app/services/bin_detector.py gained detect_all / _infer_multi /
+  _parse_multi (rows = 4 + highest listed class index + 1, so a spec exposing classes 1-2 of a 3-class file still reads
+  the file's real 7 rows) and data/models/detectors.json lists all_detector.onnx with ONLY network_switch (class 1) and
+  network_router (class 2) - the bin stays on the deployed round-4 model. tests/test_bin_detector.py 8 passed
+  (run with --noconftest; the full suite needs the Docker backend). The row-count guard was checked against an 80-class
+  export (84 rows): it reports nothing instead of misreading - the real 7-row check happens on the all11 export.
+  DEPLOY when all11 wins: copy data/all_r1/runs/detect/runs/all11/weights/best.onnx -> backend/data/models/
+  all_detector.onnx, then docker compose build backend + up -d --no-deps backend; test PUT a switch/router photo through
+  POST /api/scan/appearance (phone: Scan the lab).
+- Earlier Colab switch trial (data/colab_switch/network_switch_2026-10-29_1845) was unusable: 220 photos but only 5
+  boxed, 0 test objects, 176/200 no-switch photos scored >= 0.3. The notebook needs boxed labels in the zip.
+
 ## RESUME HERE - 2026-10-29 ~17:10 (round 4 done - best model deployed)
 - Six models compared (eval_bin.py, 15 unseen bins + 429 no-bin): WINNER round-4 YOLO11n (+237 lab-camera negatives):
   14/15 found, 0/429 false at 0.3-0.6 (top no-bin 0.19). Deployed at conf 0.4 (commit 7fe4e9d); live container
@@ -399,3 +479,6 @@ docs/BACKLOG.md (open items), docs/SECURITY_FINDINGS_2026-10-18.md.
 * Open: master fingerprint/LED/camera-poll flapping on laptop USB power (check common ground / power from the
   5 V buck); security-camera services to restart for the new tracking code (owner: tomorrow); camera 1 + robots
   at the university. Report: docs/reports/speed_and_fixes_2026-10-18_evening.md.
+
+## 2026-11-07 master finalization (not committed, not deployed)
+Thesis and manuscript: `thesis_overleaf/FINAL_SUBMISSION/FINAL_RELEASE_2026-11-07_v2`. Backend 753 passed, 2 skipped. New: `pc_account_keys` migration f1a7c3d9e250 (needs `tools/deploy/deploy.py --allow-migration` with SMARTLAB_PASSWORD); PC kit 1.1 with Install/Check/Uninstall-CurrentUser, Start/Stop-Agent, DPAPI keys, tray icon, site.json; scripts syntax-checked only (execution policy off on this laptop). Door fault open, firmware unchanged. Containers db, backend, frontend, backup left running.

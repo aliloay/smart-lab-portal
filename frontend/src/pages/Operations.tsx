@@ -27,6 +27,7 @@ import {
 import { C, ChartCard, PALETTE, axisProps, xTitle, yTitle, tooltipProps } from '../components/charts'
 import { EnvironmentPanel, Funnel, Heatmap, OutageStrip } from '../components/analytics'
 import { AskTheLab, PriorityList } from '../components/ai'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const PERIODS = [7, 30, 90]
 const END_REASON: Record<string, string> = {
@@ -61,7 +62,7 @@ export default function Operations() {
   useEffect(() => { setD(null); load() }, [load])
   useEffect(() => { api.labs().then(setLabs).catch(() => {}) }, [])
   useEffect(() => {
-    const t = window.setInterval(load, 60000)
+    const t = visibleInterval(load, 60000)
     return () => window.clearInterval(t)
   }, [load])
   // Door events refresh the view, at most every few seconds.

@@ -12,6 +12,7 @@ import {
   Chip, Dot, EmptyState, ErrorBanner, Field, Modal, Notice, PageHeader, Skeleton, StateDot,
 } from '../components/ui'
 import { categoryMeta } from '../components/labArt'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const TYPE: Record<Device['device_type'], { label: string; icon: JSX.Element }> = {
   MASTER_CONTROLLER: { label: 'Master ESP32 controller', icon: <Cpu size={18} /> },
@@ -38,7 +39,7 @@ export default function Devices() {
   useEffect(() => {
     load()
     api.labs().then(setLabs).catch(() => {})
-    const t = window.setInterval(load, 15000)
+    const t = visibleInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {

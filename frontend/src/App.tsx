@@ -65,6 +65,7 @@ const IssueList = lazy(loadIssueList)
 const loadIssueDetail = () => import('./pages/issues/IssueDetail')
 const IssueDetail = lazy(loadIssueDetail)
 const Share = lazy(() => import('./pages/Share'))
+import WatchShare from './pages/WatchShare'
 const loadNotifications = () => import('./pages/Notifications')
 const Notifications = lazy(loadNotifications)
 const loadProfile = () => import('./pages/Profile')
@@ -124,6 +125,10 @@ export default function App() {
       <Spinner label="Restoring session" />
     </div>
   }
+
+  // A lab PC watching a share through its agent's watch link: no sign-in needed (2026-11-03).
+  const watchToken = loc.pathname === '/share' ? new URLSearchParams(loc.search).get('t') : null
+  if (!user && watchToken) return <WatchShare token={watchToken} />
 
   if (!user) {
     return (

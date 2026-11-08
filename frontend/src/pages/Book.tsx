@@ -22,6 +22,7 @@ import { Chip, ErrorBanner, Notice, PageHeader, Skeleton, SuccessMark } from '..
 import { LabArt, categoryMeta } from '../components/labArt'
 import BookingEquipment, { NO_EQUIPMENT, equipmentSummary } from '../components/BookingEquipment'
 import { GridField } from '../components/visual'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const STEPS = ['Laboratory', 'Date', 'Time', 'Purpose', 'Equipment', 'Review', 'Confirmed'] as const
 const DAY_START = 8
@@ -95,7 +96,7 @@ export default function Book() {
   // Fresh without a manual refresh: poll while picking, and on any booking event.
   useEffect(() => {
     if (step !== 2) return
-    const t = window.setInterval(loadDay, 30000)
+    const t = visibleInterval(loadDay, 30000)
     return () => window.clearInterval(t)
   }, [step, loadDay])
   useLiveMessages(m => {

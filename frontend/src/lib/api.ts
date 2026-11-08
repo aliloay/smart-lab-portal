@@ -329,7 +329,9 @@ export interface ScanAnswer {
   sources?: { label: string; quality: string; at: string | null }[]; live?: LiveBlock | null
 }
 export interface AppearanceHint { decision: 'PROBABLE' | 'AMBIGUOUS' | 'UNKNOWN'; note: string
-  best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number }; box_kind?: string; confidence?: number; label?: string | null; registered?: boolean } | null; candidates: { code: string; inliers: number }[] }
+  best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number }; box_kind?: string; confidence?: number; label?: string | null; registered?: boolean } | null; candidates: { code: string; inliers: number }[]
+  /** 2026-11-02: every object the detectors saw in this frame (several at once), most confident first */
+  detections?: { code: string; class: string; label: string | null; confidence: number; box: { x: number; y: number; w: number; h: number }; registered: boolean }[] }
 /** Which enclosure a frame LOOKS like - a hint only; identity and live data still need the asset's QR marker. */
 export async function scanAppearance(jpeg: Blob): Promise<AppearanceHint> {
   const token = getToken()
@@ -1566,7 +1568,9 @@ export const api = {
     checked_out_at: string | null; due_back: string | null; last_inspected_at: string | null; next_maintenance_at: string | null
     open_issues: number; last_movement: string | null; checkouts: number; flags: string[] }[] }>('/reports-center/asset-lifecycle'),
   pcActions: (id: number) => request<{ apps: string[]; actions: PcAction[] }>(`/equipment/${id}/actions`),
-  pcMessage: (id: number, text: string) => post<DeviceCommand>(`/equipment/${id}/message`, { text }),
+  pcMessage: (id: number, text: string, expiresMinutes?: number) =>
+    post<DeviceCommand>(`/equipment/${id}/message`, { text, expires_minutes: expiresMinutes || undefined }),
+  pcMessageClear: (id: number) => post<{ cleared: boolean }>(`/equipment/${id}/message/clear`, {}),
   binItems: (labId: number) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
       `/reusable/items?lab_id=${labId}`),

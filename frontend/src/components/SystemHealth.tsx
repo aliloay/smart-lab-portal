@@ -13,6 +13,7 @@ import { SystemStatus, api } from '../lib/api'
 import { useLive } from '../lib/live'
 import { relative } from '../lib/time'
 import { Dot } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 export default function SystemHealth() {
   const { connected } = useLive()
@@ -26,7 +27,7 @@ export default function SystemHealth() {
       .then(r => { setS(r); setApiUp(true) })
       .catch(() => setApiUp(false))
     load()
-    const t = window.setInterval(load, 30000)
+    const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [])
 

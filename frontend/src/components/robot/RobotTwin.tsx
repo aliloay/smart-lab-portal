@@ -253,16 +253,51 @@ const Decor = memo(function Decor({ reach, accent }: { reach: number; accent: st
   </>
 })
 
+/** Owner 2026-11-03 (lab, UR5e live): "the twin is laggy and jiggly". Telemetry reaches the page ~8 times a
+ *  second and the arm jumped to each value. The shown pose now eases toward the newest one (time constant
+ *  TAU_S, ~30 fps) and stops animating once within EPS - a still robot still costs no frames. A jump of more
+ *  than SNAP_RAD (first data, reconnect) is shown at once. Display only: the telemetry itself is untouched. */
+const TAU_S = 0.09, EPS = 1e-4, SNAP_RAD = 0.8
+function useSmoothQ(target: number[] | null | undefined): number[] | null {
+  const [shown, setShown] = useState<number[] | null>(target ?? null)
+  const cur = useRef<number[] | null>(target ?? null)
+  const goal = useRef<number[] | null>(target ?? null)
+  goal.current = target ?? null
+  const key = (target ?? []).join()
+  useEffect(() => {
+    const g = goal.current
+    if (!g || !cur.current || cur.current.length !== g.length || g.some((v, i) => Math.abs(v - cur.current![i]) > SNAP_RAD)) {
+      cur.current = g; setShown(g); return
+    }
+    let raf = 0, last = performance.now(), lastSet = 0
+    const step = (now: number) => {
+      const gg = goal.current, c = cur.current
+      if (!gg || !c) return
+      const k = 1 - Math.exp(-(now - last) / 1000 / TAU_S)
+      last = now
+      const next = c.map((v, i) => v + (gg[i] - v) * k)
+      cur.current = next
+      const done = next.every((v, i) => Math.abs(gg[i] - v) < EPS)
+      if (done || now - lastSet >= 33) { lastSet = now; setShown(done ? gg : next) }
+      if (!done) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [key])
+  return shown
+}
+
 function Scene(props: TwinProps & { resetKey: number; view: { name: ViewName; n: number } }) {
   const { invalidate, camera, gl } = useThree()
   const baseRef = useRef<THREE.Group>(null)
+  const smoothQ = useSmoothQ(props.q)
   const qRef = useRef<number[]>(props.q ?? [])
   qRef.current = props.q ?? []
   // Redraw only when the VALUES change (2026-10-21): the panel re-renders every second (its staleness clock) and
   // handed over new arrays with the same numbers - each one forced a full 3D redraw while the user scrolled.
-  const drawKey = JSON.stringify([props.q, props.selected, props.moving, props.homeQ, props.trail?.length, props.gripper])
+  const drawKey = JSON.stringify([smoothQ, props.selected, props.moving, props.homeQ, props.trail?.length, props.gripper])
   useEffect(() => { invalidate() }, [drawKey, invalidate])
-  const q = props.q ?? new Array(6).fill(0)
+  const q = smoothQ ?? new Array(6).fill(0)
   const reach = props.model.dh.reduce((n, p) => n + Math.abs(p.a) + Math.abs(p.d), 0) * 0.62
   const urdf = urdfFor(props.model.key)
   return (

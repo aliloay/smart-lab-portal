@@ -24,6 +24,14 @@ from app.services.events import log_event
 from app.services.notifications import notify, staff_ids
 
 
+def _account_key_count(d) -> int:
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import object_session
+    from app.models import PcAccountKey
+    s = object_session(d)
+    return s.scalar(select(func.count()).select_from(PcAccountKey).where(PcAccountKey.device_id == d.id)) if s else 0
+
+
 def stale_after() -> timedelta:
     return timedelta(seconds=settings.DEVICE_STALE_SECONDS)
 
@@ -151,7 +159,7 @@ def device_out(d: Device, lab_code: Optional[str] = None,
     out.seconds_since_seen = (int((now - _utc(d.last_seen_at)).total_seconds())
                               if d.last_seen_at else None)
     out.lab_code = lab_code
-    out.has_own_key = d.key_hash is not None
+    out.has_own_key = d.key_hash is not None or d.device_type == DeviceType.PC and bool(_account_key_count(d))
     if d.device_type == DeviceType.MASTER_CONTROLLER:
         out.component_state = effective_components(d, now)
     _derived_state(d, out, now)

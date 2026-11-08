@@ -9,7 +9,7 @@ Signals (none of them can move the robot):
 
 What can be known:
   HAND_GUIDING    teach (freedrive) button pressed - someone is moving the arm by hand
-  PENDANT         Local control mode: only the teach pendant can start programs
+  PENDANT         one joint jogged with motion commanded, no program (see classify)
   REMOTE_PROGRAM  Remote control mode and a program is playing (started over the network,
                   e.g. the portal's Home or a ROS / Dashboard client)
   REMOTE_DIRECT   Remote mode, no program playing, but the joints move: direct commands over the
@@ -34,46 +34,46 @@ EXTERNAL_HINTS = ("external", "ros", "urcap")   # program names of the ROS 2 dri
 
 def classify(extra: dict, moving: bool, joints_moving: Optional[int] = None) -> tuple[str, str]:
     """joints_moving: how many joints are turning now (None = not known).
-    Owner 2026-10-21: "says moving by teach pendant but another person moves it - the pendant moves one joint at
-    a time, or all only when going home". Local mode used to mean "pendant" for EVERY movement. Now, still only
-    from what the controller reports: a running External Control program = a computer; another running
-    program = started on the pendant; no program and one joint = pendant jogging; no program and several
-    joints = the pendant's Move / Home or something else - said as such, never guessed further."""
+    Owner 2026-11-04: nobody touched the pendant all day, yet a person moving the arm was shown as "pendant" /
+    "program started on the pendant". Local mode says who MAY start things, not who moves the arm. So a source is
+    named only on evidence from the controller, and everything else is MANUAL_UNCONFIRMED:
+      HAND_GUIDING      teach (freedrive) bit set
+      EXTERNAL_CONTROL  an External Control program is running
+      PROGRAM           Dashboard says PLAYING and the controller commands motion (who pressed Play is unknown)
+      PENDANT           Local mode, no program, controller commands motion, exactly ONE joint turning
+    """
     bits = extra.get("robot_status_bits")
     remote = extra.get("remote_control")             # True / False / None (dashboard not readable)
     prog = extra.get("loaded_program") or ""
     pstate = str(extra.get("program_state") or "").upper()
-    running = ("PLAYING" in pstate) or (isinstance(bits, int) and bool(bits & PROGRAM_RUNNING_BIT))
+    playing = "PLAYING" in pstate
+    running = playing or (isinstance(bits, int) and bool(bits & PROGRAM_RUNNING_BIT))
+    target = extra.get("target_qd_max")              # commanded speed; None = not reported
+    commanded = isinstance(target, (int, float)) and target > TARGET_IDLE
+    unconfirmed = ("MANUAL_UNCONFIRMED", "Manual movement - source unconfirmed (the controller's data cannot "
+                                         "say whether this is a person or the pendant)")
     if isinstance(bits, int) and bits & TEACH_BUTTON_BIT:
         return "HAND_GUIDING", "Freedrive: the arm is being moved by hand (teach button pressed)"
     if running and any(h in prog.lower() for h in EXTERNAL_HINTS):
         return "EXTERNAL_CONTROL", (f"External Control program {prog} running - the arm is moved by a computer "
                                     "(e.g. the ROS 2 driver), not by the pendant")
     if remote is False:
-        if running:
-            return "PENDANT_PROGRAM", f"Program {prog or '(unnamed)'} running - started on the teach pendant (Local mode)"
-        target = extra.get("target_qd_max")                  # commanded speed (Gemini ACT-07); None = not reported
-        if moving and isinstance(target, (int, float)):
-            if target <= TARGET_IDLE:
-                return "HAND_GUIDING", ("The arm moves while the controller commands no motion - moved by hand "
-                                        "(freedrive)")
-            if joints_moving is not None and joints_moving >= 2:
-                return "PENDANT", ("Teach pendant (Local mode) - jogging several joints at once (a Base / Tool "
-                                   "linear move, or Move / Home)")
-        if moving and joints_moving is not None and joints_moving >= 2:
-            return "MULTI_JOINT", (f"{joints_moving} joints moving at once with no program - the pendant's Move / "
-                                   "Home, or the arm moved another way (pendant jogging turns one joint)")
-        return "PENDANT", ("Teach pendant (Local mode)" + (" - jogging" if moving else " - idle"))
+        if not moving:
+            return "IDLE", (f"Still - program {prog or '(unnamed)'} is playing" if playing else "Still (Local mode)")
+        if playing and commanded:
+            return "PROGRAM", f"Program {prog or '(unnamed)'} is playing and commanding the motion"
+        if not running and commanded and joints_moving == 1:
+            return "PENDANT", "Teach pendant jogging: motion commanded, one joint turning, no program"
+        return unconfirmed
     if remote is True:
         if running:
             return "REMOTE_PROGRAM", f"Remote mode - program {prog or '(unnamed)'} started over the network"
         if moving:
             return "REMOTE_DIRECT", "Remote mode - moved by direct network commands (e.g. ROS 2 driver / URScript)"
         return "IDLE", "Remote mode - idle"
-    if running:
-        return "UNKNOWN", "A program is running - control mode not readable"
-    return ("UNKNOWN", "Moving - control mode not readable") if moving else ("IDLE", "Idle")
-
+    if moving:
+        return "UNKNOWN", "Moving - control mode not readable"
+    return ("UNKNOWN", "A program is running - control mode not readable") if running else ("IDLE", "Idle")
 
 class DashboardReader:
     """Polls the three read-only Dashboard queries in the background. Never sends anything else."""

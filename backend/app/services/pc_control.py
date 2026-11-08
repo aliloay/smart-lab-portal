@@ -237,5 +237,13 @@ def broadcast_frame() -> Optional[bytes]:
         return _bframe[0]
 
 
+def broadcast_frame_stamped() -> tuple[Optional[bytes], int]:
+    """The current frame and a number that changes with every new frame (the ETag of the viewers' requests)."""
+    with _lock:
+        if not _broadcast["active"] or _bframe[0] is None or time.monotonic() - _bframe[1] > BROADCAST_FRAME_MAX_AGE_S:
+            return None, 0
+        return _bframe[0], int(_bframe[1] * 1000)
+
+
 def broadcast_reset() -> None:
     broadcast_stop()

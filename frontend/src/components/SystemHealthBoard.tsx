@@ -8,6 +8,7 @@ import { Activity, Database, HardDrive, RefreshCw } from 'lucide-react'
 import { api } from '../lib/api'
 import { relative } from '../lib/time'
 import { Chip, SectionTitle } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type Health = Awaited<ReturnType<typeof api.systemHealth>>
 const TONE: Record<string, 'ok' | 'warn' | 'bad' | 'idle' | 'violet'> = {
@@ -21,7 +22,7 @@ export default function SystemHealthBoard() {
   const [h, setH] = useState<Health | null>(null)
   const [error, setError] = useState('')
   const load = () => { api.systemHealth().then(r => { setH(r); setError('') }).catch(e => setError(e.message)) }
-  useEffect(() => { load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t) }, [])
+  useEffect(() => { load(); const t = visibleInterval(load, 15000); return () => window.clearInterval(t) }, [])
   const core = h?.services.filter(s => !s.group) ?? []
   const groups = Object.keys(GROUP).map(g => [g, h?.services.filter(s => s.group === g) ?? []] as const).filter(([, l]) => l.length)
   return (

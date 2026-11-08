@@ -48,8 +48,10 @@ public class P   // tiny JSON reader for params.json (numbers, bools, strings, a
     }
 }
 
-public class Builder
+public partial class Builder
 {
+    // part-name prefix (params "name_prefix"; the door box keeps DoorEnclosure_*)
+    static string Prefix = "DoorEnclosure";
     static SldWorks sw;
     static ModelDoc2 doc;
     static StringBuilder log = new StringBuilder();
@@ -291,7 +293,21 @@ public class Builder
                 K.N("slot_w") * MM, x * MM, K.N("y") * MM, 0, x * MM, (K.N("y") + K.N("slot_len")) * MM, 0, 0, 0, 0, 1, false); }
         sk = Close();
         Extrude(sk, t + 1, true, false, "Keyhole slots");
-        Save(dir, "DoorEnclosure_Body");
+        // 9. wall ears (owner 2026-10-24): flush with the back, above the top and below the bottom, screwed to the wall
+        //    from outside (hole = screw + 0.3)
+        if (p.D.ContainsKey("wall_ears"))
+        {
+            var WE = p.O("wall_ears"); double ew = WE.N("w"), er = WE.N("reach");
+            Open("Front Plane");
+            foreach (var xo in WE.A("x")) { double x = Convert.ToDouble(xo); RectXY(x - ew / 2, -er, x + ew / 2, 0); RectXY(x - ew / 2, H, x + ew / 2, H + er); }
+            sk = Close();
+            Extrude(sk, WE.N("t"), false, false, "Wall ears");
+            Open("Front Plane");
+            foreach (var xo in WE.A("x")) { double x = Convert.ToDouble(xo); Circle(x, -WE.N("hole_from_edge"), WE.N("hole_d")); Circle(x, H + WE.N("hole_from_edge"), WE.N("hole_d")); }
+            sk = Close();
+            Extrude(sk, WE.N("t"), true, true, "Wall ear screw holes");
+        }
+        Save(dir, Prefix + "_Body");
     }
 
     /// Bosses / walls behind the panel (toward -z from the rear face): sketched at their tip plane and
@@ -379,6 +395,30 @@ public class Builder
         Behind(B.N("cradle_h"), () => { Circle(cx, cy, id + 2 * B.N("cradle_wall")); Circle(cx, cy, id); }, "Buzzer cradle");
     }
 
+    /// Owner 2026-10-24: the face-recognition ESP32-CAM (on its ESP32-CAM-MB USB board) in the panel, upright (camera
+    /// at the top). Rear: a square recess for the camera block, so the stack self-locates; front: the lens hole and a
+    /// small hole for the white flash LED. Holder walls left / right / top (bottom open for the USB cable); a zip tie
+    /// through the long side slots goes behind the MB wherever its back ends up.
+    static void EspCamMount(P K, double t)
+    {
+        double lx = K.N("lens_x"), ly = K.N("lens_y"), bw = K.N("board_w"), bh = K.N("board_h"), hw = K.N("holder_wall");
+        double bx = lx - K.N("lens_dx"), by1 = ly + K.N("lens_from_top"), by0 = by1 - bh;
+        Open("Front Plane"); Rect(lx, ly, K.N("cam_sq"), K.N("cam_sq")); var sk = Close();
+        Extrude(sk, t - K.N("front_skin"), true, false, "Camera block recess");
+        Open("Front Plane"); Circle(lx, ly, K.N("lens_hole_d")); Circle(bx + K.N("flash_dx"), by0 + K.N("flash_from_bottom"), K.N("flash_d")); sk = Close();
+        Extrude(sk, t, true, true, "Camera lens + flash holes");
+        double wl = K.N("stack_d") + K.N("holder_extra");
+        Behind(wl, () => { RectXY(bx - bw / 2 - hw, by0, bx - bw / 2, by1); RectXY(bx + bw / 2, by0, bx + bw / 2 + hw, by1); }, "Camera holder sides");
+        Behind(wl, () => RectXY(bx - bw / 2 - hw, by1, bx + bw / 2 + hw, by1 + hw), "Camera holder top");
+        // tie slots through both side walls around the MB's back (Right Plane: sketch x = -z; drawn at +-z so the
+        // copy that lands in air cuts nothing whichever way the offset plane faces)
+        double zc = K.N("stack_d"), sh = K.N("tie_slot_h"), sw2 = K.N("tie_slot_w");
+        Open(Plane("Right Plane", bx - bw / 2 - hw - 1));
+        foreach (var dy in new[] { -10.0, 10.0 }) foreach (var sz in new[] { -1, 1 }) Rect(sz * zc, (by0 + by1) / 2 + dy, sh, sw2);
+        sk = Close();
+        Extrude(sk, 0, true, true, "Camera tie slots");
+    }
+
     static void BuildPanel(P p, string dir)
     {
         var E = p.O("envelope"); var F = p.O("fasteners"); var FP = p.O("front_panel"); var C = p.O("print");
@@ -412,6 +452,7 @@ public class Builder
         Open(rear); Circle(LD.N("green_x"), LD.N("y"), ld); Circle(LD.N("red_x"), LD.N("y"), ld); sk = Close();
         Extrude(sk, t, true, true, "LED holes");
         BuzzerMount(BZ, BZ.N("center_x"), BZ.N("center_y"), t, BZ.N("cradle_id"));
+        if (p.D.ContainsKey("esp32cam")) EspCamMount(p.O("esp32cam"), t);
         // engraved labels (front), centred under / over each part
         Open(front);
         bool txt = Text(0, FP.N("title_y") - FP.N("title_height"), FP.S("title"), FP.N("title_height"));
@@ -424,7 +465,7 @@ public class Builder
         if (!txt) L("WARNING: sketch text not available - labels skipped");
         else if (raised) Extrude(sk, FP.N("raised_height"), false, false, "Labels (raised)");
         else Extrude(sk, eng, true, false, "Labels (engraved)");
-        Save(dir, "DoorEnclosure_FrontPanel");
+        Save(dir, Prefix + "_FrontPanel");
     }
 
     static void BuildPlate(P p, string dir)
@@ -451,7 +492,7 @@ public class Builder
         foreach (var o in EP.A("zone_labels")) { var z = new P((Dictionary<string, object>)o); any |= Text(z.N("x"), z.N("y") - 2.1, z.S("text"), 4.2); }
         sk = Close();
         if (any) Extrude(sk, 0.6, true, false, "Zone labels");
-        Save(dir, "DoorEnclosure_ElectronicsPlate");
+        Save(dir, Prefix + "_ElectronicsPlate");
     }
 
     /// The fit coupon: every critical opening at full size, with the real module mounts, printed in the
@@ -500,7 +541,7 @@ public class Builder
         if (ok) Extrude(sk, eng, true, false, "Labels"); else L("WARNING: coupon labels skipped");
         Open(front); Text(10, -71, "RAISED 5", 5.0); Text(55, -71, "RAISED 7", 7.0); sk = Close();
         Extrude(sk, 0.8, false, false, "Raised text test");
-        Save(dir, "DoorEnclosure_FitCoupon");
+        Save(dir, Prefix + "_FitCoupon");
     }
 
     /// One box per component (its envelope incl. the clearance in params "components") for the virtual
@@ -528,14 +569,25 @@ public class Builder
 
     static void BuildAssembly(P p, string dir)
     {
-        var E = p.O("envelope"); var EP = p.O("electronics_plate");
+        var E = p.O("envelope");
+        // which parts and where their origins go: params "assembly_parts" [{name, x, y, z}], else the door layout
+        var parts = new List<object[]>();
+        if (p.D.ContainsKey("assembly_parts"))
+            foreach (var o in p.A("assembly_parts")) { var q = new P((Dictionary<string, object>)o); parts.Add(new object[] { Prefix + "_" + q.S("name"), q.N("x"), q.N("y"), q.N("z") }); }
+        else
+        {
+            var EP = p.O("electronics_plate");
+            parts.Add(new object[] { Prefix + "_Body", 0.0, 0.0, 0.0 });
+            parts.Add(new object[] { Prefix + "_FrontPanel", 0.0, 0.0, E.N("depth") });
+            parts.Add(new object[] { Prefix + "_ElectronicsPlate", 0.0, 0.0, E.N("wall") + EP.N("boss_h") });
+        }
         string tpl = sw.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplateAssembly);
         var asm = (ModelDoc2)sw.NewDocument(tpl, 0, 0, 0);
         var ad = (AssemblyDoc)asm;
         // AddComponent5 places the centre of the part's bounding box: offset each part by its own box centre
         var centre = new Dictionary<string, double[]>();
-        foreach (var n in new[] { "DoorEnclosure_Body", "DoorEnclosure_FrontPanel", "DoorEnclosure_ElectronicsPlate" })
-        { int err = 0, warn = 0; var pd = sw.OpenDoc6(Path.Combine(dir, n + ".SLDPRT"), 1, 1, "", ref err, ref warn);
+        foreach (var pa in parts)
+        { string n = (string)pa[0]; int err = 0, warn = 0; var pd = sw.OpenDoc6(Path.Combine(dir, n + ".SLDPRT"), 1, 1, "", ref err, ref warn);
           var bx = (double[])((PartDoc)pd).GetPartBox(true);
           centre[n] = new[] { (bx[0] + bx[3]) / 2, (bx[1] + bx[4]) / 2, (bx[2] + bx[5]) / 2 }; }
         int aerr = 0; sw.ActivateDoc3(asm.GetTitle(), false, 0, ref aerr);
@@ -553,9 +605,7 @@ public class Builder
             L(string.Format("placed {0}: origin at x {1:0.0}  y {2:0.0}  z {3:0.0} mm (wanted {4:0.0} {5:0.0} {6:0.0})",
                 n, at[9] / MM, at[10] / MM, at[11] / MM, x, y, z));
         };
-        add("DoorEnclosure_Body", 0, 0, 0);
-        add("DoorEnclosure_FrontPanel", 0, 0, E.N("depth"));
-        add("DoorEnclosure_ElectronicsPlate", 0, 0, E.N("wall") + EP.N("boss_h"));
+        foreach (var pa in parts) add((string)pa[0], (double)pa[1], (double)pa[2], (double)pa[3]);
         // component envelopes: placed by their box centre (base z + d/2 up, base z - d/2 down)
         int placed = 0;
         foreach (var o in p.A("components"))
@@ -588,27 +638,31 @@ public class Builder
                 lines.Add(string.Format("{0}  <->  {1}: {2:0.000} cm3", names[0], names.Count > 1 ? names[1] : "?", it.Volume * 1e6));
             }
         idm.Done();
-        File.WriteAllLines(Path.Combine(dir, "interference.txt"), lines.Count == 0 ? new[] { "NO INTERFERENCES (" + (3 + placed) + " bodies)" } : lines.ToArray());
-        L("interference check: " + (3 + placed) + " bodies, " + lines.Count + " interference(s)" + (lines.Count > 0 ? ":\n  " + string.Join("\n  ", lines) : ""));
+        File.WriteAllLines(Path.Combine(dir, "interference.txt"), lines.Count == 0 ? new[] { "NO INTERFERENCES (" + (parts.Count + placed) + " bodies)" } : lines.ToArray());
+        L("interference check: " + (parts.Count + placed) + " bodies, " + lines.Count + " interference(s)" + (lines.Count > 0 ? ":\n  " + string.Join("\n  ", lines) : ""));
         asm.ShowNamedView2("*Isometric", (int)swStandardViews_e.swIsometricView); asm.ViewZoomtofit2();
         int e = 0, w = 0;
-        asm.Extension.SaveAs3(Path.Combine(dir, "DoorEnclosure_Assembly.SLDASM"), 0, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref e, ref w);
-        asm.Extension.SaveAs3(Path.Combine(dir, "DoorEnclosure_Assembly.STEP"), 0, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref e, ref w);
-        asm.SaveBMP(Path.Combine(dir, "DoorEnclosure_Assembly.bmp"), 1400, 1000);
+        asm.Extension.SaveAs3(Path.Combine(dir, Prefix + "_Assembly.SLDASM"), 0, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref e, ref w);
+        asm.Extension.SaveAs3(Path.Combine(dir, Prefix + "_Assembly.STEP"), 0, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref e, ref w);
+        asm.SaveBMP(Path.Combine(dir, Prefix + "_Assembly.bmp"), 1400, 1000);
         // views for the docs: front (through the panel's openings) and a section-like right view
         asm.ShowNamedView2("*Front", (int)swStandardViews_e.swFrontView); asm.ViewZoomtofit2();
-        asm.SaveBMP(Path.Combine(dir, "DoorEnclosure_Assembly_front.bmp"), 1400, 1000);
+        asm.SaveBMP(Path.Combine(dir, Prefix + "_Assembly_front.bmp"), 1400, 1000);
         asm.ShowNamedView2("*Right", (int)swStandardViews_e.swRightView); asm.ViewZoomtofit2();
-        asm.SaveBMP(Path.Combine(dir, "DoorEnclosure_Assembly_right.bmp"), 1400, 1000);
-        // the inside: front panel hidden
+        asm.SaveBMP(Path.Combine(dir, Prefix + "_Assembly_right.bmp"), 1400, 1000);
+        // the inside: front panel hidden (params "inside_views": false skips it - hiding the panel hung SOLIDWORKS twice)
+        if (p.D.ContainsKey("inside_views") && !p.B("inside_views")) { L("assembly: " + parts.Count + " parts + " + placed + " component envelopes -> " + Prefix + "_Assembly.SLDASM / .STEP"); return; }
         foreach (var co in (object[])ad.GetComponents(true))
-        { var cc = (Component2)co; if (cc.Name2.StartsWith("DoorEnclosure_FrontPanel")) cc.Visible = (int)swComponentVisibilityState_e.swComponentHidden; }
+        { var cc = (Component2)co; if (cc.Name2.StartsWith(Prefix + "_FrontPanel")) cc.Visible = (int)swComponentVisibilityState_e.swComponentHidden; }
         asm.ShowNamedView2("*Isometric", (int)swStandardViews_e.swIsometricView); asm.ViewZoomtofit2();
-        asm.SaveBMP(Path.Combine(dir, "DoorEnclosure_Assembly_inside.bmp"), 1400, 1000);
+        asm.SaveBMP(Path.Combine(dir, Prefix + "_Assembly_inside.bmp"), 1400, 1000);
         asm.ShowNamedView2("*Front", (int)swStandardViews_e.swFrontView); asm.ViewZoomtofit2();
-        asm.SaveBMP(Path.Combine(dir, "DoorEnclosure_Assembly_inside_front.bmp"), 1400, 1000);
-        L("assembly: body + front panel + plate + " + placed + " component envelopes -> DoorEnclosure_Assembly.SLDASM / .STEP");
+        asm.SaveBMP(Path.Combine(dir, Prefix + "_Assembly_inside_front.bmp"), 1400, 1000);
+        L("assembly: " + parts.Count + " parts + " + placed + " component envelopes -> " + Prefix + "_Assembly.SLDASM / .STEP");
     }
+
+    /// Other boxes (environment, bins) add their parts in their own file (a second part of this class).
+    static partial void BuildKind(P p, string outDir, string which, string kind);
 
     public static string Run(string paramsPath, string outDir, string which)
     {
@@ -628,10 +682,16 @@ public class Builder
         sw.SetUserPreferenceToggle(inferPref, false);
         try
         {
-            if (which == "all" || which == "coupon") BuildCoupon(p, outDir);
-            if (which == "all" || which == "body") BuildBody(p, outDir);
-            if (which == "all" || which == "panel") BuildPanel(p, outDir);
-            if (which == "all" || which == "plate") BuildPlate(p, outDir);
+            Prefix = p.D.ContainsKey("name_prefix") ? p.S("name_prefix") : "DoorEnclosure";
+            string kind = p.D.ContainsKey("kind") ? p.S("kind") : "door";
+            if (kind == "door")
+            {
+                if (which == "all" || which == "coupon") BuildCoupon(p, outDir);
+                if (which == "all" || which == "body") BuildBody(p, outDir);
+                if (which == "all" || which == "panel") BuildPanel(p, outDir);
+                if (which == "all" || which == "plate") BuildPlate(p, outDir);
+            }
+            else BuildKind(p, outDir, which, kind);
             if (which == "all" || which == "assembly") { BuildEnvelopes(p, outDir); BuildAssembly(p, outDir); }
         }
         catch (Exception ex) { L("ERROR: " + ex.Message + "\n" + ex.StackTrace); }

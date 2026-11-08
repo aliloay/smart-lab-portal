@@ -158,3 +158,49 @@ def test_detect_all_prepares_the_frame_once(monkeypatch):
     monkeypatch.setattr(bd, "extras", lambda: [({"classes": [{"index": 1, "name": "x"}]}, None)])
     bd.detect_all(np.zeros((480, 640, 3), np.uint8))
     assert calls == [1]
+
+
+# ---------------------------------------------------------------- lab-wide model (2026-11-02) ---
+def test_lab_model_that_answers_the_bin_replaces_the_one_class_bin_model(monkeypatch):
+    ran = []
+    monkeypatch.setattr(bd, "detect", lambda img, *a: ran.append(1) or {"confidence": 0.9, "box": {"x": 0, "y": 0, "w": 1, "h": 1}})
+    lab = {"classes": [{"index": 0, "name": "reusable_bin", "code": bd.CODE}]}
+    monkeypatch.setattr(bd, "extras", lambda: [(lab, "rt")])
+    monkeypatch.setattr(bd, "_infer_multi", lambda rt, spec, img, *a: [
+        {"code": bd.CODE, "class": "reusable_bin", "label": None, "confidence": 0.6, "box": {"x": 0, "y": 0, "w": 0.5, "h": 0.5}}])
+    hits = bd.detect_all(np.zeros((480, 640, 3), np.uint8))
+    assert ran == [] and [h["confidence"] for h in hits] == [0.6]
+
+
+def test_two_models_naming_the_same_object_give_one_hit(monkeypatch):
+    monkeypatch.setattr(bd, "detect", lambda img, *a: None)
+    monkeypatch.setattr(bd, "extras", lambda: [(SPEC, "a"), (SPEC, "b")])
+    monkeypatch.setattr(bd, "_infer_multi", lambda rt, spec, img, *a: [
+        {"code": "type:network_switch", "class": "network_switch", "label": "Switch",
+         "confidence": 0.9 if rt == "b" else 0.55, "box": {"x": 0, "y": 0, "w": 0.2, "h": 0.2}}])
+    hits = bd.detect_all(np.zeros((480, 640, 3), np.uint8))
+    assert len(hits) == 1 and hits[0]["confidence"] == 0.9
+
+
+def _hit(code, conf, x, y, w, h):
+    return {"code": code, "class": code, "label": code, "confidence": conf, "box": {"x": x, "y": y, "w": w, "h": h}}
+
+
+def test_two_classes_on_the_same_object_keep_only_the_more_confident(monkeypatch):
+    # phone test 2026-11-03: the master node got "Door controller 94%" AND "router 81%" on the same box
+    monkeypatch.setattr(bd, "detect", lambda img, *a: None)
+    monkeypatch.setattr(bd, "extras", lambda: [(SPEC, "a")])
+    monkeypatch.setattr(bd, "_infer_multi", lambda rt, spec, img, *a: [
+        _hit("SLAB:D:MASTER_LAB01", 0.94, 0.10, 0.20, 0.60, 0.40),
+        _hit("type:network_router", 0.81, 0.12, 0.18, 0.62, 0.45),
+        _hit("SLAB:D:ENV_LAB01", 0.90, 0.70, 0.70, 0.20, 0.20)])
+    hits = bd.detect_all(np.zeros((480, 640, 3), np.uint8))
+    assert [h["code"] for h in hits] == ["SLAB:D:MASTER_LAB01", "SLAB:D:ENV_LAB01"]
+
+
+def test_similar_box_inside_is_dropped_but_a_small_object_in_front_stays():
+    kept = bd._suppress_overlaps([_hit("A", 0.9, 0.0, 0.0, 0.5, 0.5),       # big box
+                                  _hit("B", 0.8, 0.02, 0.02, 0.4, 0.45),   # nearly the same box -> same object
+                                  _hit("C", 0.7, 0.1, 0.1, 0.1, 0.1),      # small, inside A -> a separate object
+                                  _hit("D", 0.6, 0.6, 0.6, 0.3, 0.3)])
+    assert [h["code"] for h in kept] == ["A", "C", "D"]

@@ -7,6 +7,7 @@ import { Users } from 'lucide-react'
 import { api } from '../lib/api'
 import { relative } from '../lib/time'
 import { Chip, Notice, SectionTitle, Skeleton } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const BAND: Record<string, 'ok' | 'warn' | 'bad' | 'idle'> = { GOOD: 'ok', FAIR: 'warn', POOR: 'bad', UNKNOWN: 'idle' }
 const PART: Record<string, string> = { devices: 'Devices reporting', alerts: 'Open alerts', environment: 'Environment readings',
@@ -17,7 +18,7 @@ export function LabHealth() {
   const [err, setErr] = useState('')
   useEffect(() => {
     const load = () => api.labsHealth().then(setRows).catch(e => setErr(e.message))
-    load(); const t = window.setInterval(load, 30000); return () => window.clearInterval(t)
+    load(); const t = visibleInterval(load, 30000); return () => window.clearInterval(t)
   }, [])
   if (err) return <p className="text-[12.5px] text-bad-soft">{err}</p>
   if (!rows) return <Skeleton className="h-40" />
@@ -80,7 +81,7 @@ export function Headcount() {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof api.labsHeadcount>> | null>(null)
   useEffect(() => {
     const load = () => api.labsHeadcount().then(setRows).catch(() => setRows([]))
-    load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
+    load(); const t = visibleInterval(load, 5000); return () => window.clearInterval(t)
   }, [])
   return (
     <section>

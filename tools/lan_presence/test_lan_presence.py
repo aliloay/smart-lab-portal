@@ -56,3 +56,10 @@ def test_pcs_reported_by_their_agents_are_added_without_a_mac_list():
     p7 = next(p for p in pcs if p.uid == "PC_07")
     assert p7.macs == {"aa-bb-cc-dd-ee-07"} and p7.ip == "192.168.1.107"
     assert L.merge_targets(pcs, [{"device_uid": "PC_07", "macs": ["aa-bb-cc-dd-ee-07"]}]) == []   # nothing new
+
+
+def test_dual_nic_pc_is_pinged_on_its_smart_lab_address():
+    # 2026-11-03 Gemini network audit: the lab engineer PC reports GIU 10.40.20.x and Smart Lab 192.168.1.210
+    pcs = []
+    L.merge_targets(pcs, [{"device_uid": "PC_ENG", "macs": ["aa-bb-cc-dd-ee-ff"], "ips": ["10.40.20.17", "192.168.1.210"]}])
+    assert pcs[0].ip == "192.168.1.210"

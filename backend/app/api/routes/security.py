@@ -279,9 +279,10 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
 
 
 @router.post("/events", tags=["devices"], status_code=status.HTTP_201_CREATED)
-async def report_event(meta: str = Form(..., max_length=2000),
-                       snapshot: Optional[UploadFile] = File(None),
-                       db: Session = Depends(get_db), identity: str = Depends(require_device)):
+def report_event(meta: str = Form(..., max_length=2000),
+                 snapshot: Optional[UploadFile] = File(None),
+                 db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    # A plain def (2026-11-04): runs on a worker thread, its database work never holds the event loop.
     try:
         m = json.loads(meta)
     except ValueError:
@@ -296,7 +297,7 @@ async def report_event(meta: str = Form(..., max_length=2000),
         zone = None
     key = None
     if snapshot is not None:
-        data = await snapshot.read(MAX_SNAPSHOT + 1)
+        data = snapshot.file.read(MAX_SNAPSHOT + 1)
         if data[:2] == b"\xff\xd8" and len(data) <= MAX_SNAPSHOT:
             key, _ = new_key(f"security/{d.id}", "jpg")
             get_storage().put(key, data, "image/jpeg")

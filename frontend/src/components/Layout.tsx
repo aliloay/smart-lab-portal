@@ -30,6 +30,7 @@ import { warmRoute } from '../lib/warm'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useLive, useLiveMessages } from '../lib/live'
 import { isCapturing, syncShare } from '../lib/screenShare'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
 interface Item {
@@ -283,7 +284,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (!staff) return
     const load = () => api.summary().then(setSummary).catch(() => {})
     load()
-    const t = window.setInterval(load, 60000)
+    const t = visibleInterval(load, 60000)
     return () => window.clearInterval(t)
   }, [staff])
   useLiveMessages(m => {

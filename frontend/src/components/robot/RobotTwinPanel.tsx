@@ -24,6 +24,7 @@ import { Skeleton } from '../ui'
 import { MODELS, RobotModel } from './kinematics'
 import { effective, useRobots } from './robotLive'
 import { FANUC_CELL, tipPosition, urdfFor } from './robotModels'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 const loadTwin = () => import('./RobotTwin')
 const RobotTwin = lazy(loadTwin)
@@ -93,7 +94,7 @@ function LabPcs() {
       if (staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => setPcs(PC_CACHE.pcs ?? []))
       else setPcs([])
     }
-    load(); const t = window.setInterval(load, 5000); return () => window.clearInterval(t)
+    load(); const t = visibleInterval(load, 5000); return () => window.clearInterval(t)
   }, [staff])
   useLiveMessages(m => { if (m.type === 'pc_state' && staff) api.equipment().then(r => setPcs(r.filter(e => e.kind === 'PC'))).catch(() => {}) })
   const all = (cams ?? []).flatMap(c => c.zones ?? [])
@@ -163,8 +164,8 @@ const UR_POSES: { key: string; label: string; q: number[]; note: string }[] = [
 const SOURCE_LABEL: Record<string, [string, string]> = {
   HAND_GUIDING: ['Hand guiding', 'text-amber-300 border-amber-400/50'],
   PENDANT: ['Teach pendant', 'text-sky-300 border-sky-400/50'],
-  PENDANT_PROGRAM: ['Program from the pendant', 'text-sky-300 border-sky-400/50'],
-  MULTI_JOINT: ['Several joints - Move / Home or other', 'text-amber-300 border-amber-400/50'],
+  PROGRAM: ['Running program', 'text-sky-300 border-sky-400/50'],
+  MANUAL_UNCONFIRMED: ['MANUAL MOVEMENT - SOURCE UNCONFIRMED', 'text-amber-300 border-amber-400/50'],
   EXTERNAL_CONTROL: ['Computer - External Control (ROS)', 'text-violet-300 border-violet-400/50'],
   REMOTE_PROGRAM: ['Network - program', 'text-violet-300 border-violet-400/50'],
   REMOTE_DIRECT: ['Network - direct commands', 'text-violet-300 border-violet-400/50'],
@@ -176,12 +177,16 @@ function usePersonAt(robotName: string): boolean {
   const [at, setAt] = useState(false)
   useEffect(() => {
     const key = robotName.toLowerCase().startsWith('ur5') ? 'ur5' : robotName.toLowerCase().includes('fanuc') ? 'fanuc' : robotName.toLowerCase()
-    let alive = true
+    let alive = true, lastSeen = 0
+    // Owner 2026-11-03: Nour at the UR5e, panel said "nobody at the robot" - the zone flickers IN_USE / OK
+    // between camera passes and a 5 s poll often caught the OK. Polled every 2 s, held 20 s after the last IN_USE.
     const load = () => api.securityCameras().then(cams => {
-      if (alive) setAt(cams.some(c => (c.zones ?? []).some(z => z.status === 'IN_USE' && String(z.name).toLowerCase().startsWith(key))))
+      if (!alive) return
+      if (cams.some(c => (c.zones ?? []).some(z => z.status === 'IN_USE' && String(z.name).toLowerCase().startsWith(key)))) lastSeen = Date.now()
+      setAt(Date.now() - lastSeen < 20000)
     }).catch(() => {})
     load()
-    const t = window.setInterval(load, 5000)
+    const t = visibleInterval(load, 2000)
     return () => { alive = false; window.clearInterval(t) }
   }, [robotName])
   return at
@@ -194,9 +199,9 @@ function ActivityLine({ robot, code }: { robot: Robot & { stale: boolean }; code
   const moving = !robot.stale && robot.state === 'MOVING'
   // Owner 2026-10-21: "by teach pendant" was shown for every movement in Local mode (control_source.py).
   const by = code === 'PENDANT' ? 'by teach pendant (jogging)' : code === 'HAND_GUIDING' ? 'by hand guiding'
-    : code === 'PENDANT_PROGRAM' ? 'program started on the pendant'
+    : code === 'PROGRAM' ? 'by a running program'
     : code === 'EXTERNAL_CONTROL' ? 'by a computer (External Control / ROS)'
-    : code === 'MULTI_JOINT' ? 'several joints at once (pendant Move / Home, or another way)'
+    : code === 'MANUAL_UNCONFIRMED' ? 'manual, source unconfirmed'
     : code?.startsWith('REMOTE') ? 'by network command' : null
   const [text, cls] = moving
     ? [`Moving${by ? ` - ${by}` : ''}${person ? ' - person at the robot' : ''}`, 'text-amber-200 border-amber-400/60 bg-amber-500/10']
@@ -207,6 +212,8 @@ function ActivityLine({ robot, code }: { robot: Robot & { stale: boolean }; code
 
 function SourceLine({ robot }: { robot: Robot & { stale: boolean } }) {
   const code = robot.stale ? null : String(robot.extra?.control_source ?? '') || null
+  // Owner 2026-11-03: "says driven from pendant while it's from someone" - an idle arm in Local mode is driven by
+  // nobody; the pendant only HOLDS control. Said that way until something actually moves it.
   const [label, cls] = code && SOURCE_LABEL[code] ? SOURCE_LABEL[code] : ['Not reported', 'text-slate-500 border-ink-600']
   return <div className="px-4 pt-3 flex flex-wrap items-center gap-2 text-[12px]">
     <ActivityLine robot={robot} code={code} />

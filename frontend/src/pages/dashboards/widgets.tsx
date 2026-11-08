@@ -14,6 +14,7 @@ import { fmtClock, fmtTime, relative } from '../../lib/time'
 import {
   Chip, Dot, EmptyState, IssueStatusChip, SectionTitle, SeverityBadge, Skeleton,
 } from '../../components/ui'
+import { visibleInterval } from '../../lib/visibleInterval'
 
 // ---------------------------------------------------------------------------
 export function LiveActivity({ limit = 40, securityOnly = false, title = 'Live access activity',
@@ -92,7 +93,7 @@ export function DeviceHealth() {
   const load = useCallback(() => api.devices().then(setDevices).catch(() => setDevices([])), [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 20000)
+    const t = visibleInterval(load, 20000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {

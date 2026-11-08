@@ -29,6 +29,7 @@ import { fmtTime, relative } from '../lib/time'
 import BackToPortal from '../components/BackToPortal'
 import { InstitutionLogo } from '../components/Brand'
 import { Spinner } from '../components/ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const POLL_MS = 10_000
 
@@ -71,7 +72,7 @@ export default function Monitor() {
 
   useEffect(() => {
     load()
-    const t = window.setInterval(load, POLL_MS)
+    const t = visibleInterval(load, POLL_MS)
     return () => window.clearInterval(t)
   }, [load])
 

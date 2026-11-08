@@ -1,6 +1,45 @@
-# Smart Laboratory Management Portal
+# Design and Development of a Lightweight, Locally Operated AIoT Platform for Integrated Smart Facility Management and Vision-Based Presence Verification
 
 [![CI](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/aliloay/smart-lab-portal/actions/workflows/ci.yml)
+
+## Executive overview
+
+Facilities run access control, cameras, environmental sensors, stock, shared equipment and computers as separate systems. A door log says who badged in, but not who is actually inside an hour later; a camera sees people, but does not know who was allowed in.
+
+This project is a modular AIoT platform that runs on a local network and links those systems through one backend:
+
+- **Four ESP32 nodes:** Master (door access: NFC, fingerprint, lock), Environment (temperature, humidity, gas, motion), Consumables (load-cell stock) and Reusables (NFC check-out, automatic lid). They report to the API over HTTP on local Wi-Fi.
+- **Vision-based presence:** a YOLO26s camera service detects and tracks people, and the backend cross-checks them against door entries ("person with no door entry", desk and PC occupancy). Detection is not identification; a person is named only by a clear face match or their own access event.
+- **One portal** for operations, security, resources, equipment, lab PCs, read-only robot monitoring (UR5e, FANUC), reports and phone-based "Scan the lab" views.
+- **Knowledge and automation:** an Obsidian vault is the project knowledge base; a local LLM agent answers questions from it with sources; 23 n8n workflows schedule checks and notifications while the backend makes every decision.
+- **Local first:** core operations need no internet or cloud service.
+
+The **Smart Research Laboratory at GIU** is the development and demonstration environment. Hospitals, universities, banks and industrial sites are potential applications, not validated deployments.
+
+## Run it (one command)
+
+```powershell
+git clone https://github.com/aliloay/smart-lab-portal.git
+cd smart-lab-portal
+copy .env.example .env        # then set POSTGRES_PASSWORD, SECRET_KEY (32+ chars), DEVICE_API_KEY
+powershell -ExecutionPolicy Bypass -File .\launch.ps1 -Build
+```
+
+The launcher checks Docker and `.env`, starts the stack, waits for the health checks and prints the URLs (portal `https://localhost/`, API `http://127.0.0.1:8000/api/health`). `stop.ps1` stops the containers and keeps all data. Hardware (ESP32 nodes, cameras, face server, robots) is optional: without it the portal runs and shows those devices as offline. The full lab start, including camera services and the local AI, is `launch.bat` (see [docs/How_To_Run_System.md](docs/How_To_Run_System.md)).
+
+## Release documentation (9 Nov 2026)
+
+| Document | Contents |
+|---|---|
+| [docs/release/PROJECT_COMPONENT_INVENTORY.md](docs/release/PROJECT_COMPONENT_INVENTORY.md) | Every subsystem, its location and verified status (including what was proposed but not built: PLC, MQTT, Raspberry Pi) |
+| [docs/automation/N8N_WORKFLOWS.md](docs/automation/N8N_WORKFLOWS.md) | All 23 workflows: trigger, steps, backend endpoints |
+| [docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md](docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md) | Repository state, exclusions and secret audit before this release |
+| [docs/release/CODE_OPTIMIZATION_REPORT.md](docs/release/CODE_OPTIMIZATION_REPORT.md) | Maintenance changes and their tests |
+| [docs/release/GITHUB_RELEASE_REPORT.md](docs/release/GITHUB_RELEASE_REPORT.md) | Tests run, push result, remaining issues |
+
+Not in the repository (kept on the development PC): YOLO training datasets and results, CAD build outputs, generated status PDFs, unblurred camera images, and the PC install kit (it contains an enrolment key; rebuild it with `tools/pc_agent/make_kit.py`).
+
+## Portal and lab details
 
 Booking, time-bound QR credentials, and the audit trail for the physical
 two-factor access-control system - plus analytics dashboards, n8n automation

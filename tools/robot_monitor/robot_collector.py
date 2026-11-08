@@ -256,7 +256,7 @@ class Collector:
     def flush(self):
         while self.outbox:
             batch = [self.outbox[i] for i in range(min(50, len(self.outbox)))]
-            if not self.post("/robots/events", {"device_uid": self.args.device, "events": batch}):
+            if not self.post("/robots/events", {"device_uid": self.args.device, "events": batch}, timeout=8.0):
                 return
             for _ in batch:
                 self.outbox.popleft()

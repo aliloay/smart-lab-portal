@@ -231,11 +231,17 @@ def test_new_instant_categories_2026_10_27():
 
 
 def test_new_instant_answers_come_from_the_records(client, db, staff, alice, lab):
+    from zoneinfo import ZoneInfo
+    from app.core.config import settings
     from app.models import InventoryBin
     now = datetime.now(timezone.utc)
-    db.add(AccessSession(user_id=alice.id, lab_id=lab.id, started_at=now - timedelta(minutes=20),
-                         entry_method=AuthMethod.RFID))
-    db.add(AccessEvent(event_type=EventType.ACCESS_GRANTED, lab_id=lab.id, user_id=alice.id, created_at=now - timedelta(minutes=20)))
+    # 2026-11-09: the entry must fall on the lab's local "today" (and this week). "now - 20 min" failed when the suite
+    # reached this test in the first 20 minutes after local midnight; halfway between local midnight and now never does.
+    local_now = datetime.now(ZoneInfo(settings.LOCAL_TIMEZONE))
+    midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    recent = (midnight + (local_now - midnight) / 2).astimezone(timezone.utc)
+    db.add(AccessSession(user_id=alice.id, lab_id=lab.id, started_at=recent, entry_method=AuthMethod.RFID))
+    db.add(AccessEvent(event_type=EventType.ACCESS_GRANTED, lab_id=lab.id, user_id=alice.id, created_at=recent))
     db.add(InventoryBin(code="BIN-LOW", lab_id=lab.id, item_name="LEDs", tare_g=100.0, unit_mass_g=1.0,
                         last_mass_g=103.0, last_measured_at=now, reorder_qty=10))
     db.commit()

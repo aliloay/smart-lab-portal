@@ -18,6 +18,7 @@ import { DemoBadge, FUSION, FusionChip, HomeChip, RobotStateChip, effective, use
 import Replay, { ReplayFrame } from '../components/robot/Replay'
 import { MonitoringOnly } from '../components/robot/MonitoringOnly'
 import { tipPosition, urdfFor } from '../components/robot/robotModels'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const RobotTwin = lazy(() => import('../components/robot/RobotTwin'))
 const SEV: Record<string, Tone> = { INFO: 'idle', NOTICE: 'info', WARNING: 'warn', CRITICAL: 'bad' }
@@ -82,7 +83,7 @@ export default function RobotDetail() {
   const load = useCallback(() => {
     api.robot(rid).then(setR).catch(e => setError(e instanceof Error ? e.message : 'Could not load the robot'))
   }, [rid])
-  useEffect(() => { load(); const t = window.setInterval(load, 10000); return () => window.clearInterval(t) }, [load])
+  useEffect(() => { load(); const t = visibleInterval(load, 10000); return () => window.clearInterval(t) }, [load])
   useEffect(() => {
     if (!r) return
     api.securityCameras().then(cs => setCam(cs.find(c => c.lab_id === r.lab_id) ?? null)).catch(() => {})

@@ -12,6 +12,7 @@ import { BinItem, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
 import { Chip, ErrorBanner, SectionTitle } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const TONE: Record<BinItem['status'], 'ok' | 'warn' | 'idle' | 'bad'> = {
   AVAILABLE: 'ok', CHECKED_OUT: 'warn', MAINTENANCE: 'bad', RETIRED: 'idle',
@@ -26,7 +27,7 @@ export default function SmartBin({ labId }: { labId: number }) {
   const load = useCallback(() => { api.binItems(labId).then(setData).catch(() => setData(null)) }, [labId])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 15000)
+    const t = visibleInterval(load, 15000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {

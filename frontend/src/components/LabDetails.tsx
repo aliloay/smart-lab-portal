@@ -26,6 +26,7 @@ import { BoxesToggle } from '../lib/cameraView'
 import LiveCameraFeed, { LIVE_MS } from './LiveCameraFeed'
 import CameraFullScreen from './CameraFullScreen'
 import SafetyStates from './SafetyStates'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const ROLE: Record<Role, string> = { STUDENT: 'Student', LAB_STAFF: 'Staff', ADMIN: 'Admin' }
 const DEVICE: Record<string, string> = {
@@ -59,7 +60,7 @@ export default function LabDetails({ t, pill, badges, onClose }: {
   }, [t.lab_id])
   useEffect(() => {
     load()
-    const i = window.setInterval(load, 10_000)
+    const i = visibleInterval(load, 10_000)
     return () => { window.clearInterval(i); window.clearTimeout(timer.current) }
   }, [load])
   useLiveMessages(m => {

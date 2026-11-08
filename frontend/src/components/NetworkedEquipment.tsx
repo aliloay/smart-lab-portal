@@ -15,7 +15,7 @@
  * staff see it, but not its controls, and "Lock all" leaves it alone.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, Crown, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, ShieldAlert, Unlock } from 'lucide-react'
+import { Bot, Crown, GraduationCap, LayoutGrid, Lock, MessageSquare, Monitor, MonitorPlay, Power, RotateCw, ShieldAlert, Unlock, Wrench } from 'lucide-react'
 import { api, type PcMode } from '../lib/api'
 import { isAdmin, isStaff, useAuth } from '../lib/auth'
 import { useLiveMessages } from '../lib/live'
@@ -25,6 +25,7 @@ import { PcMessageModal, PcScreenViewer } from './PcControls'
 import PcActions from './PcActions'
 import { ScreenWall, SharePanel } from './ScreenShare'
 import { Chip, SectionTitle } from './ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type Equip = Awaited<ReturnType<typeof api.equipment>>[number]
 type Violation = Awaited<ReturnType<typeof api.equipmentViolations>>[number]
@@ -56,7 +57,7 @@ export default function NetworkedEquipment() {
   }, [])
   useEffect(() => {
     load()
-    const t = window.setInterval(load, 10000)
+    const t = visibleInterval(load, 10000)
     return () => window.clearInterval(t)
   }, [load])
   const soon = useRef(0)
@@ -93,14 +94,63 @@ export default function NetworkedEquipment() {
     load()
   }
   // Bulk actions never touch the master PC.
-  const pcs = items.filter(e => e.kind === 'PC' && !e.is_master_pc && !adminPc(e))
-  async function setAll(mode: 'LOCKED' | 'NORMAL') {
-    const what = mode === 'LOCKED' ? 'Remove access on ALL lab PCs? They lock now and stay locked.'
-      : 'Give access back on all locked PCs?'
+  // Bulk actions also skip the old test cards (renamed "TEST - ..." on 2026-11-04).
+  const pcs = items.filter(e => e.kind === 'PC' && !e.is_master_pc && !adminPc(e) && !/^TEST\b/i.test(e.name))
+  async function setAll(mode: PcMode) {
+    let url: string | undefined
+    if (mode === 'EXAM') {
+      let last = ''
+      try { last = localStorage.getItem('smartlab.examUrl') ?? '' } catch { /* ignore */ }
+      const answer = window.prompt(`Exam mode on ALL ${pcs.length} lab PCs. Exam page (every PC closes other programs `
+        + 'and opens only this page). Leave empty for the portal page.', last)
+      if (answer === null) return
+      url = answer.trim() || undefined
+      if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url
+      try { if (url) localStorage.setItem('smartlab.examUrl', url) } catch { /* ignore */ }
+    } else {
+      const what = mode === 'LOCKED' ? `Remove access on ALL ${pcs.length} lab PCs? Each signs out after a short countdown.`
+        : mode === 'MAINTENANCE' ? `Maintenance (OUT OF ORDER) on ALL ${pcs.length} lab PCs? Mouse and keyboard stop working.`
+        : 'Set every lab PC back to Normal (ends exam, maintenance and removed access)?'
+      if (!window.confirm(what)) return
+    }
+    setBusy(true)
+    await Promise.all(pcs.filter(e => e.mode !== mode)
+      .map(e => api.setEquipmentMode(e.device_id, mode, url).catch(() => {})))
+    setBusy(false)
+    load()
+  }
+  async function unlockAll() {             // only the PCs whose access was removed; exam / maintenance stay
+    const locked = pcs.filter(e => e.mode === 'LOCKED')
+    if (!window.confirm(`Give access back to the ${locked.length} locked lab PC(s)?`)) return
+    setBusy(true)
+    await Promise.all(locked.map(e => api.setEquipmentMode(e.device_id, 'NORMAL').catch(() => {})))
+    setBusy(false)
+    load()
+  }
+  async function clearAllMessages() {
+    if (!window.confirm(`Close the open messages on all ${pcs.length} lab PCs?`)) return
+    setBusy(true)
+    await Promise.all(pcs.map(e => api.pcMessageClear(e.device_id).catch(() => {})))
+    setBusy(false)
+  }
+  async function powerAll(action: 'restart' | 'shutdown') {
+    const what = action === 'restart'
+      ? `RESTART all ${pcs.length} lab PCs? Every user gets a 1-minute warning to save.`
+      : `SHUT DOWN all ${pcs.length} lab PCs? Every user gets a 1-minute warning. Turning them back on needs someone at each PC.`
     if (!window.confirm(what)) return
     setBusy(true)
-    await Promise.all(pcs.filter(e => mode === 'LOCKED' ? e.mode !== 'LOCKED' : e.mode === 'LOCKED')
-      .map(e => api.setEquipmentMode(e.device_id, mode).catch(() => {})))
+    await Promise.all(pcs.map(e => api.pcAction(e.device_id, { action, confirmed: true }).catch(() => {})))
+    setBusy(false)
+    load()
+  }
+  async function messageAll() {
+    const text = window.prompt(`Message to ALL ${pcs.length} lab PCs (shown big on top of every screen):`)
+    if (!text || !text.trim()) return
+    const t = window.prompt('Close by itself after how many minutes? Leave empty: stays until OK.', '')
+    if (t === null) return
+    const minutes = Math.min(240, Math.max(0, Math.round(Number(t) || 0)))
+    setBusy(true)
+    await Promise.all(pcs.map(e => api.pcMessage(e.device_id, text.trim(), minutes).catch(() => {})))
     setBusy(false)
     load()
   }
@@ -110,13 +160,27 @@ export default function NetworkedEquipment() {
       <SectionTitle icon={<Bot size={15} />}
         sub="Robots read-only over the lab LAN; PCs through the lab agent."
         action={(pcs.length > 0 || (admin && items.some(e => e.kind === 'PC'))) ? (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-end">
             <button className="btn-ghost btn-sm" onClick={() => setWall(true)}><LayoutGrid size={13} /> View all screens</button>
             {pcs.length > 0 && <>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={messageAll}>
+              <MessageSquare size={13} /> Message all</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={clearAllMessages}>
+              <MessageSquare size={13} /> Clear messages</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => setAll('EXAM')}>
+              <GraduationCap size={13} /> Exam all</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => setAll('MAINTENANCE')}>
+              <Wrench size={13} /> Maintenance all</button>
             <button className="btn-ghost btn-sm" disabled={busy} onClick={() => setAll('LOCKED')}>
               <Lock size={13} /> Lock all PCs</button>
-            <button className="btn-ghost btn-sm" disabled={busy || !pcs.some(e => e.mode === 'LOCKED')}
-                    onClick={() => setAll('NORMAL')}><Unlock size={13} /> Unlock all</button></>}
+            <button className="btn-ghost btn-sm" disabled={busy || !pcs.some(e => e.mode === 'LOCKED')} onClick={unlockAll}>
+              <Unlock size={13} /> Unlock all</button>
+            <button className="btn-ghost btn-sm" disabled={busy || !pcs.some(e => e.mode !== 'NORMAL')}
+                    onClick={() => setAll('NORMAL')}><Unlock size={13} /> All normal</button>
+            <button className="btn-ghost btn-sm" disabled={busy} onClick={() => powerAll('restart')}>
+              <RotateCw size={13} /> Restart all</button>
+            <button className="btn-ghost btn-sm text-bad-soft" disabled={busy} onClick={() => powerAll('shutdown')}>
+              <Power size={13} /> Power off all</button></>}
           </div>) : undefined}>Networked equipment</SectionTitle>
       {!items.length ? (
         <div className="card p-4 text-[13px] text-slate-400">
@@ -151,11 +215,14 @@ export default function NetworkedEquipment() {
                     <span className="mono">{String(e.detail?.hostname ?? '')}</span>
                     {Array.isArray(e.detail?.ips) && (e.detail.ips as string[]).length > 0 && <span className="mono"> · {(e.detail.ips as string[]).join(', ')}</span>}
                     {e.detail?.agent_version ? <span> · agent {String(e.detail.agent_version)}</span> : null}</div> : null}
-                  {e.kind === 'PC' && typeof e.detail?.clock_offset_s === 'number' && Math.abs(e.detail.clock_offset_s as number) >= 2
+                  {/* A minute or two between the university's clocks and the offline laptop is normal: only a real drift is worth a line, and only from a PC that reports now. */}
+                  {e.kind === 'PC' && e.online !== false && typeof e.detail?.clock_offset_s === 'number' && Math.abs(e.detail.clock_offset_s as number) >= 300
                     ? <div className="text-warn-soft">Clock {(e.detail.clock_offset_s as number) > 0 ? 'behind' : 'ahead of'} the server by {Math.abs(e.detail.clock_offset_s as number).toFixed(0)} s</div> : null}
                   <div>Running today: {hours(e.running_today_s)}</div>
                   {e.since && e.online !== false && <div className="text-slate-500">In this state since {relative(e.since)}</div>}
-                  {e.lan && <div className={e.lan.present ? 'text-slate-400' : 'text-bad-soft'}>
+                  {/* Lab PCs behind the relay are on the university's network: the laptop's LAN scan cannot see them, and a red
+                      "not on the LAN" next to a PC whose agent reports right now was simply wrong (lab, 2026-11-04). */}
+                  {e.lan && (e.lan.present || e.online === false) && <div className={e.lan.present ? 'text-slate-400' : 'text-bad-soft'}>
                     Network: {e.lan.present ? 'connected' : 'not on the LAN'} since {relative(e.lan.since)}
                     {e.lan.ip ? <span className="mono"> · {e.lan.ip}</span> : null} ({e.lan.via === 'ping' ? 'ping' : 'ARP'})</div>}
                   <div className="text-slate-500">Last agent report {e.last_seen_at ? relative(e.last_seen_at) : 'never'}</div>

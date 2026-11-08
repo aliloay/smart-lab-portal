@@ -475,7 +475,7 @@ def ur_checks(q_deg: Optional[list], fresh: bool, extra: dict, latched: bool, si
               "reachable" if local is not None else "not running / not reachable - nothing can be sent"),
             c("program", "Portal program playing on the pendant (External Control)", drv == "PORTAL_PROGRAM",
               {"PORTAL_PROGRAM": "playing, connected", "OTHER_PROGRAM": "another program is playing",
-               "PENDANT_MANUAL": "moved from the pendant (jog / Freedrive)",
+               "PENDANT_MANUAL": "moved manually (source unconfirmed: by hand or from the pendant)",
                "IDLE": f"press Play on {(local or {}).get('program') or 'the portal program'} on the pendant"}.get(
                   drv, "unknown")),
             c("remote", "Control mode read from the controller", ctl.get("control_mode") in ("LOCAL", "REMOTE"),

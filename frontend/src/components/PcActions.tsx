@@ -8,6 +8,7 @@ import { AppWindow, Lock, LogOut, Power, RotateCw, XSquare } from 'lucide-react'
 import { PcAction, api } from '../lib/api'
 import { Chip } from './ui'
 import { relative } from '../lib/time'
+import { visibleInterval } from '../lib/visibleInterval'
 
 const TONE: Record<string, 'ok' | 'warn' | 'bad' | 'idle'> = { COMPLETED: 'ok', EXECUTING: 'warn', QUEUED: 'idle', FAILED: 'bad', EXPIRED: 'bad' }
 const LABEL: Record<string, string> = { open_app: 'Open', close_app: 'Close', lock: 'Lock', logoff: 'Log off', restart: 'Restart', shutdown: 'Shut down' }
@@ -21,7 +22,7 @@ export default function PcActions({ deviceId, name, admin, online }: { deviceId:
   const [pending, setPending] = useState(false)
   const load = useCallback(() => api.pcActions(deviceId).then(r => { setApps(r.apps); setRows(r.actions) }).catch(() => {}), [deviceId])
   const active = rows[0] && ['QUEUED', 'EXECUTING'].includes(rows[0].status)
-  useEffect(() => { load(); const t = window.setInterval(load, active ? 1500 : 10000); return () => window.clearInterval(t) }, [load, active])
+  useEffect(() => { load(); const t = visibleInterval(load, active ? 1500 : 30000); return () => window.clearInterval(t) }, [load, active])
 
   const run = async (action: string, opts: { app?: string; confirm?: string } = {}) => {
     if (busy.current) return                                   // no double submissions

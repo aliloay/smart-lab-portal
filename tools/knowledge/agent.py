@@ -42,7 +42,7 @@ FAST = {  # measured 2026-10-13 (EVALUATION.md): prompt reading dominated latenc
     # 2026-10-17 bench (13 questions, qwen2.5:1.5b on the i7-9750H CPU): k 4 -> 3 cut the prompt ~15 %,
     # median first word 8.5 s -> 4.4 s, median total 12.9 s -> 7.5 s, and facts correct 9/12 -> 10/12
     # (the 4th passage was mostly noise). width 340 was faster but lost a fact - kept 480.
-    "k": 3, "width": 480, "num_ctx": 2048, "num_predict": 180, "keep_alive": "24h",   # on the graphics card since 2026-10-19: a cold load took minutes
+    "k": 3, "width": 480, "num_ctx": 4096, "num_predict": 180, "keep_alive": "30m",   # 2026-11-03: 4096 = kb.py + backend (one loaded copy); 30m frees ~1.2 GB when idle (16 GB laptop)
 }
 
 # Evidence labels shown with every citation (meaning documented in docs/knowledge-platform/AGENT.md).

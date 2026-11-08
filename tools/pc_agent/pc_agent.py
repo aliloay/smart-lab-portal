@@ -39,16 +39,28 @@ import sys
 import threading
 import time
 
+# Hidden start (pythonw.exe from install_autostart.bat, 2026-11-03): no console - the log goes to
+# %TEMP%\smartlab_agent.log so prints and errors never fail and can still be read.
+if sys.stdout is None or sys.stderr is None:
+    sys.stdout = sys.stderr = open(os.path.join(os.environ.get("TEMP", "."), "smartlab_agent.log"), "a",
+                                   encoding="utf-8", buffering=1)
+
+import random
+
 import psutil
 import requests
 
 DEVICE_KEY = os.environ.get("DEVICE_KEY", "dev-device-key-change-me")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import status_tray  # noqa: E402
+
 POLL_S = 1.0            # mode / screen view / messages (1 s: a viewer sees the first frame within ~1-1.5 s)
 FRAME_S = 0.5           # screen view: about two frames a second
 FRAME_WIDTH = 1280      # downscaled: enough to read a screen, small to send
 
 WINDOWS = sys.platform == "win32"
-AGENT_VERSION = "0.9"
+AGENT_VERSION = "1.0"
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_STARTED = round(time.time(), 3)   # this run; a new value without a reboot = the agent was stopped
 
 
@@ -70,7 +82,10 @@ def identity_info() -> dict:
                          if a.family == psutil.AF_LINK and len(a.address) == 17]
     except Exception:
         pass
-    return {"hostname": socket.gethostname(), "ips": sorted(set(ips))[:4], "macs": sorted(set(macs))[:4],
+    # 2026-11-03 (Gemini network audit): a dual-NIC lab PC (GIU 10.40.20.x + Smart Lab 192.168.1.x) listed its GIU
+    # address first ("10..." < "192..." as text), so the portal pinged an address it cannot reach - Smart Lab first
+    lab_first = sorted(set(ips), key=lambda ip: (not ip.startswith("192.168.1."), ip))
+    return {"hostname": socket.gethostname(), "ips": lab_first[:4], "macs": sorted(set(macs))[:4],
             "agent_version": AGENT_VERSION,
             "boot_time": int(psutil.boot_time()), "agent_time": round(time.time(), 3),
             "agent_started": AGENT_STARTED}
@@ -99,12 +114,48 @@ def lock_pc() -> bool:
     return bool(ctypes.windll.user32.LockWorkStation())
 
 
-def popup(title: str, text: str, kind: str = "info", sender: str | None = None, countdown: int = 0) -> None:
+SIGNOUT_GRACE_S = 5.0    # "Remove access": seconds of warning before the session is signed out
+
+
+def sign_out() -> bool:
+    """Sign this Windows session out (2026-11-04: GIU lab PCs block Win+L / LockWorkStation, so a lock
+    alone does nothing there). ExitWindowsEx first, shutdown /l as the fallback."""
+    if not WINDOWS:
+        return False
+    EWX_LOGOFF, EWX_FORCEIFHUNG = 0x0, 0x10
+    if ctypes.windll.user32.ExitWindowsEx(EWX_LOGOFF | EWX_FORCEIFHUNG, 0):
+        return True
+    try:
+        return subprocess.run(["shutdown", "/l"], capture_output=True).returncode == 0
+    except OSError:
+        return False
+
+
+def first_time(message_id, path: str | None = None, keep: int = 300) -> bool:
+    """True once per message id, across agent restarts: a message the user closed never comes back."""
+    path = path or os.path.join(os.environ.get("TEMP", "."), "smartlab_seen_messages.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        seen = []
+    if message_id in seen:
+        return False
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump((seen + [message_id])[-keep:], f)
+    except OSError:
+        pass
+    return True
+
+
+def popup(title: str, text: str, kind: str = "info", sender: str | None = None, countdown: int = 0,
+          expires: int = 0) -> None:
     """A coloured card on this PC (notice.py); a plain message box if the card cannot be drawn."""
     if WINDOWS:
         try:
             from notice import notice
-            notice(kind, text, title=title if title != "Smart Lab" else "", sender=sender, countdown=countdown)
+            notice(kind, text, title=title if title != "Smart Lab" else "", sender=sender, countdown=countdown, expires=expires)
             return
         except Exception:
             pass
@@ -122,6 +173,9 @@ def _plain_popup(title: str, text: str) -> None:
                      ).start()
 
 
+_foreground = {"last": None}
+
+
 def foreground_app() -> str | None:
     """The program in front (e.g. MATLAB.exe) - the program name only, never the window title."""
     if not WINDOWS:
@@ -130,7 +184,12 @@ def foreground_app() -> str | None:
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         pid = ctypes.c_ulong()
         ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        return psutil.Process(pid.value).name() if pid.value else None
+        if not pid.value:
+            return None
+        # 2026-11-04 wall: every PC showed "pythonw" - the agent's own notice was in front. Say what the user was using.
+        if pid.value != os.getpid():
+            _foreground["last"] = psutil.Process(pid.value).name()
+        return _foreground["last"]
     except (psutil.Error, OSError):
         return None
 
@@ -142,6 +201,16 @@ def open_share_page(url: str) -> None:
         webbrowser.open(url, new=1)
     except Exception as e:
         print(f"[share] could not open the browser: {e}")
+
+
+def derive_web(portal: str) -> str:
+    """--portal http://HOST:8000/api -> the web pages. Another machine gets https://HOST: screen sharing
+    (getDisplayMedia) needs HTTPS, and port 80 may be taken on a relay PC (Gemini audit 2026-11-03)."""
+    base = portal.replace(":8000/api", "").replace("/api", "").rstrip("/")
+    host = base.split("://", 1)[-1].split("/")[0].split(":")[0]
+    if host in ("127.0.0.1", "localhost"):
+        return base
+    return "https://" + base.split("://", 1)[-1]
 
 
 def open_portal_once_per_logon(url: str, marker_dir: str | None = None) -> bool:
@@ -434,6 +503,7 @@ class Reporter:
                     self.reported.discard(name)                # try again next round
 
 
+SHARE_OFFLINE_S = 20.0  # portal unreachable this long: the full-screen share closes
 WAIT_S = 20.0           # long-poll window while idle
 _wait_ok = {"until": 0.0}
 
@@ -467,6 +537,140 @@ def whoami_proof(device_key: str, nonce: str) -> str:
     import hmac
     return hmac.new(hashlib.sha256(device_key.encode()).hexdigest().encode(), nonce.encode(),
                     hashlib.sha256).hexdigest()
+
+
+DPAPI_PREFIX = "DPAPI1:"
+
+
+def _dpapi(data: bytes, protect: bool) -> bytes:
+    """Windows DPAPI, current-user scope: only this Windows account on this PC can read the result."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("cbData", w.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+    buf = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
+    src, dst = BLOB(len(data), buf), BLOB()
+    crypt = ctypes.WinDLL("crypt32", use_last_error=True)
+    fn = crypt.CryptProtectData if protect else crypt.CryptUnprotectData
+    ok = fn(ctypes.byref(src), None, None, None, None, 0x1, ctypes.byref(dst))     # CRYPTPROTECT_UI_FORBIDDEN
+    if not ok:
+        raise OSError(f"DPAPI failed ({ctypes.get_last_error()})")
+    try:
+        return ctypes.string_at(dst.pbData, dst.cbData)
+    finally:
+        ctypes.WinDLL("kernel32").LocalFree(dst.pbData)
+
+
+def write_secret(path: str, value: str) -> None:
+    """Protected with DPAPI on Windows. Elsewhere (tests, development) it stays plain text behind file permissions."""
+    import base64
+    text = value
+    if WINDOWS:
+        text = DPAPI_PREFIX + base64.b64encode(_dpapi(value.encode(), True)).decode()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def read_key(path: str) -> str:
+    """A protected file (installer, enrollment) or a plain one from an older kit, which is protected on first read."""
+    import base64
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            text = f.read().strip()
+    except OSError:
+        return ""
+    if text.startswith(DPAPI_PREFIX):
+        try:
+            return _dpapi(base64.b64decode(text[len(DPAPI_PREFIX):]), False).decode()
+        except (OSError, ValueError) as e:
+            print(f"[key] {os.path.basename(path)} cannot be read by this Windows account: {e}")
+            return ""
+    if text and WINDOWS and os.path.basename(path) == "device.key":
+        try:
+            write_secret(path, text)
+        except OSError as e:
+            print(f"[key] could not protect the key file: {e}")
+    return text
+
+
+def account_id() -> str:
+    """Identifies this Windows account to the portal without naming it: one PC key per account."""
+    import hashlib
+    who = (os.environ.get("USERDOMAIN", "") + "\\" + os.environ.get("USERNAME", "")).lower()
+    return hashlib.sha256(who.encode()).hexdigest()[:32]
+
+
+def protect_key(path: str) -> None:
+    """Only the Windows user this agent runs as (plus SYSTEM and administrators) may read this PC's key.
+    icacls.exe is a plain Windows program, no cmd involved. Best effort: the key still only speaks for this PC."""
+    if not WINDOWS:
+        return
+    user = (os.environ.get("USERDOMAIN", "") + "\\" + os.environ.get("USERNAME", "")).lstrip("\\")
+    try:
+        subprocess.run(["icacls", path, "/inheritance:r", "/grant:r", f"{user}:(R,W,D)", "*S-1-5-18:(F)", "*S-1-5-32-544:(F)"],
+                       capture_output=True, timeout=20, creationflags=0x08000000)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[enroll] could not restrict the key file: {e}")
+
+
+def enroll(portal: str, device: str, lab: str, enroll_file: str, key_file: str,
+           post=None, sleep=time.sleep, protect: bool = True) -> str:
+    """First start on this PC: swap the kit's one-purpose enrollment code for this PC's OWN key, keep trying until
+    the portal answers (the relay may not be up yet), then remove the code from this PC. The shared key of the door
+    boards never reaches a PC (Gemini + Claude audit, 2026-11-04)."""
+    post = post or requests.post
+    code, said = read_key(enroll_file), 0.0
+    while True:
+        why = ""
+        try:
+            r = post(portal + "/equipment/pc/enroll", headers={"X-Enroll-Key": code},
+                     json={"device_uid": device, "lab_id": lab, "account": account_id()}, timeout=10)
+            if r.status_code == 200:
+                key = r.json()["device_key"]
+                write_secret(key_file, key)
+                if protect:
+                    protect_key(key_file)
+                try:
+                    os.remove(enroll_file)
+                except OSError:
+                    pass
+                print(f"[enroll] {device} has its own key now")
+                return key
+            why = f"HTTP {r.status_code}"
+        except (requests.RequestException, ValueError, KeyError, OSError) as e:
+            why = e.__class__.__name__
+        if time.monotonic() - said > 60:
+            said = time.monotonic()
+            print(f"[enroll] waiting for the portal ({why})")
+        sleep(10)
+
+
+def share_fetcher(device_key: str, portal: str):
+    """Returns fetch() -> a NEW JPEG of the share, or None when there is nothing new. ETag: an unchanged picture costs
+    a few bytes, not ~100 KB per PC several times a second through the relay. Renews the watch token when it expires."""
+    s = requests.Session()
+    s.headers["X-Device-Key"] = device_key
+    state = {"token": None, "etag": None}
+
+    def fetch():
+        if state["token"] is None:
+            r = s.get(portal + "/equipment/pc/watch-token", timeout=5)
+            state["token"] = r.json().get("token") if r.status_code == 200 else None
+            if state["token"] is None:
+                return None
+        r = s.get(portal + "/equipment/broadcast/watch/frame.jpg", params={"t": state["token"]}, timeout=5,
+                  headers={"If-None-Match": state["etag"]} if state["etag"] else None)
+        if r.status_code == 401:
+            state["token"] = None
+            return None
+        if r.status_code == 200 and r.content[:2] == b"\xff\xd8":
+            state["etag"] = r.headers.get("ETag")
+            return r.content
+        return None
+    return fetch
 
 
 def serve_whoami(device_uid: str, device_key: str, port: int = WHOAMI_PORT):
@@ -529,7 +733,21 @@ def main():
     ap.add_argument("--period", type=float, default=30.0, help="usage report period (s)")
     ap.add_argument("--web", default=None, help="portal web address for the share page (default: from --portal)")
     ap.add_argument("--open-portal", action="store_true", help="lab PCs: open the portal sign-in page once per Windows sign-in")
+    ap.add_argument("--no-lockdown", action="store_true", help="control PC (portal laptop / lab engineer): never close programs in exam mode")
+    ap.add_argument("--key-file", default=None, help="read the device key from this file (start-up shortcut, no cmd needed)")
+    ap.add_argument("--enroll-file", default=None, help="no key yet: the kit's enrollment code, swapped once for this PC's own key")
+    ap.add_argument("--key-for-all-users", action="store_true", help="installed by an administrator for every Windows account: all may read the key")
+    ap.add_argument("--supervised", action="store_true", help="started by agent_boot.py: may update itself from the portal")
     args = ap.parse_args()
+    global DEVICE_KEY
+    if args.key_file:
+        DEVICE_KEY = read_key(args.key_file)
+        if not DEVICE_KEY and args.enroll_file and os.path.isfile(args.enroll_file):
+            DEVICE_KEY = enroll(args.portal, args.device, args.lab, args.enroll_file, args.key_file,
+                                protect=not args.key_for_all_users)
+        if not DEVICE_KEY:
+            print(f"[key] no device key in {args.key_file} and no enrollment code - run INSTALL_SMARTLAB.ps1 again")
+            sys.exit(3)
     http = requests.Session()
     http.headers["X-Device-Key"] = DEVICE_KEY
     rep = Reporter(args, http)
@@ -541,13 +759,23 @@ def main():
     print(f"Smart Lab PC agent for {args.device}. Reports usage; follows the portal's "
           f"lock / screen view / messages; in exam mode reports prohibited programs. Ctrl+C stops.")
 
-    web = (args.web or args.portal.replace(":8000/api", "").replace("/api", "")).rstrip("/")
+    web = (args.web or derive_web(args.portal)).rstrip("/")
     if args.open_portal and open_portal_once_per_logon(web + "/login"):
         print("[portal] sign-in page opened for this Windows sign-in")
     mode, mirroring, last_report, last_lock = "NORMAL", False, 0.0, 0.0
     watching_share = False
     presenting = False
     maintenance_on = False
+    cover_mode = None           # which full-screen cover is shown: None / "MAINTENANCE" / "LOCKED"
+    share_viewer, down_since = False, 0.0
+    signout_at, signed_out = None, False     # "Remove access": when this session is signed out
+    started = time.monotonic()
+    said_down = 0.0
+    updater, update_state, healthy = None, {}, False
+    update_due, update_after = None, 0.0
+    if args.supervised:
+        import agent_update as updater
+        update_state = updater.read_state(AGENT_DIR)
 
     def report_violation(kind: str, detail: str) -> None:
         print(f"[exam] {kind}: {detail}")
@@ -557,7 +785,14 @@ def main():
         except requests.RequestException:
             pass
     lockdown = None
-    if WINDOWS:
+    # 2026-11-03 lab: ADMIN-LAPTOP was left in Exam mode and its own agent closed VS Code, Docker and every
+    # service window on each launch. The control PCs (the portal laptop, the lab engineer's PC) never lock
+    # down, whatever the portal says: --no-lockdown, SMARTLAB_NO_LOCKDOWN=1, or a device id ADMIN / ENG.
+    no_lockdown = (args.no_lockdown or os.environ.get("SMARTLAB_NO_LOCKDOWN") == "1"
+                   or any(k in args.device.upper() for k in ("ADMIN", "_ENG")))
+    if no_lockdown:
+        print("Control PC: exam lockdown is OFF on this PC (programs are never closed here).")
+    if WINDOWS and not no_lockdown:
         from exam_lockdown import Lockdown
         lockdown = Lockdown(report_violation)
     while True:
@@ -566,32 +801,80 @@ def main():
             if now - last_report >= args.period:
                 last_report = now
                 mode = rep.report(mode == "LOCKED").get("mode", mode)
-            p = http.get(args.portal + "/equipment/pc/poll", params={"device_uid": args.device},
-                         timeout=5).json()
+            r = http.get(args.portal + "/equipment/pc/poll", params={"device_uid": args.device}, timeout=5)
+            if r.status_code in (401, 403):
+                raise ValueError(f"the portal refused this PC's key (HTTP {r.status_code})")
+            p = r.json()
         except (requests.RequestException, ValueError) as e:
-            print(f"[portal] unreachable: {e}")
+            status_tray.write_state("offline")
+            if now - said_down > 60:              # a PC off the network for a weekend must not fill its log
+                said_down = now
+                print(f"[portal] unreachable: {e}")
+            # Portal gone while a share fills the screen: free the PC; it re-opens when the portal is back.
+            down_since = down_since or now
+            if share_viewer and now - down_since > SHARE_OFFLINE_S:
+                from notice import share_off
+                share_off()
+                share_viewer, watching_share = False, False
             time.sleep(POLL_S)
             continue
+        down_since = 0.0
+        if updater and not healthy:
+            updater.mark_healthy(AGENT_DIR)       # this version reached the portal: agent_boot.py keeps it
+            healthy = True
+        # A newer signed agent on the portal: taken only while nothing on this PC depends on the agent,
+        # at a random moment so that the whole lab does not download in the same second.
+        if updater and updater.wanted(update_state, (p.get("agent_bundle") or {}).get("seq")) and now >= update_after \
+                and p.get("mode", "NORMAL") == "NORMAL" and not (mirroring or presenting or watching_share or share_viewer):
+            if update_due is None:
+                update_due = now + random.uniform(1, 45)
+            elif now >= update_due:
+                update_due = None
+                try:
+                    b = http.get(args.portal + "/equipment/pc/agent-bundle", timeout=30).json()
+                    seq = updater.apply_bundle(AGENT_DIR, b)
+                except (requests.RequestException, ValueError, KeyError, OSError, updater.BundleRefused) as e:
+                    print(f"[update] not installed: {e}")
+                    update_after = now + 600
+                else:
+                    # The new files are in place: nothing may stop this restart, not even a failing log.
+                    try:
+                        print(f"[update] bundle {seq} installed, restarting", flush=True)
+                    except OSError:
+                        pass
+                    os._exit(updater.EXIT_UPDATED)
 
         exam = p.get("exam") or {}
         if lockdown is not None:
-            if exam.get("lockdown") and exam.get("url"):
+            if exam.get("lockdown"):
                 if not lockdown.active:
                     popup("Exam mode enabled", "All programs are being closed. Only the exam page opens now - "
                           "other programs, windows and tabs are closed and reported to lab staff.", kind="exam")
-                lockdown.enter(exam["url"])
+                lockdown.enter(exam.get("url") or web + "/")          # no exam page given: the portal
                 lockdown.check()
             elif lockdown.active:
                 lockdown.leave()
                 popup("Exam mode ended", "You can use this PC normally again.", kind="ok")
-        maint = p.get("mode") == "MAINTENANCE"
-        if WINDOWS and maint != maintenance_on:
-            maintenance_on = maint
+        # Full-screen cover: MAINTENANCE, and LOCKED too (2026-11-04: Windows lock (Win+L) can be turned
+        # off by the university's policy, so "Remove access" also covers the screen until access is given).
+        want = "MAINTENANCE" if p.get("mode") == "MAINTENANCE" else None    # LOCKED: countdown + sign-out instead
+        maint = want is not None
+        if no_lockdown:              # control PCs (portal laptop, lab engineer) are never covered
+            want = None
+        if WINDOWS and want != cover_mode:
             try:
                 from notice import cover
-                cover(maint)
+                if cover_mode is not None:
+                    cover(False)
+                if want == "MAINTENANCE":
+                    cover(True)
+                elif want == "LOCKED":
+                    cover(True, title="Access removed",
+                          text="Lab staff removed access to this PC. Please ask the lab engineer.")
             except Exception as e:
-                print(f"[maintenance] cover failed: {e}")
+                print(f"[cover] failed: {e}")
+            cover_mode = want
+        maintenance_on = maint
         if WINDOWS and maint:
             for proc in psutil.process_iter(["name"]):           # no Task Manager behind the cover
                 if (proc.info.get("name") or "").lower() == "taskmgr.exe":
@@ -603,13 +886,33 @@ def main():
         if new_mode != mode:
             print(f"[mode] {mode} -> {new_mode}")
             if mode == "LOCKED":
+                if WINDOWS:
+                    from notice import clear as clear_cards
+                    clear_cards("warn")      # the sign-out countdown, if it is still on the screen
                 popup("Access given", "Lab staff gave this PC access again. Welcome back!", kind="ok")
             mode = new_mode
-        if mode == "LOCKED" and now - last_lock >= POLL_S:
-            last_lock = now
-            lock_pc()                    # access removed by staff: locked again if unlocked
-        if p.get("message"):
-            popup("Message from lab staff", p["message"]["text"], kind="message", sender=p["message"].get("from"))
+        if mode == "LOCKED" and not no_lockdown:
+            if signout_at is None:       # access removed (or the PC signed in again while still removed)
+                grace = 2.0 if now - started < 60 else SIGNOUT_GRACE_S      # signed in again while removed: 2 s
+                signout_at = now + grace
+                print(f"[access] removed - signing out in {grace:.0f} s")
+                popup("Access removed", f"Lab staff removed access to this PC. This session signs out in "
+                      f"{grace:.0f} seconds - save your work now.", kind="warn", countdown=int(grace))
+            if now - last_lock >= POLL_S:
+                last_lock = now
+                lock_pc()                # where Win+L is allowed it locks at once
+            if now >= signout_at and not signed_out:
+                signed_out = sign_out()
+                print(f"[access] sign-out {'started' if signed_out else 'FAILED'}")
+        else:
+            signout_at, signed_out = None, False
+        if p.get("clear_messages") and WINDOWS:
+            from notice import clear as clear_cards
+            clear_cards("message")
+        m = p.get("message")
+        if m and first_time(m.get("id")):
+            popup("Message from lab staff", m["text"], kind="message", sender=m.get("from"),
+                  expires=int(m.get("expires_s") or 0))
         if p.get("action"):
             a = p["action"]
             print(f"[action] {a}")
@@ -625,12 +928,35 @@ def main():
 
         b = p.get("broadcast") or {}
         if b.get("active") and not watching_share:
-            popup(f"{b.get('by') or 'Lab staff'} is sharing their screen",
-                  (f"\u201c{b['title']}\u201d - " if b.get("title") else "") + "it opens in your browser now.",
-                  kind="share", sender=b.get("by"))
-            open_share_page(web + "/share")
+            native = WINDOWS and not no_lockdown and not p.get("broadcast_capture") and not (lockdown and lockdown.active)
+            if native:
+                from notice import can_show_share
+                native = can_show_share()
+            if not native:
+                popup(f"{b.get('by') or 'Lab staff'} is sharing their screen",
+                      (f"\u201c{b['title']}\u201d - " if b.get("title") else "") + "it opens in your browser now.",
+                      kind="share", sender=b.get("by"))
+            # 2026-11-03: a watch-only link (this PC's device key), so the PC does not ask for a portal
+            # sign-in again; an older portal without it: the plain page as before.
+            share = web + "/share"
+            try:
+                r = http.get(args.portal + "/equipment/pc/watch-token", timeout=5)
+                if r.status_code == 200 and r.json().get("token"):
+                    share += "?t=" + r.json()["token"]
+            except (requests.RequestException, ValueError):
+                pass
+            if native:                   # 2026-11-04: full screen above everything, no browser needed
+                from notice import share_on
+                share_on(share_fetcher(DEVICE_KEY, args.portal), f"{b.get('by') or 'Lab staff'} is sharing their screen")
+                share_viewer = True
+            else:
+                open_share_page(share)
         elif watching_share and not b.get("active"):
             print("[share] presentation ended")
+            if share_viewer:
+                from notice import share_off
+                share_off()
+                share_viewer = False
         watching_share = bool(b.get("active"))
         if bool(p.get("broadcast_capture")) != presenting:
             presenting = bool(p.get("broadcast_capture"))
@@ -653,6 +979,7 @@ def main():
             continue
 
         watched = bool(p.get("mirror"))
+        status_tray.write_state("viewed" if watched else "connected")
         if watched and not mirroring:
             popup("Your screen is being viewed", "Lab staff are viewing this screen from the Smart Lab portal.", kind="view")
         elif mirroring and not watched:

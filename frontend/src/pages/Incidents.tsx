@@ -9,6 +9,7 @@ import { Repeat, Search, Siren, X } from 'lucide-react'
 import { Investigation, api } from '../lib/api'
 import { relative } from '../lib/time'
 import { Chip, PageHeader } from '../components/ui'
+import { visibleInterval } from '../lib/visibleInterval'
 
 type List = Awaited<ReturnType<typeof api.incidents>>
 type Detail = Awaited<ReturnType<typeof api.incident>>
@@ -35,7 +36,7 @@ export default function Incidents() {
     api.incidents({ state, severity, q }).then(setList).catch(e => setError(e.message))
   }, [state, severity, q])
   useEffect(() => { const t = window.setTimeout(load, q ? 300 : 0); return () => window.clearTimeout(t) }, [load, q])
-  useEffect(() => { const t = window.setInterval(load, 20000); return () => window.clearInterval(t) }, [load])
+  useEffect(() => { const t = visibleInterval(load, 20000); return () => window.clearInterval(t) }, [load])
   const groups = useMemo(() => {
     const m = new Map<string, NonNullable<typeof list>['incidents']>()
     for (const i of list?.incidents ?? []) { const k = groupKey(i); m.set(k, [...(m.get(k) ?? []), i]) }

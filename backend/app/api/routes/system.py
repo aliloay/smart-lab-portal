@@ -75,7 +75,8 @@ def system_status(db: Session = Depends(get_db),
     seen = [d.last_seen_at for d in devices if d.last_seen_at is not None]
     offline = [d.name or d.device_uid for d in devices
                if d.last_seen_at is not None and not is_fresh(d, now)
-               and not d.device_uid.upper().endswith("_SIM")]
+               and not d.device_uid.upper().endswith("_SIM")
+               and not (d.name or "").startswith("TEST -")]    # retired duplicates (kept for their history)
 
     return SystemStatus(
         status="HEALTHY" if db_ok else "DEGRADED",
