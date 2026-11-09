@@ -1,0 +1,12 @@
+%% Data flow: devices write through the API, the database is the single record, consumers read through the API
+flowchart LR
+  subgraph IN["Writers"]
+    D1["ESP32 nodes"] ; D2["Security vision"] ; D3["Robot collector"] ; D4["PC agents"] ; D5["Portal users"]
+  end
+  API["FastAPI<br/>validation · rules · sessions · alerts"]
+  DB[("PostgreSQL<br/>events · sessions · readings · inventory · alerts · reports")]
+  subgraph OUT["Readers"]
+    R1["Portal pages"] ; R2["Phone Scan view"] ; R3["n8n workflows"] ; R4["AI assistant"] ; R5["Reports / exports"]
+  end
+  D1 & D2 & D3 & D4 & D5 --> API --> DB
+  DB --> API --> R1 & R2 & R3 & R4 & R5

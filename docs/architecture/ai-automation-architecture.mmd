@@ -1,0 +1,13 @@
+%% AI and automation (verified 9 Nov 2026)
+flowchart LR
+  USER["Portal user"] -- "Ask the lab" --> API["FastAPI /api/ai/*"]
+  API -- "instant answers from records (no LLM)" --> DB[("PostgreSQL")]
+  API -- "tool-calling chat" --> LLM{"AI_LOCAL_ONLY=true (default)"}
+  LLM -- "always, by default" --> OLL["Ollama qwen2.5:3b (staff) / 1.5b (students)"]
+  LLM -. "explicit opt-in only: AI_LOCAL_ONLY=false + key (internet)" .-> CLAUDE["Claude API"]
+  STAFF["Staff project question"] --> API2["/api/knowledge (staff)"] --> KB["Knowledge agent :5199"]
+  KB -- "search index + wikilink graph" --> VAULT[("Obsidian vault (generated from the repo)")]
+  KB -- "answer with numbered sources" --> OLL
+  N8N["n8n (23 workflows)"] -- "schedule / webhook trigger" --> AUTO["/api/automation/* (backend decides)"]
+  AUTO --> DB
+  N8N -- "notify / record run" --> API

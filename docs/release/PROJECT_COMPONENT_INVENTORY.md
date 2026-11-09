@@ -19,7 +19,7 @@ Status words: **verified** (tested in this release or recorded live evidence), *
 | Robot monitoring | `tools/robot_monitor`, `tools/ur5e_collector` | UR5e (RTDE) and FANUC read-only telemetry | Verified (read-only) | ur_rtde | 43 tests pass. **No motion commands** |
 | Knowledge agent | `tools/knowledge` | Obsidian vault build, search, local LLM answers with sources | Verified | Ollama (qwen2.5), vault at `C:/Users/dell/SmartLabKnowledge/vault` | 49 tests pass; live answer recorded 8 Nov 2026 |
 | Lab AI assistant | `backend/app/services/ai.py`, `agent.py` | "Ask the lab" in the portal | Verified | Ollama | Backend tests |
-| n8n automation | `automation/n8n` | 23 workflow exports; backend decides, n8n schedules and hands off | Verified (exports, endpoints) | n8n (local) | docs/automation/N8N_WORKFLOWS.md |
+| n8n automation | `automation/n8n` | 23 workflow exports; backend decides, n8n schedules and hands off | Verified (exports, endpoints) | n8n (local) | docs/automation/workflow-inventory.md |
 | PC agent and kit | `tools/pc_agent` | PC presence, screen wall, exam mode, PowerShell install kit | Implemented, not fully tested | Python | 40 tests pass; PowerShell kit only syntax-checked (execution policy on the dev PC) |
 | LAN relay | `tools/relay` | Lets GIU lab PCs reach the portal through the engineer PC | Verified | Python | 5 tests pass |
 | Scan the lab (AR) | `frontend/src/pages/Scan.tsx`, `backend/app/api/routes/scan.py` | Phone camera, QR markers, live records pinned to targets | Implemented, not fully tested | Phone browser | Earlier lab runs |
