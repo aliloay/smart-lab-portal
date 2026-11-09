@@ -24,7 +24,7 @@ services:
     # 5432 is usually taken by a locally installed PostgreSQL, and the
     # database has no business being open to the Wi-Fi. The backend reaches
     # it inside the compose network as db:5432.
-    ports: ["127.0.0.1:5433:5432"]
+    ports: ["127.0.0.1:${SMARTLAB_DB_PORT:-5433}:5432"]
 
   # Automatic backups: a full dump at start and every BACKUP_EVERY_HOURS, into
   # ./backups (gitignored; inside OneDrive, so also copied off the laptop), each
@@ -164,7 +164,7 @@ services:
       - ./backups:/backups:ro    # read backup_status.json (backup monitor)
     # Published on every interface: the ESP32 master calls
     # http://<laptop LAN IP>:8000/api directly.
-    ports: ["8000:8000"]
+    ports: ["${SMARTLAB_API_PORT:-8000}:8000"]
 
   frontend:
     # Back by itself after Docker Desktop restarts (update, laptop reboot); stop_all.bat uses
@@ -178,7 +178,7 @@ services:
     #   80    the portal                       8080  the IoT Command Center (opens on /command)
     #   443 / 8443  the same over HTTPS, only once deploy/tls has a certificate
     #               from tools/tls/make_local_ca.py (docs/SECURITY.md)
-    ports: ["80:80", "8080:8080", "443:443", "8443:8443"]
+    ports: ["${SMARTLAB_HTTP_PORT:-80}:80", "${SMARTLAB_HTTP_ALT_PORT:-8080}:8080", "${SMARTLAB_HTTPS_PORT:-443}:443", "${SMARTLAB_HTTPS_ALT_PORT:-8443}:8443"]
     volumes:
       - ./deploy/tls:/etc/nginx/tls:ro
     healthcheck:
@@ -221,7 +221,7 @@ services:
       - n8ndata:/home/node/.n8n
       - ./automation/n8n/json:/workflows:ro
     # Editor on this laptop only.
-    ports: ["127.0.0.1:5678:5678"]
+    ports: ["127.0.0.1:${SMARTLAB_N8N_PORT:-5678}:5678"]
 
 # The data. `docker compose up`, `down`, restarts and rebuilds all keep it;
 # only `docker compose down -v` (or deleting the volume) erases it.
