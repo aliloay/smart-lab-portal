@@ -111,6 +111,11 @@ services:
       # via host.docker.internal. If Ollama is not installed the assistant
       # just says so; nothing else is affected.
       AI_PROVIDER: ${AI_PROVIDER:-auto}
+      # First-run passwords for the seeded accounts (seed.py). Empty = a random password nobody knows;
+      # set one later with: docker compose exec backend python set_password.py <email>
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_STAFF_PASSWORD: ${SEED_STAFF_PASSWORD:-}
+      SEED_STUDENT_PASSWORD: ${SEED_STUDENT_PASSWORD:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       # Face enrollment from the portal: the door camera on the lab Wi-Fi and
       # the face server running on this laptop (outside Docker).
