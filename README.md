@@ -15,9 +15,9 @@ A modular, lightweight, locally operated AIoT platform that integrates access co
 
 The **Smart Research Laboratory at the German International University (GIU), Cairo** is the development and demonstration environment. Universities, hospitals, banks, industrial and corporate facilities are potential application environments, not deployments.
 
-![Smart Lab architecture: four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-architecture.png)
+[![Watch the 47-second overview film. Poster: the Smart Lab architecture, four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-video-poster.png)](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4)
 
-*Built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Sources: [docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md).*
+*Click the image to play the overview film (47 s). The poster is built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Version without the play button: [smart-lab-architecture.png](docs/images/smart-lab-architecture.png); sources: [SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md).*
 
 ---
 
@@ -206,8 +206,6 @@ No secrets, face data, unblurred images or database contents are in the reposito
 Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and two-camera calibration. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 Defense framing and the remaining optimisation work: [docs/defense/DEFENSE_BRIEF.md](docs/defense/DEFENSE_BRIEF.md) · [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md).
-
-**Overview film (47 s):** [FACILITY_INTELLIGENCE_47S.mp4](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4), attached to the `thesis-2026-11-10` release. People in the lab footage are blurred.
 
 ## Project structure
 
