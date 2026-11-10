@@ -1,0 +1,126 @@
+{
+ "_about": "MASTER_LAB01 door controller enclosure - every dimension in mm. Edit, then run build.ps1 to regenerate all parts in SOLIDWORKS. Confidence labels (2026-10-20 research, reports/Door enclosure component dimensions.md): DATASHEET = manufacturer drawing for the exact part; VARIANT = drawing of the matching board variant; REFERENCE = similar part / other seller; CHOSEN = design choice; MEASURE = check with calipers or the fit coupon before the full print. No speaker / PAM8403 (removed by the owner 2026-10-20).",
+
+ "envelope": {
+  "width": 170, "height": 210, "depth": 110,
+  "_status": "CHOSEN: fits a 220 x 220 bed printed back-down; interference check in out/interference.txt; 45 mm wire space between the plate modules (top z 40) and the front modules (bottom z 85); depth 90 -> 110 on 2026-10-20 (owner: more room for wires).",
+  "wall": 3.0, "corner_radius": 8.0
+ },
+ "print": { "clearance": 0.3, "_status": "CHOSEN: FDM sliding fit 0.2-0.3 (Xometry); general tolerance +-0.3" },
+
+ "fasteners": {
+  "insert_hole_d": 4.0, "insert_hole_depth": 7.0,
+  "_insert_status": "DATASHEET (CNC Kitchen M3 x 5.7 x 4.6: hole 4.0, min wall 1.6, blind hole +1 mm). Most Electronics' M3 insert has no published size: MEASURE it; the coupon has 3.9 / 4.0 / 4.2 test holes.",
+  "screw_clear_d": 3.4, "_screw_status": "REFERENCE ISO 273 medium for M3",
+  "corner_boss_d": 10.0, "corner_boss_inset": 7.0,
+  "pilot_m25_d": 2.2, "_pilot_status": "CHOSEN pilot for M2.5 self-tapping (PT/KA) screws into PLA/PETG; coupon has 2.0 / 2.2 / 2.4"
+ },
+
+ "front_panel": {
+  "thickness": 4.0,
+  "locating_tab_len": 30.0, "locating_tab_t": 2.0, "locating_tab_h": 3.0,
+  "engrave_depth": 0.6, "text_height": 5.0,
+  "title": "DOOR NODE  (MASTER ESP)", "title_y": 196, "title_height": 7.0,
+  "label_style": "engraved", "raised_height": 0.8,
+  "_label_status": "CHOSEN engraved 0.6 deep, >= 5 mm high (engraved strokes >= 1.0 mm survive a 0.4 nozzle; Hubs/JLC guides). Panel printed FRONT-DOWN: the bed gives the smoothest face and engraved text stays crisp; raised text front-down is impossible and front-up shows layer lines. The coupon prints both at 5 and 7 mm to confirm."
+ },
+
+ "tft": {
+  "_ref": "VARIANT: Most ME-38699 red '1.8 TFT SPI 128*160 V1.1' = LCDWIKI MSP1803: PCB 34.5 x 58, 4 holes D3.2 on 28.5 x 52 (3.0 from the edges). DATASHEET (QDTFT1801 panel): glass 34.7 x 46.7 x 2.4 (+-0.2/+-0.1), active area 28.03 x 35.04, 3.00 from the glass edge opposite the ribbon (8.66 at the ribbon end). Glass position on the PCB NOT dimensioned (~6.0 / 5.2 from the PCB ends, scaled).",
+  "center_x": 0, "center_y": 150,
+  "pcb_w": 34.5, "pcb_h": 58.0, "hole_dx": 28.5, "hole_dy": 52.0, "glass_w": 34.7, "glass_h": 46.7, "glass_t": 2.4,
+  "window_w": 30.0, "window_h": 40.0, "window_offset_y": 0.0,
+  "_window_status": "CHOSEN 30 x 40: active area 28.03 x 35.04 + 1 mm sides, +2.5 mm each end to cover the undimensioned glass position and ribbon end; stays inside the 46.7 glass (black glass border shows as a bezel)",
+  "boss_d": 4.2, "boss_h": 2.4, "pilot_depth": 4.0,
+  "_boss_status": "bosses at the 4 PCB holes, as tall as the glass (2.4) so the glass touches the panel; D4.2 keeps 0.2 from the glass edge; 4 x M2.5 x 6 self-tapping screws"
+ },
+
+ "nfc": {
+  "_ref": "VARIANT: Ekostra EK506 'PN532 NFC RFID Module V3' (red), Elechouse 42.7 x 40.4 x 4. REFERENCE (Elechouse V4 STEP, 'same shape, same mounting holes as V3'): 2 holes D3.05 at (7.39, 7.59) and (35.19, 32.79) from the top-left corner = +-13.9 / +-12.6 about the centre; red clones 43 x 40 'holes 3 mm'.",
+  "center_x": -40, "center_y": 95,
+  "pocket_w": 43.6, "pocket_h": 41.4, "pocket_depth": 2.5, "front_skin": 1.5,
+  "_pocket_status": "43 x 40.4 largest listed outline + 0.6/1.0; skin 1.5 (antenna 4 mm from the card incl. the 2.5 air gap; read range 50-60 mm free air, DATASHEET). VERIFY a card reads through the coupon first.",
+  "island_d": 6.0, "island_dx": 27.8, "island_dy": 25.2, "pilot_depth": 3.0,
+  "_island_status": "4 islands (both diagonals) so the board fits either way round; the board rests on them at the rear plane, held by 2 x M2.5 x 5 self-tapping screws. REFERENCE hole positions: MEASURE on the coupon.",
+  "tap_outline_margin": 2.0, "tap_outline_groove": 1.0
+ },
+
+ "fingerprint": {
+  "_ref": "DATASHEET (GROW R307 manual v1.20 p.2) for Most ME-30297: body 44.1 x 20 x 23.5, no flange / ears, sensing window 15 x 11.19, 'window dimension 19 x 21' (prism head face), side notches 1.5 deep 22.9 from the sensor end, connector 3.2 below the base. Tolerances not published.",
+  "center_x": 40, "center_y": 95,
+  "body_l": 44.1, "body_w": 20.0, "body_h": 23.5,
+  "pocket_l": 44.6, "pocket_w": 20.5, "pocket_depth": 1.5,
+  "aperture_l": 21.4, "aperture_w": 19.4, "sensor_end": "left",
+  "_aperture_status": "head face 21 (along) x 19 (across) + 0.4, starting at the sensor end; coupon has 21.0/21.4/21.8 x 19.0/19.4/19.8 and a full cradle to try the real module. If the module measures ~52 long it is an R307S body: change body_l / pocket_l.",
+  "cradle_wall": 2.0, "cradle_h": 12.0, "tie_slot_w": 4.0, "tie_slot_h": 2.5
+ },
+
+ "leds": {
+  "_ref": "REFERENCE Kingbright L-53 5 mm: body D5.0, flange D5.9 x 1.0, length 8.6 (+-0.25); Most LEDs unbranded with a flange",
+  "use_holder": false, "bare_d": 5.1, "holder_d": 8.1,
+  "_status": "5.1 hole: the 5.9 flange stops the LED from behind, dome stands ~3.6 proud; coupon 5.0/5.1/5.2/5.3",
+  "green_x": -20, "red_x": 20, "y": 52
+ },
+
+ "buzzer": {
+  "_ref": "VARIANT: Most 5 V ME-32997 / 12 V ME-19495 active buzzer D12 x 9.5, 85 dB, 2.3 kHz ('HXD'); DATASHEET TMB12A05 D12.0 +-0.2 x 9.5 +-0.2, pins 7.6 apart",
+  "center_x": 0, "center_y": 28,
+  "cradle_id": 12.5, "cradle_wall": 1.6, "cradle_h": 7.0,
+  "sound_hole_d": 1.6, "sound_ring_d": 7.0
+ },
+
+ "glands": {
+  "_ref": "DATASHEET panel holes: PG7 12.5-12.8 (cable 3-6.5), M16x1.5 16.0-16.3 (cable 4-8). Most Electronics sells no glands: buy PG7 x 3 + M16 x 1 with locknuts (electrical supplier). Plain holes + locknut, no printed thread (3 mm wall << 8 mm thread).",
+  "z": 45,
+  "holes": [
+   {"name": "DC IN 12V", "x": -50, "d": 16.2},
+   {"name": "LOCK", "x": -15, "d": 12.6},
+   {"name": "DOOR", "x": 15, "d": 12.6},
+   {"name": "SPARE", "x": 50, "d": 12.6}
+  ],
+  "tie_bar_w": 12, "tie_bar_h": 6, "tie_bar_d": 12, "tie_bar_y": 30, "tie_slot_w": 4.0, "tie_slot_h": 2.5
+ },
+
+ "usb_access": {
+  "_ref": "VARIANT: Most ESP32 30-pin CH340 USB-C 51.5 x 28.5; USB-C on the short edge. Height of the connector = plate top 13 + breadboard 8.5-10 + header 2.5 + PCB 1.6 + half the receptacle 1.6 = 27.2-28.7",
+  "side": "left", "y": 95, "z": 28, "w": 14.0, "h": 12.0,
+  "_status": "CHOSEN 14 x 12 passes USB-C overmolds up to 13 x 8 with the height uncertainty; ESP32 end 12 mm from the wall"
+ },
+
+ "vents": { "y_list": [172, 180, 188], "z_from": 25, "z_to": 65, "slot_h": 3.0, "_status": "CHOSEN: both side walls, at the buck converter (top left)" },
+
+ "keyholes": { "x": [-45, 45], "y": 165, "head_d": 9.5, "slot_w": 4.8, "slot_len": 11.0, "_status": "REFERENCE keyhole designs for 4 mm screws: entry 9-10, slot 4.6-5.0, 10-12 long" },
+
+ "electronics_plate": {
+  "thickness": 4.0, "boss_h": 6.0, "boss_d": 9.0, "hole_inset": 6.0,
+  "x_margin": 14.0, "y_bottom": 40.0, "y_top_margin": 14.0,
+  "slot_w": 3.4, "slot_len": 20.0, "slot_pitch_x": 27.0, "slot_pitch_y": 12.0,
+  "_slot_status": "no module hole pattern is published for Most's parts, so M3 / cable-tie slots everywhere; labels engraved inside each module's footprint",
+  "zone_labels": [
+   {"text": "BUCK XL4016 12>5V", "x": -28, "y": 160},
+   {"text": "RELAY 12V", "x": 38, "y": 172},
+   {"text": "470uF", "x": 38, "y": 148},
+   {"text": "ESP32  USB <", "x": -43, "y": 100},
+   {"text": "2x BREADBOARD", "x": -43, "y": 88},
+   {"text": "DRIVER BC557", "x": 38, "y": 112},
+   {"text": "WAGO 12V | GND", "x": 12, "y": 51}
+  ]
+ },
+
+ "components": [
+  {"id": "buck", "label": "XL4016 buck + display", "on": "plate", "x": -28, "y": 163, "z": 13, "w": 66, "h": 49, "d": 27, "conf": "VARIANT (Most listing ~64 x 47 x 26) +1", "src": "mostelectronic.com XL4016 8A display"},
+  {"id": "relay", "label": "relay 1ch 12V", "on": "plate", "x": 38, "y": 172, "z": 13, "w": 51, "h": 27, "d": 19.5, "conf": "REFERENCE 50 x 26 x 18.5 +1", "src": "generic SRD-12VDC module"},
+  {"id": "cap", "label": "470uF 25V", "on": "plate", "round": true, "x": 38, "y": 148, "z": 13, "w": 11, "h": 11, "d": 21, "conf": "REFERENCE D10 x 20 radial", "src": "typical 470uF 25V"},
+  {"id": "esp32", "label": "ESP32 on 2 breadboards", "on": "plate", "x": -43, "y": 95, "z": 13, "w": 53, "h": 75, "d": 22, "conf": "VARIANT ESP32 51.5 x 28.5; REFERENCE SYB-170 47 x 36.5 x 10 (x2)", "src": "Most ESP32 30-pin; Most ME-29142"},
+  {"id": "driver_bb", "label": "breadboard BC557 / LED", "on": "plate", "x": 38, "y": 117, "z": 13, "w": 48, "h": 37.5, "d": 18, "conf": "REFERENCE SYB-170 + parts 8 mm", "src": "Most ME-29142"},
+  {"id": "wago1", "label": "WAGO 12V", "on": "plate", "x": -1, "y": 51, "z": 13, "w": 22, "h": 13.5, "d": 15.5, "conf": "VARIANT PCT-212 21 x 12.5 x 14.5 +1", "src": "Most WAGO PCT-212"},
+  {"id": "wago2", "label": "WAGO GND", "on": "plate", "x": 25, "y": 51, "z": 13, "w": 22, "h": 13.5, "d": 15.5, "conf": "VARIANT PCT-212 +1", "src": "Most WAGO PCT-212"},
+  {"id": "tft_glass", "label": "TFT glass", "on": "panel", "x": 0, "y": 150, "z": 110, "dir": "down", "w": 34.9, "h": 46.9, "d": 2.4, "conf": "DATASHEET 34.7 x 46.7 x 2.4 +0.2", "src": "QDTFT1801"},
+  {"id": "tft_pcb", "label": "TFT PCB + header plugs", "on": "panel", "x": 0, "y": 150, "z": 107.6, "dir": "down", "w": 34.5, "h": 58, "d": 15.6, "conf": "VARIANT PCB 1.6 + plugs 14", "src": "LCDWIKI MSP1803"},
+  {"id": "nfc", "label": "PN532 + header plugs", "on": "panel", "x": -40, "y": 95, "z": 110, "dir": "down", "w": 43, "h": 41, "d": 17.6, "conf": "VARIANT 42.7 x 40.4; plugs 16 REFERENCE", "src": "Ekostra EK506 / Elechouse"},
+  {"id": "fp", "label": "R307 body + connector", "on": "panel", "x": 40, "y": 95, "z": 111.5, "dir": "down", "w": 44.6, "h": 20.5, "d": 26.7, "conf": "DATASHEET 44.1 x 20 x 23.5 + 3.2 connector", "src": "GROW R307 manual"},
+  {"id": "led_g", "label": "LED green + wires", "on": "panel", "round": true, "x": -20, "y": 52, "z": 110, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
+  {"id": "led_r", "label": "LED red + wires", "on": "panel", "round": true, "x": 20, "y": 52, "z": 110, "dir": "down", "w": 6, "h": 6, "d": 16, "conf": "REFERENCE flange 5.9", "src": "Kingbright L-53"},
+  {"id": "buzzer", "label": "active buzzer D12", "on": "panel", "round": true, "x": 0, "y": 28, "z": 110, "dir": "down", "w": 12.4, "h": 12.4, "d": 21, "conf": "DATASHEET TMB12A05 (cylinder D12.4) 12 x 9.5 + pins 5.5 + wires", "src": "Huaneng TMB12A05 / Most ME-32997"}
+ ]
+}

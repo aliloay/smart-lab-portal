@@ -8,7 +8,7 @@ camera ─► tools/security_vision (robotvision.py: flow in the robot's box) �
 
 **Nothing sends commands.**
 - The UR source uses `ur_rtde`'s *receive* interface only.
-- No FANUC protocol is implemented until the controller is inspected.
+- FANUC: read-only web-page source (`GET /MD/CURPOS.DG`), live-verified on 2026-10-14; see FANUC_LIVE_TWIN.md. No command path exists.
 - The backend has no endpoint that talks to a controller; a test enforces this.
 
 ## Motion (tools/robot_monitor/robot_state.py)

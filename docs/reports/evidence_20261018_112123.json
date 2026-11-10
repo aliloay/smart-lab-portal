@@ -1,0 +1,708 @@
+{
+ "environment": {
+  "base": "http://192.168.1.200",
+  "started": "2026-10-18T11:21:23.803685+00:00",
+  "host": "ALI",
+  "runs": 20
+ },
+ "summary": {
+  "PASS": 41,
+  "FAIL": 13,
+  "NOT_AVAILABLE": 7,
+  "SIMULATION": 3,
+  "PHYSICAL_VALIDATION_REQUIRED": 4,
+  "BLOCKED": 1
+ },
+ "checks": [
+  {
+   "area": "API",
+   "check": "health",
+   "procedure": "GET /api/health",
+   "expected": "HTTP 200",
+   "observed": "HTTP 200 in 98 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Security",
+   "check": "admin sign-in",
+   "procedure": "POST /auth/login",
+   "expected": "token",
+   "observed": "token received",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Security",
+   "check": "anonymous refused",
+   "procedure": "GET /incidents without a token",
+   "expected": "401",
+   "observed": "HTTP 401",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/summary",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 133 ms, p95 204 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/labs/overview",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 48 ms, p95 91 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/devices",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 44 ms, p95 61 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/system/status",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 32 ms, p95 50 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/system/health",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 102 ms, p95 178 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/alerts?open_only=true",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 57 ms, p95 140 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/incidents?state=ACTIVE",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 165 ms, p95 209 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/reports-center/alerts?days=7",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 121 ms, p95 157 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "/analytics/system?days=7",
+   "procedure": "GET x20 (warm, laptop over LAN)",
+   "expected": "p95 < 500 ms",
+   "observed": "median 159 ms, p95 300 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "environment",
+   "procedure": "latest row of sensor_readings",
+   "expected": "live (recent for its cadence)",
+   "observed": "live - last 2026-10-18T11:21:32.038449+00:00 (32952 rows)",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "door",
+   "procedure": "latest row of access_events",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-17T15:01:49.108261+00:00 (1309 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "robots",
+   "procedure": "latest row of robot_events",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-14T15:26:08.717312+00:00 (8629 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "consumables",
+   "procedure": "latest row of inventory_measurements",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-12T23:51:19.930628+00:00 (4926 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "inventory",
+   "procedure": "latest row of inventory_transactions",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-12T22:45:51.772237+00:00 (63 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "cameras",
+   "procedure": "latest row of security_events",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-18T04:57:58.717426+00:00 (658 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "pcs",
+   "procedure": "latest row of equipment_sessions",
+   "expected": "live (recent for its cadence)",
+   "observed": "live - last 2026-10-17T20:38:52.023058+00:00 (42 rows)",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "automation",
+   "procedure": "latest row of integration_events",
+   "expected": "live (recent for its cadence)",
+   "observed": "stale - last 2026-10-17T15:01:49.162155+00:00 (845 rows)",
+   "result": "NOT_AVAILABLE",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Data freshness",
+   "check": "alerts",
+   "procedure": "latest row of alerts",
+   "expected": "live (recent for its cadence)",
+   "observed": "live - last 2026-10-18T11:20:21.091011+00:00 (377 rows)",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "PostgreSQL",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - query answered",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Backend API",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - answering this request",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Live stream",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "UNKNOWN - 0 browser(s) connected",
+   "result": "NOT_AVAILABLE",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Face server",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - HTTP 200",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "AI (local model, Ollama)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - HTTP 200",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Automation (n8n)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - HTTP 200",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Project knowledge service",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - HTTP 200",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Door camera (ESP32-CAM)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "OFFLINE - ConnectTimeout",
+   "result": "FAIL",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Entry Camera (ESP32-CAM) (CAM_LAB01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "UNKNOWN - has never reported",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Door Controller (Master ESP32) (MASTER_LAB01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "OFFLINE - last report 2026-10-12T23:51:13.773208+00:00",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "ADMIN-LAPTOP (PC_ADMIN_LAPTOP)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - last report 2026-10-18T11:21:32.038449+00:00",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "FANUC ER-4iA (physical) (FANUC_01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "DEGRADED - collector running, but no joint data from the controller",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "UR5e (physical) (UR5E_01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "DEGRADED - collector running, but no joint data from the controller",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Security camera (SECCAM_LAB02)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "ONLINE - last report 2026-10-18T11:21:41.931066+00:00",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Security camera (SECCAM_LAB01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "DEGRADED - camera service running, but no picture from the camera",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "BIN_NODE_1 (BIN_NODE_1)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "OFFLINE - last report 2026-10-12T23:51:19.930628+00:00",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "Environment node (ENV_LAB01)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "OFFLINE - last report 2026-10-11T19:17:34.336720+00:00",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Health",
+   "check": "REUSE_BIN_1 (REUSE_BIN_1)",
+   "procedure": "background probe / heartbeat",
+   "expected": "ONLINE",
+   "observed": "OFFLINE - last report 2026-10-12T23:51:04.276434+00:00",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Cameras",
+   "check": "SECCAM_LAB01",
+   "procedure": "GET :5100/health",
+   "expected": "camera picture with fps > 0",
+   "observed": "camera=False fps=0.0 analysis_age=None s, errors=0",
+   "result": "FAIL",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Cameras",
+   "check": "SECCAM_LAB02",
+   "procedure": "GET :5101/health",
+   "expected": "camera picture with fps > 0",
+   "observed": "camera=True fps=7.0 analysis_age=0.0 s, errors=0",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "UR5E_SIM",
+   "procedure": "GET /robots (collector telemetry)",
+   "expected": "fresh joint values",
+   "observed": "state=OFFLINE joints=yes stale=None",
+   "result": "SIMULATION",
+   "evidence": "SIMULATION",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "UR5E_SIM master control",
+   "procedure": "GET control (UR5e)",
+   "expected": "mode dry_run until sign-off; truthful phase",
+   "observed": "mode=dry_run phase=STOP_REQUESTED (STOP latched by System Administrator; waiting for feedback that the arm has stopped (no fresh telemetry))",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "FANUC_SIM",
+   "procedure": "GET /robots (collector telemetry)",
+   "expected": "fresh joint values",
+   "observed": "state=OFFLINE joints=yes stale=None",
+   "result": "SIMULATION",
+   "evidence": "SIMULATION",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "UR5E_01",
+   "procedure": "GET /robots (collector telemetry)",
+   "expected": "fresh joint values",
+   "observed": "state=IDLE joints=no stale=None",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "UR5E_01 master control",
+   "procedure": "GET control (UR5e)",
+   "expected": "mode dry_run until sign-off; truthful phase",
+   "observed": "mode=dry_run phase=BLOCKED (no joint feedback from the controller - robot state unknown)",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "FANUC_01",
+   "procedure": "GET /robots (collector telemetry)",
+   "expected": "fresh joint values",
+   "observed": "state=UNKNOWN joints=no stale=None",
+   "result": "FAIL",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "PCs",
+   "check": "enrolled PC agents",
+   "procedure": "GET /equipment (kind PC)",
+   "expected": ">= 1 pilot PC reporting",
+   "observed": "1 PC(s); online: 1",
+   "result": "PASS",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Reports",
+   "check": "source traceability",
+   "procedure": "GET /reports-center/access",
+   "expected": "names its source table and warns on stale data",
+   "observed": "source=access_events, rows=1309, warnings=1",
+   "result": "PASS",
+   "evidence": "OFFLINE",
+   "detail": null
+  },
+  {
+   "area": "Incidents",
+   "check": "open incidents",
+   "procedure": "GET /incidents?state=ACTIVE",
+   "expected": "listed with counts and escalation flags",
+   "observed": "{'OPEN': 65, 'ACKNOWLEDGED': 0, 'INVESTIGATING': 0, 'MITIGATED': 0, 'RESOLVED': 0} escalations=59",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "AI",
+   "check": "which labs are free now",
+   "procedure": "POST /ai/ask (lab data)",
+   "expected": "answer contains ['Free']; < 3 s",
+   "observed": "HTTP 200 in 159 ms via ['instant:free_labs']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "AI",
+   "check": "what is the UR5e home position",
+   "procedure": "POST /ai/ask (project knowledge)",
+   "expected": "answer contains ['ROBOT_CONTROL.md']; < 3 s",
+   "observed": "HTTP 200 in 109 ms via ['instant:knowledge_lookup']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "AI",
+   "check": "how does the global STOP work for the UR5e",
+   "procedure": "POST /ai/ask (project knowledge)",
+   "expected": "answer contains ['STOP']; < 3 s",
+   "observed": "HTTP 200 in 598 ms via ['instant:knowledge_lookup']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "AI",
+   "check": "how does the door controller decide to open the door",
+   "procedure": "POST /ai/ask (project knowledge)",
+   "expected": "answer contains ['ACCESS', 'door']; < 3 s",
+   "observed": "HTTP 200 in 469 ms via ['instant:knowledge_lookup']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "AI",
+   "check": "what is offline",
+   "procedure": "POST /ai/ask (lab data)",
+   "expected": "answer contains ['Offline']; < 3 s",
+   "observed": "HTTP 200 in 105 ms via ['instant:offline']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Reliability",
+   "check": "configuration drift",
+   "procedure": "GET /reliability/drift vs app/config_baseline.json",
+   "expected": "matches the approved baseline (secrets only checked for presence / not default)",
+   "observed": "baseline 2026-10-18.1: 0 open difference(s) ",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Backups",
+   "check": "restore drill (isolated database)",
+   "procedure": "tools/evidence/restore_drill.py result via /reliability/backups",
+   "expected": "last drill ok, < 30 days old",
+   "observed": "ok=True at 2026-10-18T11:02:41.741101+00:00: restore 5.7 s, 42 tables, 55855 rows",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Reliability",
+   "check": "dependency model",
+   "procedure": "GET /reliability/graph",
+   "expected": "every part with a state and evidence class; likely roots",
+   "observed": "{'HEALTHY': 16, 'DEGRADED': 3, 'STALE DATA': 0, 'OFFLINE': 8, 'SIMULATED': 0, 'UNKNOWN': 3} roots: ['Door camera (ESP32-CAM)', 'Robot controller FANUC_01', 'Robot controller UR5E_01', 'Camera hardware SECCAM_LAB01', 'Security camera']",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Performance",
+   "check": "service objectives",
+   "procedure": "GET /reliability/performance (since backend start)",
+   "expected": "objectives met or no data yet",
+   "observed": "api_p95_ms met=True n=1705; api_success met=True n=1705",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Incidents",
+   "check": "alert quality",
+   "procedure": "GET /incidents/quality?days=30",
+   "expected": "grouping active; storms visible",
+   "observed": "377 incidents / 377 reports, 76 conditions, storms 3",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Clock",
+   "check": "clock agreement",
+   "procedure": "tools/evidence/clock_check.py",
+   "expected": "all local clocks within limits",
+   "observed": "laptop vs pool.ntp.org -1904.8 ms; backend (Docker VM) 53.5 ms; database (Docker VM) 52.9 ms; n8n container 510.8 ms; camera 1 service (5100) -151.0 ms; camera 2 service (5101) -164.0 ms; face server (5000) -178.0 ms; knowledge service (5199) -182.0 ms; Ollama (11434) -194.0 ms; PC PC_ADMIN_LAPTOP 30.0 ms",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Clock",
+   "check": "laptop vs internet time",
+   "procedure": "SNTP pool.ntp.org",
+   "expected": "within 1 s",
+   "observed": "laptop vs pool.ntp.org -1904.8 ms",
+   "result": "FAIL",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  },
+  {
+   "area": "Vision identity",
+   "check": "scenario bench (12 scenarios + two cameras)",
+   "procedure": "tools/security_vision/scenario_bench.py",
+   "expected": "0 frames with someone else's name, 0 name switches",
+   "observed": "SIMULATED - 14 scenarios in 3.8 s; false names / name switches: NONE",
+   "result": "SIMULATION",
+   "evidence": "SIMULATION",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "UR5e Home / STOP live test",
+   "procedure": "physical procedure",
+   "expected": "done with people on site",
+   "observed": "commissioning steps 1-10 with the qualified operator (docs/ROBOT_CONTROL.md)",
+   "result": "PHYSICAL_VALIDATION_REQUIRED",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Robots",
+   "check": "FANUC motion",
+   "procedure": "physical procedure",
+   "expected": "done with people on site",
+   "observed": "BLOCKED: remote interface not configured, no HOME TP program, no tested stop",
+   "result": "BLOCKED",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Cameras",
+   "check": "camera 2 mounting + floor calibration + identity scenarios",
+   "procedure": "physical procedure",
+   "expected": "done with people on site",
+   "observed": "docs/LAB_GO_NOGO_2026-10-18.md section 1",
+   "result": "PHYSICAL_VALIDATION_REQUIRED",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Hardware",
+   "check": "ESP32 nodes (door, bins, environment)",
+   "procedure": "physical procedure",
+   "expected": "done with people on site",
+   "observed": "power / fuse / voltage bench checks; nodes offline since 11-13 Oct",
+   "result": "PHYSICAL_VALIDATION_REQUIRED",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "PCs",
+   "check": "student-PC agent pilot",
+   "procedure": "physical procedure",
+   "expected": "done with people on site",
+   "observed": "needs university IT approval",
+   "result": "PHYSICAL_VALIDATION_REQUIRED",
+   "evidence": "REAL_HARDWARE",
+   "detail": null
+  },
+  {
+   "area": "Backups",
+   "check": "automatic dump",
+   "procedure": "backups/backup_status.json via /system/health",
+   "expected": "state OK (recent, readable)",
+   "observed": "state=OK last_success=2026-10-18T09:04:57+00:00 file=auto_smartlab_20261018_1204.dump (1116 KB)",
+   "result": "PASS",
+   "evidence": "LIVE_SYSTEM",
+   "detail": null
+  }
+ ]
+}

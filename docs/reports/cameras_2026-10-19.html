@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Security Cameras - Status Report</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;color:#1e293b;margin:32px 40px;font-size:11pt;line-height:1.45}
+ h1{font-size:20pt;margin:0 0 4px;color:#0f172a} .sub{color:#64748b;margin-bottom:18px}
+ h2{font-size:13.5pt;margin:22px 0 6px;color:#0f172a;border-bottom:2px solid #e2e8f0;padding-bottom:3px}
+ table{border-collapse:collapse;width:100%;margin:6px 0 10px;font-size:10pt}
+ th,td{border:1px solid #cbd5e1;padding:5px 7px;text-align:left;vertical-align:top} th{background:#f1f5f9}
+ .ok{color:#15803d;font-weight:600}.part{color:#b45309;font-weight:600}.no{color:#b91c1c;font-weight:600}
+ .note{background:#f8fafc;border-left:4px solid #94a3b8;padding:6px 10px;margin:8px 0;font-size:10pt}
+ ol li,ul li{margin:2px 0}
+</style></head><body>
+<h1>Security Cameras - Status Report</h1>
+<div class="sub">Smart Lab portal, GIU BSc thesis &middot; 19 October 2026 &middot; Labels: <b>live-verified</b> = measured on the real cameras today; <b>tested offline</b> = automated tests only.</div>
+
+<h2>1. Summary</h2>
+<p>Both security cameras now run together on the laptop's graphics card at full speed, share one floor map of the room, and pass a person's confirmed name from one camera to the other. A door entry (from the entry camera's face recognition) names the person walking in on camera 1, and camera 2 takes over the name within a second. Both robots are watched by both cameras. Robot control (Home / STOP) stays in safe dry-run mode and is not part of further work.</p>
+
+<h2>2. What is done</h2>
+<table>
+<tr><th>Item</th><th>Result</th><th>Status</th></tr>
+<tr><td>Both cameras running together</td><td>7.0 analyses/s each on the GTX 1650; GPU about 35 %, 578 MB memory; picture delay about 40 ms</td><td class="ok">live-verified</td></tr>
+<tr><td>AI assistants vs cameras</td><td>On the GPU, an AI answer cut camera 1 to about 5/s; on the CPU (4 threads) both cameras stayed at 7.0/s. The assistants were moved to the CPU (answers 30-90 s).</td><td class="ok">live-verified</td></tr>
+<tr><td>Floor maps (calibration)</td><td>5 tape marks on 0.61 m floor tiles, each confirmed by a person standing on it, plus 3 extra standing spots and 10 two-camera checks; both maps refitted together. Tape marks within 4-14 cm. Same person seen by both cameras: mean 0.29 m apart (was 0.36), 8-24 cm in the middle of the room, up to 0.5-0.7 m on the door side or when chairs hide the feet.</td><td class="ok">live-verified</td></tr>
+<tr><td>Name shared between cameras</td><td>A face- or door-confirmed name on one camera moves to the same person on the other camera (same floor spot, 4 passes, never onto a crowded or already-named person). Names also travel back.</td><td class="ok">live-verified</td></tr>
+<tr><td>Door entry &rarr; name</td><td>Entry camera recognises the face &rarr; TEST entry recorded &rarr; camera 1 names the person at the door ("by door") &rarr; camera 2 takes the name. Tested with Ali Loay and Nour Ramy.</td><td class="ok">live-verified</td></tr>
+<tr><td>Door box and door state</td><td>Camera 1's door box fitted to the red door leaf; reads closed / slightly open / fully open correctly.</td><td class="ok">live-verified</td></tr>
+<tr><td>Camera 2 equipment boxes</td><td>UR5e and Fanuc (robot boxes) and 9 PCs (PC-B ... PC-L, provisional names)</td><td class="ok">live-verified</td></tr>
+<tr><td>Robot home position</td><td>FANUC home look saved on both cameras: "Fanuc - home" / "away from home"</td><td class="ok">live-verified</td></tr>
+<tr><td>Readable labels</td><td>Equipment labels on the camera picture no longer overlap</td><td class="ok">live-verified</td></tr>
+<tr><td>Robot twin (UR5e)</td><td>Mounting turned 180&deg; - the gripper is over the table as in the real cell; status line shows who moves the robot (teach pendant / network / person at the robot)</td><td class="ok">live-verified</td></tr>
+<tr><td>Camera service tests</td><td>219 automated tests pass</td><td class="ok">tested offline</td></tr>
+</table>
+
+<h2>3. How it works</h2>
+<ol>
+<li><b>Each camera</b> runs its own service (person detector on the graphics card, tracker, equipment boxes, door box). A camera that fails cannot stop the other.</li>
+<li><b>Names come only from evidence</b>: a door entry, or a clear face match (two agreeing votes). Nothing is guessed - an unconfirmed person stays "Unknown".</li>
+<li><b>Floor map</b>: each camera turns a person's feet in the picture into a floor position in metres (same room coordinates for both cameras).</li>
+<li><b>Sharing</b>: every pass each camera asks the other for its people and positions; a confirmed name on the same floor spot (within 0.7 m) is carried over.</li>
+<li><b>Locking</b>: once named, the name stays on the person's track; people side by side never swap names; after a short loss the name is kept 20 s for the same spot.</li>
+</ol>
+
+<h2>4. Known limits (measured today)</h2>
+<ul>
+<li><b>Feet must be visible.</b> Directly in front of camera 1 the feet leave the picture; behind desks the table hides the legs. There the position is wrong, so no name is shared (safe, but the person may be "Unknown" on one camera).</li>
+<li><b>Doorway</b> (permanent: camera 1 is already tilted to its limit and the FANUC cell stays): the cell partly hides people entering from camera 1, and camera 2 cannot see the doorway; item 2 (appearance matching) covers this. Camera 1 lost one track for about 1 s after the door name, then re-named it.</li>
+<li><b>Seated people</b> can be named on one camera and Unknown on the other.</li>
+<li><b>Camera clocks</b> show one hour behind (camera time zone) until 29 October; portal events use the laptop clock.</li>
+<li><b>Eng. Hemaly</b> cannot be named at the door yet: her face is saved but not trained on the face server.</li>
+</ul>
+
+<h2>5. Remaining work</h2>
+<table>
+<tr><th>#</th><th>Task</th><th>Needs</th></tr>
+<tr><td>1</td><td>Same-desk rule: a person at PC-X on camera 1 = the person at the same PC on camera 2</td><td>Owner: which camera-2 letter is which PC (B, C, D, F, G, I, J, K, L &rarr; PC-01..11)</td></tr>
+<tr><td>2</td><td>Cross-camera appearance matching (clothes/body), so names follow seated or half-hidden people</td><td>Test on recordings first, then one camera restart</td></tr>
+<tr><td>3</td><td>Robot home check: when a person stands in front of a robot box, show &quot;home: hidden by a person&quot; instead of &quot;away from home&quot;</td><td>Software only, one camera restart</td></tr>
+<tr><td>4</td><td>Train Eng. Hemaly's face on the face server</td><td>Portal: Users &rarr; face enrolment</td></tr>
+<tr><td>5</td><td>Portal speed: Robots &amp; PCs tab and 3D twins (robot meshes are about 12 MB)</td><td>Software only</td></tr>
+<tr><td>6</td><td>Commit today's work to git</td><td>Owner's OK</td></tr>
+</table>
+
+<h2>6. Robots - kept as they are</h2>
+<div class="note">Home and STOP in the portal stay in <b>dry run</b>: all safety checks run and the command is logged as "would send ... (nothing sent)"; the robots are never moved or stopped from the portal. The UR5e ignores network commands while the teach pendant is in Local mode (manufacturer design). The pendant and cell emergency stops remain the only stops. No further work on Home/STOP is planned.</div>
+</body></html>

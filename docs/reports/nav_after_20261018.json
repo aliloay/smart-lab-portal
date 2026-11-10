@@ -1,0 +1,106 @@
+{
+ "/command": {
+  "route_ms": 294,
+  "data_ms": 1709,
+  "data_max": 1709,
+  "main_thread_blocked_ms": 133,
+  "longest_freeze_ms": 82,
+  "api_calls": 11
+ },
+ "/admin/security": {
+  "route_ms": 155,
+  "data_ms": 344,
+  "data_max": 344,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 4
+ },
+ "/admin/operations": {
+  "route_ms": 159,
+  "data_ms": 801,
+  "data_max": 801,
+  "main_thread_blocked_ms": 396,
+  "longest_freeze_ms": 243,
+  "api_calls": 5
+ },
+ "/admin/access": {
+  "route_ms": 243,
+  "data_ms": 723,
+  "data_max": 723,
+  "main_thread_blocked_ms": 57,
+  "longest_freeze_ms": 57,
+  "api_calls": 3
+ },
+ "/admin/bookings": {
+  "route_ms": 163,
+  "data_ms": 733,
+  "data_max": 733,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 3
+ },
+ "/admin/equipment": {
+  "route_ms": 172,
+  "data_ms": 635,
+  "data_max": 635,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 2
+ },
+ "/admin/devices": {
+  "route_ms": 160,
+  "data_ms": 437,
+  "data_max": 437,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 2
+ },
+ "/admin/incidents": {
+  "route_ms": 198,
+  "data_ms": 431,
+  "data_max": 431,
+  "main_thread_blocked_ms": 62,
+  "longest_freeze_ms": 62,
+  "api_calls": 1
+ },
+ "/admin/alerts": {
+  "route_ms": 127,
+  "data_ms": 507,
+  "data_max": 507,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 5
+ },
+ "/admin/system": {
+  "route_ms": 115,
+  "data_ms": 830,
+  "data_max": 830,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 3
+ },
+ "/admin/reliability": {
+  "route_ms": 887,
+  "data_ms": 1448,
+  "data_max": 1448,
+  "main_thread_blocked_ms": 586,
+  "longest_freeze_ms": 352,
+  "api_calls": 1
+ },
+ "/labs": {
+  "route_ms": 231,
+  "data_ms": 457,
+  "data_max": 457,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 1
+ },
+ "/": {
+  "route_ms": 344,
+  "data_ms": 1316,
+  "data_max": 1316,
+  "main_thread_blocked_ms": 0,
+  "longest_freeze_ms": 0,
+  "api_calls": 11
+ }
+}

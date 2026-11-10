@@ -1,0 +1,356 @@
+---
+type: "source-mirror"
+source_kind: "source-code"
+source_path: "backend/app/api/routes/access.py"
+source_hash: "32305cfc8366cbead1433b42ec2b1cdb63b77686e80deccdb42e306f174f799b"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+---
+> Read-only mirror of `backend/app/api/routes/access.py` - edit the original in the repository, not this note.
+
+Systems: [[Door and access]]
+
+## Related
+- [[backend_app_models___init__.py]] - imports
+- [[backend_app_services___init__.py]] - imports
+- [[backend_app_services_sessions.py]] - imports
+- [[backend_app_services_access.py]] - imports
+- [[backend_app_services_devices.py]] - imports
+- [[backend_app_services_events.py]] - imports
+- [[backend_app_services_notifications.py]] - imports
+- [[backend_app_services_environment.py]] - imports
+
+```py
+"""
+Device-facing endpoints. These are what the ESP32 master calls.
+
+Note what is absent: there is no endpoint that opens a door. /grant and /deny
+RECORD an outcome the master has already decided. The relay is driven by one
+line of firmware and no HTTP request can reach it.
+"""
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import device_scope, require_device
+from app.db.session import get_db
+from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
+                        DeviceType, EventType, Notification, SensorReading,
+                        User)
+from app.schemas import (DeviceEventRequest, HeartbeatRequest,
+                         ValidateQrRequest, ValidateResponse,
+                         ValidateRfidRequest)
+from app.services import sessions
+from app.services.access import get_device, get_lab_by_code, validate_qr, validate_rfid
+from app.services.devices import (record_component_health, record_door_alarm,
+                                  resolve_held_open, resolve_offline_alerts)
+from app.services.events import log_event
+from app.services.notifications import notify, notify_security
+from app.ui_text import denial_sentence
+
+router = APIRouter(prefix="/access", tags=["access (device)"])
+
+# Biometric outcomes that complete step 2 on the master.
+_SECOND_FACTOR = {EventType.FACE_ACCEPTED: AuthMethod.FACE,
+                  EventType.FINGERPRINT_ACCEPTED: AuthMethod.FINGERPRINT}
+
+
+def _user_by_subject(db: Session, subject: str | None) -> User | None:
+    if not subject:
+        return None
+    return db.scalar(select(User).where(User.auth_subject == subject))
+
+
+@router.post("/validate-qr", response_model=ValidateResponse)
+def validate_qr_endpoint(req: ValidateQrRequest,
+                         db: Session = Depends(get_db),
+                         _: str = Depends(require_device)):
+    """
+    Step 1 for a booking QR.
+
+    Returns the canonical identity on success. The master then requires a
+    biometric that matches THIS identity before it unlocks anything.
+    """
+    res = validate_qr(db, req.qr_token, req.lab_id, req.device_uid)
+
+    if not res.valid:
+        return ValidateResponse(valid=False,
+                                reason=res.reason.value if res.reason else "DENIED")
+
+    return ValidateResponse(
+        valid=True,
+        user_id=res.user.id,
+        auth_subject=res.user.auth_subject,
+        display_name=res.user.full_name,
+        booking_id=res.booking.id if res.booking else None,
+        lab_id=res.lab.code,
+        # A personal door QR has no booking token (and maybe no booking).
+        valid_from=res.token.valid_from if res.token else None,
+        valid_until=res.token.valid_until if res.token else None,
+    )
+
+
+@router.post("/validate-rfid", response_model=ValidateResponse)
+def validate_rfid_endpoint(req: ValidateRfidRequest,
+                           db: Session = Depends(get_db),
+                           _: str = Depends(require_device)):
+    res = validate_rfid(db, req.uid_hex, req.lab_id, req.device_uid)
+    if not res.valid:
+        return ValidateResponse(valid=False,
+                                reason=res.reason.value if res.reason else "DENIED")
+    return ValidateResponse(
+        valid=True,
+        user_id=res.user.id,
+        auth_subject=res.user.auth_subject,
+        display_name=res.user.full_name,
+        booking_id=res.booking.id if res.booking else None,
+        lab_id=res.lab.code,
+    )
+
+
+@router.post("/events")
+def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
+               _: str = Depends(require_device)):
+    """
+    Generic event sink for the master: biometric attempts, door transitions,
+    identity mismatches, exits. The master fires these and does not wait on
+    them, so a slow or absent portal never delays the door.
+    """
+    lab = get_lab_by_code(db, req.lab_id)
+    device = get_device(db, req.device_uid)
+    user = _user_by_subject(db, req.auth_subject)
+
+    log_event(db, req.event_type,
+              lab_id=lab.id if lab else None,
+              user_id=user.id if user else None,
+              booking_id=req.booking_id,
+              device_id=device.id if device else None,
+              method=req.method, result=req.result, reason=req.reason,
+              message=req.message or req.event_type.value,
+              metadata=req.metadata)
+
+    if req.event_type == EventType.IDENTITY_MISMATCH:
+        notify_security(db, lab, "IDENTITY_MISMATCH",
+                        req.message or "The biometric did not match step 1.")
+
+    # Door alarms from the reed switch: forced entry, door held open.
+    if req.event_type == EventType.ALARM and lab is not None and req.reason:
+        record_door_alarm(db, lab, device, req.reason, req.message)
+
+    if lab is not None:
+        # The door cycle is recorded on the session; it does not end it.
+        if req.event_type == EventType.DOOR_OPENED:
+            sessions.record_door_opened(db, lab.id, user)
+        elif req.event_type == EventType.DOOR_CLOSED:
+            sessions.record_door_closed(db, lab.id, user)
+            resolve_held_open(db, lab)
+        elif req.event_type == EventType.EXIT_RECORDED:
+            sessions.record_exit(db, lab.id, user)
+        elif req.event_type in _SECOND_FACTOR:
+            sessions.second_factor_seen(db, lab.id, user,
+                                        _SECOND_FACTOR[req.event_type])
+
+    db.commit()
+    return {"status": "recorded"}
+
+
+@router.post("/grant")
+def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
+                 _: str = Depends(require_device)):
+    """
+    The master reports that it HAS granted access. This opens an occupancy
+    session; it does not authorize anything.
+    """
+    lab = get_lab_by_code(db, req.lab_id)
+    device = get_device(db, req.device_uid)
+    user = _user_by_subject(db, req.auth_subject)
+
+    log_event(db, EventType.ACCESS_GRANTED,
+              lab_id=lab.id if lab else None,
+              user_id=user.id if user else None,
+              booking_id=req.booking_id,
+              device_id=device.id if device else None,
+              method=req.method, result=AccessResult.GRANTED,
+              message=req.message or "Access granted at door")
+
+    if lab is not None and user is not None:
+        s = sessions.open_session(db, lab_id=lab.id, user_id=user.id,
+                                  booking_id=req.booking_id,
+                                  device_id=device.id if device else None,
+                                  method=req.method or AuthMethod.RFID)
+        # The biometric that completed step 2 was reported just before the
+        # grant; carry it onto the session that the grant opens.
+        recent = datetime.now(timezone.utc) - timedelta(minutes=2)
+        bio = db.scalar(
+            select(AccessEvent)
+            .where(AccessEvent.lab_id == lab.id,
+                   AccessEvent.user_id == user.id,
+                   AccessEvent.event_type.in_(list(_SECOND_FACTOR)),
+                   AccessEvent.created_at >= recent)
+            .order_by(AccessEvent.created_at.desc()))
+        if bio is not None:
+            s.second_factor = _SECOND_FACTOR[bio.event_type]
+
+    # Stamp the REAL entry time on the booking. first_entry_at is written
+    # once and never overwritten - it is the answer to "when did they
+    # actually turn up", which is not the same question as "when does the
+    # booking start". last_entry_at moves on every re-entry.
+    if req.booking_id:
+        booking = db.get(Booking, req.booking_id)
+        if booking is not None:
+            now = datetime.now(timezone.utc)
+            if booking.first_entry_at is None:
+                booking.first_entry_at = now
+            booking.last_entry_at = now
+            booking.entry_count += 1
+
+    db.commit()
+    return {"status": "recorded"}
+
+
+@router.post("/deny")
+def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
+                _: str = Depends(require_device)):
+    lab = get_lab_by_code(db, req.lab_id)
+    device = get_device(db, req.device_uid)
+    user = _user_by_subject(db, req.auth_subject)
+
+    log_event(db, EventType.ACCESS_DENIED,
+              lab_id=lab.id if lab else None,
+              user_id=user.id if user else None,
+              booking_id=req.booking_id,
+              device_id=device.id if device else None,
+              method=req.method, result=AccessResult.DENIED,
+              reason=req.reason,
+              message=req.message or f"Access denied: {req.reason}")
+
+    if req.reason:
+        notify_security(db, lab, req.reason, req.message or "")
+
+    # Tell the person, once. The master can report the same refusal from two
+    # places in quick succession; a minute of de-duplication keeps that to a
+    # single notification.
+    if user is not None:
+        recent = datetime.now(timezone.utc) - timedelta(minutes=1)
+        already = db.scalar(select(Notification.id).where(
+            Notification.user_id == user.id,
+            Notification.kind == "ACCESS_DENIED",
+            Notification.created_at >= recent))
+        if not already:
+            where = lab.code if lab else req.lab_id
+            notify(db, [user.id], "ACCESS_DENIED",
+                   f"Access denied at {where}",
+                   body=denial_sentence(req.reason) or "Entry was refused.",
+                   link=f"/bookings/{req.booking_id}" if req.booking_id else "/bookings",
+                   severity="warning", booking_id=req.booking_id)
+    db.commit()
+    return {"status": "recorded"}
+
+
+@router.post("/heartbeat", tags=["devices"])
+def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
+              identity: str = Depends(require_device)):
+    """
+    Device liveness and door state. Auto-registers an unknown device against
+    its lab so a freshly flashed board appears in the admin view without
+    manual setup.
+    """
+    device_scope(identity, req.device_uid)
+    lab = get_lab_by_code(db, req.lab_id)
+    if lab is None:
+        return {"status": "unknown_lab"}
+
+    device = get_device(db, req.device_uid)
+    was_online = device.is_online if device else False
+
+    if device is None:
+        device = Device(device_uid=req.device_uid, name=req.device_uid,
+                        device_type=req.device_type or DeviceType.MASTER_CONTROLLER,
+                        lab_id=lab.id)
+        db.add(device)
+        db.flush()
+
+    # The firmware sends a heartbeat the moment the door or lock changes;
+    # tell open pages at once instead of waiting for their 30 s refresh.
+    lock_before = (device.component_state or {}).get("relay_locked")
+    door_changed = req.door_closed is not None and req.door_closed != device.door_closed
+    lock_changed = (req.components is not None and "relay_locked" in req.components
+                    and req.components["relay_locked"] != lock_before)
+
+    device.ip_address = req.ip_address or device.ip_address
+    device.firmware_version = req.firmware_version or device.firmware_version
+    device.last_seen_at = datetime.now(timezone.utc)
+    device.is_online = True
+    if req.door_closed is not None:
+        device.door_closed = req.door_closed
+    if req.components is not None:
+        device.component_state = req.components
+        record_component_health(db, device, lab, req.components)
+
+    if not was_online:
+        log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,
+                  device_id=device.id, message=f"{device.name} online")
+        resolve_offline_alerts(db, device)
+    db.commit()
+    if door_changed or lock_changed:
+        # Best effort and after the commit: pages refetch over REST, so the
+        # database stays the only source of truth. Guarded like events.py:
+        # a dashboard must never affect a device request.
+        try:
+            from app.ws.manager import manager
+            manager.publish({"type": "door_state", "lab_id": lab.id})
+        except Exception:
+            pass
+    return {"status": "ok", "lab": lab.code, "device_id": device.id}
+
+
+# ------------------------------------------------------------- telemetry ---
+class TelemetryReading(BaseModel):
+    metric: str = Field(pattern=r"^[a-z][a-z0-9_]{1,47}$")
+    value: float = Field(allow_inf_nan=False)
+    unit: str = Field(default="", max_length=16)
+
+
+class TelemetryRequest(BaseModel):
+    device_uid: str = Field(max_length=64)
+    lab_id: str = Field(max_length=32)
+    readings: list[TelemetryReading] = Field(min_length=1, max_length=20)
+
+
+@router.post("/telemetry", tags=["devices"])
+def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
+              identity: str = Depends(require_device)):
+    """
+    Environmental readings from a sensor node (temperature, humidity, and
+    the hazard states smoke / flame / water_leak / emergency, plus motion).
+    Stored as reported with the server's UTC time; nothing is interpolated.
+    A hazard state raises (or clears) its alert at once - see
+    services/environment.py.
+    """
+    device_scope(identity, req.device_uid)
+    lab = get_lab_by_code(db, req.lab_id)
+    if lab is None:
+        return {"status": "unknown_lab"}
+    device = get_device(db, req.device_uid)
+    now = datetime.now(timezone.utc)
+    for r in req.readings:
+        db.add(SensorReading(lab_id=lab.id,
+                             device_id=device.id if device else None,
+                             metric=r.metric, value=r.value, unit=r.unit,
+                             recorded_at=now))
+    if device is not None:
+        device.last_seen_at = now
+    from app.services import environment
+    values = [(r.metric, r.value) for r in req.readings]
+    messages = environment.record_hazards(db, lab, device, values)
+    messages += environment.record_advisories(db, lab, device, values)
+    db.commit()
+    # After the commit: open pages refetch this lab's readings at once, and a
+    # hazard change shows / clears the full-screen alarm.
+    environment.publish([{"type": "env_update", "lab_id": lab.id}, *messages])
+    return {"status": "recorded", "count": len(req.readings)}
+
+```

@@ -1,0 +1,50 @@
+%% Master system architecture: what talks to what, and over which protocol (verified in code, 9 Nov 2026)
+flowchart LR
+  subgraph PHY["Physical layer (Smart_Lab Wi-Fi, 192.168.1.0/24)"]
+    MASTER["Master Node (ESP32)<br/>PN532 NFC · AS608 fingerprint · ST7735 TFT<br/>relay → 12 V lock · door reed · LEDs"]
+    ENV["Environment Node (ESP32)<br/>DHT22 · MQ-2 · 2× PIR · flame board"]
+    CONS["Consumables Node (ESP32)<br/>HX711 load cell · 16×2 LCD"]
+    REUSE["Reusables Node (ESP32)<br/>PN532 NFC · servo lid · LCD"]
+    ECAM["ESP32-CAM<br/>door face camera"]
+    SCAM["IP security cameras<br/>(RTSP)"]
+    ROBOT["UR5e / FANUC<br/>(read-only)"]
+    PCS["Lab PCs<br/>(PC agent)"]
+    PHONE["Phone browser<br/>(HTTPS, camera)"]
+  end
+  subgraph EDGE["Engineer PC: local services"]
+    FACE["Face server<br/>(Python)"]
+    VISION["Security vision<br/>YOLO26s · tracking · identity<br/>port 5100 / 5101"]
+    COLLECT["Robot collector<br/>ur_rtde receive only"]
+    KB["Knowledge agent<br/>port 5199"]
+    OLLAMA["Ollama<br/>qwen2.5 (local LLM)"]
+    VAULT[("Obsidian vault<br/>Markdown")]
+  end
+  subgraph STACK["Docker Compose stack"]
+    NGINX["frontend (nginx, React portal)<br/>:443 / :80"]
+    API["backend (FastAPI)<br/>:8000"]
+    DB[("PostgreSQL 16")]
+    N8N["n8n 2.40.7<br/>127.0.0.1:5678"]
+    BK["backup"]
+  end
+  MASTER -- "HTTP /api/access/*" --> API
+  ENV -- "HTTP readings / events" --> API
+  CONS -- "HTTP /api/inventory/measurements" --> API
+  REUSE -- "HTTP /api/reusable/*" --> API
+  MASTER -- "HTTP /identify (2nd factor)" --> FACE
+  FACE -- "HTTP capture" --> ECAM
+  API -- "HTTP /enroll (face enrolment)" --> FACE
+  SCAM -- "RTSP" --> VISION
+  VISION -- "HTTP /api/security/*" --> API
+  ROBOT -- "RTDE (read)" --> COLLECT
+  COLLECT -- "HTTP /api/robots/telemetry" --> API
+  PCS -- "HTTP agent reports" --> API
+  PHONE -- "HTTPS portal + /api/scan/*" --> NGINX
+  NGINX -- "reverse proxy /api" --> API
+  API --- DB
+  BK -- "pg_dump" --> DB
+  N8N -- "HTTP /api/automation/* (service key)" --> API
+  API -- "webhooks" --> N8N
+  API -- "HTTP (Ollama API)" --> OLLAMA
+  API -- "HTTP (staff project questions)" --> KB
+  KB -- "reads + indexes" --> VAULT
+  KB -- "HTTP" --> OLLAMA

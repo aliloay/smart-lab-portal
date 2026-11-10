@@ -1,4 +1,4 @@
-# n8n workflows
+# n8n workflow inventory
 
 n8n is the **workflow orchestration layer**. It runs locally (`docker compose`, service `n8n`, bound to 127.0.0.1:5678) and only starts when `AUTOMATION_WEBHOOK_BASE` is set in `.env`. Every workflow is thin: n8n supplies the schedule or webhook trigger and the hand-off, while the **backend makes every decision** (`backend/app/api/routes/automation.py`). n8n does not do computer vision, access control or door decisions.
 

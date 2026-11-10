@@ -1,0 +1,60 @@
+---
+type: "system"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+---
+# n8n automation
+
+> Generated hub: notes whose path or workflow name matches this system's rules (shown). A navigation aid, not a verified dependency map.
+
+- [[automation_n8n_README.md]] (rule `automation/n8n/`)
+- [[automation_n8n_json_01-booking-confirmation.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_02-booking-reminders.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_03-access-denial-intelligence.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_04-device-offline-escalation.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_05-maintenance-automation.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_06-daily-report.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_07-weekly-report.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_08-sensor-thresholds.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_09-pre-booking-check.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_10-post-session.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_11-data-quality.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_12-anomaly-detection.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_13-environment-hazard-escalation.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_14-node-offline.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_15-low-stock.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_16-unattended-stock-change.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_17-asset-overdue.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_18-robot-offline-fault.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_19-robot-without-booking.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_20-pc-offline.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_21-exam-violations.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_22-robotics-daily.json]] (rule `automation/n8n/`)
+- [[automation_n8n_json_23-emergency.json]] (rule `automation/n8n/`)
+- [[backend_app_api_routes_automation.py]] (rule `routes/automation\.py`)
+- [[docs_AUTOMATION.md]] (rule `AUTOMATION\.md`)
+- [[Smart Lab 01 - Booking confirmation briefing]] (rule `automation/n8n/`)
+- [[Smart Lab 02 - Upcoming booking reminders]] (rule `automation/n8n/`)
+- [[Smart Lab 03 - Access denial intelligence]] (rule `automation/n8n/`)
+- [[Smart Lab 04 - Device offline alert with escalation]] (rule `automation/n8n/`)
+- [[Smart Lab 05 - Maintenance automation]] (rule `automation/n8n/`)
+- [[Smart Lab 06 - Daily lab report]] (rule `automation/n8n/`)
+- [[Smart Lab 07 - Weekly lab report]] (rule `automation/n8n/`)
+- [[Smart Lab 08 - Sensor threshold alerts]] (rule `automation/n8n/`)
+- [[Smart Lab 09 - Pre-booking lab readiness check]] (rule `automation/n8n/`)
+- [[Smart Lab 10 - Post-session follow-up]] (rule `automation/n8n/`)
+- [[Smart Lab 11 - Daily data quality check]] (rule `automation/n8n/`)
+- [[Smart Lab 12 - Rule-based anomaly detection]] (rule `automation/n8n/`)
+- [[Smart Lab 13 - Environment hazard escalation]] (rule `automation/n8n/`)
+- [[Smart Lab 14 - Environment _ bin node offline]] (rule `automation/n8n/`)
+- [[Smart Lab 15 - Consumable below reorder level]] (rule `automation/n8n/`)
+- [[Smart Lab 16 - Stock change with nobody inside]] (rule `automation/n8n/`)
+- [[Smart Lab 17 - Reusable item overdue]] (rule `automation/n8n/`)
+- [[Smart Lab 18 - Robot offline or fault]] (rule `automation/n8n/`)
+- [[Smart Lab 19 - Robot running without a booking]] (rule `automation/n8n/`)
+- [[Smart Lab 20 - Lab PC offline]] (rule `automation/n8n/`)
+- [[Smart Lab 21 - Exam-mode reports]] (rule `automation/n8n/`)
+- [[Smart Lab 22 - Robotics Lab daily summary]] (rule `automation/n8n/`)
+- [[Smart Lab 23 - Emergency_ warn people inside, check the door]] (rule `automation/n8n/`)
+
+Back to [[Home]]

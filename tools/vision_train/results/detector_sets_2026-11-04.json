@@ -1,0 +1,200 @@
+[
+ {
+  "set": "LIVE: lab_detector + all_detector",
+  "found": 150,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 214.7,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "32/35",
+   "master_node": "26/26",
+   "network_switch": "15/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "2/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "lab_detector alone",
+  "found": 145,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 104.0,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "34/35",
+   "master_node": "26/26",
+   "network_switch": "8/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "2/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "Colab v2 best alone",
+  "found": 147,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 102.1,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "34/35",
+   "master_node": "26/26",
+   "network_switch": "9/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "3/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "Colab v3 best alone",
+  "found": 152,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 242.0,
+  "per_class": {
+   "reusable_bin": "14/15",
+   "consumables_node": "22/22",
+   "environment_node": "33/35",
+   "master_node": "26/26",
+   "network_switch": "19/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "3/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "1/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "Colab v2 + all_detector",
+  "found": 151,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 198.3,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "31/35",
+   "master_node": "26/26",
+   "network_switch": "16/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "3/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "LIVE, switch threshold 0.6",
+  "found": 154,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 204.7,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "32/35",
+   "master_node": "26/26",
+   "network_switch": "19/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "2/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "Colab v2 + all_detector, switch threshold 0.6",
+  "found": 153,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 271.8,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "31/35",
+   "master_node": "26/26",
+   "network_switch": "18/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "3/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "LIVE, switch threshold 0.5",
+  "found": 154,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 201.9,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "32/35",
+   "master_node": "26/26",
+   "network_switch": "19/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "2/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ },
+ {
+  "set": "Colab v2 + all_detector, switch threshold 0.5",
+  "found": 155,
+  "objects": 171,
+  "false_frames": 0,
+  "empty_frames": 221,
+  "ms_per_image": 190.7,
+  "per_class": {
+   "reusable_bin": "15/15",
+   "consumables_node": "22/22",
+   "environment_node": "31/35",
+   "master_node": "26/26",
+   "network_switch": "20/29",
+   "network_router": "18/18",
+   "ur5e_robot": "7/7",
+   "ur5e_teach_pendant": "2/2",
+   "fanuc_robot": "3/6",
+   "fanuc_teach_pendant": "3/3",
+   "lab_pc": "4/4",
+   "lab_door": "4/4"
+  }
+ }
+]

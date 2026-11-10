@@ -1,0 +1,10 @@
+%% Digital twin and phone AR (verified 9 Nov 2026)
+flowchart LR
+  UR["UR5e controller"] -- "RTDE receive (read-only)" --> COL["tools/robot_monitor collector (rate = --hz)"]
+  COL -- "POST /api/robots/telemetry" --> API["FastAPI"]
+  API --> DB[("Device.component_state")]
+  DB --> API -- "GET robot state (polled)" --> TWIN["Portal 3D twin (three.js, BSD meshes)"]
+  PHONE["Phone camera (getUserMedia, HTTPS only)"] -- "QR 'SLAB:D:<uid>' decoded on the phone" --> SCAN["Scan page"]
+  SCAN -- "/api/scan/* : the record of THAT key" --> API
+  SCAN -- "people boxes from the camera service" --> API
+  API -- "live record, age, quality" --> SCAN

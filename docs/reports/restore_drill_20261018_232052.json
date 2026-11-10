@@ -1,0 +1,47 @@
+{
+ "stamp": "20261018_232052",
+ "kind": "LIVE_SYSTEM (isolated copy)",
+ "drill_db": "smartlab_drill_20261018_232052",
+ "dump_s": 2.63,
+ "dump_ok": true,
+ "integrity_ok": true,
+ "toc_entries": 547,
+ "dump_file": "backups\\smartlab_drill_source_20261018_232052.dump",
+ "dump_kb": 1403,
+ "restore_s": 6.73,
+ "restore_exit": 0,
+ "restore_errors": [],
+ "tables": 42,
+ "rows_restored": 83483,
+ "count_mismatches": {
+  "inventory_measurements": {
+   "production_now": 24082,
+   "restored": 24073
+  },
+  "sensor_readings": {
+   "production_now": 40555,
+   "restored": 40535
+  }
+ },
+ "alembic_version_restored": "d5e8b2c4f917",
+ "migration_test": {
+  "upgrade": {
+   "exit": 0,
+   "s": 9.18,
+   "version": "b7c3e1f9a204"
+  },
+  "downgrade": {
+   "exit": 0,
+   "s": 8.8,
+   "version": "d5e8b2c4f917"
+  },
+  "upgrade_again": {
+   "exit": 0,
+   "s": 8.59,
+   "version": "b7c3e1f9a204"
+  },
+  "alerts": 382,
+  "alerts_with_fingerprint": 382,
+  "alerts_occurrences_1": 378
+ }
+}

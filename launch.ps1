@@ -9,7 +9,7 @@
     1. checks Docker is installed and running
     2. checks .env exists and the required keys are set (copy .env.example to .env first)
     3. creates the local folders the stack writes to
-    4. "docker compose up -d" (the API applies database migrations itself on start)
+    4. "docker compose up -d" (plus --profile automation when AUTOMATION_WEBHOOK_BASE is set; the API applies database migrations itself on start)
     5. waits for the health checks and prints the URLs
 
   What it never does: delete containers' data ("down -v"), touch the firewall, expose ports beyond docker-compose.yml,
@@ -48,18 +48,21 @@ Step 'Creating local folders'
 foreach ($d in 'backups', 'logs') { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null } }
 
 # 4. start
-if ($Build) { Step 'Building images'; docker compose build; if ($LASTEXITCODE -ne 0) { Fail 'docker compose build failed (see the output above).' } }
+# n8n is behind the compose profile "automation": started only when .env configures automation (as launch.bat does)
+$profileArgs = @()
+if ($envMap['AUTOMATION_WEBHOOK_BASE']) { $profileArgs = @('--profile', 'automation') }
+if ($Build) { Step 'Building images'; docker compose @profileArgs build; if ($LASTEXITCODE -ne 0) { Fail 'docker compose build failed (see the output above).' } }
 Step 'Starting services'
-docker compose up -d
+docker compose @profileArgs up -d
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose up failed (see the output above). Your data volumes were not touched.' }
 
 # 5. wait for health
 Step "Waiting for health checks (up to $TimeoutSeconds s)"
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-$services = docker compose ps --services
+$services = docker compose @profileArgs ps --services
 do {
   $states = foreach ($s in $services) {
-    $id = docker compose ps -q $s
+    $id = docker compose @profileArgs ps -q $s
     if (-not $id) { continue }
     $h = docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' $id
     [pscustomobject]@{ Service = $s; State = $h }
@@ -71,11 +74,24 @@ do {
 $states | Format-Table -AutoSize | Out-String | Write-Host
 if ($waiting) { Fail ("Not healthy in time: " + (($waiting | ForEach-Object { "$($_.Service)=$($_.State)" }) -join ', ') + '. Check "docker compose logs <service>".') }
 
-try { $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 'http://127.0.0.1:8000/api/health'; $api = $r.StatusCode } catch { $api = 'no answer' }
+$apiPort = if ($envMap['SMARTLAB_API_PORT']) { $envMap['SMARTLAB_API_PORT'] } else { '8000' }
+$httpsPort = if ($envMap['SMARTLAB_HTTPS_PORT']) { ':' + $envMap['SMARTLAB_HTTPS_PORT'] } else { '' }
+$httpAltPort = if ($envMap['SMARTLAB_HTTP_ALT_PORT']) { $envMap['SMARTLAB_HTTP_ALT_PORT'] } else { '8080' }
+$n8nPort = if ($envMap['SMARTLAB_N8N_PORT']) { $envMap['SMARTLAB_N8N_PORT'] } else { '5678' }
+$api = 'no answer'
+for ($i = 0; $i -lt 12 -and $api -ne 200; $i++) {     # the API can need a few seconds after its container reports running
+  try { $api = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 10 "http://127.0.0.1:$apiPort/api/health").StatusCode } catch { Start-Sleep -Seconds 5 }
+}
+if ($api -ne 200) { Fail "The API did not answer on http://127.0.0.1:$apiPort/api/health. Check 'docker compose logs backend'." }
 Write-Host ''
 Write-Host 'Smart Lab is running.' -ForegroundColor Green
-Write-Host "  Portal (HTTPS):  https://localhost/"
-Write-Host "  Portal (HTTP):   http://localhost:8080/"
-Write-Host "  API health:      http://127.0.0.1:8000/api/health  ($api)"
-if ($services -contains 'n8n') { Write-Host "  n8n (local):     http://127.0.0.1:5678/" }
+$httpPort = if ($envMap['SMARTLAB_HTTP_PORT']) { ':' + $envMap['SMARTLAB_HTTP_PORT'] } else { '' }
+if ((Test-Path 'deploy/tls/server.crt') -and (Test-Path 'deploy/tls/server.key')) {
+  Write-Host "  Portal (HTTPS):  https://localhost$httpsPort/"
+} else {
+  Write-Host "  Portal:          http://localhost$httpPort/   (HTTPS is off until a certificate exists: docs/SECURITY.md)"
+}
+Write-Host "  Command Center:  http://localhost:$httpAltPort/"
+Write-Host "  API health:      http://127.0.0.1:$apiPort/api/health  ($api)"
+if ($services -contains 'n8n') { Write-Host "  n8n (local):     http://127.0.0.1:$n8nPort/" }
 Write-Host '  Stop with:       powershell -ExecutionPolicy Bypass -File .\stop.ps1   (keeps all data)'

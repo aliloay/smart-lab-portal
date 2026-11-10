@@ -16,7 +16,7 @@
 | Added | |
 |---|---|
 | Launch | `launch.ps1`, `stop.ps1` |
-| Docs | `docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md`, `PROJECT_COMPONENT_INVENTORY.md`, `CODE_OPTIMIZATION_REPORT.md`, this report; `docs/automation/N8N_WORKFLOWS.md`; README top section |
+| Docs | `docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md`, `PROJECT_COMPONENT_INVENTORY.md`, `CODE_OPTIMIZATION_REPORT.md`, this report; `docs/automation/workflow-inventory.md`; README top section |
 | Code | Migration `f1a7c3d9e250_pc_account_keys.py`, `agent_bundle.py`, `test_pc_keys.py`, PC-agent tools, `tools/relay`, `lib/visibleInterval.ts`, `WatchShare.tsx`, training and evaluation scripts |
 | Media and models | Robot meshes (BSD/permissive, `frontend/public/models/README.md`), lab images used by the portal, enclosure CAD sources and release STLs, `lab_detector.onnx` (10.6 MB) |
 

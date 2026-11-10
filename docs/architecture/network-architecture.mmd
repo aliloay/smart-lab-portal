@@ -1,0 +1,15 @@
+%% Local network (verified 9 Nov 2026): one Wi-Fi LAN, services on the engineer PC, nothing exposed to the internet
+flowchart TB
+  ROUTER["Smart_Lab router<br/>192.168.1.0/24 (no internet needed for core)"]
+  PC["Engineer PC 192.168.1.200 (cable)<br/>Docker: nginx :443/:80 · API :8000 · PostgreSQL 127.0.0.1:5433 · n8n 127.0.0.1:5678<br/>Native: security vision :5100/:5101 · knowledge :5199 · face server :5000 · Ollama 127.0.0.1:11434"]
+  NODES["ESP32 nodes (Wi-Fi)<br/>Master · Environment 192.168.1.152 · Consumables · Reusables · ESP32-CAM"]
+  CAMS["IP cameras (RTSP)"]
+  LABPCS["Lab PCs (PC agent) / GIU network via tools/relay"]
+  PHONES["Phones and tablets (HTTPS portal)"]
+  ROBOTS["UR5e / FANUC controllers (read-only)"]
+  ROUTER --- PC
+  ROUTER --- NODES
+  ROUTER --- CAMS
+  ROUTER --- PHONES
+  ROUTER --- ROBOTS
+  LABPCS --- PC

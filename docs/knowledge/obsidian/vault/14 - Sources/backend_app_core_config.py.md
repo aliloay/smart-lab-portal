@@ -1,0 +1,327 @@
+---
+type: "source-mirror"
+source_kind: "source-code"
+source_path: "backend/app/core/config.py"
+source_hash: "531664342add2fb93cb73c00eedf6937a4e0cd453b4e3d9ae59bca7a303a23da"
+generated: true
+updated: "2026-11-04T00:02:39+02:00"
+---
+> Read-only mirror of `backend/app/core/config.py` - edit the original in the repository, not this note.
+
+Systems: [[Backend and data]]
+
+## Related
+- [[backend_app_api_routes_ai.py]] - imports
+- [[backend_app_api_routes_auth.py]] - imports
+
+```py
+"""
+Configuration. Everything sensitive comes from the environment; nothing
+secret is hardcoded here. See .env.example for the full list.
+"""
+from functools import lru_cache
+from typing import List
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    PROJECT_NAME: str = "Smart Lab Portal"
+    API_V1: str = "/api"
+
+    # --- database -----------------------------------------------------------
+    DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/smartlab"
+
+    # --- security -----------------------------------------------------------
+    # No default in production: start_backend refuses to run with the dev value
+    # when ENVIRONMENT=production.
+    SECRET_KEY: str = "dev-only-change-me"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    ENVIRONMENT: str = "development"
+
+    # --- API docs -------------------------------------------------------------
+    # /api/docs + /api/openapi.json list every endpoint: development only.
+    EXPOSE_API_DOCS: bool = False
+
+    # --- CORS ---------------------------------------------------------------
+    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    # --- door / device integration -----------------------------------------
+    # The ESP32 master authenticates to the device endpoints with this key
+    # rather than a user JWT: it is a device, not a person.
+    DEVICE_API_KEY: str = "dev-device-key-change-me"
+    # Accept the shared key above. Set false once every device has its own
+    # key (Devices -> Issue key), so a leaked shared key opens nothing.
+    DEVICE_SHARED_KEY: bool = True
+    # The backup service's status file (docker-compose mounts ./backups read-only);
+    # empty = not watched (tests, a bare install).
+    BACKUP_STATUS_PATH: str = ""
+    # Provenance stamped on new records when no data mode was chosen in
+    # Settings and no experiment is running (models.PROVENANCES).
+    DATA_MODE_DEFAULT: str = "UNKNOWN_PROVENANCE"
+
+    # QR tokens are opaque and random.
+    #
+    # 16 bytes, NOT 32, and the reason is optical rather than cryptographic.
+    # Measured module counts at error-correction level Q:
+    #
+    #     32 bytes -> 47 chars -> QR version 5 -> 45 modules -> 5.78 px/module
+    #     16 bytes -> 26 chars -> QR version 3 -> 37 modules -> 7.03 px/module
+    #
+    # (at a QR occupying 260px of a 640x480 frame, i.e. a phone held at a
+    # normal distance from the door camera)
+    #
+    # 22% more pixels per module is the difference between reliable and
+    # intermittent decoding through an OV2640 at jpeg_quality 12. 128 bits of
+    # entropy remains overwhelming for a credential that also expires within
+    # hours and is bound to one booking and one laboratory - guessing one is
+    # not a threat model, photographing one is, and that is handled by the
+    # time window rather than by token length.
+    QR_TOKEN_BYTES: int = 16
+
+    # Grace either side of a booking window, in minutes. A student arriving a
+    # minute early should not be refused; this is a usability allowance and is
+    # deliberately small and explicit rather than hidden in the comparison.
+    BOOKING_GRACE_MINUTES: int = 0
+
+    # Booking policy
+    MAX_BOOKING_HOURS: int = 8
+    BOOKING_AUTO_APPROVE: bool = True
+    # A booking reminder is raised this many minutes before the window opens.
+    BOOKING_REMINDER_MINUTES: int = 15
+    # Environment advisories (orange pop-up for staff, no siren): comfort
+    # limits with hysteresis. The portal only advises - it switches nothing.
+    ENV_TEMP_HIGH_C: float = 30.0
+    ENV_TEMP_NORMAL_C: float = 28.0
+    ENV_HUMIDITY_HIGH: float = 70.0
+    ENV_HUMIDITY_NORMAL: float = 65.0
+
+    # A device that has not sent a heartbeat for this long is offline.
+    DEVICE_STALE_SECONDS: int = 90
+
+    # --- issue photos ---------------------------------------------------------
+    # Local filesystem storage for the first deployment. The storage service
+    # hides the backend, so this can become S3/MinIO without touching issues.
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_MB: int = 12
+    MAX_PHOTOS_PER_ISSUE: int = 12
+    MAX_PHOTOS_PER_REQUEST: int = 6
+    # Larger photos are scaled down to this longest side - still enough to
+    # read a serial plate or a burnt trace, a fraction of a raw phone photo.
+    IMAGE_MAX_DIMENSION: int = 2560
+    THUMBNAIL_DIMENSION: int = 480
+
+    # Hours before an unresolved issue counts as overdue, by severity. A
+    # published service level, not a hidden constant, so a report can say
+    # what "overdue" means.
+    ISSUE_SLA_HOURS_CRITICAL: int = 24
+    ISSUE_SLA_HOURS_HIGH: int = 72
+    ISSUE_SLA_HOURS_MEDIUM: int = 168
+    ISSUE_SLA_HOURS_LOW: int = 336
+
+    # --- automation (n8n) ---------------------------------------------------
+    # Everything here is optional. With these unset the portal behaves exactly
+    # as before: events are still recorded in the outbox (so a consumer added
+    # later can read the history), nothing is pushed, and /api/automation/*
+    # answers 503. n8n is never on the door path - it cannot lock or unlock.
+    #
+    # Key n8n presents in X-Automation-Key when it calls /api/automation/*.
+    AUTOMATION_API_KEY: str = ""
+    # Base URL of the n8n webhooks, e.g. http://n8n:5678/webhook. Each pushed
+    # event goes to {base}/smartlab-{event.type with . -> -}.
+    AUTOMATION_WEBHOOK_BASE: str = ""
+    # Sent as X-Smartlab-Token on every push; the n8n Webhook nodes check it
+    # with a Header Auth credential.
+    AUTOMATION_WEBHOOK_TOKEN: str = ""
+    # Which event types are pushed. The rest stay in the pull feed only.
+    # Only types a workflow listens for: a push nobody receives fails (404)
+    # and is retried. door.alarm is not pushed - the backend itself raises
+    # the alert and notifies staff (services/devices.record_door_alarm).
+    # emergency.set: workflow 23 warns everyone inside the lab and checks
+    # that the door applied it.
+    AUTOMATION_PUSH_TYPES: str = ("booking.confirmed,access.denied,"
+                                  "issue.created,device.offline,emergency.set")
+    AUTOMATION_MAX_ATTEMPTS: int = 6
+    # Delivered/skipped outbox rows older than this are pruned.
+    AUTOMATION_RETENTION_DAYS: int = 30
+
+    # Rule thresholds the automation API evaluates. Rules live here, in the
+    # backend, so n8n never re-implements them.
+    DENIAL_WINDOW_MINUTES: int = 10
+    DENIAL_WARNING_COUNT: int = 3
+    # Offline escalation, minutes since the last heartbeat: level 1 at the
+    # stale threshold, level 2 and 3 at these.
+    DEVICE_ESCALATE_L2_MINUTES: int = 15
+    DEVICE_ESCALATE_L3_MINUTES: int = 60
+    # Hours per day a laboratory is bookable - the denominator of the
+    # utilisation percentage, stated on the chart rather than hidden.
+    LAB_OPEN_HOURS_PER_DAY: int = 10
+    # Hours considered "out of hours" by the anomaly rules, in this zone.
+    LOCAL_TIMEZONE: str = "Africa/Cairo"
+    AFTER_HOURS_START: int = 22
+    AFTER_HOURS_END: int = 6
+    # metric=min:max, comma separated. Empty side = unbounded.
+    SENSOR_THRESHOLDS: str = ("temperature=16:30,humidity=20:70,"
+                              "co2=:1000,noise=:85")
+
+    # --- PC exam mode ---------------------------------------------------------
+    # Programs (process names) the PC agent reports as a violation while a PC
+    # is in EXAM mode. Websites cannot be seen from a process list: blocking
+    # sites needs a managed / kiosk browser, which is policy, not this list.
+    EXAM_PROHIBITED_PROCESSES: str = "whatsapp.exe,telegram.exe,discord.exe"
+
+    @property
+    def exam_prohibited(self) -> list[str]:
+        return [p.strip().lower() for p in self.EXAM_PROHIBITED_PROCESSES.split(",") if p.strip()]
+
+    # --- face enrollment from the portal ------------------------------------
+    # Staff enroll a person's face from Users & roles: the portal asks the
+    # door camera for a frame and the face server (on this laptop) keeps the
+    # samples and the photo. The portal itself stores no biometric.
+    CAMERA_URL: str = "http://192.168.1.150"
+    FACE_SERVER_URL: str = "http://127.0.0.1:5000"
+
+    # --- security camera (tools/security_vision) ------------------------------
+    # The vision service runs on this laptop next to the face server; the
+    # portal fetches the live frames from it. Each camera's service reports
+    # its own port; this is the host part.
+    SECURITY_VISION_HOST: str = "127.0.0.1"
+
+    # --- emergency (admin) ------------------------------------------------------
+    # The Emergency tab opens only with this password (kept in .env, never in
+    # git). Once changed from the portal, the stored bcrypt hash is used instead.
+    EMERGENCY_PASSWORD: str = ""
+    # How long the emergency controls stay open after the password.
+    EMERGENCY_SESSION_MINUTES: int = 15
+
+    # --- AI assistant (optional) --------------------------------------------
+    # Two providers:
+    #   ollama    - free, runs on your own computer (https://ollama.com).
+    #               The portal talks to it at OLLAMA_URL; nothing leaves the
+    #               machine and there is no per-question cost.
+    #   anthropic - Claude via the Claude API; needs ANTHROPIC_API_KEY and is
+    #               billed per use.
+    # AI_PROVIDER=auto picks anthropic when a key is set, else ollama when
+    # OLLAMA_URL is set, else the assistant is off and every AI endpoint says
+    # so; nothing else changes. Keys are read here only, never sent to the
+    # browser.
+    AI_PROVIDER: str = "auto"
+    OLLAMA_URL: str = ""
+    # Project knowledge (admins/staff): the local knowledge agent on this laptop,
+    # tools/knowledge/serve.py on 127.0.0.1:5199 (not reachable from the lab network).
+    KB_SERVICE_URL: str = "http://127.0.0.1:5199"
+    KB_SERVICE_KEY: str = ""
+    # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
+    OLLAMA_MODEL: str = "qwen2.5:3b"
+    # Student helper: answers from a small, pre-fetched context - no tools.
+    # A separate, smaller model so both stay loaded side by side and neither
+    # chat waits for the other's model to be swapped in. Empty = share the
+    # staff model (use on GPUs with less than 4 GB).
+    OLLAMA_STUDENT_MODEL: str = "qwen2.5:1.5b"
+    # The student context is small, so a smaller window keeps GPU memory free
+    # for the staff model. Each model always gets the same size (a change
+    # would make Ollama reload it).
+    OLLAMA_STUDENT_NUM_CTX: int = 4096
+    # Context window. 8k keeps a 4 GB GPU comfortable; the portal retries at
+    # 4k by itself if Ollama's engine crashes.
+    OLLAMA_NUM_CTX: int = 4096          # 2026-10-26: = the student size -> one loaded copy when both use one model
+    # true = never use the graphics card (slower, but works when the GPU
+    # driver cannot run Ollama's CUDA code).
+    OLLAMA_CPU_ONLY: bool = False
+    # "auto" (2026-10-20): the GPU only while no security camera is analysing, decided once for both
+    # assistants by the knowledge service (tools/knowledge/gpu_gate.py); "gpu": as before. Ignored while
+    # OLLAMA_CPU_ONLY is true.
+    OLLAMA_GPU_POLICY: str = "gpu"
+    # CPU threads per AI answer (of 12 on the laptop). Ollama's runner is above-normal priority and
+    # takes every core by default, starving the camera analysis (measured 2026-10-18). 0 = default.
+    OLLAMA_NUM_THREAD: int = 4
+    # Answers generated at the same time (each takes OLLAMA_NUM_THREAD cores); others wait up to
+    # OLLAMA_QUEUE_WAIT_S, then get a clear "busy" message - never an unbounded pile-up on the CPU.
+    OLLAMA_MAX_CONCURRENT: int = 1
+    # 2026-10-26: keyword tool router + bounded answers for the local model (docs/LOCAL_AI_BENCHMARK_2026-10-26.md)
+    AI_ROUTER: bool = True
+    OLLAMA_THINK: bool = False          # reasoning models (qwen3 ...) answer directly; True = allow thinking
+    API_THREADS: int = 120              # worker threads for sync routes - must exceed the DB pool (20 + 20 overflow)
+    AI_LOCAL_ONLY: bool = True          # never use a cloud model, even if a key is configured
+    AI_MAX_ANSWER_TOKENS: int = 220
+    AI_ROUTED_RESULT_CHARS: int = 3500
+    AI_DEFAULT_LAB: str = "LAB_01"
+    OLLAMA_QUEUE_WAIT_S: float = 45.0
+    # Incident escalation (2026-10-18): open + not acknowledged for longer than these, or a condition
+    # that keeps repeating / coming back. Every value configurable, none hides an alert.
+    INCIDENT_ESCALATE_CRITICAL_MIN: int = 15
+    INCIDENT_ESCALATE_WARNING_MIN: int = 240
+    INCIDENT_ESCALATE_OCCURRENCES: int = 20
+    INCIDENT_ESCALATE_REOPENS: int = 3
+    ANTHROPIC_API_KEY: str = ""
+    AI_MODEL: str = "claude-opus-5"
+    AI_STUDENT_MODEL: str = "claude-haiku-4-5"
+    # Analytics Q&A is not a hard reasoning task; medium keeps it quick and
+    # cheap. Raise to "high" if answers feel shallow.
+    AI_EFFORT: str = "medium"
+    AI_MAX_TOOL_ROUNDS: int = 6
+    AI_QUESTIONS_PER_HOUR: int = 30
+    AI_STUDENT_ENABLED: bool = True
+    AI_STUDENT_QUESTIONS_PER_HOUR: int = 20
+
+    # --- Self-service sign-up -----------------------------------------------
+    # The login page offers "Create account". Sign-up only ever creates a
+    # STUDENT with no fingerprint/RFID enrolment, so it grants no door access
+    # by itself: an administrator still enrols the person at the reader.
+    SIGNUP_ENABLED: bool = True
+    # Comma-separated allowed email domains, e.g. "giu-uni.de". Empty = any.
+    SIGNUP_EMAIL_DOMAINS: str = ""
+    # True = new accounts start disabled until an administrator activates
+    # them on Users & roles.
+    SIGNUP_REQUIRES_APPROVAL: bool = False
+    SIGNUPS_PER_IP_PER_HOUR: int = 10
+    # Give every new account (admin-created or signed up) the next door
+    # identity USERn = fingerprint slot n. It opens nothing until staff enrol
+    # that person's fingerprint/face under the same number.
+    AUTO_ASSIGN_AUTH_SUBJECT: bool = True
+
+    @property
+    def ollama_student_model(self) -> str:
+        return self.OLLAMA_STUDENT_MODEL.strip() or self.OLLAMA_MODEL
+
+    @property
+    def signup_domains(self) -> list[str]:
+        return [d.strip().lower().lstrip("@") for d in
+                self.SIGNUP_EMAIL_DOMAINS.split(",") if d.strip()]
+
+    @property
+    def automation_push_types(self) -> set[str]:
+        return {t.strip() for t in self.AUTOMATION_PUSH_TYPES.split(",")
+                if t.strip()}
+
+    @property
+    def sensor_thresholds(self) -> dict[str, tuple[float | None, float | None]]:
+        out: dict[str, tuple[float | None, float | None]] = {}
+        for part in self.SENSOR_THRESHOLDS.split(","):
+            if "=" not in part:
+                continue
+            metric, _, rng = part.partition("=")
+            lo, _, hi = rng.partition(":")
+            try:
+                out[metric.strip()] = (float(lo) if lo.strip() else None,
+                                       float(hi) if hi.strip() else None)
+            except ValueError:
+                continue
+        return out
+
+    @property
+    def cors_list(self) -> List[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
+
+```
