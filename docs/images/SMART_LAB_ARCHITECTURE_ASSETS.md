@@ -29,7 +29,7 @@ The four node renders were not re-rendered for this image; the existing renders 
 
 - 329 API operations, 42 tables: backend OpenAPI schema and database dictionary.
 - 23 n8n workflows: `automation/n8n/json`. 322 notes: the published vault copy.
-- YOLO26s, two cameras sharing one identity: `docs/computer-vision/`. Camera 2 still needs its floor calibration for name sharing.
+- YOLO26s, two cameras sharing one identity: `docs/computer-vision/`. Both cameras have floor maps; a name crosses only while both cameras see and can place the person.
 - Robots are read-only: UR5e over RTDE receive, FANUC over the controller web page (`GET` only).
 - Reusables node is marked "prototype".
 

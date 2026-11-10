@@ -203,7 +203,7 @@ No secrets, face data, unblurred images or database contents are in the reposito
 
 ## Known limitations
 
-Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and two-camera calibration. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
+Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and the cross-camera name handoff when feet are hidden. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 Defense framing and the remaining optimisation work: [docs/defense/DEFENSE_BRIEF.md](docs/defense/DEFENSE_BRIEF.md) · [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md).
 

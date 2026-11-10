@@ -18,7 +18,7 @@ The enclosures are reported printed in PETG. If heat resistance is claimed, quot
 
 | Gap | Effect | Step |
 |---|---|---|
-| Camera 2 has no floor calibration | Names are not shared between the cameras, so the "one person, one identity" claim rests on camera 1 | Mark at least four floor points for camera 2 |
+| Names cross between the cameras only while both see the person and can place them | Both cameras have floor maps (live-verified 19 Oct, refit 21 Oct 2026). A name does not cross when the feet are hidden in either view or the person has already left the other view, so the second camera can show "Unknown" for a person the first one confirmed | Measure the look-based handoff (`fix/crosscam-handoff`, simulation-tested) in a two-person walk test before relying on it |
 | Formal offline run not done | "100% local" is verified in code only | Unplug the internet for 30 minutes and run `tools/offline/offline_check.py`; keep the report |
 | AR not measured on a real phone | Latency figure missing | Time scan-to-record on one phone, ten scans |
 | FANUC twin verified in one session only | Read-only twin followed the pendant on 14 Oct 2026 (about 3 samples/s); the J2/J3 coupling was not confirmed against known poses, and the 3D meshes are those of the LR Mate 200iD | Compare two or three poses with the pendant values; repeat the run once and keep the record |
@@ -56,7 +56,7 @@ Per-container memory limits were considered and rejected: usage is far below any
 
 1. Consumables calibration and repeatability (about 45 min).
 2. Environment `VERIFY` constants with a meter (20 min).
-3. Camera 2 floor calibration, then a two-person walk test (30 min).
+3. Two-person walk test of the cross-camera handoff: feet hidden, seated, leaving one view for the other (30 min).
 4. Offline run and cold-start timing together (40 min).
 5. Phone AR timing (10 min).
 6. Door records and evacuation re-test (20 min).

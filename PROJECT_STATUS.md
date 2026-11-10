@@ -7,7 +7,7 @@
 | Environment node | Bench-verified sensors; deployed |
 | Consumables node | In use; calibration measurements open |
 | Reusables node | Prototype; bring-up open |
-| Cameras and presence verification | Working in the lab; second camera needs floor calibration |
+| Cameras and presence verification | Working in the lab with both cameras floor-calibrated; name handoff for hidden feet or a left view is open |
 | Robot twins | UR5e working (read-only); FANUC ER-4iA live-verified read-only once (14 Oct 2026), pose check open |
 | AI assistants and knowledge agent | Working locally |
 | n8n workflows | 23 exports; live instance configured |
