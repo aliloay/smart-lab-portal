@@ -205,6 +205,8 @@ Hardware measurements still open (power distribution, load-cell calibration, reu
 
 Defense framing and the remaining optimisation work: [docs/defense/DEFENSE_BRIEF.md](docs/defense/DEFENSE_BRIEF.md) · [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md).
 
+**Overview film (47 s):** [FACILITY_INTELLIGENCE_47S.mp4](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4), attached to the `thesis-2026-11-10` release. People in the lab footage are blurred.
+
 ## Project structure
 
 ```text

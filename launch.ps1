@@ -86,7 +86,7 @@ if ($api -ne 200) { Fail "The API did not answer on http://127.0.0.1:$apiPort/ap
 Write-Host ''
 Write-Host 'Smart Lab is running.' -ForegroundColor Green
 $httpPort = if ($envMap['SMARTLAB_HTTP_PORT']) { ':' + $envMap['SMARTLAB_HTTP_PORT'] } else { '' }
-if ((Test-Path 'deploy	ls\server.crt') -and (Test-Path 'deploy	ls\server.key')) {
+if ((Test-Path 'deploy/tls/server.crt') -and (Test-Path 'deploy/tls/server.key')) {
   Write-Host "  Portal (HTTPS):  https://localhost$httpsPort/"
 } else {
   Write-Host "  Portal:          http://localhost$httpPort/   (HTTPS is off until a certificate exists: docs/SECURITY.md)"
