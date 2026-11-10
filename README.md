@@ -15,7 +15,9 @@ A modular, lightweight, locally operated AIoT platform that integrates access co
 
 The **Smart Research Laboratory at the German International University (GIU), Cairo** is the development and demonstration environment. Universities, hospitals, banks, industrial and corporate facilities are potential application environments, not deployments.
 
-![Access granted at the Master Node (render of the real enclosure CAD)](docs/media/hardware/master_node_render.png)
+![The whole system in one view: the four nodes, two cameras and the lab PCs connected to one local core and the portal (render built from the real enclosure CAD and a real portal screen)](docs/media/diagrams/architecture_render_blender.png)
+
+*One local core, everything connected: the Master (door), Environment, Consumables and Reusables nodes, two security cameras, the lab PCs and the portal. Render of the real enclosure CAD; the robots and the router are not drawn here (see the camera frame and the twin photo below for the real lab).*
 
 ---
 
@@ -73,8 +75,8 @@ Full diagrams with protocols and sequence of an entry: [docs/architecture/master
 | **Consumables** | Weighs a parts bin, estimates the count | 1 kg load cell + HX711, 16×2 LCD | [consumables-node.md](docs/hardware/consumables-node.md) |
 | **Reusables** | NFC check-out, servo lid | PN532, MG90S servo, reed switch, LCD | [reusables-node.md](docs/hardware/reusables-node.md) |
 
-| ![Environment Node](docs/media/hardware/environment_node_render.png) | ![Consumables Node](docs/media/hardware/consumables_node_render.png) | ![Reusables Node](docs/media/hardware/reusables_node_render.png) |
-|---|---|---|
+| ![Master Node](docs/media/hardware/master_node_render.png) | ![Environment Node](docs/media/hardware/environment_node_render.png) | ![Consumables Node](docs/media/hardware/consumables_node_render.png) | ![Reusables Node](docs/media/hardware/reusables_node_render.png) |
+|---|---|---|---|
 | Environment (render of CAD) | Consumables (render of CAD) | Reusables (render of CAD) |
 
 Pinouts from the firmware: [wiring-and-pinouts.md](docs/hardware/wiring-and-pinouts.md) · power: [power-distribution.md](docs/hardware/power-distribution.md) · door system: [door-access-system.md](docs/hardware/door-access-system.md) · what has been measured: [hardware-validation.md](docs/hardware/hardware-validation.md) · enclosure CAD: [`tools/cad/`](tools/cad/).
