@@ -49,7 +49,6 @@ These turn the five claims into results.
 | Split the 3D twin and chart bundles (Vite chunk warning) | Faster first load on phones | Low; frontend only |
 | Repeat the resource measurement and write it into the thesis | Supports "lightweight" with a current figure | None |
 | Update the stale firmware and vision READMEs listed in the project inventory | Consistent documentation | None |
-| Choose a licence | Completes the public repository | Owner decision |
 
 Per-container memory limits were considered and rejected: usage is far below any sensible limit, and a limit would only add out-of-memory risk.
 

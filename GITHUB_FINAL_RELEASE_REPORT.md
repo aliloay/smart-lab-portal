@@ -43,4 +43,4 @@ A fresh `git clone` in a separate folder, a new `.env` from `.env.example` with 
 
 ## Open items
 
-See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md). The owner still has to change the public seed passwords on live accounts and choose a licence.
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) and [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md). The owner still has to change the public seed passwords on live accounts. The code licence (MIT) was added on 10 Nov 2026.

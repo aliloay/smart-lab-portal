@@ -238,6 +238,6 @@ This project is the implementation of the GIU Bachelor's thesis **"Design and De
 
 ## Licence and attribution
 
-No licence file has been chosen yet, so all rights are reserved by the author until one is added. Third-party components keep their own licences: robot meshes (BSD-3 and others, [`frontend/public/models/README.md`](frontend/public/models/README.md)), Ultralytics YOLO weights (AGPL-3.0), OpenCV model-zoo models, and the npm/pip dependencies in `frontend/package.json` and `backend/requirements.txt`.
+The project's own source code is released under the [MIT License](LICENSE), copyright Ali Loay, German International University. The work is a GIU Bachelor's thesis supervised by Dr. Ramy. The licence covers the code only: the photographs, lab footage, renders, figures, thesis documents and the overview film remain the author's and are not licensed for reuse. Stock equipment photographs keep the licences listed in [`frontend/public/equipment/ATTRIBUTION.json`](frontend/public/equipment/ATTRIBUTION.json). Third-party components keep their own licences: robot meshes (BSD-3 and others, [`frontend/public/models/README.md`](frontend/public/models/README.md)), Ultralytics YOLO weights (AGPL-3.0), OpenCV model-zoo models, and the npm/pip dependencies in `frontend/package.json` and `backend/requirements.txt`.
 
 Author: Ali Loay ([@aliloay](https://github.com/aliloay)).

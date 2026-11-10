@@ -15,6 +15,6 @@
 | Database | Migration `f1a7c3d9e250` (PC keys) | Done | Applied live on 9 Nov 2026 |
 | Accounts | Seed demo passwords are public in the repository | Security | Change every live account that still uses one |
 | Frontend | Chunk-size warning for the 3D twin and charts | Performance | Optional further code splitting |
-| Licence | No licence file chosen | Owner decision | Choose a licence |
+| Licence | MIT for the code (10 Nov 2026); the YOLO weights are AGPL-3.0 | Done / note | Keep the weights' licence in mind if the vision service is redistributed |
 | Installation | A second copy of the repository on the same PC uses the same Docker project name (`smart-lab-portal`), so it would attach to the first copy's containers and data volumes | Configuration | Set `COMPOSE_PROJECT_NAME=<other name>` in the second copy's `.env` before starting it |
 | Installation | With non-default host ports, the redirects to HTTPS and to `/command` point at the default ports | Configuration | Use the default ports, or open the HTTPS address directly |
