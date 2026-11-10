@@ -15,9 +15,9 @@ A modular, lightweight, locally operated AIoT platform that integrates access co
 
 The **Smart Research Laboratory at the German International University (GIU), Cairo** is the development and demonstration environment. Universities, hospitals, banks, industrial and corporate facilities are potential application environments, not deployments.
 
-![The whole system in one view: the four nodes, two cameras and the lab PCs connected to one local core and the portal (render built from the real enclosure CAD and a real portal screen)](docs/media/diagrams/architecture_render_blender.png)
+[![Watch the 47-second overview film. Poster: the Smart Lab architecture, four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-video-poster.png)](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4)
 
-*One local core, everything connected: the Master (door), Environment, Consumables and Reusables nodes, two security cameras, the lab PCs and the portal. Render of the real enclosure CAD; the robots and the router are not drawn here (see the camera frame and the twin photo below for the real lab).*
+*Click the image to play the overview film (47 s). The poster is built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Version without the play button: [smart-lab-architecture.png](docs/images/smart-lab-architecture.png); sources: [SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md).*
 
 ---
 
@@ -203,11 +203,9 @@ No secrets, face data, unblurred images or database contents are in the reposito
 
 ## Known limitations
 
-Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and two-camera calibration. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
+Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and the cross-camera name handoff when feet are hidden. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 Defense framing and the remaining optimisation work: [docs/defense/DEFENSE_BRIEF.md](docs/defense/DEFENSE_BRIEF.md) · [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md).
-
-**Overview film (47 s):** [FACILITY_INTELLIGENCE_47S.mp4](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4), attached to the `thesis-2026-11-10` release. People in the lab footage are blurred.
 
 ## Project structure
 
@@ -238,6 +236,6 @@ This project is the implementation of the GIU Bachelor's thesis **"Design and De
 
 ## Licence and attribution
 
-No licence file has been chosen yet, so all rights are reserved by the author until one is added. Third-party components keep their own licences: robot meshes (BSD-3 and others, [`frontend/public/models/README.md`](frontend/public/models/README.md)), Ultralytics YOLO weights (AGPL-3.0), OpenCV model-zoo models, and the npm/pip dependencies in `frontend/package.json` and `backend/requirements.txt`.
+The project's own source code is released under the [MIT License](LICENSE), copyright Ali Loay, German International University. The work is a GIU Bachelor's thesis supervised by Dr. Ramy. The licence covers the code only: the photographs, lab footage, renders, figures, thesis documents and the overview film remain the author's and are not licensed for reuse. Stock equipment photographs keep the licences listed in [`frontend/public/equipment/ATTRIBUTION.json`](frontend/public/equipment/ATTRIBUTION.json). Third-party components keep their own licences: robot meshes (BSD-3 and others, [`frontend/public/models/README.md`](frontend/public/models/README.md)), Ultralytics YOLO weights (AGPL-3.0), OpenCV model-zoo models, and the npm/pip dependencies in `frontend/package.json` and `backend/requirements.txt`.
 
 Author: Ali Loay ([@aliloay](https://github.com/aliloay)).

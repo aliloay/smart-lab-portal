@@ -61,7 +61,7 @@ Full table with protocols and authentication: [INTEGRATION_MATRIX.md](../../INTE
 
 **Why not MQTT?** With four nodes on one LAN, HTTP with a device key is enough, is testable with the same tools as the rest of the API, and removes a broker that would be another point of failure.
 
-**Why two cameras?** One camera cannot see the whole room, so a person leaves its view or is hidden. Two overlapping views cover the room; without care the same person would be counted twice. Each camera tracks on its own, and `crosscam.py` shares a confirmed name between cameras only when the floor positions agree, so one person is one identity. This needs a floor calibration of both cameras; camera 2's is still open.
+**Why two cameras?** One camera cannot see the whole room, so a person leaves its view or is hidden. Two overlapping views cover the room; without care the same person would be counted twice. Each camera tracks on its own, and `crosscam.py` shares a confirmed name between cameras only when the floor positions agree, so one person is one identity. Both cameras are floor-calibrated (live-verified 19 Oct 2026). Limit: the name crosses only while both cameras see the person and can place them, so hidden feet or a person who has left one view can still show as "Unknown" on the other.
 
 **Why does the camera not name people by itself?** Detection is not identity. YOLO only finds people; a name needs evidence from the door, a face match or appearance continuity. Some people stay "Unknown" by design.
 

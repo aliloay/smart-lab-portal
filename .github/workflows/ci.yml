@@ -80,6 +80,11 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/smartlab
+      # seed.py gives new accounts a random password unless these are set (2026-10-27). The browser tests sign in
+      # with these throwaway values; they exist only in this CI database.
+      SEED_ADMIN_PASSWORD: Admin#2026
+      SEED_STAFF_PASSWORD: Staff#2026
+      SEED_STUDENT_PASSWORD: Student#2026
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -129,6 +134,11 @@ jobs:
     # a phone uses it, the API on :8000 as the ESP32 master calls it.
     name: Docker Compose (full stack)
     runs-on: ubuntu-latest
+    env:
+      # Throwaway first-run passwords for the seeded accounts; scripts/compose_smoke.py signs in with the student one.
+      SEED_ADMIN_PASSWORD: Admin#2026
+      SEED_STAFF_PASSWORD: Staff#2026
+      SEED_STUDENT_PASSWORD: Student#2026
     steps:
       - uses: actions/checkout@v4
       - name: Start the stack

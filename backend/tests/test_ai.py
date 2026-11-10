@@ -130,6 +130,10 @@ def test_refusal_is_reported(db, monkeypatch):
 
 def test_ask_endpoint_limits_and_audits(client, db, staff, monkeypatch):
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test")
+    # The endpoint first asks which provider is configured. With the local-only default and no Ollama address
+    # (the CI runner) there is none and it answers 503, so the test names the provider its fake client stands for.
+    monkeypatch.setattr(settings, "AI_LOCAL_ONLY", False)
+    monkeypatch.setattr(settings, "AI_PROVIDER", "anthropic")
     monkeypatch.setattr(settings, "AI_QUESTIONS_PER_HOUR", 2)
     monkeypatch.setattr(ai, "_client", lambda: FakeClient([final("a"), final("b")]))
     h = auth_headers(client, staff.email)

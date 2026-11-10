@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Smart Lab architecture</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:2400px;height:1350px;overflow:hidden}
+body{font-family:"Segoe UI",Inter,Arial,sans-serif;color:#e8eef7;
+ background:radial-gradient(1500px 800px at 50% 38%,#16233b 0%,#0c1424 55%,#080d18 100%)}
+.abs{position:absolute}
+h1{left:40px;top:26px;font-size:76px;font-weight:700;letter-spacing:-1.5px;line-height:1}
+h1 span{color:#58c4f6}
+.sub{left:44px;top:112px;font-size:27px;color:#a9b8cf}
+.tag{right:40px;top:44px;text-align:right;font-size:25px;color:#a9b8cf;line-height:1.5}
+.tag b{color:#e8eef7;font-weight:600}
+.card{background:#0f1a2e;border:1.5px solid #26395a;border-radius:16px;overflow:hidden}
+.card img{display:block;object-fit:cover}
+.k{font-size:17px;letter-spacing:2.2px;text-transform:uppercase;color:#58c4f6;font-weight:600}
+.t{font-size:28.5px;font-weight:650;line-height:1.15;margin-top:3px}
+.d{font-size:20px;color:#b4c1d6;line-height:1.32;margin-top:6px}
+.pill{display:inline-block;margin-top:9px;font-size:17.5px;padding:4px 11px;border-radius:999px;border:1.5px solid}
+.p-node{color:#7fe3c0;border-color:#2f7d68;background:#0f2a26}
+.p-cam{color:#f6c66a;border-color:#8a6a2a;background:#2a2212}
+.p-ro{color:#c9a5ff;border-color:#63479a;background:#1f1836}
+.p-pc{color:#8fc7ff;border-color:#356aa0;background:#122438}
+.node{left:40px;width:540px;height:222px;display:flex}
+.node .ph{width:210px;height:100%;background:#000;flex:none}
+.node .ph img{width:236px;height:222px}
+.node .tx{padding:14px 16px 0 18px}
+.side{left:1820px;width:540px;height:300px}
+.side .im{display:flex;height:138px;gap:3px;background:#000}
+.side .im img{height:138px;flex:1;min-width:0}
+.side .tx{padding:11px 18px 0}
+.screen{left:640px;top:170px;width:1120px;height:630px;border-radius:14px;border:3px solid #33507c;background:#000;
+ box-shadow:0 0 0 8px #0a1220,0 30px 90px rgba(40,140,255,.22);overflow:hidden}
+.screen img{width:1120px;height:630px;object-fit:cover;object-position:top left}
+.cap{left:640px;top:818px;width:1120px;text-align:center;font-size:22px;color:#a9b8cf}
+.cap b{color:#e8eef7}
+.pc{left:640px;top:862px;width:1120px;height:238px;padding:16px 22px}
+.flow{display:flex;align-items:center;gap:10px;margin-top:10px}
+.box{flex:1;border:1.5px solid #33507c;border-radius:11px;background:#132241;padding:9px 6px;text-align:center}
+.box b{display:block;font-size:22px;font-weight:650}
+.box i{display:block;font-style:normal;font-size:16.5px;color:#a9b8cf;margin-top:2px}
+.ar{font-size:26px;color:#58c4f6}
+.rt{display:flex;gap:16px;margin-top:13px}
+.rt div{flex:1;font-size:18.5px;color:#b4c1d6;line-height:1.35}
+.rt b{color:#e8eef7;font-weight:600}
+.bot{top:1130px;height:186px;width:760px;display:flex}
+.bot .ph{width:300px;flex:none;background:#000}
+.bot .ph img{width:300px;height:186px}
+.bot .tx{padding:13px 16px 0 18px}
+svg{left:0;top:0}
+.foot{left:0;right:0;bottom:8px;text-align:center;font-size:16px;color:#6f819d}
+</style></head><body>
+
+<h1 class="abs">Smart <span>Lab</span></h1>
+<div class="abs sub">One local platform that joins the hardware, cameras, robots, PCs and assistants of a laboratory into one record</div>
+<div class="abs tag"><b>Real hardware. Real software. One record.</b><br>Runs on one engineer PC on the lab network</div>
+
+<svg class="abs" width="2400" height="1350" viewBox="0 0 2400 1350" fill="none" stroke-width="3" stroke-linecap="round">
+ <g stroke="#3fb89a"><path d="M580 281H640"/><path d="M580 517H640"/><path d="M580 753H640"/><path d="M580 989H640"/></g>
+ <path stroke="#d9a94a" d="M1820 320H1760"/><path stroke="#a583e6" d="M1820 634H1760"/><path stroke="#5fa3e6" d="M1820 950H1760"/>
+ <g stroke="#e0789b"><path d="M900 1130V1100"/><path d="M1200 1130V1100"/><path d="M1500 1130V1100"/></g>
+ <g fill="#0c1424" stroke-width="3">
+  <circle cx="640" cy="281" r="6" stroke="#3fb89a"/><circle cx="640" cy="517" r="6" stroke="#3fb89a"/><circle cx="640" cy="753" r="6" stroke="#3fb89a"/><circle cx="640" cy="989" r="6" stroke="#3fb89a"/>
+  <circle cx="1760" cy="320" r="6" stroke="#d9a94a"/><circle cx="1760" cy="634" r="6" stroke="#a583e6"/><circle cx="1760" cy="950" r="6" stroke="#5fa3e6"/>
+  <circle cx="900" cy="1100" r="6" stroke="#e0789b"/><circle cx="1200" cy="1100" r="6" stroke="#e0789b"/><circle cx="1500" cy="1100" r="6" stroke="#e0789b"/>
+ </g>
+</svg>
+
+<div class="abs card node" style="top:170px"><div class="ph" style="background:#000 url(../nodes/door-node-render.png) -188px -39px/auto 125% no-repeat"></div>
+ <div class="tx"><div class="k">Node 01 · ESP32</div><div class="t">Master (door) node</div>
+ <div class="d">QR or NFC, then fingerprint or face.</div><span class="pill p-node">HTTP + device key</span></div></div>
+<div class="abs card node" style="top:406px"><div class="ph" style="background:#000 url(../nodes/environment-node-render.png) -217px -42px/auto 125% no-repeat"></div>
+ <div class="tx"><div class="k">Node 02 · ESP32</div><div class="t">Environment node</div>
+ <div class="d">Temperature, humidity, gas, flame, motion.</div><span class="pill p-node">HTTP + device key</span></div></div>
+<div class="abs card node" style="top:642px"><div class="ph" style="background:#000 url(../nodes/consumables-node-render.png) -227px -34px/auto 125% no-repeat"></div>
+ <div class="tx"><div class="k">Node 03 · ESP32</div><div class="t">Consumables node</div>
+ <div class="d">A load cell weighs the parts bin and estimates the count.</div><span class="pill p-node">HTTP + device key</span></div></div>
+<div class="abs card node" style="top:878px"><div class="ph" style="background:#000 url(../nodes/reusables-node-render.png) -191px -17px/auto 125% no-repeat"></div>
+ <div class="tx"><div class="k">Node 04 · prototype</div><div class="t">Reusables node</div>
+ <div class="d">NFC check-out of shared items; servo lid.</div><span class="pill p-node">HTTP + device key</span></div></div>
+
+<div class="abs screen"><img src="../../media/portal/operations_overview.png"></div>
+<div class="abs cap"><b>The portal</b> (real screenshot): every subsystem writes to one record and every interface reads from it</div>
+<div class="abs card pc">
+ <div class="k">Engineer PC · local network · no cloud service in the path</div>
+ <div class="flow">
+  <div class="box"><b>Devices</b><i>nodes, cameras, robots, PCs</i></div><div class="ar">→</div>
+  <div class="box"><b>FastAPI backend</b><i>329 API operations</i></div><div class="ar">→</div>
+  <div class="box"><b>PostgreSQL 16</b><i>42 tables, scheduled backup</i></div><div class="ar">→</div>
+  <div class="box"><b>Portal · AI · n8n</b><i>staff, students, admins</i></div>
+ </div>
+ <div class="rt">
+  <div><b>Docker on WSL 2:</b> API, database, web server, n8n, backup</div>
+  <div><b>Native Windows:</b> vision on the GPU (DirectML), local model (Ollama), voice, knowledge service, robot collectors</div>
+ </div>
+</div>
+
+<div class="abs card side" style="top:170px"><div class="im"><img src="../../media/computer-vision/camera_pc10_in_use_blurred.jpg"></div>
+ <div class="tx"><div class="k">Vision · 2 cameras</div><div class="t">Presence verification</div>
+ <div class="d">YOLO26s person detection; two views share one identity.</div><span class="pill p-cam">RTSP → vision service → API</span></div></div>
+<div class="abs card side" style="top:484px"><div class="im"><img src="../../../frontend/public/equipment/our-ur5e.jpg"><img src="../../../frontend/public/equipment/our-fanuc.jpg" style="object-position:50% 30%"></div>
+ <div class="tx"><div class="k">Robots · photos of our cells</div><div class="t">Read-only digital twins</div>
+ <div class="d">UR5e and FANUC ER-4iA: observed, never commanded.</div><span class="pill p-ro">RTDE receive · HTTP GET</span></div></div>
+<div class="abs card side" style="top:798px;height:302px"><div class="im"><img src="../../../frontend/public/equipment/our-pcs.jpg" style="object-position:50% 60%"><img src="../../media/portal/lab_pcs_screen_wall.png" style="object-position:0 0"></div>
+ <div class="tx"><div class="k">Lab PCs</div><div class="t">PC management</div>
+ <div class="d">Screen wall, messages, screen sharing, exam mode.</div><span class="pill p-pc">PC agent polls every 2 s</span></div></div>
+
+<div class="abs card bot" style="left:40px"><div class="ph"><img src="../../media/portal/ask_the_lab_answer.png" style="object-position:100% 30%"></div>
+ <div class="tx"><div class="k">Local AI</div><div class="t">Assistants with voice</div>
+ <div class="d">Answer from live records with read-only tools; a booking is a proposal the user confirms.</div></div></div>
+<div class="abs card bot" style="left:820px"><div class="ph"><img src="../../media/obsidian/vault_graph_and_agent.png" style="object-position:8% 55%"></div>
+ <div class="tx"><div class="k">Knowledge</div><div class="t">Obsidian vault + agent</div>
+ <div class="d">322 notes generated from the repository; the agent answers "how is this built" with sources.</div></div></div>
+<div class="abs card bot" style="left:1600px"><div class="ph"><img src="../../media/n8n/workflows_16_and_06.png" style="object-position:22% 40%"></div>
+ <div class="tx"><div class="k">Automation</div><div class="t">23 n8n workflows</div>
+ <div class="d">Schedules and alerts call the backend, which holds the rules. Daily and weekly reports.</div></div></div>
+
+<div class="abs foot">Node images are Blender renders of the real enclosure CAD. Camera, robot and PC images are real photos and footage from the lab. Screens are real portal captures.</div>
+</body></html>
