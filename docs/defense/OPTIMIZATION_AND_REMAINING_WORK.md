@@ -21,7 +21,7 @@ The enclosures are reported printed in PETG. If heat resistance is claimed, quot
 | Camera 2 has no floor calibration | Names are not shared between the cameras, so the "one person, one identity" claim rests on camera 1 | Mark at least four floor points for camera 2 |
 | Formal offline run not done | "100% local" is verified in code only | Unplug the internet for 30 minutes and run `tools/offline/offline_check.py`; keep the report |
 | AR not measured on a real phone | Latency figure missing | Time scan-to-record on one phone, ten scans |
-| FANUC twin unverified | Only the UR5e twin can be claimed | Inspect the controller with the owner, or present FANUC as future work |
+| FANUC twin verified in one session only | Read-only twin followed the pendant on 14 Oct 2026 (about 3 samples/s); the J2/J3 coupling was not confirmed against known poses, and the 3D meshes are those of the LR Mate 200iD | Compare two or three poses with the pendant values; repeat the run once and keep the record |
 | Reusables node only partially integrated | The scan and complete routes exist; the full borrow-and-return loop on hardware is not recorded | Covered by the bring-up above |
 | Seed passwords are public | Security question at the defense | Change every live account still using one |
 

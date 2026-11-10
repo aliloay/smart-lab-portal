@@ -1,6 +1,6 @@
 # FANUC ER-4iA live digital twin - read-only
 
-Status: **SOFTWARE READY - HARDWARE NOT YET VERIFIED** (2026-10-14). No physical connection yet.
+Status: **LIVE-VERIFIED READ-ONLY** on 2026-10-14 (evening) at 192.168.1.100: the twin moved with the pendant at about 3 samples/s; probe pages in `tools/robot_monitor/fanuc_probe_out/`. Still to confirm: J2/J3 coupling by pose; controller battery DIAG-009. The text below was written the same morning, before the connection, and is kept as the design record.
 
 ## Confirmed hardware (owner's photos 2026-10-14)
 Robot: FANUC **ER-4iA** (label on the arm). Controller: **R-30iB Mate Plus**, 2021-03 (label "LR20D" -

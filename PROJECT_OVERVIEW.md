@@ -13,7 +13,7 @@
 | AI | Local assistants, knowledge agent, voice | [docs/ai/](docs/ai/assistant-overview.md) |
 | Knowledge | Obsidian vault generated from the repository | [docs/knowledge/](docs/knowledge/obsidian-overview.md) |
 | Automation | 23 n8n workflows | [docs/automation/](docs/automation/n8n-overview.md) |
-| Digital twin | UR5e read-only twin | [docs/digital-twin/](docs/digital-twin/overview.md) |
+| Digital twin | Read-only twins of the UR5e and the FANUC ER-4iA | [docs/digital-twin/](docs/digital-twin/overview.md) |
 | AR | Phone "Scan the lab" | [docs/augmented-reality/](docs/augmented-reality/overview.md) |
 | Network | Local-first, dependency table | [docs/deployment/](docs/deployment/local-network-and-offline.md) |
 

@@ -85,8 +85,13 @@ for ($i = 0; $i -lt 12 -and $api -ne 200; $i++) {     # the API can need a few s
 if ($api -ne 200) { Fail "The API did not answer on http://127.0.0.1:$apiPort/api/health. Check 'docker compose logs backend'." }
 Write-Host ''
 Write-Host 'Smart Lab is running.' -ForegroundColor Green
-Write-Host "  Portal (HTTPS):  https://localhost$httpsPort/"
-Write-Host "  Portal (HTTP):   http://localhost:$httpAltPort/"
+$httpPort = if ($envMap['SMARTLAB_HTTP_PORT']) { ':' + $envMap['SMARTLAB_HTTP_PORT'] } else { '' }
+if ((Test-Path 'deploy	ls\server.crt') -and (Test-Path 'deploy	ls\server.key')) {
+  Write-Host "  Portal (HTTPS):  https://localhost$httpsPort/"
+} else {
+  Write-Host "  Portal:          http://localhost$httpPort/   (HTTPS is off until a certificate exists: docs/SECURITY.md)"
+}
+Write-Host "  Command Center:  http://localhost:$httpAltPort/"
 Write-Host "  API health:      http://127.0.0.1:$apiPort/api/health  ($api)"
 if ($services -contains 'n8n') { Write-Host "  n8n (local):     http://127.0.0.1:$n8nPort/" }
 Write-Host '  Stop with:       powershell -ExecutionPolicy Bypass -File .\stop.ps1   (keeps all data)'

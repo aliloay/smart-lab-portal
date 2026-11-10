@@ -19,7 +19,7 @@ Classification on 10 Nov 2026: **Implemented and verified** (tested in software 
 | Unified portal (operations, labs, security, equipment, inventory, reports) | Implemented and verified | Frontend build; e2e scripts; lab use |
 | Lab PC monitoring, screen wall, screen sharing, exam mode | Implemented, not fully tested | 40 PC-agent tests; lab day 4 Nov 2026; PowerShell kit only syntax-checked |
 | UR5e digital twin (read-only) | Implemented and verified | Lab recording and photo, Oct 2026; 43 robot tests |
-| FANUC twin (read-only) | Implemented, not fully tested | Software ready; hardware not inspected |
+| FANUC twin (read-only) | Implemented, live-verified once | 14 Oct 2026 at 192.168.1.100, about 3 samples/s; J2/J3 coupling to confirm by pose |
 | Robot motion control | Proposed (guarded, unavailable) | Adapters stay UNAVAILABLE until commissioning sign-off |
 | AI lab assistant (local, tool-calling, instant answers) | Implemented and verified | Backend tests; local runs |
 | Knowledge agent over the Obsidian vault | Implemented and verified | 49 tests; live answer 8 Nov 2026 |

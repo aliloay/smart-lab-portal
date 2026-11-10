@@ -117,7 +117,7 @@ The vault ([`docs/knowledge/obsidian/vault/`](docs/knowledge/obsidian/vault/), 3
 
 ## Digital twin
 
-The UR5e is read with `ur_rtde`'s receive interface at 50 Hz; the latest state reaches the portal every 0.2 s and drives a three.js twin with joint limits, modes, motion events and staleness. FANUC support is software-ready but not verified on hardware. No motion control is available.
+The UR5e is read with `ur_rtde`'s receive interface at 50 Hz; the latest state reaches the portal every 0.2 s and drives a three.js twin with joint limits, modes, motion events and staleness. The FANUC ER-4iA is read from its controller web page (read-only) and was live-verified in one session on 14 Oct 2026; its joint coupling still has to be confirmed against known poses. No motion control is available.
 
 ![The real UR5e and its portal twin](docs/media/digital-twin/ur5e_with_twin.jpg)
 
@@ -173,7 +173,7 @@ copy .env.example .env      # set POSTGRES_PASSWORD, SECRET_KEY (32+ characters)
 powershell -ExecutionPolicy Bypass -File .\launch.ps1 -Build
 ```
 
-`launch.ps1` checks Docker and `.env`, starts the stack (adding n8n when `AUTOMATION_WEBHOOK_BASE` is set), waits for the health checks and prints the URLs: portal `https://localhost/`, API `http://127.0.0.1:8000/api/health`. `stop.ps1` / `stop.bat` stop the containers and keep all data. The full lab start, including the face server, camera services, Ollama and helpers, is `launch.bat` ([docs/How_To_Run_System.md](docs/How_To_Run_System.md)).
+`launch.ps1` checks Docker and `.env`, starts the stack (adding n8n when `AUTOMATION_WEBHOOK_BASE` is set), waits for the health checks and prints the URLs: portal `http://localhost/` on a fresh installation (`https://localhost/` once a local certificate exists, see [docs/SECURITY.md](docs/SECURITY.md)), API `http://127.0.0.1:8000/api/health`. `stop.ps1` / `stop.bat` stop the containers and keep all data. The full lab start, including the face server, camera services, Ollama and helpers, is `launch.bat` ([docs/How_To_Run_System.md](docs/How_To_Run_System.md)).
 
 ## Configuration
 
@@ -201,7 +201,7 @@ No secrets, face data, unblurred images or database contents are in the reposito
 
 ## Known limitations
 
-Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC inspection), the formal offline run, a real-phone AR measurement and two-camera calibration. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
+Hardware measurements still open (power distribution, load-cell calibration, reusables bring-up, FANUC pose check), the formal offline run, a real-phone AR measurement and two-camera calibration. Public demo seed passwords must be changed on any live system. Full list: [KNOWN_ISSUES.md](KNOWN_ISSUES.md) · status: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 Defense framing and the remaining optimisation work: [docs/defense/DEFENSE_BRIEF.md](docs/defense/DEFENSE_BRIEF.md) · [docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md).
 

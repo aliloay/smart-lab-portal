@@ -28,7 +28,7 @@ All subsystems meet in one FastAPI backend and one PostgreSQL database (329 API 
 | A question is answered from live data | Staff assistant → read-only tools over the database → text, tables and charts; weekly and monthly management reports |
 | A question about the system itself | Knowledge agent → Obsidian vault + repository → answer with numbered sources |
 | Equipment in view | Phone camera page → QR or marker → live record of that device from the same API |
-| Robot state without risk | UR5e → RTDE receive only → collector → twin in the portal |
+| Robot state without risk | UR5e → RTDE receive only → collector → twin in the portal; FANUC ER-4iA → controller web page (GET only) → same collector and twin (live-verified once, 14 Oct 2026) |
 | Staff control of lab PCs | Admin or lab engineer in the portal → queued action → PC agent polls every 2 s → message, exam mode, screen sharing, log-off or shutdown with a warning |
 
 Full table with protocols and authentication: [INTEGRATION_MATRIX.md](../../INTEGRATION_MATRIX.md).
@@ -75,7 +75,7 @@ Full table with protocols and authentication: [INTEGRATION_MATRIX.md](../../INTE
 4. Consumables weight on the LCD and in the portal.
 5. Assistant: a spoken question, a chart, the weekly report; then a "how is this built" question with sources.
 6. Phone scan of a node's QR code showing its live record.
-7. UR5e twin following the real arm.
+7. UR5e twin following the real arm; the FANUC twin if its pose check has been done.
 8. PC control: message and screen sharing to a lab PC.
 
 Open measurements that would strengthen each claim are listed in [OPTIMIZATION_AND_REMAINING_WORK.md](OPTIMIZATION_AND_REMAINING_WORK.md).
