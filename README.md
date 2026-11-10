@@ -19,9 +19,9 @@ The **Smart Research Laboratory at the German International University (GIU), Ca
 https://github.com/user-attachments/assets/e1ed5bb6-034e-4f95-a6dc-8014fa8cdffc
 
 
-[![Watch the 47-second overview film. Poster: the Smart Lab architecture, four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-video-poster.png)](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4)
+![Smart Lab architecture: four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-architecture.png)
 
-*Click the image to play the overview film (47 s). The poster is built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Version without the play button: [smart-lab-architecture.png](docs/images/smart-lab-architecture.png); sources: [SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md).*
+*Above: the 47-second overview film. The architecture image is built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Sources: [SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md). Full-quality film: [release download](https://github.com/aliloay/smart-lab-portal/releases/download/thesis-2026-11-10/FACILITY_INTELLIGENCE_47S.mp4).*
 
 ---
 
