@@ -13,6 +13,7 @@
 | n8n workflows | 23 exports; live instance configured |
 | Phone AR | Working in tests; real-phone measurement open |
 | Offline operation | Designed and code-verified; formal offline run open |
+| Phase | Optimisation: no new features; remaining work is calibration, measurement and records ([docs/defense/](docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md)) |
 | Repository | Documentation release in progress (this update) |
 
 Feature-by-feature: [SYSTEM_FEATURE_MATRIX.md](SYSTEM_FEATURE_MATRIX.md) · open items: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).

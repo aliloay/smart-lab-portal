@@ -13,3 +13,7 @@
 | 9 | Phone camera over HTTPS with a local CA | Browsers allow the camera only in a secure context | Each phone trusts the CA once |
 | 10 | Knowledge vault generated from the repository | Documentation follows the code | Generated notes are overwritten; hand notes live in their own folders |
 | 11 | Pinned images (n8n 2.40.7, PostgreSQL 16) | Reproducibility | Upgrades are deliberate |
+| 12 | Web services in Docker on WSL 2; hardware-facing services (vision, Ollama, voice, robot collector) native on Windows | Containers give pinned, reproducible Linux services with one start command; the GPU (DirectML) and device streams are simpler natively | Two kinds of process to start; `launch.bat` starts both. The Docker VM is capped at 6 GB |
+| 13 | No ROS | The robots are only observed; RTDE already provides the UR5e state at 50 Hz to a small Python collector | No ROS host or driver to maintain; ROS-based control would be a separate, commissioned project |
+| 14 | Two overlapping cameras with floor-calibrated name sharing | One view cannot cover the room; the overlap must not count a person twice | Both cameras need a floor calibration |
+| 15 | GPU shared by detection and the language model, cameras first | A/B test on 19 Oct 2026: answers 68 s → 3 s, camera 2 unaffected | `OLLAMA_CPU_ONLY=true` returns the model to the CPU if a camera suffers |
