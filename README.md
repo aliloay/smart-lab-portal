@@ -15,9 +15,9 @@ A modular, lightweight, locally operated AIoT platform that integrates access co
 
 The **Smart Research Laboratory at the German International University (GIU), Cairo** is the development and demonstration environment. Universities, hospitals, banks, industrial and corporate facilities are potential application environments, not deployments.
 
-![The whole system in one view: the four nodes, two cameras and the lab PCs connected to one local core and the portal (render built from the real enclosure CAD and a real portal screen)](docs/media/diagrams/architecture_render_blender.png)
+![Smart Lab architecture: four ESP32 nodes, two cameras, two robots and the lab PCs connected to one local platform](docs/images/smart-lab-architecture.png)
 
-*One local core, everything connected: the Master (door), Environment, Consumables and Reusables nodes, two security cameras, the lab PCs and the portal. Render of the real enclosure CAD; the robots and the router are not drawn here (see the camera frame and the twin photo below for the real lab).*
+*Built from the project's own assets: renders of the real enclosure CAD, lab photos and footage (faces blurred) and real portal screenshots. Sources: [docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md](docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md).*
 
 ---
 
