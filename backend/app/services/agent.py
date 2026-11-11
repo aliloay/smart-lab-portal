@@ -537,8 +537,10 @@ _PATTERNS: list[tuple[str, str, bool]] = [
                       r"\b(online|status|state)\b.*\b(robots?|ur5e?|fanuc)\b", True),
     ("cameras_status", r"\b(cameras?|cctv)\b.*\b(online|status|state|working|live|connected|running)\b|"
                        r"\b(online|status|state)\b.*\b(cameras?|cctv)\b", True),
-    ("pcs_status", r"\b(pcs?|computers?)\b.*\b(online|status|state|connected|running)\b|"
-                   r"\b(online|status|state)\b.*\b(pcs?|computers?)\b", True),
+    # free / busy / available / in use (2026-11-11): "Which PCs are free?" went to the model - 14-30 s and a wrong,
+    # repeating list. The device reports already say it: online + nobody signed in = free.
+    ("pcs_status", r"\b(pcs?|computers?)\b.*\b(online|status|state|connected|running|free|busy|available|in use|"
+                   r"occupied|taken)\b|\b(online|status|state|free|busy|available)\b.*\b(pcs?|computers?)\b", True),
     ("alerts_open", r"\b(open|active|unresolved|current|pending)\b.*\b(alerts?|alarms?|incidents?)\b|"
                     r"\b(alerts?|alarms?|incidents?)\b.*\b(open|active|unresolved|now|today)\b|"
                     r"\bany (alerts?|alarms?|incidents?)\b", True),
@@ -871,6 +873,15 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
             lines.append(f"{o.name} ({d.device_uid}): **{word.get(o.state, o.state.lower())}** - last report "
                          f"{_when(d.last_seen_at) if d.last_seen_at else 'never'}" + (f" - {', '.join(tags)}" if tags else ""))
         extra = ""
+        if intent == "pcs_status":
+            free, used, off = [], [], []
+            for d in devs:
+                o = device_out(d, now=now)
+                (free if o.state == "ONLINE" and not (d.component_state or {}).get("os_user")
+                 else used if o.state == "ONLINE" else off).append(o.name)
+            extra = (f"\nFree (online, nobody signed in): **{len(free)}**" + (f" - {', '.join(sorted(free))}" if free else "")
+                     + f"\nIn use: **{len(used)}**" + (f" - {', '.join(sorted(used))}" if used else "")
+                     + f"\nOffline / not reporting: **{len(off)}**")
         if intent == "robots_status":
             from app.services import robot_control
             extra = (f"\nRobot control mode: **{robot_control.MODE.upper()}**"

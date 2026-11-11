@@ -289,3 +289,11 @@ def test_open_issues_phrasings_and_lab_info_are_instant(client, db, staff, alice
     r = client.post("/api/ai/student/ask", headers=auth_headers(client, alice.email),
                     json={"question": f"tell me about {lab.code}"}).json()
     assert r["tools_used"] == ["instant:lab_info"] and lab.code in r["answer"] and "Open alerts" not in r["answer"]
+
+
+def test_free_pcs_question_is_answered_from_the_device_records():
+    """2026-11-11: 'Which PCs are free?' went to the model (14-30 s) and listed PCs twice. It is a device-record
+    question: online + nobody signed in = free."""
+    for q in ("Which PCs are free?", "any free computers", "which PCs are busy", "is a PC available"):
+        assert agent.detect(q, staff=True) == "pcs_status", q
+    assert agent.detect("Which PCs are free?", staff=False) is None                   # staff only, as before
