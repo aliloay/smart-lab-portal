@@ -22,3 +22,13 @@ def test_two_entering_together_on_one_badge_stay_unknown_and_are_flagged():
 def test_a_confirmed_name_reaches_the_second_camera_and_never_the_stranger():
     cam1, cam2 = B.run_two_cameras()
     assert cam2["named_share"] > 0.5 and cam2["false_names"] == 0 and cam1["false_names"] == 0
+
+
+@pytest.mark.parametrize("name", ["07c dead zone 25 s", "07d dead zone 25 s, look-alike walks there",
+                                  "11 leaves view 3 min, returns"])
+def test_the_name_comes_back_after_a_dead_zone_or_a_return(name):
+    """2026-11-11 (owner): the label must come back to the person after a dead zone and after leaving and returning.
+    Measured 0.97 with HANDBACK_S 60 s (was 0.81-0.90 at 20 s)."""
+    for seed in (1, 2, 3):
+        r = B.run(name, B.SCENARIOS[name], seed=seed)
+        assert r["false_names"] == 0 and r["named_share"] > 0.9, (seed, r)     # never coming back = ~0.58

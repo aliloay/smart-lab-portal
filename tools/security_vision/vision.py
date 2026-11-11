@@ -1354,7 +1354,10 @@ class Labeler:
         """Names on a track in view, or on one the tracker still keeps for a moment (coasting)."""
         return {t.label for t in tracks if t.label} | {t.label for t in getattr(self, "coasting", []) if t.label}
 
-    HANDBACK_S = 20.0                  # a lost named track's name waits this long (from when it was last seen)
+    # 2026-11-11 (owner: "keep my label in a dead zone"): 20 -> 60 s. The hand-back still needs the same place AND
+    # a clear look (REACQUIRE_MAX); scenario_bench 07c/07d (25 s behind the pillar, look-alike at the spot): no false name.
+    HANDBACK_S = 60.0                  # a lost named track's name waits this long (from when it was last seen)
+    HANDBACK_PLACE_S = 20.0            # after this, the place no longer decides alone: also a look margin (below)
     WALK_PREDICT_S = 4.0               # a walking person's lost name is looked for this far along their path
 
     def _hand_back(self, tracks: list[Track], inside: dict, now: float):
@@ -1438,6 +1441,17 @@ class Labeler:
                 t1 = placed[0]
                 if (d := self._distance(t1, label)) is not None and d <= self.REACQUIRE_MAX:
                     near = [t1]
+            # Past the old 20 s window (dead zone, up to HANDBACK_S) the place alone says little: the candidate
+            # must also be clearly more alike than every other unnamed person in view (REACQUIRE_MARGIN), as a
+            # look re-acquire. test_a_face_name_never_lands_on_a_small_half_hidden_person: two equal looks -> nobody.
+            if len(near) == 1 and now - at > self.HANDBACK_PLACE_S:
+                d0 = self._distance(near[0], label)
+                rivals = [d for o in tracks if not o.label and o is not near[0]
+                          and (d := self._distance(o, label)) is not None]
+                if d0 is None or any(d - d0 < self.REACQUIRE_MARGIN for d in rivals):
+                    self.lost_why[tid] = "after a long gap another person in view looks as alike"
+                    near = []
+                    continue
             if len(near) == 1:
                 claims.setdefault(near[0].id, []).append((tid, who, source))
             else:
