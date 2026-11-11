@@ -233,7 +233,10 @@ if not defined NEED_BUILD (
   echo  Portal code unchanged since the last build - starting it without rebuilding.
   goto start_portal
 )
-docker compose %PROFILE% build
+rem 2026-11-11: Docker Compose v5 always builds through "bake", which here stops at "additional privileges
+rem requested: pass --allow=fs.read=backend\Dockerfile" (exit 0, nothing built) - launches ran stale images.
+rem Plain docker build, same image names compose uses.
+docker build -t smart-lab-portal-backend:latest .\backend && docker build -t smart-lab-portal-frontend:latest .\frontend
 if errorlevel 1 (
   echo.
   echo  Could not rebuild - starting the last built version.
