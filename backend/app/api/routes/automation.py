@@ -178,6 +178,9 @@ AUTOMATION_KINDS = {
     "BOOKING_BRIEFING", "PRE_BOOKING_CHECK", "SECURITY_EVENT", "DEVICE_OFFLINE",
     "MAINTENANCE_DIGEST", "DAILY_REPORT", "WEEKLY_REPORT", "SENSOR_THRESHOLD",
     "POST_SESSION", "DATA_QUALITY", "ANOMALY", "EMERGENCY",
+    # 2026-11-11: workflows 13-21 (Robotics Lab set) notify with these kinds; without them every finding was
+    # rejected 422 (n8n log: workflow 18 failed every 5 min) - the run looked fine only while nothing was wrong.
+    "ENVIRONMENT_HAZARD", "LOW_STOCK", "STOCK_CHANGE", "ASSET_OVERDUE", "ROBOT", "EXAM_VIOLATION",
 }
 
 
