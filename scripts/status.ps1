@@ -45,6 +45,23 @@ function Show {
   Write-Host "Smart Lab services  $(Get-Date -Format 'HH:mm:ss')   portal health: $h   free RAM: $free / $total MB" -NoNewline
   Write-Host $(if ($vram) { "   GPU: $vram MB" } else { '' })
   if ($free -lt 1500) { Write-Host "  LOW MEMORY: close browser tabs / extra VS Code windows" -ForegroundColor Yellow }
+  # 2026-11-11 (Gemini FG-08): free RAM alone hid the real cause of slowness - real paging to the D: hard disk
+  # (Pages Input/sec ~1,170, D: 31 ms per transfer) and Explorer/OneDrive at 5-7 cores. One 1 s sample per refresh.
+  try {
+    $cs = (Get-Counter -ErrorAction Stop -SampleInterval 1 -MaxSamples 1 -Counter @(
+      '\Processor(_Total)\% Processor Time', '\Memory\Pages Input/sec', '\PhysicalDisk(*)\Avg. Disk sec/Transfer',
+      '\Process(*)\% Processor Time')).CounterSamples
+    $cpu = ($cs | Where-Object Path -like '*processor(_total)*').CookedValue
+    $pin = ($cs | Where-Object Path -like '*pages input/sec').CookedValue
+    $disks = ($cs | Where-Object { $_.Path -like '*physicaldisk*' -and $_.InstanceName -ne '_total' } |
+              ForEach-Object { '{0} {1:N0} ms' -f ($_.InstanceName -replace '^\d+\s*', ''), ($_.CookedValue * 1000) }) -join ', '
+    $top = ($cs | Where-Object { $_.Path -like '*\process(*' -and $_.InstanceName -notin '_total', 'idle' } |
+            Sort-Object CookedValue -Descending | Select-Object -First 3 |
+            ForEach-Object { '{0} {1:N1}' -f $_.InstanceName, ($_.CookedValue / 100) }) -join ', '
+    $gpu = try { (& nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>$null) } catch { '' }
+    Write-Host ("  load: CPU {0:N0} %   paging {1:N0} pages/s   disk latency {2}   GPU {3} %   top cores: {4}" -f $cpu, $pin, $disks, $gpu, $top)
+    if ($pin -gt 500) { Write-Host "  PAGING to disk: RAM is full - close apps; the pagefile is on the slow D: disk" -ForegroundColor Yellow }
+  } catch { Write-Host '  load: counters unavailable' -ForegroundColor DarkGray }
   $ds = docker compose --project-directory $root ps -a --format '{{.Service}}={{.State}}' 2>$null
   if ($ds) {
     Write-Host '  docker:' -NoNewline
