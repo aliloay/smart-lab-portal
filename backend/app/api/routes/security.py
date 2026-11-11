@@ -237,6 +237,9 @@ class StateReport(BaseModel):
     door_open: Optional[bool] = None          # from the red door leaf in the door box (None: no door box)
     # Measured pipeline timings (tools/security_vision/latency.py): fps per stage, frame ages.
     metrics: dict[str, Any] = Field(default_factory=dict)
+    # 2026-11-11: one short line per tracked person (who / top colour / posture / nearest mapped box) for the
+    # live bar under the camera views. Text only - no picture, no biometric.
+    activity: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
 
 
 @router.post("/state", tags=["devices"])
@@ -260,6 +263,9 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
+                         "activity": [{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
+                                       if k in ("track_id", "label", "who", "colour", "posture", "near", "named", "text")}
+                                      for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
                          "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
@@ -380,6 +386,7 @@ def camera_summary(db: Session, d: Device, now: datetime) -> dict:
             "named": st.get("named", []) if online else [],
             "zones": st.get("zones", []) if online else [],
             "door_open": st.get("door_open") if online else None,
+            "activity": st.get("activity", []) if online else [],
             "metrics": st.get("metrics") if online else None,
             "inside": len(occupants(db, d.lab_id)),
             "open_events": db.query(SecurityEvent).filter_by(

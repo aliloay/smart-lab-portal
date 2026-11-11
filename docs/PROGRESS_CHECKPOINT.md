@@ -1,5 +1,47 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-11-11 ~01:00 (closure mission in progress; NOTHING committed, NOTHING pushed)
+Branch `qa/browser-and-camera-docs` on fdfd1fe, working tree dirty on purpose. Recovery: branch
+`backup/before-closure-2026-11-11`, DB dump + diffs in `C:\Users\dell\smart-lab-backups\closure-2026-11-11\`.
+Owner ran launch.bat at 21:05 on 10 Nov: the live backend image was built from the tree as it was THEN (door-route
+scope, PC enrolment closed, scan rate limit are live; everything later is not).
+Sources: 25 Argon files in Downloads + the two "Master Unified Engineering Execution Blueprint" files (identical,
+SHA-256 6957fbfe...). The Argon patch was NOT applied; its findings were checked against the code one by one.
+
+Done, tested offline (labels: tested offline unless said otherwise):
+- SEC-01 door reports: `/api/access/validate-qr|validate-rfid|events|grant|deny` took any device key. Now a
+  device's own key speaks only for itself and only door devices (master / camera / face server) may report
+  (`access.py::_door_scope`); shared key unchanged. tests/test_device_keys.py (2 new).
+- SEC-02 `/api/equipment/state`: an own-key device cannot report as another kind (PC key as ROBOT). test_pc_keys.py.
+- SEC-03 `PC_ENROLL_OPEN` default false AND passed through docker-compose (before, .env could not close it);
+  start-up warnings for open enrolment / open sign-up. OWNER: put `PC_ENROLL_OPEN=true` in .env while installing PCs.
+- SEC-04 live-updates socket: one-time 30 s ticket (`POST /api/auth/ws-ticket`, core/ws_ticket.py, lib/live.tsx)
+  instead of the sign-in token in the URL; nginx access log without query strings. test_portal.py (1 new).
+- SEC-05 `/api/scan/appearance`: 6 frames / 2 s per user (core/throttle.py RateLimit; one backend process).
+- CI failure on main (test_qr_pipeline, random token read at 2 of 7 distances): `issue_token()` now also checks the
+  token through the door-camera model (`qr.door_reads_at_distance`, 6 of 7 distances); measured locally 392/400
+  random tokens at 7/7, 7 at 6/7, 1 at 5/7 before the fix. 3 tests added.
+- README: hardware caption row fixed (Master was missing), AR image added (a composed overlay, said so).
+- Cameras: local commit 68b7157 (look handoff) brought into the tree; cross-camera elimination now needs a
+  measured, agreeing look (no name from the head count alone); LOOK GUESS: a person named before comes back from the
+  stored look as a marked guess "Name ? (look)" - also after a service restart (face names are restored as
+  candidates), never confirmed without the face, never shared, never learnt from (vision.py, identity.py,
+  crosscam.py, test_look_guess.py 9 tests). Camera suite 320 passed; scenario bench 14 scenarios, 0 false names.
+  NOT lab-verified; camera services still run the OLD code until restarted (owner).
+- Storage: Docker build cache + dangling images removed (about 21 GB inside Docker's disk file; the file itself
+  only shrinks when Docker Desktop compacts / moves it).
+
+UPDATE 2026-11-11 13:50: full report docs/reports/SMART_LAB_CLOSURE_AND_PERFORMANCE_REPORT_2026-11-11.md (read it
+first). Added since: portal last-answer-first (api.peek), 2-3 s read caches + ClearOnWrite, AI streaming endpoints,
+AR max_instances, tools/ops/watchdog.py (monitor only), camera --cv-threads 2 + idle render 1/s, knowledge warm-up
+opt-in. Training data moved to D:\SmartLabData (junction). Backend 757 passed / 1 intermittent, targeted 121 passed,
+camera 320 passed.
+
+Open (in order, superseded by the report's section 7): full backend suite result; partial-body look (measurement on recordings running); portal
+stale-while-revalidate cache; hot GET caching + housekeeping out of GETs + indexes (measure first); AI streaming
+endpoint; AR box smoothing; watchdog (monitor-only); docs + final reports; owner decisions: push, deploy, camera
+service restart, moving Docker's disk file to D:.
+
 ## RESUME HERE - 2026-11-03 00:10 (lab-wide 12-class detector LIVE, not committed)
 - Colab lab_2026-11-02_1731 (Drive zip unpacked in tools/vision_train/results/lab_2026-11-02_1731/drive): best r1_n
   (YOLO11n) -> backend/data/models/lab_detector.onnx (byte-identical to r1_n/weights/best.onnx). Colab test split

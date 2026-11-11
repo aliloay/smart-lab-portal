@@ -81,7 +81,7 @@ Full diagrams with protocols and sequence of an entry: [docs/architecture/master
 
 | ![Master Node](docs/media/hardware/master_node_render.png) | ![Environment Node](docs/media/hardware/environment_node_render.png) | ![Consumables Node](docs/media/hardware/consumables_node_render.png) | ![Reusables Node](docs/media/hardware/reusables_node_render.png) |
 |---|---|---|---|
-| Environment (render of CAD) | Consumables (render of CAD) | Reusables (render of CAD) |
+| Master (render of CAD) | Environment (render of CAD) | Consumables (render of CAD) | Reusables (render of CAD) |
 
 Pinouts from the firmware: [wiring-and-pinouts.md](docs/hardware/wiring-and-pinouts.md) · power: [power-distribution.md](docs/hardware/power-distribution.md) · door system: [door-access-system.md](docs/hardware/door-access-system.md) · what has been measured: [hardware-validation.md](docs/hardware/hardware-validation.md) · enclosure CAD: [`tools/cad/`](tools/cad/).
 
@@ -132,6 +132,10 @@ The UR5e is read with `ur_rtde`'s receive interface at 50 Hz; the latest state r
 ## Mobile augmented reality
 
 "Scan the lab" decodes printed QR markers on the phone and pins that equipment's live record next to it; people boxes come from the camera service. It needs HTTPS (a secure context) with the local CA trusted on the phone. Measured only in a headless phone-size test so far. [docs/augmented-reality/](docs/augmented-reality/overview.md)
+
+![Scan the lab: the UR5e marker decoded and its live record pinned next to it](docs/media/ar/scan_overlay_reconstruction.png)
+
+*The overlay as the Scan page draws it, composed on a photo of the lab; not a recording from a phone.*
 
 ## Computer and infrastructure monitoring
 

@@ -25,6 +25,7 @@ os.environ["DEVICE_PROBES"] = "0"          # no probe ever reaches a real device
 os.environ["MARKER_WARMUP"] = "0"          # no background marker rendering during tests
 os.environ["APPEARANCE_WARMUP"] = "0"      # no background reference loading during tests
 os.environ["ROBOT_CONTROL"] = "dry_run"           # production is "off" (monitoring only, 2026-10-29); the control tests keep checking the parked code
+os.environ["PC_ENROLL_OPEN"] = "true"      # closed by default since 2026-11-11; the kit tests enrol PCs
 os.environ["TTL_CACHE"] = "0"              # every read fresh in tests (app/core/ttl.py)
 os.environ["LIVENESS_THROTTLE_S"] = "0"    # tests check outage transitions immediately
 # A device key of the suite's own: never the live one (the container's .env

@@ -59,6 +59,13 @@ def labs_overview(db: Session = Depends(get_db),
     live rows: occupancy from open sessions, availability from the booking
     table, controller state from heartbeats, issue counts from reports.
     """
+    # 2026-11-11: identical for everyone (nothing in it depends on who asks) and on every dashboard: shared for
+    # 2 s. Booking itself never reads this - the booking service checks the table again when a booking is made.
+    from app.core.ttl import cached
+    return cached("labs.overview", 2, lambda: _labs_overview_now(db))
+
+
+def _labs_overview_now(db: Session) -> list:
     close_expired(db)
     devices = refresh_liveness(db)
     now = datetime.now(timezone.utc)

@@ -18,7 +18,9 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Lab guides: docs/LAB_TEST_2026-10-15.md · visuals: docs/VISUAL_FOUNDATION.md
 
 ## Tests (run serially)
-- Backend: `docker compose run --rm --no-deps -T -v "${PWD}\backend:/app" backend python -m pytest -q -p no:cacheprovider` (~7 min, 436 tests)
+- Backend: `powershell -ExecutionPolicy Bypass -File tools\ops\test_backend_fast.ps1` (in-memory throw-away test DB; ~8 min, 772 tests). Since 2026-11-11 Docker's disk is on D: (spinning disk): the old command below against the live server's smartlab_test took hours.
+  Old: `docker compose run --rm --no-deps -T -v "${PWD}\backend:/app" backend python -m pytest -q -p no:cacheprovider`
+- Repo moved 2026-11-11 to `C:\Projects\smart-lab-portal` (out of OneDrive). Training data: `D:\SmartLabData` (junction). Docker disk: `D:\DockerData`.
 - `py -m pytest -q tools/security_vision` · `py -m pytest -q tools/robot_monitor` · `py -m pytest -q tools/knowledge`
 - Frontend: `npx tsc --noEmit -p frontend` and `npx vite build` (in frontend/)
 - The running backend/frontend are baked images: code changes are live only after `docker compose build backend frontend` + `up -d --no-deps backend frontend` (owner OK).

@@ -619,8 +619,17 @@ def test_locked_looks_and_face_names_survive_a_restart(tmp_path):
     lab.save(p)
     fresh = Labeler()
     assert fresh.load(p, now=200.0) == 1
-    assert "USER1" not in fresh.face_named                    # a face name needs the face again
     assert look_distance(fresh.identities["USER1"].look, la) < 0.05
+    # 2026-11-11: the face name is back as a CANDIDATE only. A confirmed name still needs the face again
+    # (2026-10-12: by look alone it went to the wrong person); the look gives at most a marked guess, later.
+    assert "USER1" in fresh.face_named
+    back = Track(7, a, 200.0, 200.0, hits=10, look=la)
+    fresh.assign([back], [], None, now=200.0)
+    assert back.label is None                                 # not named at once, and never as "face"
+    for k in range(Labeler.LOOK_GUESS_PASSES + 1):
+        back.last_seen = 200.2 + k * 0.15
+        fresh.assign([back], [], None, now=back.last_seen)
+    assert (back.label, back.source) in ((None, None), ("USER1", "look"))
 
 
 def test_person_working_beside_a_robot_makes_it_in_use():

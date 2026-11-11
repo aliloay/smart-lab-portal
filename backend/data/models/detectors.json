@@ -78,7 +78,8 @@
     "name": "lab_pc",
     "label": "Lab PC",
     "conf": 0.5,
-    "code": null
+    "code": null,
+    "max_instances": 6
    },
    {
     "index": 11,

@@ -87,6 +87,21 @@ DESK_SCORE = 0.5                              # below a close floor match, above
 DESK_VETO_M = 2.0
 DESK_OVERLAP = 0.02                           # person box vs PC box, as vision.ZoneWatcher (in use)
 
+# 2026-11-10: HANDOFF. Everything above needs the other camera to see the person NOW and to place them
+# (feet on the floor map, or the same desk). So a name did not cross when the feet were hidden in either view
+# (standing behind a table, bending, upper body only), nor when the person had already left the other view:
+# camera 1 confirmed USER1, USER1 walked on, camera 2 showed "Unknown". The handoff remembers every confirmed
+# person of the other camera for HANDOFF_S (look, last floor position, time) and lets that name cross on the
+# LOOK when it is clear: at most APPEAR_MAX, every rival on both sides at least APPEAR_MARGIN further (the
+# measured same- / different-person distances above), held for HANDOFF_PASSES passes in a row. Never against
+# the floor: with both positions known, the person must have been able to walk there in the time since.
+# Same refusals as a floor pairing: touching a neighbour, a name already on someone here, an own face vote
+# for someone else. off / observe (log only) / on. SIMULATION-TESTED only: measure in the lab before trusting.
+HANDOFF = os.environ.get("CROSSCAM_HANDOFF", "on").lower()
+HANDOFF_S = 90.0                              # a confirmed person of the other camera is remembered this long
+HANDOFF_PASSES = 12                           # the look must stay clear this many passes in a row (~2 s)
+WALK_MPS = 1.8                                # brisk walk: how far a person can have moved since last seen
+
 
 def feet_floor(floor, box, w: int, h: int):
     """Room position of a person's feet, or None when the feet are not in the picture / off the floor."""
@@ -190,6 +205,9 @@ class CrossCam:
         self.desk_link: dict[str, str] = {}       # other camera's PC name -> this camera's (desk_map.json)
         self.desks: dict[str, tuple] = {}         # this camera's linked PC boxes (0-1), set every pass
         self.by_desk: set[tuple[int, int]] = set()   # this pass's pairings that came from the desk
+        self.seen: dict[str, dict] = {}           # other camera's confirmed people, by name (handoff memory)
+        self.hstreak: dict[tuple[int, str], int] = {}   # (my track, name) -> passes in a row the look was clear
+        self.hsaid: set[tuple[int, str]] = set()  # handoffs already logged in observe mode
 
     # ------------------------------------------------------------ polling ---
     def start(self, period_s: float = 0.25):
@@ -212,6 +230,78 @@ class CrossCam:
     # -------------------------------------------------------------- share ---
     def share(self, tracks, w: int, h: int, now: float, labeler) -> list[dict]:
         """Carry confirmed names over from the other camera. Returns the decisions (for /identity)."""
+        self._share_live(tracks, w, h, now, labeler)
+        if HANDOFF in ("on", "observe"):
+            self._handoff(tracks, w, h, now, labeler)
+        return self.notes
+
+    def _handoff(self, tracks, w: int, h: int, now: float, labeler) -> None:
+        """Names that the floor / desk pairing cannot carry (see HANDOFF): feet hidden, or the person has
+        left the other camera's view. Runs after the live pairing and only ever names an unnamed track."""
+        peer = self.peer
+        if not peer or not -1.0 <= now - float(peer.get("t", 0)) <= MAX_AGE_S:
+            self.hstreak.clear()                   # other camera silent: its memory is not used blind
+            return
+        live = set()
+        for p in peer.get("tracks", []):
+            if (p.get("label") and p.get("state") in SHARE_STATES and p.get("source") in SHARE_SOURCES
+                    and not p.get("crowded")):
+                live.add(p["label"])
+                if p.get("deep") is not None:
+                    old = self.seen.get(p["label"], {})
+                    self.seen[p["label"]] = {"deep": p["deep"], "floor": p.get("floor") or old.get("floor"),
+                                             "t": float(peer["t"]), "name": p.get("name"), "role": p.get("role")}
+        self.seen = {k: v for k, v in self.seen.items() if now - v["t"] <= HANDOFF_S}
+        held = {t.label for t in tracks if t.label}
+        looks = {t.id: deep_of(t) for t in tracks}
+        keep: dict[tuple[int, str], int] = {}
+        for t in tracks:
+            if t.label or t.crowded or looks[t.id] is None or not self.seen:
+                continue
+            d = {k: deep_distance(looks[t.id], v["deep"]) for k, v in self.seen.items()}
+            d = {k: x for k, x in d.items() if x is not None}
+            if not d:
+                continue
+            name = min(d, key=d.get)
+            a, c = d[name], self.seen[name]
+            if a > APPEAR_MAX or name in held:
+                continue
+            if any(x - a < APPEAR_MARGIN for k, x in d.items() if k != name):
+                continue                           # another remembered person looks about as close
+            rivals = [deep_distance(looks[o.id], c["deep"]) if looks[o.id] is not None else None
+                      for o in tracks if o is not t]
+            if any(x is None or x - a < APPEAR_MARGIN for x in rivals):
+                continue                           # someone else here could be that person (or has no look yet)
+            pos = feet_floor(self.floor, t.box, w, h) if self.floor is not None else None
+            if pos is not None and c["floor"] is not None:
+                reach = GATE_WIDE_M + WALK_MPS * max(0.0, now - c["t"])
+                if math.dist(pos, c["floor"]) > reach:
+                    continue                       # too far to have walked there since the other camera saw them
+            said = labeler._agreed(t)
+            if said is not None and said != name:
+                continue                           # this person's own face says someone else
+            keep[(t.id, name)] = self.hstreak.get((t.id, name), 0) + 1
+        self.hstreak = keep
+        for (tid, name), n in keep.items():
+            if n < HANDOFF_PASSES:
+                continue
+            t, c = next(x for x in tracks if x.id == tid), self.seen[name]
+            where = "seen there now" if name in live else f"last seen there {now - c['t']:.0f} s ago"
+            detail = (f"clear look ({deep_distance(looks[tid], c['deep']):.2f}) of the other camera's {name}, "
+                      f"{where}, for {HANDOFF_PASSES}+ passes")
+            if HANDOFF != "on":
+                if (tid, name) not in self.hsaid:
+                    self.hsaid.add((tid, name))
+                    self._note("CROSSCAM_HANDOFF_OBSERVED", tid, name, detail + " - observe mode, nothing changed")
+                continue
+            if t.label or name in {x.label for x in tracks if x.label}:
+                continue
+            labeler._give(t, {"auth_subject": name, "name": c.get("name"), "role": c.get("role")},
+                          "peer", how="other camera")
+            self._note("CROSSCAM_HANDOFF", tid, name, detail)
+
+    def _share_live(self, tracks, w: int, h: int, now: float, labeler) -> list[dict]:
+        """Live pairing: the other camera sees the person now, on the same floor spot or at the same desk."""
         from vision import assign_max
         self.notes = []
         peer = self.peer
@@ -265,7 +355,7 @@ class CrossCam:
                 # A desk GUESS here, a CONFIRMED name there (lab 2026-10-19: Ali sitting at Eng. Hemaly's
                 # desk was "Eng. Hemaly ? (desk)" on camera 1 while camera 2's face said Ali, verified 97 %):
                 # the confirmed name wins. Every other disagreement stays a logged conflict.
-                if (t.source == "desk" and p.get("state") in SHARE_STATES and p.get("source") in SHARE_SOURCES
+                if (t.source in ("desk", "look") and p.get("state") in SHARE_STATES and p.get("source") in SHARE_SOURCES
                         and not t.crowded and not p.get("crowded") and p["label"] not in held - {t.label}
                         and labeler._agreed(t) in (None, p["label"])):
                     old = t.label
@@ -278,6 +368,15 @@ class CrossCam:
                     continue
                 self._note("CROSSCAM_CONFLICT", t.id, t.label,
                            f"other camera calls this person {p['label']} - nothing changed")
+                continue
+            if (t.label and t.label == p.get("label") and t.source == "look" and p.get("state") in SHARE_STATES
+                    and p.get("source") in SHARE_SOURCES and not t.crowded and not p.get("crowded")
+                    and labeler._agreed(t) in (None, t.label)):
+                # my guess from the stored look, and the other camera CONFIRMED the same name on the same spot
+                labeler._give(t, {"auth_subject": p["label"], "name": p.get("name"), "role": p.get("role")},
+                              "peer", how="other camera")
+                self._note("CROSSCAM_CONFIRMS_LOOK_GUESS", t.id, p["label"],
+                           f"guess confirmed: the other camera's track {p['id']} holds the same name on this spot")
                 continue
             if t.label or not p.get("label"):
                 continue
@@ -329,9 +428,22 @@ class CrossCam:
             return
         i = mine.index(t)
         j = next((k for k, p in enumerate(placed) if p.get("label") == name), None)
-        a = ad[i][j] if j is not None and i < len(ad) and j < len(ad[i]) else None
         d = dist[i][j] if j is not None and i < len(dist) and j < len(dist[i]) else None
-        if (a is not None and a > APPEAR_NAME_MAX) or (d is not None and d > GATE_WIDE_M) \
+        # 2026-11-11 (closure audit P1-A): the head count is not evidence. With no measured look this rule named
+        # the last unnamed person from the count alone - a visitor in one camera's blind spot would have taken
+        # the name. The look is now measured against the named person there directly (they need no floor
+        # position for that) and must be at most APPEAR_NAME_MAX; without a look on both sides nobody is named.
+        there = next((p for p in theirs if p.get("label") == name), None)
+        a = deep_distance(deep_of(t), there.get("deep")) if there is not None else None
+        if a is None:
+            self.elim_streak = {}
+            said_before = getattr(self, "elim_said", set())
+            if (t.id, name) not in said_before:
+                self.elim_said = said_before | {(t.id, name)}
+                self._note("CROSSCAM_AMBIGUOUS", t.id, None,
+                           f"one unnamed person here and one free name there ({name}), but no measured look - not named")
+            return
+        if a > APPEAR_NAME_MAX or (d is not None and d > GATE_WIDE_M) \
                 or now - getattr(t, "separated_at", -1e9) < ELIM_COOLDOWN_S:
             self.elim_streak = {}
             return
@@ -339,11 +451,12 @@ class CrossCam:
         self.elim_streak = {(t.id, name): n}
         if n < ELIM_PASSES:
             return
-        p = next(p for p in theirs if p.get("label") == name)
+        p = there
         labeler._give(t, {"auth_subject": name, "name": p.get("name"), "role": p.get("role")}, "peer", how="other camera")
         held.add(name)
-        self._note("CROSSCAM_NAME", t.id, name, f"the only unnamed person here and the only name there not on anyone "
-                                                f"here, {len(mine)} people on both cameras, for {ELIM_PASSES}+ passes")
+        self._note("CROSSCAM_NAME", t.id, name, f"the only unnamed person here, the only name there not on anyone here, "
+                                                f"and the look agrees ({a:.2f}); {len(mine)} people on both cameras, "
+                                                f"for {ELIM_PASSES}+ passes")
 
     @staticmethod
     def _clear(ad: list, i: int, j: int) -> bool:

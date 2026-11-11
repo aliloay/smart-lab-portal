@@ -213,7 +213,12 @@ def warm_up() -> None:
 
 def main():
     Handler.KEY = service_key()
-    threading.Thread(target=warm_up, daemon=True).start()
+    # 2026-11-11 (performance mission): opt-in, like the backend's OLLAMA_WARMUP since 2026-11-04. Measured on this
+    # laptop: the two models hold ~1.5 GB of RAM for 30 min after every launch (free RAM was 1.9 GB with the lab
+    # services up); without the warm-up the first question waits ~8 s once (answer model cold 8.0 s vs 0.4 s warm,
+    # embedding model 1.1 s). KB_WARMUP=1 brings the warm-up back.
+    if os.environ.get("KB_WARMUP", "0") == "1":
+        threading.Thread(target=warm_up, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Smart Lab knowledge service on http://127.0.0.1:{PORT} (this laptop only). Ctrl+C stops.")
     try:

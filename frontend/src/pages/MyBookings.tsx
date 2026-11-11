@@ -24,7 +24,7 @@ export function bucket(rows: Booking[], now = Date.now()) {
 }
 
 export default function MyBookings() {
-  const [rows, setRows] = useState<Booking[] | null>(null)
+  const [rows, setRows] = useState<Booking[] | null>(() => api.peek(() => api.bookings()))
   const [tab, setTab] = useState<Tab | null>(null)
   const [error, setError] = useState('')
   const [cancelling, setCancelling] = useState<Booking | null>(null)

@@ -21,12 +21,96 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Booking, BookingStatus, Lab, User
+from app.models import Alert, Booking, BookingStatus, Device, Lab, Role, User
 
 BOOK = re.compile(r"\b(book|reserve)\b(?!ings?\b)", re.I)
 CANCEL = re.compile(r"\b(cancel|delete|remove)\b.*\b(booking|reservation|slot)\b|\bcancel (it|that)\b", re.I)
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+# 2026-11-11: maintenance reports. "the oscilloscope in LAB_01 is broken", "report a network problem on PC-04".
+ISSUE = re.compile(r"\b(report|log|submit|raise|file|open)\b.*\b(issue|fault|problem|ticket|broken|damage\w*)\b|"
+                   r"\b(is|are|seems?|looks?) (broken|not working|faulty|damaged|dead|missing)\b|"
+                   r"\b(doesn'?t|does not|won'?t|will not|can'?t|cannot) (work|turn on|start|boot|connect)\b", re.I)
+_CATEGORY = [("SAFETY", r"smoke|fire|burn|spark|shock|leak|smell"), ("DAMAGED", r"broken|crack|damag|snapped|bent"),
+             ("MISSING", r"missing|lost|stolen|gone"), ("NETWORK", r"network|wi-?fi|internet|ethernet|router|switch"),
+             ("SOFTWARE", r"software|app\b|install|licen[cs]e|login|update|windows"),
+             ("ACCESS_CONTROL", r"door|card|fingerprint|qr|badge|lock")]
+
+
+# 2026-11-11: "acknowledge the alerts", "ack alert 12", "acknowledge the camera alert in LAB_01" (staff and admins).
+ACK = re.compile(r"\b(acknowledge|ack|accept|confirm)\b.*\b(alerts?|alarms?|incidents?)\b", re.I)
+ACK_SEVERITY = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
+
+
+def _ack_proposal(db: Session, user: User, question: str) -> dict:
+    """Open (not yet acknowledged) alerts for the person to confirm one by one. Confirm = the Incidents page's own
+    POST /api/incidents/{id}/actions {action: acknowledge}: staff only, audited, refused if already acknowledged."""
+    if user.role not in (Role.ADMIN, Role.LAB_STAFF):
+        return {"answer": "Only lab staff and admins can acknowledge alerts.", "intent": "ack_alert"}
+    q = question.lower()
+    rows = [a for a in db.scalars(select(Alert).where(Alert.is_resolved.is_(False))).all()
+            if (getattr(a, "state", None) or "OPEN") == "OPEN"]
+    num = re.search(r"(?:#|\balert\s+|\bincident\s+)(\d+)\b", q)
+    if num:
+        rows = [a for a in rows if a.id == int(num.group(1))]
+    lab, _ = _lab(db, q)
+    if lab is not None:
+        rows = [a for a in rows if a.lab_id == lab.id]
+    words = [w for w in re.findall(r"[a-z0-9]{4,}", q) if w not in {"acknowledge", "alert", "alerts", "please", "incident",
+                                                                    "incidents", "alarm", "alarms", "confirm", "accept", "every", "them"}]
+    picked = [a for a in rows if any(w in (a.title or "").lower() for w in words)] or rows
+    picked.sort(key=lambda a: (ACK_SEVERITY.get(getattr(a.severity, "value", str(a.severity)), 3), -a.created_at.timestamp()))
+    picked = picked[:5]
+    if not picked:
+        return {"answer": "There is no open, unacknowledged alert matching that.", "intent": "ack_alert"}
+    acts = [{"type": "ack_alert", "alert_id": a.id,
+             "label": f"Acknowledge #{a.id} {a.title[:60]}"} for a in picked]
+    more = f" (showing {len(picked)} of {len(rows)})" if len(rows) > len(picked) else ""
+    return {"answer": "Acknowledge which alert?" + more + "\n" +
+                      "\n".join(f"- #{a.id} [{getattr(a.severity, 'value', a.severity)}] {a.title}" for a in picked)
+                      + "\n\nAcknowledging says someone is on it; it does not resolve the alert.",
+            "intent": "ack_alert", "actions": acts}
+
+
+def wants_issue(question: str) -> bool:
+    q = question.lower().strip()
+    if re.match(r"(which|what|when|where|who|how many|show|list)\b", q):
+        return False                                        # "which issues are open?" asks - it does not report
+    return bool(ISSUE.search(q))
+
+
+def _issue_proposal(db: Session, user: User, question: str) -> dict:
+    """A maintenance ticket for the page to confirm: lab, device, category and severity guessed from the words, the
+    person's own sentence as the description. Nothing is filed until the person presses Confirm (POST /api/issues)."""
+    q = question.lower()
+    lab, _ = _lab(db, q)
+    if lab is None:
+        lab = db.scalar(select(Lab).where(Lab.code == settings.AI_DEFAULT_LAB))
+    if lab is None:
+        return {"answer": "Which lab is it in? Say the lab, e.g. \"report a broken monitor in LAB_01\".",
+                "intent": "create_issue"}
+    device = None
+    for d in db.scalars(select(Device).where(Device.lab_id == lab.id)).all():
+        names = {d.device_uid.lower(), (d.name or "").lower()}
+        if any(n and len(n) >= 3 and re.search(r"\b" + re.escape(n).replace("\\ ", "[ -]?") + r"\b", q) for n in names):
+            device = d
+            break
+    category = next((c for c, pat in _CATEGORY if re.search(pat, q)), "MALFUNCTION")
+    severity = "HIGH" if category == "SAFETY" else "MEDIUM"
+    text = " ".join(question.split())
+    title = re.sub(r"^(please\s+)?(report|log|submit|raise|file|open)\s+(an?\s+)?(issue|fault|problem|ticket)?\s*(that|:|-)?\s*",
+                   "", text, flags=re.I).strip() or text
+    title = (title[0].upper() + title[1:])[:120] if len(title) >= 5 else f"{category.title()} reported in {lab.code}"
+    desc = text if len(text) >= 10 else f"{text} (reported through the assistant)"
+    act = {"type": "create_issue", "lab_id": lab.id, "device_id": device.id if device else None,
+           "category": category, "severity": severity, "title": title, "description": desc[:4000],
+           "label": f"Report \"{title[:60]}\" in {lab.code}"}
+    where = f" on **{device.name}**" if device else ""
+    return {"answer": f"Report this in **{lab.code}**{where} as {category.replace('_', ' ').lower()}, "
+                      f"severity {severity.lower()}?\n> {title}\n\nYou can add photos on the issue page afterwards.",
+            "intent": "create_issue", "actions": [act]}
 
 
 def wants_action(question: str) -> bool:
@@ -133,6 +217,10 @@ def _fmt(dt: datetime) -> str:
 
 def propose(db: Session, user: User, question: str, now: Optional[datetime] = None) -> Optional[dict]:
     """A booking proposal (or a clarifying question) for the page to confirm, or None when it is not an action."""
+    if ACK.search(question) and not re.match(r"\s*(which|what|how many|show|list)\b", question.lower()):
+        return _ack_proposal(db, user, question)
+    if wants_issue(question) and not BOOK.search(question):
+        return _issue_proposal(db, user, question)
     if not wants_action(question):
         return None
     now = now or datetime.now(timezone.utc)

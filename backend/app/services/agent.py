@@ -448,6 +448,19 @@ def free_labs(db: Session, now: Optional[datetime] = None) -> list[dict]:
     return out
 
 
+def _camera_activity(db, now) -> list[str]:
+    """The live activity lines the security cameras reported (tools/security_vision/activity.py), fresh cameras only."""
+    from app.models import Device, DeviceType
+    out = []
+    for d in db.scalars(select(Device).where(Device.device_type == DeviceType.SECURITY_CAMERA).order_by(Device.name)).all():
+        if not is_fresh(d, now):
+            continue
+        for a in ((d.component_state or {}).get("activity") or [])[:12]:
+            if isinstance(a, dict) and a.get("text"):
+                out.append(f"{d.name}: {a['text']}")
+    return out
+
+
 def _bullets(rows: list[str]) -> str:
     return "\n".join(f"- {r}" for r in rows)
 
@@ -506,6 +519,9 @@ _PATTERNS: list[tuple[str, str, bool]] = [
                  r"recommend\w*|suggest\w*|insights?|what should (we|i) (fix|do|check)|anything unusual|anomal\w*)\b", True),
     ("equipment", r"\b(robots?|pcs?|computers?|equipment|ur5e?|fanuc)\b.*\b(used|usage|use|hours|busiest|most)\b|"
                   r"\bmost used\b", True),
+    # 2026-11-11: "what is everyone doing / who is doing what" -> the cameras' live activity lines, instantly
+    ("activity_now", r"\b(who is doing what|what is (every|any)one doing|what are (they|people) doing|"
+                     r"doing (right )?now|what'?s happening in the lab|activity in the lab)\b", True),
     ("inside", r"\b(who|how many)\b.*\b(inside|in the labs?|present|in lab)\b|\boccupancy\b", True),
     # 2026-10-18: "What is the temperature?" got the data-source overview, and "How many resistors are in
     # the bin?" went to the language model (213 s), which then said it could not answer.
@@ -758,15 +774,19 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
              + (f", {e['faults']} fault{'s' if e['faults'] != 1 else ''}" if e["faults"] else "")
              for e in used[:8]]), intent)
 
-    if intent == "inside":
+    if intent in ("inside", "activity_now"):
         occ = occupancy(db)
-        if not occ:
-            return _answer("Nobody is inside any lab right now (by the door records).", intent)
+        seen = _camera_activity(db, now)
         role = {"ADMIN": "admin", "LAB_STAFF": "staff", "STUDENT": "student"}
-        return _answer(_bullets([
-            f"**{o['lab_code']}**: {len(o['people'])} - "
-            + ", ".join(f"{p['name']} ({role.get(p['role'], p['role'])})" for p in o["people"])
-            for o in occ]), intent)
+        lines = [f"**{o['lab_code']}**: {len(o['people'])} - "
+                 + ", ".join(f"{p['name']} ({role.get(p['role'], p['role'])})" for p in o["people"]) for o in occ]
+        text = ("**By the door records:**\n" + _bullets(lines)) if lines else "Nobody is inside any lab right now (by the door records)."
+        if seen:
+            text += ("\n\n**What the cameras see now** (names only where the evidence names someone; \"?\" = a guess):\n"
+                     + _bullets(seen))
+        elif intent == "activity_now":
+            text += "\n\nNo camera is reporting people right now."
+        return _answer(text, intent)
 
     if intent == "offline":
         devices = refresh_liveness(db)

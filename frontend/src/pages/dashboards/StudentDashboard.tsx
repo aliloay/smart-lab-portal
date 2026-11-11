@@ -22,10 +22,10 @@ import LabCard from '../../components/LabCard'
 
 export default function StudentDashboard() {
   const { user } = useAuth()
-  const [bookings, setBookings] = useState<Booking[] | null>(null)
-  const [labs, setLabs] = useState<LabOverview[]>([])
-  const [events, setEvents] = useState<AccessEvent[]>([])
-  const [issues, setIssues] = useState<Issue[]>([])
+  const [bookings, setBookings] = useState<Booking[] | null>(() => api.peek(() => api.bookings()))
+  const [labs, setLabs] = useState<LabOverview[]>(() => api.peek(() => api.labsOverview()) ?? [])
+  const [events, setEvents] = useState<AccessEvent[]>(() => api.peek(() => api.events({ limit: 8 })) ?? [])
+  const [issues, setIssues] = useState<Issue[]>(() => api.peek(() => api.issues({ limit: 20 })) ?? [])
   const [, tick] = useState(0)
 
   const load = useCallback(() => {

@@ -154,6 +154,11 @@ services:
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       SIGNUP_EMAIL_DOMAINS: ${SIGNUP_EMAIL_DOMAINS:-}
       SIGNUP_REQUIRES_APPROVAL: ${SIGNUP_REQUIRES_APPROVAL:-false}
+      # Lab PC kit enrollment: true only while installing lab PCs (2026-11-11: it was not passed through at all,
+      # so it could never be closed from .env).
+      PC_ENROLL_OPEN: ${PC_ENROLL_OPEN:-false}
+      # The door boards use the shared key: keep true until every device has its own key.
+      DEVICE_SHARED_KEY: ${DEVICE_SHARED_KEY:-true}
     # Migrations run before the API accepts traffic, so a fresh volume comes
     # up with the right schema without a manual step. seed.py only creates
     # what is missing (accounts, laboratories, devices, equipment) and never

@@ -278,9 +278,12 @@ def appearance_refs(_: User = Depends(require_staff)):
 
 
 @router.post("/appearance")
-async def appearance_match(request: Request, _: User = Depends(require_staff)):
+async def appearance_match(request: Request, user: User = Depends(require_staff)):
     """One phone frame -> which enclosure it LOOKS like (PROBABLE / AMBIGUOUS / UNKNOWN). A hint only: identity and
     live data still come from the asset's QR marker. Run on request, not per frame; nothing is stored."""
+    from app.core import throttle
+    if not throttle.scan_appearance.allow(str(user.id)):
+        return Response(status_code=status.HTTP_429_TOO_MANY_REQUESTS, headers={"Retry-After": "1"})
     body = await request.body()
     # 2026-10-27 (owner: "it takes a lot of time to detect and to hear the answer"): the blocking calls (camera /
     # face / voice service, database) run on a worker thread - they used to hold the event loop, so every other

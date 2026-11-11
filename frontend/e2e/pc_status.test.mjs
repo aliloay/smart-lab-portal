@@ -5,8 +5,11 @@ import { pcStatus } from '../src/lib/pcStatus.ts'
 
 const lan = present => ({ present, ip: '192.168.1.101', mac: '60-eb-69-6b-c8-50', via: 'ping', since: '', checked_at: '' })
 
-test('cable out wins over a heartbeat that is not stale yet', () => {
-  assert.deepEqual(pcStatus({ online: true, state: 'RUNNING', lan: lan(false) }), { word: 'off', tone: 'bad', agent: false })
+test('off on the LAN and no live agent: off', () => {
+  assert.deepEqual(pcStatus({ online: false, state: 'RUNNING', lan: lan(false) }), { word: 'off', tone: 'bad', agent: false })
+})
+test('a live agent wins over the LAN scan (2026-11-03: PCs that report through the relay are not on the Smart Lab cable)', () => {
+  assert.deepEqual(pcStatus({ online: true, state: 'RUNNING', lan: lan(false) }), { word: 'running', tone: 'ok', agent: true })
 })
 test('on the LAN without the agent: on, controls off', () => {
   const s = pcStatus({ online: null, state: null, lan: lan(true) })

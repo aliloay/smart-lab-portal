@@ -113,3 +113,14 @@ def test_an_unregistered_object_is_named_by_type(client, staff, monkeypatch, ref
     b = r["best"]
     assert r["decision"] == "PROBABLE" and b["code"] == "type:network_switch" and b["label"] == "Network switch"
     assert b["registered"] is False and b["confidence"] == 0.9          # the more confident of the two models wins
+
+
+def test_a_scripted_loop_on_the_box_match_is_slowed_down(client, staff):
+    """2026-11-11 closure audit (SEC-05): 6 frames in any 2 s per user, then 429 until the window moves on."""
+    from app.core import throttle
+    from tests.conftest import auth_headers
+    throttle.scan_appearance._t.clear(str(staff.id))
+    h = auth_headers(client, staff.email)
+    codes = [client.post("/api/scan/appearance", content=b"not a jpeg", headers=h).status_code for _ in range(8)]
+    assert codes[:6] == [422] * 6 and codes[6:] == [429, 429]
+    throttle.scan_appearance._t.clear(str(staff.id))

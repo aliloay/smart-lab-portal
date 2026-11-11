@@ -690,7 +690,8 @@ def route(question: str) -> Optional[tuple[str, dict]]:
     return None
 
 
-def _ask_routed(db: Session, question: str, history: Optional[list[dict]], model: str) -> Optional[dict]:
+def _routed_messages(db: Session, question: str, history: Optional[list[dict]]) -> Optional[tuple[str, list[dict]]]:
+    """(tool name, messages) when the keyword router knows which one tool answers the question."""
     r = route(question)
     if r is None:
         return None
@@ -702,8 +703,22 @@ def _ask_routed(db: Session, question: str, history: Optional[list[dict]], model
         out = out[:settings.AI_ROUTED_RESULT_CHARS] + '..."(truncated)"'
     system = (_staff_system(ROUTED_RULES, question, with_time=False) + f"\n\nTOOL RESULT ({name} {_json(args)}):\n{out}"
               + "\n\n" + _today_line())
-    msg = _ollama_chat(model, [{"role": "system", "content": system}] + _history(question, history),
-                       num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
+    return name, [{"role": "system", "content": system}] + _history(question, history)
+
+
+def _snapshot_messages(db: Session, question: str, history: Optional[list[dict]]) -> list[dict]:
+    from app.services.agent import snapshot
+    return [{"role": "system",
+             "content": _staff_system(OLLAMA_SNAPSHOT_RULES, question, with_time=False) + "\n\n" + snapshot(db)
+                        + "\n" + _today_line()}] + _history(question, history)
+
+
+def _ask_routed(db: Session, question: str, history: Optional[list[dict]], model: str) -> Optional[dict]:
+    rm = _routed_messages(db, question, history)
+    if rm is None:
+        return None
+    name, messages = rm
+    msg = _ollama_chat(model, messages, num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
     text = (msg.get("content") or "").strip()
     return {"answer": text or "No answer was produced.", "tools_used": [name], "model": model, "routed": True}
 
@@ -715,15 +730,16 @@ def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> di
         routed = _ask_routed(db, question, history, model)
         if routed is not None:
             return routed
-    first = [{"role": "system",
-              "content": _staff_system(OLLAMA_SNAPSHOT_RULES, question, with_time=False) + "\n\n" + snapshot(db)
-                         + "\n" + _today_line()}]
-    msg = _ollama_chat(model, first + _history(question, history),
+    msg = _ollama_chat(model, _snapshot_messages(db, question, history),
                        num_predict=settings.AI_MAX_ANSWER_TOKENS).get("message") or {}
     text = (msg.get("content") or "").strip()
     if text and NEED_TOOLS not in text:
         return {"answer": text, "tools_used": ["snapshot"], "model": model}
-    # Not covered by the snapshot: the slower tool loop.
+    return _ask_tools(db, question, history, model)
+
+
+def _ask_tools(db: Session, question: str, history: Optional[list[dict]], model: str) -> dict:
+    """Not covered by the snapshot: the slower tool loop."""
     messages = [{"role": "system",
                  "content": _staff_system(OLLAMA_EXTRA, question)}]
     messages += _history(question, history)
@@ -754,6 +770,129 @@ def _ask_ollama(db: Session, question: str, history: Optional[list[dict]]) -> di
             messages.append({"role": "tool", "tool_name": name, "content": out})
     return {"answer": "The question needed more steps than allowed; try a narrower question.",
             "tools_used": tools_used, "model": model}
+
+
+# ------------------------------------------------------------- streaming ---
+# 2026-11-11 (closure mission): the page waited for the WHOLE answer before showing a word. The same prompts,
+# the same one-answer-at-a-time slot and the same bounded length - only the text now arrives as it is written.
+# Everything that needs the database happens in stream_plan(), before the response starts; the generator then
+# talks to Ollama only (the request's database session may already be closed while a response streams).
+def _ollama_stream(model: str, messages: list[dict], num_predict: Optional[int] = None):
+    """The pieces of one /api/chat answer as they are generated. Closing the generator (the browser went away)
+    closes the connection, so Ollama stops generating and the slot is free again."""
+    slots = _slots()
+    if not slots.acquire(timeout=settings.OLLAMA_QUEUE_WAIT_S):
+        raise AIUnavailable("The local AI is answering another question right now - please ask again in a "
+                            "moment (one answer at a time keeps the cameras and the portal fast).")
+    try:
+        h = _health.get("value")
+        if h is not None and h.get("reachable") is False and time.monotonic() - _health["at"] < 20:
+            raise AIUnavailable("The local AI model is not running right now - instant answers still work.")
+        options: dict[str, Any] = {"temperature": 0.2, "num_ctx": _ctx_for(model)}
+        if cpu_now():
+            options["num_gpu"] = 0
+        if settings.OLLAMA_NUM_THREAD > 0:
+            options["num_thread"] = settings.OLLAMA_NUM_THREAD
+        if num_predict:
+            options["num_predict"] = num_predict
+        body: dict[str, Any] = {"model": model, "messages": messages, "stream": True, "options": options,
+                                "keep_alive": OLLAMA_KEEP_ALIVE}
+        if thinks(model) and not settings.OLLAMA_THINK:
+            body["think"] = False
+        try:
+            with httpx.stream("POST", settings.OLLAMA_URL.rstrip("/") + "/api/chat", json=body,
+                              timeout=httpx.Timeout(240.0, connect=2.0)) as r:
+                if r.status_code == 404:
+                    raise AIUnavailable(f"The model {model} is not downloaded yet. "
+                                        f"On the computer running Ollama, run: ollama pull {model}")
+                if r.status_code >= 400:
+                    r.read()
+                    raise AIUnavailable("The local model returned an error.")
+                for line in r.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        part = json.loads(line)
+                    except ValueError:
+                        continue
+                    piece = (part.get("message") or {}).get("content") or ""
+                    if piece:
+                        yield piece
+                    if part.get("done"):
+                        break
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            _health.update(at=time.monotonic(), value={"reachable": False, "missing_models": []}, busy=False)
+            raise AIUnavailable("Ollama is not running. Install it from ollama.com, start it, and try again.") from exc
+        except httpx.TimeoutException as exc:
+            raise AIUnavailable("The local model took too long to answer - try a shorter question.") from exc
+        except httpx.HTTPError as exc:
+            raise AIUnavailable("Ollama could not be reached.") from exc
+    finally:
+        slots.release()
+
+
+def stream_plan(db: Session, question: str, history: Optional[list[dict]] = None,
+                student: Optional[User] = None) -> dict:
+    """What the streamed answer will be built from. {"mode": "final", "result": ...} when there is nothing to
+    stream (cloud provider: answered the old way), else {"mode": "stream", model, messages, tools_used, ...}."""
+    if student is not None:
+        if provider() != "ollama":
+            return {"mode": "final", "result": ask_student(db, student, question, history)}
+        from app.services.ai_guide import guide
+        system = (STUDENT_SYSTEM + "\n\n" + guide() + "\n\nDATA (this student only):\n"
+                  + _json(student_context(db, student)))
+        return {"mode": "stream", "model": settings.ollama_student_model, "tools_used": [], "num_predict": None,
+                "messages": [{"role": "system", "content": system}] + _history(question, history)}
+    if provider() != "ollama":
+        return {"mode": "final", "result": ask(db, question, history)}
+    model = settings.OLLAMA_MODEL
+    rm = _routed_messages(db, question, history) if settings.AI_ROUTER else None
+    if rm is not None:
+        return {"mode": "stream", "model": model, "messages": rm[1], "tools_used": [rm[0]], "routed": True,
+                "num_predict": settings.AI_MAX_ANSWER_TOKENS}
+    return {"mode": "stream", "model": model, "messages": _snapshot_messages(db, question, history),
+            "tools_used": ["snapshot"], "num_predict": settings.AI_MAX_ANSWER_TOKENS, "may_need_tools": True}
+
+
+def stream_events(plan: dict, question: str, history: Optional[list[dict]] = None):
+    """Events for the page, one JSON object each: meta (model, tools), token (text so far grows by `text`),
+    final (the complete answer, same fields as the non-streamed endpoint), or error (detail)."""
+    if plan["mode"] == "final":
+        yield {"type": "final", **plan["result"]}
+        return
+    model, tools_used = plan["model"], list(plan["tools_used"])
+    yield {"type": "meta", "model": model, "tools_used": tools_used}
+    need = bool(plan.get("may_need_tools"))
+    hold = len(NEED_TOOLS) + 8 if need else 0      # the snapshot prompt may answer with only the NEED_TOOLS marker
+    text, sent = "", 0
+    gen = _ollama_stream(model, plan["messages"], plan.get("num_predict"))
+    try:
+        for piece in gen:
+            text += piece
+            if need and NEED_TOOLS in text:
+                break
+            if len(text) >= hold and len(text) > sent:
+                yield {"type": "token", "text": text[sent:]}
+                sent = len(text)
+    except AIUnavailable as exc:
+        yield {"type": "error", "detail": str(exc)}
+        return
+    finally:
+        gen.close()                                # frees the slot before a tool loop needs it
+    if need and (NEED_TOOLS in text or not text.strip()):
+        from app.db.session import SessionLocal
+        try:
+            with SessionLocal() as db2:
+                result = _ask_tools(db2, question, history, model)
+        except AIUnavailable as exc:
+            yield {"type": "error", "detail": str(exc)}
+            return
+        yield {"type": "final", **result}
+        return
+    if len(text) > sent:
+        yield {"type": "token", "text": text[sent:]}
+    yield {"type": "final", "answer": text.strip() or "No answer was produced.", "tools_used": tools_used,
+           "model": model, **({"routed": True} if plan.get("routed") else {})}
 
 
 # --------------------------------------------------------------- student ---

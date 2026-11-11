@@ -41,6 +41,13 @@ async def lifespan(_: FastAPI):
             raise RuntimeError("SECRET_KEY must be set in production")
         if settings.DEVICE_API_KEY == "dev-device-key-change-me":
             raise RuntimeError("DEVICE_API_KEY must be set in production")
+    # Settings that are fine during an installation but should not be forgotten open (2026-11-11 closure audit).
+    if settings.PC_ENROLL_OPEN:
+        log.warning("PC_ENROLL_OPEN is true: anyone holding the kit's enrollment code can register a lab PC. "
+                    "Close it when the installation is finished.")
+    if settings.SIGNUP_ENABLED and not settings.signup_domains and not settings.SIGNUP_REQUIRES_APPROVAL:
+        log.warning("Sign-up is open to any email address without approval "
+                    "(SIGNUP_EMAIL_DOMAINS / SIGNUP_REQUIRES_APPROVAL).")
     # A migrated database must be up to date - create_all on an old schema
     # would add new tables but not new columns, then break the migration.
     # Only an unmanaged database (tests, throwaway quickstart) gets create_all.
@@ -123,6 +130,8 @@ app.add_middleware(
 # Request timing per route (app/services/perfmon.py): pure ASGI, bounded in memory, no DB writes.
 from app.services.perfmon import TimingMiddleware  # noqa: E402
 app.add_middleware(TimingMiddleware)
+from app.core.ttl import ClearOnWrite  # noqa: E402
+app.add_middleware(ClearOnWrite)       # a user's write empties the 2-3 s read caches (core/ttl.py)
 
 for r in (auth.router, labs.router, bookings.router, access.router,
           admin.router, issues.router, notifications.router, system.router,
@@ -172,21 +181,29 @@ def _build_info() -> dict:
 
 @app.websocket("/ws/activity")
 async def ws_activity(ws: WebSocket, token: Optional[str] = Query(None),
+                      ticket: Optional[str] = Query(None, max_length=64),
                       lab_id: Optional[int] = Query(None)):
     """
     Live activity and notification stream.
 
-    Authenticated with the same JWT as the REST API, passed as a query
-    parameter because browsers cannot set headers on a WebSocket. Staff
+    Authenticated with a one-time ticket from POST /api/auth/ws-ticket (2026-11-11: the page no longer puts
+    its sign-in token in the URL, where access logs keep it). The JWT as a query parameter is still accepted
+    for scripts and pages loaded before the change. Staff
     receive every access event; a student receives only their own, plus their
     notifications. Read-only by design: the socket pushes events and accepts
     nothing that changes state.
     """
-    payload = decode_access_token(token) if token else None
+    uid = None
+    if ticket:
+        from app.core import ws_ticket as tickets
+        uid = tickets.redeem(ticket)
+    elif token:
+        payload = decode_access_token(token)
+        uid = int(payload["sub"]) if payload and "sub" in payload else None
     user = None
-    if payload and "sub" in payload:
+    if uid is not None:
         with SessionLocal() as db:
-            user = db.get(User, int(payload["sub"]))
+            user = db.get(User, uid)
             if user is not None and not user.is_active:
                 user = None
             if user is not None:

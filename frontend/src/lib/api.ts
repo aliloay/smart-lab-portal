@@ -96,13 +96,16 @@ export interface SecurityCameraTile {
   /** People the camera sees now, and how many of them it could not name. */
   people: number | null; unknown: number | null
   /** source: how the name was given; entered = false: named by face, no door entry yet (on hold). */
-  named: { label: string; name: string; role: Role | null; source?: 'door' | 'face' | null; entered?: boolean
+  named: { label: string; name: string; role: Role | null; source?: 'door' | 'face' | 'peer' | 'desk' | 'look' | null; entered?: boolean
            /** door and face agree */ verified?: boolean; /** the face says this other person */ face?: string | null
            /** identity.py: evidence state + confidence (0-1) of this name */
            track_id?: number; identity_state?: string; confidence?: number; named_by?: string | null }[]
   /** People inside per the door. */
   inside: number
   open_events: number
+  /** 2026-11-11: one line per tracked person for the live bar (who, top colour, posture, nearest mapped box). */
+  activity?: { track_id: number; label: string | null; who: string; colour: string | null; posture: string
+               near: string | null; named: boolean; text: string }[]
 }
 export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null
@@ -332,6 +335,42 @@ export interface AppearanceHint { decision: 'PROBABLE' | 'AMBIGUOUS' | 'UNKNOWN'
   best: { code: string; class: string; inliers: number; box?: { x: number; y: number; w: number; h: number }; box_kind?: string; confidence?: number; label?: string | null; registered?: boolean } | null; candidates: { code: string; inliers: number }[]
   /** 2026-11-02: every object the detectors saw in this frame (several at once), most confident first */
   detections?: { code: string; class: string; label: string | null; confidence: number; box: { x: number; y: number; w: number; h: number }; registered: boolean }[] }
+/** The assistant's answer as it is written (2026-11-11). onText gets the whole text so far each time it grows;
+ *  the promise resolves with the complete answer (same shape as the non-streamed call). An instant answer
+ *  arrives as one piece. Throws ApiError like any other call. */
+export async function aiAskStream(student: boolean, question: string,
+                                  history: { role: 'user' | 'assistant'; content: string }[],
+                                  onText: (soFar: string) => void, signal?: AbortSignal): Promise<AiAnswer> {
+  const token = getToken()
+  const res = await fetch(`/api/ai/${student ? 'student/' : ''}ask/stream`, {
+    method: 'POST', cache: 'no-store', signal,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ question, history }) })
+  if (res.status === 401 && token) expired()
+  if (!res.ok || !res.body) throw await parseError(res)
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = '', text = '', final: AiAnswer | null = null
+  const take = (line: string) => {
+    if (!line.trim()) return
+    let e: { type?: string; text?: string; detail?: string } & Partial<AiAnswer>
+    try { e = JSON.parse(line) } catch { return }
+    if (e.type === 'token' && e.text) { text += e.text; onText(text) }
+    else if (e.type === 'error') throw new ApiError(503, e.detail || 'The assistant could not answer.')
+    else if (e.type === 'final') final = e as AiAnswer
+  }
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let nl: number
+    while ((nl = buf.indexOf('\n')) >= 0) { take(buf.slice(0, nl)); buf = buf.slice(nl + 1) }
+  }
+  take(buf)
+  if (!final) throw new ApiError(503, 'The answer stopped before it was complete - please ask again.')
+  return final
+}
+
 /** Which enclosure a frame LOOKS like - a hint only; identity and live data still need the asset's QR marker. */
 export async function scanAppearance(jpeg: Blob): Promise<AppearanceHint> {
   const token = getToken()
@@ -1050,6 +1089,9 @@ export interface AiAnswer {
 export type AiAction =
   | { type: 'create_booking'; lab_id: number; start_time: string; end_time: string; reason: string; label: string }
   | { type: 'cancel_booking'; booking_id: number; label: string }
+  | { type: 'ack_alert'; alert_id: number; label: string }
+  | { type: 'create_issue'; lab_id: number; device_id: number | null; category: IssueCategory; severity: IssueSeverity
+      title: string; description: string; label: string }
 export interface ManagementReport {
   charts?: AiChartData[]
   kind: 'weekly' | 'monthly'; span: string; title: string; period_label: string; generated_at: string
@@ -1090,7 +1132,7 @@ export function getToken(): string | null {
 export function setToken(t: string | null) {
   try {
     if (t) localStorage.setItem(TOKEN_KEY, t)
-    else localStorage.removeItem(TOKEN_KEY)
+    else { localStorage.removeItem(TOKEN_KEY); lastOk.clear(); shared.clear() }      // signed out: nothing kept to show
     sessionStorage.removeItem(TOKEN_KEY)
   } catch { /* private mode - the in-memory session still works */ }
 }
@@ -1174,7 +1216,30 @@ const HIDDEN_REUSE_MS = 60_000                  // back in front: at most one po
 const ALWAYS_LIVE = /^\/(labs\/hazards|emergency|share|broadcast|auth|notifications\/unread)/
 const lastOk = new Map<string, { at: number; v: unknown }>()
 
+// Last answer first (2026-11-11, owner: "tabs must feel instant"). A page that was open a moment ago used to
+// start from nothing and show its skeleton again while the same request ran. peek(() => api.summary()) gives
+// the last answer of that exact read for THIS sign-in (the key holds the token) if it is at most PEEK_MS old;
+// the page shows it at once and its normal load replaces it a moment later. Every write empties the store,
+// as does signing out. Never for alarms, the emergency state, screen sharing or sign-in (ALWAYS_LIVE), and a
+// page must not use it to DECIDE anything (door, booking confirmation, commands) - only to draw.
+const PEEK_MS = 60_000
+let peeking: { hit: boolean; v: unknown } | null = null
+export function peek<T>(call: () => Promise<T>): T | null {
+  const box = { hit: false, v: null as unknown }
+  peeking = box
+  try { void call().catch(() => {}) } catch { /* a read that throws while peeking has nothing to show */ } finally { peeking = null }
+  return box.hit ? box.v as T : null
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (peeking) {                                                   // runs before any await: nothing is sent
+    const box = peeking
+    if ((!init.method || init.method === 'GET') && !init.body && init.cache !== 'no-store' && !ALWAYS_LIVE.test(path)) {
+      const old = lastOk.get(`${getToken() ?? ''} ${path}`)
+      if (old && Date.now() - old.at < PEEK_MS) { box.hit = true; box.v = cloneData(old.v) }
+    }
+    return new Promise<T>(() => {})
+  }
   if (init.cache === 'no-store') return send<T>(path, init)       // live state: never a shared / cached answer
   const read = (!init.method || init.method === 'GET') && !init.signal && !init.body
   if (!read) {
@@ -1329,6 +1394,8 @@ export type ShareRequest = { id: number; user_id: number; name: string; device_i
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'; at: number }
 
 export const api = {
+  /** the last answer of a read, if fresh (see peek above): for a page's first paint only */
+  peek,
   // answer feedback (2026-10-27): optional thumbs up / down, stored locally and anonymised for review
   aiFeedback: (b: { question: string; answer: string; rating: 'up' | 'down'; route: 'instant' | 'model' | 'routed' | 'knowledge' | 'live'; intent?: string | null }) =>
     post<{ ok: boolean }>('/ai/feedback', b),
@@ -1734,6 +1801,8 @@ export const api = {
   notifications: (unreadOnly = false, limit = 50) =>
     request<Notification[]>(`/notifications${qs({ unread_only: unreadOnly || undefined, limit })}`),
   unreadCount: () => request<{ unread: number }>('/notifications/unread-count'),
+  /** one-time 30 s ticket for the live-updates socket: the sign-in token never goes into a URL */
+  wsTicket: () => request<{ ticket: string }>('/auth/ws-ticket', { method: 'POST' }),
   markRead: (id: number) => post<Notification>(`/notifications/${id}/read`),
   markAllRead: () => post<{ updated: number }>('/notifications/read-all'),
   inbox: (q: { tab?: InboxTab; kind?: string; q?: string; offset?: number; limit?: number }) =>

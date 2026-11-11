@@ -73,11 +73,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     let timer: number | undefined
     let keepalive: number | undefined
 
-    const open = () => {
-      const token = getToken()
-      if (!token || stopped) return
+    const retryLater = () => { timer = window.setTimeout(open, Math.min(30000, 1000 * 2 ** retry++)) }
+    const open = async () => {
+      if (!getToken() || stopped) return
+      // 2026-11-11: a one-time ticket instead of the sign-in token in the URL (URLs end up in access logs)
+      let ticket: string
+      try { ticket = (await api.wsTicket()).ticket } catch { if (!stopped) retryLater(); return }
+      if (stopped) return
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/ws/activity?token=${encodeURIComponent(token)}`)
+      ws = new WebSocket(`${proto}://${location.host}/ws/activity?ticket=${encodeURIComponent(ticket)}`)
       ws.onopen = () => { retry = 0; setConnected(true) }
       ws.onmessage = m => {
         let msg: LiveMessage
@@ -89,7 +93,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         setConnected(false)
         if (stopped) return
         // 1s, 2s, 4s ... capped at 30s.
-        timer = window.setTimeout(open, Math.min(30000, 1000 * 2 ** retry++))
+        retryLater()
       }
       ws.onerror = () => ws?.close()
     }

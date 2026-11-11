@@ -323,6 +323,24 @@ def color_signature(frame: np.ndarray, box) -> Optional[np.ndarray]:
 class Look:
     color: Optional[np.ndarray] = None
     deep: Optional[np.ndarray] = None   # L2-normalised re-id embedding
+    partial: bool = False               # upper body only (box cut by the bottom of the picture) - PARTIAL_LOOK
+
+
+# Half-body looks (2026-11-11, measured on two lab recordings: 348 same-person pairs of a full-body view against the
+# same person's waist-up view). A waist-up box was handled like a whole person: stretched to the re-id model's
+# full-body shape and split into head / upper body / LEGS bands, so the lower shirt was compared with trousers.
+# Now a box cut by the bottom of the frame is marked partial: its crop fills only the top of the model input (rest =
+# the mean colour, as the model expects for "nothing"), and its colour bands are compared shirt-to-shirt.
+# Same-person distance p50 0.282 -> 0.170, p95 0.561 -> 0.453; other people stayed ~0.59-0.66 (only 5 pairs in those
+# recordings - confirm with the two-person lab recording). A partial look never goes into a stored identity.
+PARTIAL_LOOK = os.environ.get("SMARTLAB_PARTIAL_LOOK", "on").lower() == "on"
+FULL_BODY_RATIO = 2.6                   # height / width of a standing person's box in these cameras
+EDGE_PX = 3                             # box bottom this close to the frame bottom = cut off
+
+
+def is_partial(box, frame_h: int) -> bool:
+    x, y, w, h = box
+    return PARTIAL_LOOK and y + h >= frame_h - EDGE_PX and h < FULL_BODY_RATIO * w
 
 
 def covered_share(rect, people) -> float:
@@ -346,7 +364,16 @@ def look_distance(a: Optional[Look], b: Optional[Look]) -> Optional[float]:
         return None
     parts = []
     if a.color is not None and b.color is not None:
-        bc = float(np.sqrt(a.color * b.color).sum()) / len(BODY_PARTS)    # Bhattacharyya, 0-1
+        if a.partial != b.partial:
+            # one whole person, one waist-up view: head with head, and both of the partial view's lower bands
+            # (still shirt) with the whole person's upper-body band - never shirt against trousers
+            full, half = (b, a) if a.partial else (a, b)
+            n = len(full.color) // len(BODY_PARTS)
+            band = lambda c, i: c[i * n:(i + 1) * n]
+            pairs = ((0, 0), (1, 1), (1, 2))
+            bc = sum(float(np.sqrt(band(full.color, i) * band(half.color, j)).sum()) for i, j in pairs) / len(pairs)
+        else:
+            bc = float(np.sqrt(a.color * b.color).sum()) / len(BODY_PARTS)    # Bhattacharyya, 0-1
         parts.append((0.4, math.sqrt(max(0.0, 1.0 - bc))))
     if a.deep is not None and b.deep is not None:
         parts.append((0.6, float(np.clip((1.0 - float(a.deep @ b.deep)) / 1.2, 0, 1))))
@@ -365,7 +392,7 @@ def blend(old: Optional[Look], new: Optional[Look], alpha: float) -> Optional[Lo
         else (1 - alpha) * old.deep + alpha * new.deep
     if deep is not None:
         deep = deep / max(float(np.linalg.norm(deep)), 1e-6)
-    return Look(color, deep)
+    return Look(color, deep, partial=bool(old.partial and new.partial))
 
 
 class Appearance:
@@ -467,7 +494,8 @@ class Appearance:
 
     def looks(self, frame: np.ndarray, boxes: list[tuple],
               now: Optional[float] = None) -> list[Optional[Look]]:
-        out = [Look(color_signature(frame, b)) for b in boxes]
+        fh = frame.shape[0]
+        out = [Look(color_signature(frame, b), partial=is_partial(b, fh)) for b in boxes]
         if now is not None and not self.wants_deep(boxes, now):
             return out
         only = None
@@ -493,8 +521,16 @@ class Appearance:
                 x1, y1 = int(min(W, x + w)), int(min(H, y + h))
                 if x1 - x0 < 8 or y1 - y0 < 16:
                     continue
-                img = cv2.resize(frame[y0:y1, x0:x1], self.REID_SIZE)[:, :, ::-1].astype(np.float32) / 255.0
-                crops.append((img - self.MEAN) / self.STD)
+                if out[i].partial:                   # top of the model input only (see PARTIAL_LOOK)
+                    rw, rh = self.REID_SIZE
+                    frac = min(1.0, max(0.35, (h / max(w, 1)) / FULL_BODY_RATIO))
+                    part = cv2.resize(frame[y0:y1, x0:x1], (rw, max(8, int(rh * frac))))[:, :, ::-1].astype(np.float32) / 255.0
+                    crop = np.zeros((rh, rw, 3), np.float32)          # zero after normalising = the mean colour
+                    crop[:part.shape[0]] = (part - self.MEAN) / self.STD
+                    crops.append(crop)
+                else:
+                    img = cv2.resize(frame[y0:y1, x0:x1], self.REID_SIZE)[:, :, ::-1].astype(np.float32) / 255.0
+                    crops.append((img - self.MEAN) / self.STD)
                 idx.append(i)
             for i, crop in zip(idx, crops):          # one crop at a time: see __init__
                 try:
@@ -1007,6 +1043,20 @@ class Labeler:
     # guess can land on the wrong person. Unknown until door, face or a clear look says who.
     ALLOW_ELIMINATION = False
     HANDBACK_BY_PLACE = False
+    # LOOK GUESS (owner 2026-11-10 / 11: "after a restart I am Unknown again"; "the name should come back").
+    # A person this camera named before (door entry still open, or a face name seen within FACE_KEEP_S - both
+    # survive a restart on disk) and who is in view again WITHOUT a name gets it back from their stored look
+    # as a MARKED GUESS: source "look", shown "Name ? (look)". It is never a confirmed name: it does not
+    # travel to the other camera, is not learnt from, yields to a door entry, is dropped the moment this
+    # camera's face matches say someone else, and becomes a real name only when the face agrees. Rules:
+    # the look is clear (at most LOOK_GUESS_MAX), clearly better than every other stored person for this
+    # track and than every other unnamed person in view for this name (LOOK_GUESS_MARGIN), the person stands
+    # alone, upright and big enough to judge, and all of that held LOOK_GUESS_PASSES passes in a row.
+    LOOK_GUESS = os.environ.get("SMARTLAB_LOOK_GUESS", "on").lower()      # off / observe (log only) / on
+    LOOK_GUESS_MAX = 0.18              # = REACQUIRE_MAX
+    LOOK_GUESS_MARGIN = 0.10           # = REACQUIRE_MARGIN
+    LOOK_GUESS_PASSES = 14             # ~2 s at 7 analyses a second
+    GUESS_SOURCES = ("desk", "look")   # names shown with "?": never evidence for anything else
 
     def __init__(self):
         from identity import IdentityLedger
@@ -1043,9 +1093,14 @@ class Labeler:
             look = Look(d[f"c_{label}"] if f"c_{label}" in d.files else None,
                         d[f"d_{label}"] if f"d_{label}" in d.files else None)
             self.identities[label] = Identity(look, samples)
-        # Face names are NOT restored: after a restart a name by look alone went to
-        # the wrong person (2026-10-12, 3 people, 2 saved names). A face name comes
-        # back only from the face again; the looks then keep it through crossings.
+        # 2026-10-12: face names were not restored - after a restart a name by look alone went to the wrong
+        # person (3 people, 2 saved names). 2026-11-11: they come back as CANDIDATES only (seen within
+        # FACE_KEEP_S): a confirmed name still needs the face again (assign step 2 asks for a face match of
+        # that track), the look alone gives at most the marked guess (_look_guess).
+        for label, rec in (meta.get("face_named") or {}).items():
+            seen = float(rec.get("seen", 0))
+            if label in self.identities and 0 <= now - seen <= self.FACE_KEEP_S and isinstance(rec.get("who"), dict):
+                self.face_named[label] = (rec["who"], seen)
         return len(self.identities)
 
     def face_vote(self, track_id: int, label: str, now: float, score: Optional[float] = None):
@@ -1064,7 +1119,8 @@ class Labeler:
         # A door name whose person left the lab is dropped from its track (a
         # face name stays: the face, not the door, said who it is).
         for t in tracks:
-            if t.label and t.label not in inside and t.source not in ("face", "peer"):
+            if t.label and t.label not in inside and t.source not in ("face", "peer") \
+                    and not (t.source == "look" and t.label in self.face_named):
                 t.label = t.name = t.role = t.source = t.mismatch = None
                 t.verified = False
         held = self._in_use(tracks)
@@ -1086,7 +1142,7 @@ class Labeler:
         for t in list(tracks) + self.coasting:
             if t.label:
                 self.label_seen[t.label] = now
-                if t.source != "desk":
+                if t.source not in self.GUESS_SOURCES:
                     self.label_anchor[t.label] = now
         self._fix_after_crossing(tracks, inside, now)
         self._hand_back(tracks, inside, now)
@@ -1098,6 +1154,14 @@ class Labeler:
                 if t.label == o["auth_subject"] and t.source == "desk"                         and o["entered_at"] > getattr(self, "desk_named_at", {}).get(t.label, float("inf")):
                     self._note("DESK_NAME_YIELDS_TO_DOOR", t.id, t.label,
                                "a new door entry for this person - the one at the desk is someone else")
+                    t.label = t.name = t.role = None
+                    t.source, t.named_by = None, None
+        for o in occupants:                        # a door entry AFTER a look guess: the guess yields too
+            for t in tracks:
+                if t.label == o["auth_subject"] and t.source == "look" \
+                        and o["entered_at"] > getattr(self, "guess_named_at", {}).get(t.label, float("inf")):
+                    self._note("LOOK_GUESS_YIELDS_TO_DOOR", t.id, t.label,
+                               "a new door entry for this person - the guessed one is someone else")
                     t.label = t.name = t.role = None
                     t.source, t.named_by = None, None
         taken = self._in_use(tracks)
@@ -1152,6 +1216,8 @@ class Labeler:
                 continue
             self._give(cands[0][2], o, how="look")
             free.remove(o)
+
+        self._look_guess(tracks, inside, now)
 
         # 3) Elimination: one free name, one unlabelled person - but only a FRESH name: entered
         #    within FRESH_S or seen on someone by this camera within FRESH_S. Nobody records exits
@@ -1250,6 +1316,14 @@ class Labeler:
         taken = self._in_use(tracks)
         for t in tracks:
             label = self._agreed(t)
+            if t.label and t.source == "look" and label == t.label:          # the face confirms the guess
+                who = inside.get(label) or known.get(label) or (self.face_named.get(label) or [None])[0]
+                if who is not None:
+                    self._give(t, who, "door" if label in inside else "face", how="face")
+                    self._note("LOOK_GUESS_CONFIRMED", t.id, label, "this camera's face matches agree with the guess")
+                    if label not in inside:
+                        self.face_named[label] = (who, now)
+                continue
             if t.label or label is None:
                 continue
             who = inside.get(label) or known.get(label)
@@ -1267,7 +1341,7 @@ class Labeler:
         which it went onto Ali - the face said USER1 and the name stayed). The face then names the person by the
         normal rule (_face). A door name is never dropped this way: its mismatch flag stays (card sharing?)."""
         for t in tracks:
-            if not t.label or t.source not in ("peer", "desk") or t.crowded:
+            if not t.label or t.source not in ("peer", "desk", "look") or t.crowded:
                 continue
             face = self._agreed(t)
             if face is not None and face != t.label:
@@ -1610,6 +1684,10 @@ class Labeler:
         for t in tracks:
             if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H or not upright(t.box):
                 continue                   # a tiny / half-hidden / crouching view would blur the locked look
+            if t.source == "look":
+                continue                   # a guess from the stored look must not teach that look (it would drift)
+            if t.look.partial:
+                continue                   # a waist-up view must not overwrite the whole-person look (PARTIAL_LOOK)
             # Clearly alone (2026-10-12 root cause #7): nobody within a body width,
             # and not touching anyone in the last second.
             if t.last_seen - getattr(t, "crowded_at", -1e9) < 1.0 or any(
@@ -1625,6 +1703,56 @@ class Labeler:
                 continue               # not like them at all: a mix-up, do not learn it
             ident.look = blend(ident.look, t.look, max(0.1, 1.0 / (ident.samples + 1)))
             ident.samples += 1
+
+    def _look_guess(self, tracks: list[Track], inside: dict, now: float) -> None:
+        """See LOOK_GUESS. Only ever names an unnamed track, and only as a marked guess."""
+        if self.LOOK_GUESS not in ("on", "observe"):
+            return
+        if not hasattr(self, "_guess_streak"):
+            self._guess_streak: dict[tuple[int, str], int] = {}
+            self._guess_said: set[tuple[int, str]] = set()
+        taken = self._in_use(tracks)
+        who_of = {k: v for k, v in inside.items()}
+        who_of.update({k: v[0] for k, v in self.face_named.items() if k not in who_of})
+        names = [k for k in who_of if k not in taken and k in self.identities]
+        free = [t for t in tracks if not t.label]
+        keep: dict[tuple[int, str], int] = {}
+        for t in free:
+            if (not names or t.crowded or t.look is None or t.look.deep is None or t.box[3] < self.MIN_LOOK_H
+                    or not upright(t.box) or now - t.separated_at < self.SETTLE_S):
+                continue
+            d = {k: x for k in names if (x := self._distance(t, k)) is not None}
+            if not d:
+                continue
+            name = min(d, key=d.get)
+            a = d[name]
+            if a > self.LOOK_GUESS_MAX or any(x - a < self.LOOK_GUESS_MARGIN for k, x in d.items() if k != name):
+                continue                           # not clear, or another stored person fits about as well
+            rivals = [self._distance(o, name) for o in free if o is not t]
+            if any(x is not None and x - a < self.LOOK_GUESS_MARGIN for x in rivals):
+                continue                           # someone else in view could be that person
+            said = self._agreed(t)
+            if said is not None and said != name:
+                continue                           # this person's own face says someone else
+            keep[(t.id, name)] = self._guess_streak.get((t.id, name), 0) + 1
+        self._guess_streak = keep
+        given: set[str] = set()
+        for (tid, name), n in sorted(keep.items(), key=lambda kv: -kv[1]):
+            if n < self.LOOK_GUESS_PASSES or name in given:
+                continue
+            t = next(x for x in free if x.id == tid)
+            detail = f"looks like the stored {name} ({self._distance(t, name):.2f}) for {n} passes - shown as a guess"
+            if self.LOOK_GUESS != "on":
+                if (tid, name) not in self._guess_said:
+                    self._guess_said.add((tid, name))
+                    self._note("LOOK_GUESS_OBSERVED", tid, name, detail + " (observe mode, nothing changed)")
+                continue
+            self._give(t, who_of[name], "look", how="look")
+            given.add(name)
+            if not hasattr(self, "guess_named_at"):
+                self.guess_named_at: dict[str, float] = {}
+            self.guess_named_at[name] = now
+            self._note("LOOK_GUESS", tid, name, detail)
 
     @staticmethod
     def _give(t: Track, o: dict, source: str = "door", how: Optional[str] = None):
@@ -2148,6 +2276,8 @@ def _person_label(t) -> str:
         # Owner 2026-10-14: a desk alone never confirms a name - shown as a guess until the
         # face or a door entry confirms it.
         label += " ? (desk)"
+    elif t.source == "look":
+        label += " ? (look)"               # 2026-11-11: back by the stored look only - a guess until the face agrees
     elif t.mismatch:
         label += f" - face says {t.mismatch}"
     elif not t.entered:

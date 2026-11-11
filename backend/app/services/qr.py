@@ -60,11 +60,47 @@ def door_can_read(payload: str) -> Optional[bool]:
     return data == payload
 
 
+# How large the QR appears in the door camera's 640x480 frame at the distances a phone is really held (pixels).
+DOOR_SCAN_SCALES = (200, 240, 260, 300, 320, 360, 400)
+DOOR_SCAN_MIN = 6            # of the 7 distances
+
+
+def door_camera_view(qr_gray, screen_px: int):
+    """The rendered QR as the ESP32-CAM delivers it: a patch of a phone screen in a VGA frame, soft lens,
+    JPEG quality 12 (the camera sketch's setting). Same chain as tests/test_qr_pipeline.py."""
+    small = cv2.resize(qr_gray, (screen_px, screen_px), interpolation=cv2.INTER_AREA)
+    frame = np.full((480, 640), 90, dtype=np.uint8)
+    y, x = (480 - screen_px) // 2, (640 - screen_px) // 2
+    frame[y:y + screen_px, x:x + screen_px] = small
+    frame = cv2.GaussianBlur(frame, (7, 7), 0)
+    ok, enc = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 12])
+    return cv2.imdecode(enc, cv2.IMREAD_GRAYSCALE) if ok else frame
+
+
+def door_reads_at_distance(payload: str) -> Optional[bool]:
+    """
+    2026-11-11 (CI run on main: a booking token that decoded from the clean image but at only 2 of 7 distances
+    through the camera model). A clean-image check is not enough: a few tokens render to a QR that is readable
+    on paper and poor through the door camera, and that booking would be a bad evening at the door. True when
+    the token decodes at DOOR_SCAN_MIN of the DOOR_SCAN_SCALES. About 25 ms per distance.
+    """
+    if _detector is None:
+        return None
+    img = cv2.imdecode(np.frombuffer(render_qr_png(payload), np.uint8), cv2.IMREAD_GRAYSCALE)
+    ok = 0
+    for i, px in enumerate(DOOR_SCAN_SCALES):
+        data, _, _ = _detector.detectAndDecode(door_camera_view(img, px))
+        ok += data == payload
+        if ok + (len(DOOR_SCAN_SCALES) - i - 1) < DOOR_SCAN_MIN:
+            return False
+    return True
+
+
 def issue_token() -> str:
-    """A fresh random token whose QR the door's decoder is known to read."""
+    """A fresh random token whose QR the door's decoder reads - from the clean image and through the camera."""
     token = generate_qr_token()
     for _ in range(MAX_ATTEMPTS):
-        if door_can_read(token) is not False:
+        if door_can_read(token) is not False and door_reads_at_distance(token) is not False:
             return token
         token = generate_qr_token()
     # 0.66% ** 10 - effectively never; still issue rather than fail a booking.

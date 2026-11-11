@@ -70,6 +70,7 @@ def test_one_pc_cannot_speak_for_another(client, db, lab):
         client.post("/api/equipment/pc/frame?device_uid=PC_B", headers=a, content=jpeg),
         client.post("/api/equipment/pc/broadcast-frame?device_uid=PC_B", headers=a, content=jpeg),
         client.post("/api/equipment/state", headers=a, json={"device_uid": "PC_B", "lab_id": lab.code, "kind": "PC", "state": "IDLE"}),
+        client.post("/api/equipment/state", headers=a, json={"device_uid": "PC_A", "lab_id": lab.code, "kind": "ROBOT", "state": "RUNNING"}),
         client.post("/api/equipment/violations", headers=a, json={"device_uid": "PC_B", "kind": "X", "detail": "fake"}),
         client.post("/api/equipment/pc/action-result", headers=a, json={"device_uid": "PC_B", "id": 1, "ok": True}),
     ]

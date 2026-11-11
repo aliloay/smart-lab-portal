@@ -18,11 +18,11 @@ type Day = { day: string; granted: number; denied: number }
 
 export default function AdminDashboard() {
   const { connected } = useLive()
-  const [s, setS] = useState<Summary | null>(null)
-  const [labs, setLabs] = useState<LabOverview[] | null>(null)
-  const [sys, setSys] = useState<SystemStatus | null>(null)
+  const [s, setS] = useState<Summary | null>(() => api.peek(() => api.summary()))
+  const [labs, setLabs] = useState<LabOverview[] | null>(() => api.peek(() => api.labsOverview()))
+  const [sys, setSys] = useState<SystemStatus | null>(() => api.peek(() => api.systemStatus()))
   const [week, setWeek] = useState<Day[] | null>(null)
-  const [alerts, setAlerts] = useState<Alert[]>([])
+  const [alerts, setAlerts] = useState<Alert[]>(() => api.peek(() => api.alerts(true)) ?? [])
 
   const load = useCallback(() => {
     api.summary().then(setS).catch(() => {})

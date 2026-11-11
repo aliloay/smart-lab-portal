@@ -156,6 +156,60 @@ def ask(req: AskRequest, db: Session = Depends(get_db),
             or _run(db, user, req.question, [t.model_dump() for t in req.history]))
 
 
+def _ndjson(events):
+    import json as _json
+    for e in events:
+        yield _json.dumps(e, default=str) + "\n"
+
+
+def _stream(events):
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(_ndjson(events), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@router.post("/ask/stream")
+def ask_stream(req: AskRequest, db: Session = Depends(get_db), user: User = Depends(require_staff)):
+    """POST /ask with the text arriving as it is written (2026-11-11): one JSON object per line - meta, token...,
+    final (the same fields /ask returns) or error. Instant answers come as a single `final`. Same checks, same
+    hourly limit and the same audit entry as /ask, which stays as it was."""
+    quick = _instant(db, user, req.question) or _knowledge_lookup(db, user, req.question)
+    if quick is not None:
+        return _stream([{"type": "final", **quick}])
+    if not ai.configured():
+        raise HTTPException(503, "The AI assistant is not configured.")
+    _limit(db, user)
+    db.add(AuditLog(actor_user_id=user.id, action="AI_QUESTION", entity_type="ai", entity_id="ask",
+                    detail={"question": req.question[:500]}))
+    db.commit()
+    history = [t.model_dump() for t in req.history]
+    try:
+        plan = ai.stream_plan(db, req.question, history)
+    except ai.AIUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return _stream(ai.stream_events(plan, req.question, history))
+
+
+@router.post("/student/ask/stream")
+def student_ask_stream(req: AskRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The student helper, streamed. Only this student's own data is in the prompt, as in /student/ask."""
+    quick = _instant(db, user, req.question)
+    if quick is not None:
+        return _stream([{"type": "final", **quick}])
+    if not (settings.AI_STUDENT_ENABLED and ai.configured()):
+        raise HTTPException(503, "The AI helper is not configured.")
+    _limit(db, user, "AI_STUDENT_QUESTION", settings.AI_STUDENT_QUESTIONS_PER_HOUR)
+    db.add(AuditLog(actor_user_id=user.id, action="AI_STUDENT_QUESTION", entity_type="ai", entity_id="student",
+                    detail={"question": req.question[:500]}))
+    db.commit()
+    history = [t.model_dump() for t in req.history]
+    try:
+        plan = ai.stream_plan(db, req.question, history, student=user)
+    except ai.AIUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return _stream(ai.stream_events(plan, req.question, history))
+
+
 @router.get("/report")
 def management_report(period: Literal["weekly", "monthly"] = "weekly",
                       end_day: Optional[date] = None, db: Session = Depends(get_db),

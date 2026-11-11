@@ -197,6 +197,8 @@ class IdentityLedger:
             return "IDENTITY_CONFLICT"
         if t.crowded:
             return "OCCLUDED"
+        if t.source == "look":                             # a guess from the stored look (vision.Labeler.LOOK_GUESS)
+            return "IDENTITY_UNCERTAIN"
         if rec.confidence < self.cfg.uncertain_at:
             return "IDENTITY_UNCERTAIN"
         if t.verified and face_fresh:

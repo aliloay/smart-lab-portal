@@ -29,8 +29,8 @@ const typeOf = (t: string) => TYPE[t as Device['device_type']] ?? { label: t.rep
 
 export default function Devices() {
   const { user } = useAuth()
-  const [devices, setDevices] = useState<Device[] | null>(null)
-  const [labs, setLabs] = useState<Lab[]>([])
+  const [devices, setDevices] = useState<Device[] | null>(() => api.peek(() => api.devices()))
+  const [labs, setLabs] = useState<Lab[]>(() => api.peek(() => api.labs()) ?? [])
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
 

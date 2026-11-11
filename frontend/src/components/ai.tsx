@@ -14,7 +14,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowUpRight, BookOpen, Bot, ThumbsDown, ThumbsUp, ListOrdered, Maximize2, MessageCircle, Mic, Minimize2, ScanLine, Send, Sparkles, Square, TriangleAlert, Volume2, VolumeX, X, Zap } from 'lucide-react'
 import { MAX_RECORD_MS, Recording, VoiceStatus, micSupported, speak, spokenSummary, stopSpeaking, transcribe, voiceStatus } from '../lib/voice'
-import { AiAction, AiAnswer, AiChartData, AiStatus, Priority, api } from '../lib/api'
+import { AiAction, AiAnswer, AiChartData, AiStatus, Priority, aiAskStream, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
 import { Chip, EmptyState, SeverityBadge, Skeleton, Spinner } from './ui'
 
@@ -123,9 +123,16 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
     setTurns(t => [...t, { role: 'user', content: text }])
     setQ('')
     setBusy(true)
+    let shown = false                                  // an answer bubble is on the page (text is arriving)
     try {
-      const r: AiAnswer = await (student ? api.studentAiAsk : api.aiAsk)(text, history)
-      setTurns(t => [...t, { role: 'assistant', content: r.answer, tools: r.tools_used,
+      // 2026-11-11: the text appears as it is written; the complete answer replaces it at the end.
+      const r: AiAnswer = await aiAskStream(student, text, history, soFar => {
+        const first = !shown
+        shown = true
+        setTurns(t => [...(first ? t : t.slice(0, -1)), { role: 'assistant', content: soFar }])
+      })
+      const had = shown
+      setTurns(t => [...(had ? t.slice(0, -1) : t), { role: 'assistant', content: r.answer, tools: r.tools_used,
                              instant: r.instant, link: r.link, charts: r.charts, actions: r.actions }])
       if (spoken) {
         setSpeaking(true)
@@ -133,7 +140,8 @@ export function AskTheLab({ mode = 'staff', fill = false, listen = false }: {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The assistant could not answer.')
-      setTurns(t => t.slice(0, -1))
+      const had = shown
+      setTurns(t => t.slice(0, had ? -2 : -1))
       setQ(text)
     } finally { setBusy(false) }
   }
@@ -535,6 +543,13 @@ function ActionButtons({ actions, onDone }: { actions: AiAction[]; onDone: (msg:
         const b = await api.createBooking({ lab_id: a.lab_id, start_time: a.start_time, end_time: a.end_time, reason: a.reason })
         onDone(`Done - ${a.label.replace(/^Book /, '')} is booked` + (b.status === 'PENDING' ? ' (waiting for staff approval).' : '.')
                + ' Your QR code is under My bookings.')
+      } else if (a.type === 'ack_alert') {           // 2026-11-11: the Incidents page's own action, staff only
+        await api.incidentAction(a.alert_id, { action: 'acknowledge' })
+        onDone(`Done - alert #${a.alert_id} is acknowledged. It stays open until it is resolved.`)
+      } else if (a.type === 'create_issue') {        // 2026-11-11: the normal Report-an-issue endpoint, as this user
+        const it = await api.createIssue({ lab_id: a.lab_id, device_id: a.device_id, category: a.category,
+                                           severity: a.severity, title: a.title, description: a.description })
+        onDone(`Done - reported as ${it.ticket_number ?? 'a new issue'}. Add photos or details on the issue page.`)
       } else {
         await api.cancelBooking(a.booking_id)
         onDone(`Done - ${a.label.replace(/^Cancel /, '')} is cancelled.`)

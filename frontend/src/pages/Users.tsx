@@ -20,7 +20,7 @@ export default function Users() {
   const admin = me?.role === 'ADMIN'
   // Lab staff manage students' sign-in details; everything else is for administrators.
   const mayEdit = (u: User) => admin || u.role === 'STUDENT'
-  const [rows, setRows] = useState<User[] | null>(null)
+  const [rows, setRows] = useState<User[] | null>(() => api.peek(() => api.users()))
   const [q, setQ] = useState('')
   const [role, setRole] = useState('')
   const [editing, setEditing] = useState<User | null>(null)
