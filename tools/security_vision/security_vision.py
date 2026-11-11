@@ -317,6 +317,11 @@ class Service:
     # fetched /frame.jpg in the last VIEW_WANTED_S, else IDLE_RENDER_FPS - an alert's snapshot stays at most
     # 1 s old. With --cv-threads 2: 0.65 -> 0.41 of a core per camera service on this laptop.
     VIEW_WANTED_S = 5.0
+    # 2026-11-11 (Gemini audit FG-02, confirmed in this code): with nobody watching, the annotated picture is drawn
+    # once a second, so an alert could carry a picture up to 1 s old - the person may already be out of it. An alert
+    # whose stored picture is older than SNAPSHOT_MAX_AGE_S draws and encodes the newest camera frame itself, in the
+    # thread that sends the alert (never in the analysis loop). Its age travels with the alert (snapshot_age_ms).
+    SNAPSHOT_MAX_AGE_S = 0.3
     IDLE_RENDER_FPS = float(os.environ.get("SV_IDLE_RENDER_FPS", "1"))
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
 
@@ -506,12 +511,17 @@ class Service:
             return
         self.last_event[key] = now
         with self.lock:
-            snap = self.jpeg
+            snap, snap_at = self.jpeg, self.jpeg_at
         meta = {"device_uid": self.args.device, "kind": kind, "detail": detail, "zone_id": zone_id,
                 "people_seen": people_seen, "people_inside": people_inside}
         print(f"[event] {kind} {detail}")
 
         def send():
+            nonlocal snap
+            fresh, fresh_at = self.snapshot_now(snap, snap_at, now)
+            snap = fresh
+            if fresh_at:
+                meta["snapshot_age_ms"] = int(max(0.0, now - fresh_at) * 1000)
             try:
                 self.http.post(self.portal + "/security/events", timeout=10,
                                data={"meta": json.dumps(meta)},
@@ -519,6 +529,27 @@ class Service:
             except requests.RequestException as e:
                 print(f"[event] not delivered: {e.__class__.__name__}")
         threading.Thread(target=send, daemon=True).start()
+
+    def snapshot_now(self, snap, snap_at: float, now: float):
+        """(jpeg, frame time) for an alert: the stored annotated picture if it is fresh, else the newest camera frame
+        drawn and encoded now. No frame newer than 5 s: the stored picture is kept (its age says so)."""
+        if snap is not None and snap_at and now - snap_at <= self.SNAPSHOT_MAX_AGE_S:
+            return snap, snap_at
+        frame, at = self.camera.latest()
+        if frame is None or time.time() - at > 5:
+            return snap, snap_at
+        try:
+            frame = frame.copy()                       # the camera thread keeps its own frame untouched
+            with self.lock:
+                tracks = predicted(list(self.tracks), time.time())
+            door = self.cfg.get("door")
+            draw(frame, tracks, self.cfg.get("zones", []), dict(self.zones.states),
+                 (door["x"], door["y"], door["w"], door["h"]) if door else None, self.door_open)
+            ok, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            return (enc.tobytes(), at) if ok else (snap, snap_at)
+        except Exception as e:                         # a drawing problem must never lose the alert
+            print(f"[event] fresh snapshot failed ({e.__class__.__name__}) - sending the stored one")
+            return snap, snap_at
 
     # -- analysis ----------------------------------------------------------
     def analyse(self):
@@ -1513,8 +1544,10 @@ def main():
     ap.add_argument("--new-conf", type=float, default=0.60,
                     help="a box must score this much to START a new track (a weaker one may only extend a person "
                          "already tracked); <= --conf turns it off")
-    ap.add_argument("--threads", type=int, default=8, help="detector CPU threads of 12, used only when the detector "
-                    "falls back to the CPU (was 4; the face server needs the rest)")
+    ap.add_argument("--threads", type=int, default=int(os.environ.get("SV_DET_THREADS", "3")),
+                    help="detector CPU threads, used only when the detector falls back to the CPU. 2026-11-11 (Gemini "
+                         "FG-03), both camera services on CPU at once: 8 threads -> 1.25 passes/s, p50 780 ms; "
+                         "4 -> 1.53, 600 ms; 3 -> 1.66, 593 ms. Fewer threads stop the two services fighting.")
     ap.add_argument("--cv-threads", type=int, default=int(os.environ.get("SV_CV_THREADS", "2")),
                     help="OpenCV threads (resize, colours, JPEG); 2 measured best with two camera services (2026-11-11)")
     # was 5, then 7; 10 since 2026-10-21 (owner: "a bit slow"): passes took 78-93 ms p50 with both cameras on

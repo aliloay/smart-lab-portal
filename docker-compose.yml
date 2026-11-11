@@ -139,7 +139,7 @@ services:
       ROBOT_STOP_RELAY_UID: ${ROBOT_STOP_RELAY_UID:-}
       ROBOT_STOP_RELAY_ROBOT: ${ROBOT_STOP_RELAY_ROBOT:-UR5E_01}
       EMERGENCY_PASSWORD: ${EMERGENCY_PASSWORD:-}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
       # Smaller student model, loaded next to the staff one (empty = share it).
       OLLAMA_STUDENT_MODEL: ${OLLAMA_STUDENT_MODEL:-qwen2.5:1.5b}
       OLLAMA_CPU_ONLY: ${OLLAMA_CPU_ONLY:-false}
