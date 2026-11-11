@@ -147,6 +147,8 @@ services:
       # CPU threads one AI answer may use (2026-10-18): Ollama runs above normal priority with every
       # core by default - one answer took camera 2 from 7 to 1.7 analyses/s. 0 = Ollama's default.
       OLLAMA_NUM_THREAD: ${OLLAMA_NUM_THREAD:-4}
+      # How long the model stays loaded after the last question (30m = no 30-60 s reload; 10m frees ~0.6 GB sooner).
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
       AI_STUDENT_ENABLED: ${AI_STUDENT_ENABLED:-true}
       # Paid alternative (Claude). Set AI_PROVIDER=ollama to keep using the
       # free model even when this key is present.

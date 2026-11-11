@@ -40,7 +40,7 @@ threads stable (62 -> 59), `open_failures` counted; camera 1 unaffected (7 fps, 
    `ping -n 4 -S 192.168.1.200 <IP>` and `Test-NetConnection <IP> -Port 554` (TcpTestSucceeded True).
    Ask Claude to check the address is not already used before making it fixed in the router.
 5. Copy `tools\security_vision\camera2.env.example` to `camera2.env`; put
-   `rtsp://USER:PASSWORD@<IP>:554/stream2` after `set SOURCE=` (URL codes for @ : in the password).
+   `rtsp://USER:<password>@<IP>:554/stream2` after `set SOURCE=` (URL codes for @ : in the password).
 6. Double-click `tools\security_vision\start_security_vision.bat camera2.env` - window title
    "Smart Lab - Security camera SECCAM_LAB02"; expect `[detector] YOLO26 on directml-gpu1`,
    `[vision] re-id on directml-gpu1`, `[camera] streaming from rtsp://***@<IP>...`.
