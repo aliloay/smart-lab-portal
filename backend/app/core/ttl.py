@@ -40,3 +40,31 @@ def cached(key: str, ttl_s: float, fn: Callable[[], Any]) -> Any:
 
 def clear() -> None:
     _store.clear()
+
+
+# Posts that change nothing a cached view shows (frames, questions): they must not empty the caches all day.
+_READ_LIKE = ("/api/scan/", "/api/ai/", "/api/voice/", "/api/knowledge/", "/api/uiperf", "/api/search",
+              "/api/equipment/broadcast/frame", "/api/auth/ws-ticket")
+
+
+class ClearOnWrite:
+    """2026-11-11: the dashboard summary and the lab catalogue are now cached for 2-3 s. A person who has just
+    changed something (booked, resolved an issue, edited a device) must see it on the very next read, so a
+    signed-in user's write empties the caches when it starts and again when it ends. Device reports (X-Device-Key,
+    several a second) do not: what they change shows up when the short cache runs out, as it did within the
+    pages' own refresh interval before. Pure ASGI: nothing is buffered, streamed responses pass through."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if (scope["type"] != "http" or scope["method"] in ("GET", "HEAD", "OPTIONS")
+                or scope["path"].startswith(_READ_LIKE)
+                or not any(k == b"authorization" for k, _ in scope["headers"])):
+            await self.app(scope, receive, send)
+            return
+        clear()
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            clear()

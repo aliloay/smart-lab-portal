@@ -192,6 +192,14 @@ def signup(req: SignupRequest, request: Request, db: Session = Depends(get_db)):
     ).model_dump(mode="json")}
 
 
+@router.post("/ws-ticket")
+def ws_ticket(user: User = Depends(get_current_user)):
+    """A one-time, 30-second ticket for the live-updates WebSocket (core/ws_ticket.py): the sign-in token
+    itself never goes into a URL."""
+    from app.core import ws_ticket as tickets
+    return {"ticket": tickets.issue(user.id), "expires_in": int(tickets.TICKET_S)}
+
+
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
     return user

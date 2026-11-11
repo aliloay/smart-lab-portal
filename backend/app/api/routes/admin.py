@@ -220,6 +220,13 @@ def session_detail(session_id: int, db: Session = Depends(get_db),
 # --------------------------------------------------------------- summary ---
 @router.get("/summary", response_model=AdminSummary)
 def summary(db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    # 2026-11-11: the same for every staff member, asked by every dashboard widget and every 30 s per open page:
+    # one computation serves 3 s of requests (a user's own write clears it at once - core/ttl.ClearOnWrite).
+    from app.core.ttl import cached
+    return cached("admin.summary", 3, lambda: _summary_now(db))
+
+
+def _summary_now(db: Session) -> AdminSummary:
     close_expired(db)
     devices = refresh_liveness(db)
     now = datetime.now(timezone.utc)

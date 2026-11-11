@@ -51,6 +51,24 @@ class FailureThrottle:
             self._hits.pop(key, None)
 
 
+class RateLimit:
+    """At most `max_calls` per key in any `window_s` seconds (every call counts, not only failures)."""
+
+    def __init__(self, max_calls: int, window_s: float):
+        self._t = FailureThrottle(max_calls, window_s)
+
+    def allow(self, key: str, now: Optional[float] = None) -> bool:
+        now = now or time.time()
+        if self._t.blocked_for(key, now) > 0:
+            return False
+        self._t.fail(key, now)
+        return True
+
+
+# Phone "which box?" runs several CPU detectors per frame: 6 frames in any 2 s per signed-in user, so a scripted
+# loop cannot take the backend's cores (2026-11-11 closure audit, SEC-05).
+scan_appearance = RateLimit(6, 2.0)
+
 # 8 wrong passwords for one account in 15 min; 30 failures from one address in 15 min.
 login_by_account = FailureThrottle(8, 15 * 60)
 login_by_address = FailureThrottle(30, 15 * 60)

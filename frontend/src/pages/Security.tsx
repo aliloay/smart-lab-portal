@@ -29,6 +29,33 @@ type Tab = 'wall' | 'live' | 'boxes' | 'events' | 'recordings'
 const ZONE_TONE = { OK: 'ok', IN_USE: 'info', CHANGED: 'bad', MOTION: 'warn', LEARNING: 'idle' } as const
 const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Record<string, string>
 
+/** The live bar under a lab's cameras (2026-11-11): what each camera sees now, one short line per person, from the
+ *  camera service's own data (activity.py) - who, top colour, posture, the mapped box they are near. Scrolls like a
+ *  news ticker when it is longer than the bar; a hover pauses it. Updates with the cameras' state (every ~2 s). */
+function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: SecurityCamera) => string }) {
+  const items = cams.flatMap(c => (c.online ? c.activity ?? [] : []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
+  return (
+    <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-ink-600/70 bg-ink-900/80 px-2.5 py-1.5 overflow-hidden"
+         aria-live="polite" aria-label="What the cameras see now">
+      <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-rose-300">
+        <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" /> Live</span>
+      {items.length === 0
+        ? <span className="text-[12.5px] text-slate-400">Nobody in view right now.</span>
+        : <div className="relative flex-1 overflow-hidden group">
+            <div className={`flex gap-6 whitespace-nowrap text-[12.5px] ${items.length > 2 ? 'smartlab-ticker group-hover:[animation-play-state:paused]' : ''}`}
+                 style={items.length > 2 ? { animationDuration: `${Math.max(14, items.length * 6)}s` } : undefined}>
+              {(items.length > 2 ? [...items, ...items] : items).map((a, i) => (
+                <span key={`${a.key}-${i}`} className={a.named ? 'text-white' : 'text-slate-300'}>
+                  <span className="text-slate-500">{a.cam} · </span>{a.text}</span>))}
+            </div>
+          </div>}
+      <style>{`@keyframes smartlab-ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+               .smartlab-ticker { animation: smartlab-ticker linear infinite; will-change: transform }
+               @media (prefers-reduced-motion: reduce) { .smartlab-ticker { animation: none; flex-wrap: wrap } }`}</style>
+    </div>
+  )
+}
+
 export default function Security() {
   const [cams, setCams] = useState<SecurityCamera[] | null>(null)
   const [camId, setCamId] = useState<number | null>(null)
@@ -142,6 +169,7 @@ function Wall({ cams, labs, onPick }: {
             </div>
           </div>))}
             </div>
+            {lc.some(c => c.online) && <LiveActivity cams={lc} label={c => lc.length > 1 ? camLabel(c) : 'Camera'} />}
           </div>))}
       </div>
       {big && (
@@ -256,6 +284,9 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
                 <span className="text-white">{n.name}</span>
                 {n.role && <Chip tone={n.role === 'STUDENT' ? 'ok' : n.role === 'ADMIN' ? 'violet' : 'info'}>{ROLE[n.role]}</Chip>}
                 {n.face ? <Chip tone="bad">face says {n.face}</Chip>
+                  : n.source === 'look' ? <Chip tone="warn">? guess by look · not confirmed</Chip>
+                  : n.source === 'desk' ? <Chip tone="warn">? guess by desk · not confirmed</Chip>
+                  : n.source === 'peer' ? <span className="text-[11px] text-slate-500">from the other camera</span>
                   : n.entered === false ? <Chip tone="warn">by face · not entered</Chip>
                   : n.verified ? <Chip tone="ok">✔ verified</Chip>
                   : <span className="text-[11px] text-slate-500">{n.source === 'face' ? 'by face' : 'by door'}</span>}

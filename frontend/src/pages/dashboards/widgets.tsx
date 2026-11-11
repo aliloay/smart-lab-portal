@@ -89,7 +89,7 @@ export function LiveActivity({ limit = 40, securityOnly = false, title = 'Live a
 
 // ---------------------------------------------------------------------------
 export function DeviceHealth() {
-  const [devices, setDevices] = useState<Device[] | null>(null)
+  const [devices, setDevices] = useState<Device[] | null>(() => api.peek(() => api.devices()))
   const load = useCallback(() => api.devices().then(setDevices).catch(() => setDevices([])), [])
   useEffect(() => {
     load()
@@ -141,7 +141,7 @@ export function MaintenanceQueue({ title = 'Maintenance queue', stats = false }:
   /** Administrators also get the statistics row. */
   stats?: boolean
 }) {
-  const [summary, setSummary] = useState<IssueSummary | null>(null)
+  const [summary, setSummary] = useState<IssueSummary | null>(() => api.peek(() => api.issueSummary()))
   const [queue, setQueue] = useState<Issue[] | null>(null)
   const load = useCallback(() => {
     api.issueSummary().then(setSummary).catch(() => {})

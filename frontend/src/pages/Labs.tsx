@@ -10,7 +10,7 @@ import LabCard from '../components/LabCard'
 type Toggle = 'bookable' | 'hardware' | 'available'
 
 export default function Labs() {
-  const [rows, setRows] = useState<LabOverview[] | null>(null)
+  const [rows, setRows] = useState<LabOverview[] | null>(() => api.peek(() => api.labsOverview()))
   const [error, setError] = useState('')
   const [params, setParams] = useSearchParams()
   const query = params.get('q') ?? ''

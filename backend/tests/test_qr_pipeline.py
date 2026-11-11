@@ -236,7 +236,24 @@ def test_some_random_tokens_really_are_unreadable():
 def test_an_unreadable_token_is_never_issued(monkeypatch):
     drawn = iter([*UNREADABLE, "SLB:good-token-after-two-bad"])
     monkeypatch.setattr(qr_service, "generate_qr_token", lambda: next(drawn))
+    monkeypatch.setattr(qr_service, "door_reads_at_distance", lambda t: True)   # this test is about the clean image
     assert issue_token() == "SLB:good-token-after-two-bad"
+
+
+def test_a_token_that_is_poor_through_the_camera_is_never_issued(monkeypatch):
+    """2026-11-11: CI drew a token that read from the clean image and at 2 of 7 distances through the camera."""
+    drawn = iter(["SLB:weak-at-the-door", "SLB:fine-at-the-door"])
+    monkeypatch.setattr(qr_service, "generate_qr_token", lambda: next(drawn))
+    monkeypatch.setattr(qr_service, "door_can_read", lambda t: True)
+    monkeypatch.setattr(qr_service, "door_reads_at_distance", lambda t: t != "SLB:weak-at-the-door")
+    assert issue_token() == "SLB:fine-at-the-door"
+
+
+def test_the_camera_check_agrees_with_this_files_camera_model():
+    """The service's camera model must stay the one these tests measure with."""
+    for _ in range(5):
+        token = issue_token()
+        assert scan_success_rate(token) >= 6 / 7
 
 
 def test_every_issued_token_decodes_from_the_served_image():
@@ -249,5 +266,6 @@ def test_bookings_are_issued_readable_tokens(monkeypatch, db, alice, lab, now, h
     from app.services.booking import active_token, create_booking
     drawn = iter([UNREADABLE[0], "SLB:readable-booking-token"])
     monkeypatch.setattr(qr_service, "generate_qr_token", lambda: next(drawn))
+    monkeypatch.setattr(qr_service, "door_reads_at_distance", lambda t: True)
     b = create_booking(db, alice, lab, now + hour, now + 2 * hour, "x")
     assert active_token(db, b.id).token == "SLB:readable-booking-token"

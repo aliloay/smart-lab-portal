@@ -15,8 +15,8 @@ import { visibleInterval } from '../../lib/visibleInterval'
 /** Staff: "what is happening, what needs me, what next" - for today. */
 export default function StaffDashboard() {
   const { user } = useAuth()
-  const [s, setS] = useState<Summary | null>(null)
-  const [labs, setLabs] = useState<LabOverview[]>([])
+  const [s, setS] = useState<Summary | null>(() => api.peek(() => api.summary()))
+  const [labs, setLabs] = useState<LabOverview[]>(() => api.peek(() => api.labsOverview()) ?? [])
 
   const load = useCallback(() => {
     api.summary().then(setS).catch(() => {})

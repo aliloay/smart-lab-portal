@@ -97,7 +97,7 @@ async function clickFirst(page, selector, label) {
   await check(page, `click ${label}`)
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true })
+const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'chrome', headless: true })
 try {
   for (const role of ROLES) {
     current = role.name

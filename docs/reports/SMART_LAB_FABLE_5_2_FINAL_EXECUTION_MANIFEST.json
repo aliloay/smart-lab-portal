@@ -1,0 +1,229 @@
+{
+ "mission": "Smart Lab closure and optimisation",
+ "work_dates": [
+  "2026-11-10",
+  "2026-11-11"
+ ],
+ "repository": {
+  "path": "C:\\Projects\\smart-lab-portal",
+  "branch": "qa/browser-and-camera-docs",
+  "base_commit": "fdfd1fe",
+  "committed": false,
+  "pushed": false,
+  "changed_files": [
+   "CLAUDE.md",
+   "README.md",
+   "backend/app/api/routes/access.py",
+   "backend/app/api/routes/admin.py",
+   "backend/app/api/routes/ai.py",
+   "backend/app/api/routes/auth.py",
+   "backend/app/api/routes/equipment.py",
+   "backend/app/api/routes/labs.py",
+   "backend/app/api/routes/scan.py",
+   "backend/app/api/routes/security.py",
+   "backend/app/core/config.py",
+   "backend/app/core/throttle.py",
+   "backend/app/core/ttl.py",
+   "backend/app/main.py",
+   "backend/app/services/agent.py",
+   "backend/app/services/agent_actions.py",
+   "backend/app/services/ai.py",
+   "backend/app/services/bin_detector.py",
+   "backend/app/services/qr.py",
+   "backend/app/services/sessions.py",
+   "backend/data/models/detectors.json",
+   "backend/tests/conftest.py",
+   "backend/tests/test_appearance.py",
+   "backend/tests/test_bin_detector.py",
+   "backend/tests/test_device_keys.py",
+   "backend/tests/test_pc_keys.py",
+   "backend/tests/test_portal.py",
+   "backend/tests/test_qr_pipeline.py",
+   "docker-compose.yml",
+   "docs/PROGRESS_CHECKPOINT.md",
+   "frontend/app_locations.conf",
+   "frontend/e2e/navigation.mjs",
+   "frontend/e2e/pc_status.test.mjs",
+   "frontend/e2e/workflows.mjs",
+   "frontend/nginx.conf",
+   "frontend/src/components/ai.tsx",
+   "frontend/src/lib/api.ts",
+   "frontend/src/lib/live.tsx",
+   "frontend/src/pages/Alerts.tsx",
+   "frontend/src/pages/Devices.tsx",
+   "frontend/src/pages/Equipment.tsx",
+   "frontend/src/pages/Labs.tsx",
+   "frontend/src/pages/MyBookings.tsx",
+   "frontend/src/pages/Security.tsx",
+   "frontend/src/pages/Users.tsx",
+   "frontend/src/pages/dashboards/AdminDashboard.tsx",
+   "frontend/src/pages/dashboards/StaffDashboard.tsx",
+   "frontend/src/pages/dashboards/StudentDashboard.tsx",
+   "frontend/src/pages/dashboards/widgets.tsx",
+   "tools/knowledge/serve.py",
+   "tools/security_vision/crosscam.py",
+   "tools/security_vision/identity.py",
+   "tools/security_vision/security_vision.py",
+   "tools/security_vision/test_crosscam.py",
+   "tools/security_vision/test_vision.py",
+   "tools/security_vision/vision.py"
+  ],
+  "new_paths": [
+   "backend/app/core/ws_ticket.py",
+   "backend/tests/test_agent_issue_action.py",
+   "backend/tests/test_ai_stream.py",
+   "backend/tests/test_camera_activity.py",
+   "docs/reports/SMART_LAB_CLOSURE_AND_PERFORMANCE_REPORT_2026-11-11.md",
+   "docs/reports/SMART_LAB_FABLE_5_2_FINAL_EXECUTION_REPORT_2026-11-10.md",
+   "docs/reports/SMART_LAB_FABLE_5_2_FINAL_TEST_RESULTS.md",
+   "docs/reports/SMART_LAB_FINAL_PHYSICAL_ACCEPTANCE_CHECKLIST.md",
+   "docs/reports/render_report_pdf.py",
+   "tools/ops/",
+   "tools/security_vision/activity.py",
+   "tools/security_vision/test_activity.py",
+   "tools/security_vision/test_look_guess.py",
+   "tools/vision_train/colab_train_lab_r3.ipynb",
+   "tools/vision_train/make_colab_lab_r3.py"
+  ]
+ },
+ "deployment": {
+  "portal": "LIVE (backend + frontend rebuilt 2026-11-11)",
+  "camera_services": "restarted on new code (cameras unreachable from home)",
+  "rollback_images": [
+   "smart-lab-portal-backend:rollback-20261111",
+   "smart-lab-portal-frontend:rollback-20261111"
+  ]
+ },
+ "storage": {
+  "c_free_gb_before": 15.2,
+  "c_free_gb_after": 85.8,
+  "docker_disk": "D:\\DockerData",
+  "training_data": "D:\\SmartLabData\u000bision_train_data",
+  "backups": "D:\\SmartLabBackups"
+ },
+ "items": [
+  {
+   "id": "SEC-01",
+   "title": "door reports: own key only for itself, door devices only",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "SEC-02",
+   "title": "own key must report as its own kind",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "SEC-03",
+   "title": "PC enrolment closed by default, passed through compose",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "SEC-04",
+   "title": "WebSocket one-time ticket; no query strings in access log",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "SEC-05",
+   "title": "scan/appearance rate limit",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "CI-QR",
+   "title": "issued booking tokens checked through the door-camera model",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "CAM-ELIM",
+   "title": "no cross-camera naming from head count alone",
+   "status": "TESTED OFFLINE; PHYSICAL VALIDATION REQUIRED"
+  },
+  {
+   "id": "CAM-GUESS",
+   "title": "name back after leaving / restart as a marked look guess",
+   "status": "TESTED OFFLINE; PHYSICAL VALIDATION REQUIRED"
+  },
+  {
+   "id": "CAM-HANDOFF",
+   "title": "look handoff between cameras (68b7157)",
+   "status": "TESTED OFFLINE; PHYSICAL VALIDATION REQUIRED"
+  },
+  {
+   "id": "CAM-ACTIVITY",
+   "title": "live activity bar + instant AI answer",
+   "status": "TESTED OFFLINE, LIVE (no people in view from home)"
+  },
+  {
+   "id": "CAM-CPU",
+   "title": "OpenCV threads 2, idle render 1/s",
+   "status": "MEASURED on recordings"
+  },
+  {
+   "id": "PORTAL-PEEK",
+   "title": "last answer first on 9 pages",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "API-CACHE",
+   "title": "summary / labs overview caches + ClearOnWrite; expiry scan throttled",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "AI-STREAM",
+   "title": "streamed answers (staff + student)",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "AI-ISSUE",
+   "title": "maintenance report proposal + confirm",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "AI-WARMUP",
+   "title": "knowledge warm-up opt-in",
+   "status": "MEASURED"
+  },
+  {
+   "id": "AR-MULTI",
+   "title": "several lab PCs per frame",
+   "status": "TESTED OFFLINE, LIVE; PHYSICAL VALIDATION REQUIRED"
+  },
+  {
+   "id": "AR-COLAB",
+   "title": "round 3 Colab notebook + dataset zip",
+   "status": "IMPLEMENTED (owner runs it)"
+  },
+  {
+   "id": "WATCHDOG",
+   "title": "monitor-only service watchdog",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "FAST-TESTS",
+   "title": "in-memory test database script",
+   "status": "TESTED OFFLINE"
+  },
+  {
+   "id": "AI-ACK",
+   "title": "acknowledge-alert proposal + confirm (staff)",
+   "status": "TESTED OFFLINE, LIVE"
+  },
+  {
+   "id": "CAM-PARTIAL-REID",
+   "title": "half-body looks",
+   "status": "MEASURED on recordings, TESTED OFFLINE; PHYSICAL VALIDATION REQUIRED"
+  },
+  {
+   "id": "LOAD-TEST",
+   "title": "50-100 user load test",
+   "status": "OPEN"
+  }
+ ],
+ "tests": {
+  "backend_full": "775 passed, 2 skipped, 0 failed",
+  "security_vision": "328 passed",
+  "scenario_bench": "14 scenarios, 0 false names",
+  "frontend_node": "15/15",
+  "tsc": "0 errors"
+ },
+ "hardware_decision": "no second computer; optional 2 x 16 GB RAM ~3,250 EGP"
+}

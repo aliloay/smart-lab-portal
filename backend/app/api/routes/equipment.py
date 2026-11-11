@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, get_current_user, require_admin, require_device, require_staff
+from app.api.deps import SHARED, device_scope, get_current_user, require_admin, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingStatus,
@@ -141,6 +141,9 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     now = datetime.now(timezone.utc)
     dtype = DeviceType.ROBOT if req.kind == "ROBOT" else DeviceType.PC
     d = get_device(db, req.device_uid)
+    # A device's own key reports as the kind of device it is (2026-11-11): a lab PC's key cannot file a robot report.
+    if identity != SHARED and d is not None and d.device_type != dtype:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Device {req.device_uid} is not a {req.kind}")
     if d is None:
         d = Device(device_uid=req.device_uid, name=req.asset_tag or req.device_uid,
                    device_type=dtype, lab_id=lab.id)
@@ -1093,9 +1096,11 @@ def pc_enroll(req: EnrollRequest, x_enroll_key: Optional[str] = Header(None), db
     import secrets
 
     from app.api.deps import hash_device_key, pc_enroll_code
-    if not settings.PC_ENROLL_OPEN or not x_enroll_key \
-            or not _hmac.compare_digest(x_enroll_key.encode(), pc_enroll_code().encode()):
+    if not x_enroll_key or not _hmac.compare_digest(x_enroll_key.encode(), pc_enroll_code().encode()):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid enrollment code")
+    if not settings.PC_ENROLL_OPEN:                 # said only to someone holding the right code
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED,
+                            "PC enrollment is closed on the portal - set PC_ENROLL_OPEN=true in .env while installing")
     if "ADMIN" in req.device_uid.upper():
         raise HTTPException(status.HTTP_403_FORBIDDEN, "The administrator's PC does not enroll from the kit")
     lab = get_lab_by_code(db, req.lab_id)

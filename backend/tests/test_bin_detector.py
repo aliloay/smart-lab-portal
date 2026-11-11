@@ -204,3 +204,19 @@ def test_similar_box_inside_is_dropped_but_a_small_object_in_front_stays():
                                   _hit("C", 0.7, 0.1, 0.1, 0.1, 0.1),      # small, inside A -> a separate object
                                   _hit("D", 0.6, 0.6, 0.6, 0.3, 0.3)])
     assert [h["code"] for h in kept] == ["A", "C", "D"]
+
+
+def test_a_class_that_lists_max_instances_reports_every_separate_object():
+    """2026-11-11: two lab PCs in one frame were one box. Opt-in per class; overlapping boxes stay one object."""
+    pcs = {"file": "x.onnx", "classes": [{"index": 0, "name": "lab_pc", "label": "Lab PC", "conf": 0.5, "max_instances": 3},
+                                          {"index": 1, "name": "lab_door", "label": "Door", "conf": 0.5}]}
+    out = np.zeros((6, 8400), np.float32)
+    out[:4, 0], out[4, 0] = (100, 100, 80, 60), 0.91          # PC one
+    out[:4, 1], out[4, 1] = (104, 102, 80, 60), 0.88          # the same PC again (overlaps): not a second object
+    out[:4, 2], out[4, 2] = (400, 110, 80, 60), 0.84          # PC two
+    out[:4, 3], out[4, 3] = (300, 300, 80, 60), 0.30          # below the threshold
+    out[:4, 4], out[5, 4] = (500, 400, 60, 200), 0.90         # the door: one box, as before
+    out[:4, 5], out[5, 5] = (100, 400, 60, 200), 0.80         # a second door-like box: not listed for more
+    hits = bd._parse_multi(out, pcs, (640, 640), 1.0, 0, 0)
+    assert [(h["code"], h["confidence"]) for h in hits] == [("type:lab_pc", 0.91), ("type:lab_pc#2", 0.84),
+                                                            ("type:lab_door", 0.9)]

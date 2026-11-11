@@ -54,3 +54,35 @@ def test_shared_key_works_until_switched_off(client, lab, node, device_headers, 
 def test_only_admins_issue_keys(client, staff, node):
     r = client.post(f"/api/devices/{node.id}/key", headers=auth_headers(client, staff.email))
     assert r.status_code == 403
+
+
+_DOOR_REPORTS = (
+    ("/api/access/validate-qr", {"qr_token": "tok"}),
+    ("/api/access/validate-rfid", {"uid_hex": "AABBCCDD"}),
+    ("/api/access/events", {"event_type": "DOOR_OPENED"}),
+    ("/api/access/grant", {"event_type": "ACCESS_GRANTED"}),
+    ("/api/access/deny", {"event_type": "ACCESS_DENIED"}),
+)
+
+
+def test_a_sensor_nodes_own_key_cannot_make_door_reports(client, db, admin, lab, node):
+    """2026-11-11 closure audit (SEC-01): not in the master's name, and not in its own name either."""
+    key = client.post(f"/api/devices/{node.id}/key", headers=auth_headers(client, admin.email)).json()["device_key"]
+    db.add(Device(device_uid="MASTER_LAB01", name="Master", lab_id=lab.id, device_type=DeviceType.MASTER_CONTROLLER))
+    db.commit()
+    for uid in ("MASTER_LAB01", "ENV_KEYED", None):
+        for path, body in _DOOR_REPORTS:
+            r = client.post(path, headers={"X-Device-Key": key}, json={**body, "lab_id": lab.code, "device_uid": uid})
+            assert r.status_code == 403, (path, uid, r.text)
+
+
+def test_door_reports_still_work_with_the_shared_key_and_a_masters_own_key(client, db, admin, lab, device_headers):
+    m = Device(device_uid="MASTER_KEYED", name="Master", lab_id=lab.id, device_type=DeviceType.MASTER_CONTROLLER)
+    db.add(m)
+    db.commit()
+    own = {"X-Device-Key": client.post(f"/api/devices/{m.id}/key",
+                                       headers=auth_headers(client, admin.email)).json()["device_key"]}
+    body = {"event_type": "DOOR_OPENED", "lab_id": lab.code, "device_uid": "MASTER_KEYED"}
+    assert client.post("/api/access/events", headers=device_headers, json=body).status_code == 200
+    assert client.post("/api/access/events", headers=own, json=body).status_code == 200
+    assert client.post("/api/access/events", headers=own, json={**body, "device_uid": "OTHER_MASTER"}).status_code == 403

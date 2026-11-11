@@ -178,11 +178,35 @@ def _parse_multi(out, spec: dict, size, s: float, px: int, py: int) -> list:
         scores = out[4 + i]
         j = int(np.argmax(scores))
         conf = float(scores[j])
-        if conf < float(c.get("conf", spec.get("conf", 0.5))):
+        floor = float(c.get("conf", spec.get("conf", 0.5)))
+        if conf < floor:
             continue
-        hits.append({"code": c.get("code") or f"type:{c['name']}", "class": c["name"], "label": c.get("label"),
+        code = c.get("code") or f"type:{c['name']}"
+        hits.append({"code": code, "class": c["name"], "label": c.get("label"),
                      "confidence": round(conf, 3), "box": _box(*(float(v) for v in out[:4, j]), s, px, py, size)})
+        # 2026-11-11: a class that is in the room SEVERAL times (lab PCs) may list "max_instances": the further
+        # boxes above the same threshold that do not overlap one already kept (IoU < 0.45) are reported too, as
+        # "<code>#2", "#3"... A registered asset (one code = one thing) never lists it.
+        more = int(c.get("max_instances", 1)) - 1
+        if more > 0:
+            kept = [hits[-1]["box"]]
+            for k in np.argsort(-scores)[1:200]:
+                if more <= 0 or float(scores[k]) < floor:
+                    break
+                b = _box(*(float(v) for v in out[:4, int(k)]), s, px, py, size)
+                if all(_iou(b, o) < 0.45 for o in kept):
+                    kept.append(b)
+                    more -= 1
+                    hits.append({"code": f"{code}#{len(kept)}", "class": c["name"], "label": c.get("label"),
+                                 "confidence": round(float(scores[k]), 3), "box": b})
     return hits
+
+
+def _iou(a: dict, b: dict) -> float:
+    iw = max(0.0, min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"]))
+    ih = max(0.0, min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"]))
+    inter = iw * ih
+    return inter / max(a["w"] * a["h"] + b["w"] * b["h"] - inter, 1e-9)
 
 
 def _infer_multi(rt, spec: dict, img, lb=None) -> list:

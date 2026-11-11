@@ -15,8 +15,8 @@ import {
 } from '../components/ui'
 
 function EquipmentRegister() {
-  const [rows, setRows] = useState<Asset[] | null>(null)
-  const [labs, setLabs] = useState<Lab[]>([])
+  const [rows, setRows] = useState<Asset[] | null>(() => api.peek(() => api.assets()))
+  const [labs, setLabs] = useState<Lab[]>(() => api.peek(() => api.labs()) ?? [])
   const [q, setQ] = useState('')
   const [lab, setLab] = useState('')
   const [status, setStatus] = useState('')

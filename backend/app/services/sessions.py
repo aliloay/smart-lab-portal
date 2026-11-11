@@ -103,12 +103,24 @@ def second_factor_seen(db: Session, lab_id: int, user: Optional[User],
         s.second_factor = method
 
 
+_last_close = {"at": -1e9}
+
+
 def close_expired(db: Session) -> int:
     """
     Stop counting sessions whose booking window has closed, and sessions with
     no booking that have outlived the longest possible booking. Commits only
     when something changed.
+
+    2026-11-11: a dozen read endpoints call this, several per page load. Within LIVENESS_THROTTLE_S (3 s, the
+    same switch as devices.refresh_liveness; tests set 0) the scan is skipped: a session ends at most 3 s later.
     """
+    import os
+    import time as _time
+    throttle = float(os.environ.get("LIVENESS_THROTTLE_S", "3"))
+    if throttle > 0 and _time.monotonic() - _last_close["at"] < throttle:
+        return 0
+    _last_close["at"] = _time.monotonic()
     now = datetime.now(timezone.utc)
     changed = 0
     open_rows = db.scalars(select(AccessSession).where(

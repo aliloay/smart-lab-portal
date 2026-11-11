@@ -7,7 +7,7 @@ import { fmtDateTime, relative } from '../lib/time'
 import { Chip, EmptyState, ErrorBanner, PageHeader, Skeleton, Tabs } from '../components/ui'
 
 export default function Alerts() {
-  const [rows, setRows] = useState<Alert[] | null>(null)
+  const [rows, setRows] = useState<Alert[] | null>(() => api.peek(() => api.alerts()))
   const [tab, setTab] = useState<'open' | 'all'>('open')
   const [error, setError] = useState('')
   const load = useCallback(() => api.alerts().then(setRows)

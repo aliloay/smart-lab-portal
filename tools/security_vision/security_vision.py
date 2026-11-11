@@ -312,6 +312,12 @@ class Service:
     FACE_MIN = 0.50                    # and reach this: from the ceiling, wrong people matched 0.41-0.53,
                                        # the right one 0.59-0.66 (2026-10-12); the door camera stays at 0.363
     RAW_WANTED_S = 5.0                 # keep encoding the plain picture this long after a request
+    # 2026-11-11 (performance mission, measured on two lab recordings replayed at once): the annotated picture was
+    # drawn and encoded RENDER_FPS times a second whether or not anyone watched. Now: full rate while someone
+    # fetched /frame.jpg in the last VIEW_WANTED_S, else IDLE_RENDER_FPS - an alert's snapshot stays at most
+    # 1 s old. With --cv-threads 2: 0.65 -> 0.41 of a core per camera service on this laptop.
+    VIEW_WANTED_S = 5.0
+    IDLE_RENDER_FPS = float(os.environ.get("SV_IDLE_RENDER_FPS", "1"))
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
 
     def __init__(self, args):
@@ -320,7 +326,10 @@ class Service:
         self.portal = args.portal.rstrip("/")
         self.http = requests.Session()
         self.http.headers["X-Device-Key"] = self.key
-        cv2.setNumThreads(args.threads)            # leave CPU for the face server
+        # OpenCV's own pool (resize, colour, JPEG) apart from the detector's CPU fallback threads (2026-11-11):
+        # 8 + 8 OpenCV threads in two camera services on a 12-thread CPU bought nothing - 2 measured the same or
+        # faster (render p95 27 ms vs 30-33 ms) with less CPU.
+        cv2.setNumThreads(args.cv_threads)
         self.detector = make_detector(args.model, conf=args.conf, size=args.size, threads=args.threads)
         # Zoom crops (a lost / half-hidden person's surroundings, ~300 px) through a small square input: the same
         # YOLO26s weights at 416 x 416 take 14 ms instead of 38 ms for the 544x960 model, and recover the same
@@ -469,8 +478,16 @@ class Service:
                       "track_id": t.id, "identity_state": t.identity_state,
                       "confidence": t.identity_confidence, "named_by": t.named_by}
                      for t in tracks if t.label]
+            try:                                   # live activity lines for the Security page (activity.py)
+                from activity import describe
+                fw, fh = self.frame_wh
+                activity = describe(tracks, self.cfg.get("zones", []), fw, fh)
+            except Exception as e:                 # never let a sentence stop the state report
+                print(f"[activity] skipped: {e.__class__.__name__}")
+                activity = []
             try:
                 self.http.post(self.portal + "/security/state", timeout=5, json={
+                    "activity": activity,
                     "device_uid": self.args.device, "fps": self.live_fps(), "people": len(tracks),
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
                     "source_ok": self.camera.ok and self.camera.status()["state"] == "STREAMING",
@@ -1137,7 +1154,9 @@ class Service:
             else:
                 with self.lock:
                     self.raw_jpeg = self.jpeg = None
-            time.sleep(max(0.0, 1.0 / self.RENDER_FPS - (time.time() - t0)))
+            watched = time.time() - getattr(self, "view_wanted_at", 0.0) < self.VIEW_WANTED_S
+            fps = self.RENDER_FPS if watched else min(self.RENDER_FPS, self.IDLE_RENDER_FPS)
+            time.sleep(max(0.0, 1.0 / max(fps, 0.1) - (time.time() - t0)))
 
 
 def make_app(svc: Service) -> Flask:
@@ -1186,6 +1205,7 @@ def make_app(svc: Service) -> Flask:
 
     @app.get("/frame.jpg")
     def frame():
+        svc.view_wanted_at = time.time()            # someone is watching: draw at the full rate again
         return image(svc.jpeg)
 
     @app.get("/raw.jpg")
@@ -1493,7 +1513,10 @@ def main():
     ap.add_argument("--new-conf", type=float, default=0.60,
                     help="a box must score this much to START a new track (a weaker one may only extend a person "
                          "already tracked); <= --conf turns it off")
-    ap.add_argument("--threads", type=int, default=8, help="CPU threads of 12 (was 4; the face server needs the rest)")
+    ap.add_argument("--threads", type=int, default=8, help="detector CPU threads of 12, used only when the detector "
+                    "falls back to the CPU (was 4; the face server needs the rest)")
+    ap.add_argument("--cv-threads", type=int, default=int(os.environ.get("SV_CV_THREADS", "2")),
+                    help="OpenCV threads (resize, colours, JPEG); 2 measured best with two camera services (2026-11-11)")
     # was 5, then 7; 10 since 2026-10-21 (owner: "a bit slow"): passes took 78-93 ms p50 with both cameras on
     # the GTX at 42-54 % - a pass that takes longer simply runs at its own pace (never a backlog).
     ap.add_argument("--det-fps", type=float, default=10.0)

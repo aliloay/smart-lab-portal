@@ -7,12 +7,12 @@ line of firmware and no HTTP request can reach it.
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, require_device
+from app.api.deps import SHARED, device_scope, require_device
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
                         DeviceType, EventType, Notification, SensorReading,
@@ -41,16 +41,34 @@ def _user_by_subject(db: Session, subject: str | None) -> User | None:
     return db.scalar(select(User).where(User.auth_subject == subject))
 
 
+# The door subsystem: the master and the two boards that give it a face result.
+_DOOR_TYPES = {DeviceType.MASTER_CONTROLLER, DeviceType.CAMERA, DeviceType.FACE_SERVER}
+
+
+def _door_scope(db: Session, identity: str, device_uid: str | None) -> None:
+    """Door reports (2026-11-11 closure audit, SEC-01): these five routes took any valid device key, so a sensor
+    node or robot collector holding its OWN key could post a grant or a door event in the master's name. A device's
+    own key now speaks for that device only, and only a door-subsystem device may make door reports at all. The
+    shared key the door boards use today is unchanged."""
+    device_scope(identity, device_uid)
+    if identity == SHARED:
+        return
+    d = get_device(db, device_uid) if device_uid else None
+    if d is None or d.device_type not in _DOOR_TYPES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a door device may make door reports")
+
+
 @router.post("/validate-qr", response_model=ValidateResponse)
 def validate_qr_endpoint(req: ValidateQrRequest,
                          db: Session = Depends(get_db),
-                         _: str = Depends(require_device)):
+                         identity: str = Depends(require_device)):
     """
     Step 1 for a booking QR.
 
     Returns the canonical identity on success. The master then requires a
     biometric that matches THIS identity before it unlocks anything.
     """
+    _door_scope(db, identity, req.device_uid)
     res = validate_qr(db, req.qr_token, req.lab_id, req.device_uid)
 
     if not res.valid:
@@ -73,7 +91,8 @@ def validate_qr_endpoint(req: ValidateQrRequest,
 @router.post("/validate-rfid", response_model=ValidateResponse)
 def validate_rfid_endpoint(req: ValidateRfidRequest,
                            db: Session = Depends(get_db),
-                           _: str = Depends(require_device)):
+                           identity: str = Depends(require_device)):
+    _door_scope(db, identity, req.device_uid)
     res = validate_rfid(db, req.uid_hex, req.lab_id, req.device_uid)
     if not res.valid:
         return ValidateResponse(valid=False,
@@ -90,12 +109,13 @@ def validate_rfid_endpoint(req: ValidateRfidRequest,
 
 @router.post("/events")
 def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
-               _: str = Depends(require_device)):
+               identity: str = Depends(require_device)):
     """
     Generic event sink for the master: biometric attempts, door transitions,
     identity mismatches, exits. The master fires these and does not wait on
     them, so a slow or absent portal never delays the door.
     """
+    _door_scope(db, identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)
@@ -136,11 +156,12 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
 
 @router.post("/grant")
 def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
-                 _: str = Depends(require_device)):
+                 identity: str = Depends(require_device)):
     """
     The master reports that it HAS granted access. This opens an occupancy
     session; it does not authorize anything.
     """
+    _door_scope(db, identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)
@@ -190,7 +211,8 @@ def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
 
 @router.post("/deny")
 def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
-                _: str = Depends(require_device)):
+                identity: str = Depends(require_device)):
+    _door_scope(db, identity, req.device_uid)
     lab = get_lab_by_code(db, req.lab_id)
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)

@@ -277,6 +277,25 @@ def test_websocket_requires_a_valid_token():
             assert exc.value.code == 4401
 
 
+def test_websocket_opens_with_a_one_time_ticket_only_once(client, alice):
+    """2026-11-11 (SEC-04): the page connects with a 30 s single-use ticket, not with its sign-in token."""
+    from starlette.websockets import WebSocketDisconnect
+    from tests.conftest import auth_headers
+    h = auth_headers(client, alice.email)
+    assert client.post("/api/auth/ws-ticket").status_code == 401            # only for a signed-in user
+    ticket = client.post("/api/auth/ws-ticket", headers=h).json()["ticket"]
+    with client.websocket_connect(f"/ws/activity?ticket={ticket}"):
+        pass                                                                # accepted
+    for url in (f"/ws/activity?ticket={ticket}", "/ws/activity?ticket=made-up"):
+        with pytest.raises(WebSocketDisconnect) as exc:                     # used once / never issued
+            with client.websocket_connect(url) as ws:
+                ws.receive_text()
+        assert exc.value.code == 4401
+    from app.core import ws_ticket
+    old = ws_ticket.issue(alice.id, now=1000.0)
+    assert ws_ticket.redeem(old, now=1000.0 + ws_ticket.TICKET_S + 1) is None   # expired
+
+
 def test_websocket_scopes_events_by_role(db, alice, bob, staff, lab, device,
                                          device_headers):
     """
