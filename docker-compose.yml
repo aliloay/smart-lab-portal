@@ -33,7 +33,9 @@ services:
   # tells the portal how the last run went (app.services.backups alerts on a
   # failure). Restore: docs/DATABASE.md.
   backup:
-    image: postgres:16-alpine
+    # postgres:16-alpine + openssl (backup/Dockerfile) for the optional encryption below
+    build: ./backup
+    image: smart-lab-portal-backup:latest
     depends_on:
       db: { condition: service_healthy }
     environment:
@@ -43,6 +45,9 @@ services:
       PGDATABASE: smartlab
       TZ: Africa/Cairo
       BACKUP_EVERY_HOURS: ${BACKUP_EVERY_HOURS:-6}
+      # 2026-11-12: optional. Set in .env to keep only AES-256 encrypted dumps (*.dump.enc). Empty = unchanged.
+      # Restore: openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in X.dump.enc -out X.dump
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:-}
     volumes:
       - ./backups:/backups
       - uploads:/uploads:ro
@@ -59,6 +64,16 @@ services:
           now=$$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
           if pg_dump -Fc -f "$$f.part" && pg_restore --list "$$f.part" >/dev/null; then
             mv "$$f.part" "$$f"
+            # Optional encryption: the passphrase stays in the environment (never on a command line or in a log).
+            # The plain dump is removed only after the encrypted copy decrypts back to a valid dump.
+            if [ -n "$$BACKUP_PASSPHRASE" ]; then
+              if openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -in "$$f" -out "$$f.enc" &&
+                 openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_PASSPHRASE -in "$$f.enc" | pg_restore --list >/dev/null; then
+                rm -f "$$f"; f="$$f.enc"; echo "backup encrypted (AES-256)"
+              else
+                rm -f "$$f.enc"; echo "ENCRYPTION FAILED - the plain dump is kept"
+              fi
+            fi
             kb=$$(du -k "$$f" | cut -f1)
             last_ok="\"$$now\""
             echo "backup saved: $$f ($$kb KB)"

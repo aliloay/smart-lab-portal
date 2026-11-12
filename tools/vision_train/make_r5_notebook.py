@@ -111,7 +111,18 @@ for s in ('train', 'val', 'test', 'test_multi'):
     print(f'{s}: {len(files)} photos, {boxes} boxes')""")
 
 code("""from ultralytics import YOLO
-RUNS = {'r5_n': 'yolo11n.pt', 'r5_s': 'yolo11s.pt'}
+# 2026-11-12: start from the trained lab models, not generic YOLO (R5 from yolo11n/s: 141 and 147/171 vs 153 deployed).
+# Exact folder, exact run names; anything else stops the notebook (no silent fallback to generic weights).
+V2 = glob.glob('/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753')
+assert len(V2) == 1, 'lab_v2_2026-11-03_1753 not found in My Drive/SmartLab_results'
+START = {'r5_n': os.path.join(V2[0], 'r1_n', 'weights', 'best.pt'),     # deployed lab_detector (153/171)
+         'r5_s': os.path.join(V2[0], 'r2_s', 'weights', 'best.pt')}     # best measured so far (157/171)
+for k, w in START.items():
+    assert os.path.exists(w), f'start weights missing for {k}: {w}'
+    names = list(YOLO(w).names.values())
+    assert names == NAMES, f'{k}: start weights have other classes {names}'
+    print(k, 'starts from', w)
+RUNS = START
 HP = dict(data=str(W / 'data.yaml'), imgsz=640, epochs=120, patience=30, batch=16, optimizer='AdamW', lr0=0.001,
           cos_lr=True, mosaic=1.0, close_mosaic=15, mixup=0.0, copy_paste=0.1, degrees=5, fliplr=0.5,
           project='/content/runs', exist_ok=True)
