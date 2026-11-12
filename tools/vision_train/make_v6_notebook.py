@@ -32,7 +32,11 @@ from google.colab import drive
 drive.mount('/content/drive')
 ROOT = '/content/drive/MyDrive/SmartLab'
 ZIP = os.path.join(ROOT, 'lab_v6.zip')
-assert os.path.exists(ZIP), 'Upload lab_v6.zip to My Drive/SmartLab'
+for i in range(60):                    # Google Drive for desktop may still be uploading the 400 MB zip
+    if os.path.exists(ZIP):
+        break
+    print('waiting for lab_v6.zip to finish uploading to Drive...', i, 'min'); time.sleep(60)
+assert os.path.exists(ZIP), 'lab_v6.zip is not in My Drive/SmartLab after 60 min - check the Drive app on the laptop'
 V2 = '/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753'
 for r in ('r1_n', 'r2_s'):
     assert os.path.exists(f'{V2}/{r}/weights/best.pt'), f'missing lab model {V2}/{r}/weights/best.pt'
