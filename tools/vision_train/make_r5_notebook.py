@@ -39,7 +39,10 @@ if not REVIEWED:                                              # 2026-11-12: run 
     print('WARNING: UNREVIEWED pre-labels (model guesses) - all multi photos go to TRAIN; no test_multi score.')
 STAMP = time.strftime('%Y-%m-%d_%H%M')
 OUT = os.path.join(ROOT, f'lab_r5_{STAMP}')
-CK = os.path.join(ROOT, 'lab_r5_checkpoints')
+# 2026-11-12: checkpoints are tied to THIS dataset (zip size + reviewed flag). A shared folder made the human-reviewed
+# run 'resume' the finished pre-label run: it trained 0 epochs and scored nothing.
+CK = os.path.join(ROOT, f"lab_r5_checkpoints_{'reviewed' if REVIEWED else 'prelabel'}_{os.path.getsize(MULTI)}")
+print('REVIEWED (human-corrected boxes):', REVIEWED, '|', MULTI, os.path.getsize(MULTI), 'bytes')
 os.makedirs(OUT, exist_ok=True)
 os.makedirs(CK, exist_ok=True)
 print('results ->', OUT)""")
@@ -54,8 +57,12 @@ with zipfile.ZipFile(os.path.join(ROOT, 'lab_r1.zip')) as z:
 shutil.copytree('/content/lab_r1', W)
 if os.path.exists('/content/multi'):
     shutil.rmtree('/content/multi')
-with zipfile.ZipFile(MULTI) as z:
-    z.extractall('/content/multi')
+with zipfile.ZipFile(MULTI) as z:                 # names normalised: a Windows-made zip uses backslash paths
+    for zi in z.infolist():
+        name = zi.filename.replace(chr(92), '/')
+        if not name.endswith('/'):
+            os.makedirs(os.path.dirname(os.path.join('/content/multi', name)) or '/content/multi', exist_ok=True)
+            open(os.path.join('/content/multi', name), 'wb').write(z.read(zi))
 NAMES = [l.strip() for l in open(glob.glob('/content/multi/**/classes.txt', recursive=True)[0]) if l.strip()]
 y = yaml.safe_load(open(W / 'data.yaml'))
 r1_names = y['names'] if isinstance(y['names'], list) else [y['names'][k] for k in sorted(y['names'])]
@@ -92,7 +99,8 @@ for p in imgs:
     (W / 'labels' / split).mkdir(parents=True, exist_ok=True)
     shutil.copy2(p, W / 'images' / split / ('m_' + os.path.basename(p)))
     shutil.copy2(lbl, W / 'labels' / split / ('m_' + os.path.basename(lbl)))
-print('multi photos already in lab_r1 (skipped):', skipped)
+print('multi photos found in the zip:', len(imgs), '| already in lab_r1 (skipped):', skipped)
+assert len(imgs) >= 100, f'only {len(imgs)} multi photos read from {MULTI} - stop, the zip layout is wrong'
 # Only the splits this notebook trains / scores on. lab_r1.zip has its own unused folders (multi_train, ...) that repeat
 # some photos - they are not read by data.yaml, so they are not a leak (seen 12 Nov: train/old__neg_* = multi_train/labcam_*).
 USED = ('train', 'val', 'test', 'test_multi')
@@ -137,14 +145,18 @@ def ckpt_cb(name):
     return cb
 for name, base in RUNS.items():
     last = os.path.join(CK, name, 'last.pt')
-    if os.path.exists(last):            # a real resume of an interrupted run (same args are stored in last.pt)
+    if os.path.exists(last) and os.path.exists(os.path.join(CK, name, 'unfinished')):   # resume only a cut-off run
         m = YOLO(last)
         m.add_callback('on_fit_epoch_end', ckpt_cb(name))
         m.train(resume=True)
     else:
         m = YOLO(base)
         m.add_callback('on_fit_epoch_end', ckpt_cb(name))
-        m.train(name=name, **HP)""")
+        os.makedirs(os.path.join(CK, name), exist_ok=True)
+        open(os.path.join(CK, name, 'unfinished'), 'w').close()
+        m.train(name=name, **HP)
+    os.remove(os.path.join(CK, name, 'unfinished'))
+    assert os.path.exists(f'/content/runs/{name}/weights/best.pt'), f'{name}: training produced no best.pt'""")
 
 code("""# Evaluation on HUMAN labels only: every GT box matched one-to-one (same class, IoU >= 0.5).
 import numpy as np
