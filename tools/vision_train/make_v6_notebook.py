@@ -35,7 +35,7 @@ ZIP = os.path.join(ROOT, 'lab_v6.zip')
 for i in range(60):                    # Google Drive for desktop may still be uploading the 400 MB zip
     if os.path.exists(ZIP):
         break
-    print('waiting for lab_v6.zip to finish uploading to Drive...', i, 'min'); time.sleep(60)
+    print('waiting for lab_v6.zip to appear in Drive...', i, 'min', flush=True); time.sleep(60)
 assert os.path.exists(ZIP), 'lab_v6.zip is not in My Drive/SmartLab after 60 min - check the Drive app on the laptop'
 V2 = '/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753'
 for r in ('r1_n', 'r2_s'):
@@ -45,12 +45,22 @@ CK = os.path.join(OUT, f'checkpoints_{os.path.getsize(ZIP)}')       # tied to th
 os.makedirs(CK, exist_ok=True)
 W = Path('/content/lab_v6')
 if not (W / 'data.yaml').exists():
-    with zipfile.ZipFile(ZIP) as z:
-        for zi in z.infolist():
+    t0 = time.time()
+    print('copying the zip from Drive to the Colab disk...', flush=True)
+    shutil.copyfile(ZIP, '/content/lab_v6.zip')        # one sequential read; reading inside Drive is very slow
+    print(f'copied {os.path.getsize("/content/lab_v6.zip") // 2**20} MB in {time.time() - t0:.0f} s; unpacking...', flush=True)
+    with zipfile.ZipFile('/content/lab_v6.zip') as z:
+        infos = z.infolist()
+        for i, zi in enumerate(infos):
             name = zi.filename.replace(chr(92), '/')
             if not name.endswith('/'):
                 os.makedirs(os.path.dirname('/content/' + name), exist_ok=True)
-                open('/content/' + name, 'wb').write(z.read(zi))
+                with open('/content/' + name, 'wb') as f:
+                    f.write(z.read(zi))
+            if i % 1000 == 0:
+                print(f'  {i}/{len(infos)} files', flush=True)
+    os.remove('/content/lab_v6.zip')
+    print(f'dataset ready in {time.time() - t0:.0f} s', flush=True)
 NAMES = ['reusable_bin', 'consumables_node', 'environment_node', 'master_node', 'network_switch', 'network_router',
          'ur5e_robot', 'ur5e_teach_pendant', 'fanuc_robot', 'fanuc_teach_pendant', 'lab_pc', 'lab_door']
 for s in ('train', 'val', 'test', 'test_multi', 'cam_test'):
