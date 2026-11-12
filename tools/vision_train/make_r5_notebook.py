@@ -115,8 +115,8 @@ code("""from ultralytics import YOLO
 # Exact folder, exact run names; anything else stops the notebook (no silent fallback to generic weights).
 V2 = glob.glob('/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753')
 assert len(V2) == 1, 'lab_v2_2026-11-03_1753 not found in My Drive/SmartLab_results'
-START = {'r5_n': os.path.join(V2[0], 'r1_n', 'weights', 'best.pt'),     # deployed lab_detector (153/171)
-         'r5_s': os.path.join(V2[0], 'r2_s', 'weights', 'best.pt')}     # best measured so far (157/171)
+START = {'r5_n': os.path.join(V2[0], 'r1_n', 'weights', 'best.pt'),     # old deployed lab_detector (153/171)
+         'r5_s': os.path.join(V2[0], 'r2_s', 'weights', 'best.pt')}     # deployed since 2026-11-12 (158/171)
 for k, w in START.items():
     assert os.path.exists(w), f'start weights missing for {k}: {w}'
     names = list(YOLO(w).names.values())
@@ -204,6 +204,9 @@ print(json.dumps(report, indent=1))""")
 
 code("""# Candidate export ONLY (beside the results). Deploying is the owner's decision after comparing with the deployed
 # model on the SAME test + test_multi. Gates: lab_pc not worse, false hits not worse, multi-object recall better.
+# Baseline on the SAME splits: the model live since 2026-11-12 (v2 r2_s, 158/171) - the bar a candidate must beat.
+BASE = {s: evaluate(START['r5_s'], s) for s in (('test', 'test_multi') if REVIEWED else ('test',))}
+print('BASELINE (deployed v2 r2_s):', json.dumps(BASE, indent=1))
 def recall(k):
     split = 'test_multi' if REVIEWED else 'test'
     return int(report[k][split]['instance_recall'].split('/')[0])
@@ -211,7 +214,7 @@ best = max(report, key=recall) if report else None
 if best:
     YOLO(f'/content/runs/{best}/weights/best.pt').export(format='onnx', imgsz=640, opset=12, simplify=True)
     shutil.copy2(f'/content/runs/{best}/weights/best.onnx', os.path.join(OUT, f'{best}_candidate.onnx'))
-    open(os.path.join(OUT, 'summary.md'), 'w').write(f'# Round 5\\nCandidate: {best} (NOT deployed)\\n\\n' + json.dumps(report, indent=1))
+    open(os.path.join(OUT, 'summary.md'), 'w').write(f'# Round 5\\nCandidate: {best} (NOT deployed)\\n\\n' + json.dumps({'baseline_deployed_v2_r2_s': BASE, **report}, indent=1))
 print('done ->', OUT)""")
 
 nb = {"cells": cells, "metadata": {"accelerator": "GPU", "kernelspec": {"name": "python3", "display_name": "Python 3"}},
