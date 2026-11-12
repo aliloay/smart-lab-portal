@@ -396,6 +396,12 @@ class Service:
         self.view_pending = None          # a confident move seen once; acted on when seen twice
         self.view_unstable = False        # moved, not (yet) re-aligned: box alerts held back
         self.view_lost_checks = 0
+        self.view_pending_since = 0.0     # when the current pending move was first seen (startup stability)
+        self.view_Hn = None               # anchor -> current view, last accepted (moves the recorded seats too)
+        # 2026-11-12: per-camera calibration status for the portal (offline / settling / calibrating / calibrated /
+        # needs_review), with a short reason; never a picture or a path.
+        self.view_state = {"state": "offline", "since": time.time(), "reason": "", "last_check": None,
+                           "last_success": None, "boxes_moved": 0}
         self.view_wake = threading.Event()  # set when many boxes change at once: check the view now
         self.fps = 0.0
         self.analysed_at = 0.0               # last finished analysis pass (staleness)
@@ -497,7 +503,7 @@ class Service:
                     "named": named, "unknown": len(tracks) - len(named), "zones": zones,
                     "source_ok": self.camera.ok and self.camera.status()["state"] == "STREAMING",
                     "door_open": self.door_open,
-                    "metrics": self._metrics_brief()})
+                    "metrics": self._metrics_brief(), "calibration": self.calibration_brief()})
             except requests.RequestException:
                 pass
 
@@ -803,7 +809,12 @@ class Service:
     # PTZ cameras (2026-10-21): at power-on they sweep and stop at a default tilt, and staff
     # tilt them back by hand. A view check in that time re-aligned camera 2's boxes to the
     # wrong view. So for this long after the stream (re)connects nothing is anchored or moved.
-    VIEW_STARTUP_QUIET_S = 180.0
+    # 2026-11-12 (owner: "aligned within 2-5 minutes, no click"): the fixed 180 s wait became a 45 s minimum; in
+    # the first VIEW_STARTUP_MAX_S boxes move only after the predicted positions held VIEW_STABLE_S (checks every
+    # 3 s) and the match is strong; no new anchor is ever taken in that window; nothing reliable -> needs_review.
+    VIEW_STARTUP_QUIET_S = 45.0
+    VIEW_STABLE_S = 20.0
+    VIEW_STARTUP_MAX_S = 300.0
 
     def linked_desks(self) -> dict:
         """This camera's PC boxes (0-1) that desk_map.json links to the other camera - the recorded seat
@@ -834,7 +845,7 @@ class Service:
                 print(f"[seats] could not read {p}: {e!r}")
                 self._seats = {}
             self._seats_mtime = m
-        return self._seats
+        return realign.move_seats(getattr(self, "view_Hn", None), self._seats)
 
     def zones_with_seats(self, zones: list[dict]) -> list[dict]:
         seats = self.seats()
@@ -845,6 +856,35 @@ class Service:
         cam = self.camera
         return cam.state != "STREAMING" or now - cam.state_since < self.VIEW_STARTUP_QUIET_S
 
+    def view_in_startup(self, now: float) -> bool:
+        cam = self.camera
+        return cam.state == "STREAMING" and now - cam.state_since < getattr(self, "VIEW_STARTUP_MAX_S", 300.0)
+
+    def _set_view_state(self, state: str, reason: str = "", now: Optional[float] = None, moved: Optional[int] = None):
+        now = time.time() if now is None else now
+        vs = getattr(self, "view_state", None)
+        if vs is None:
+            vs = self.view_state = {"state": "", "since": now, "reason": "", "last_check": None,
+                                    "last_success": None, "boxes_moved": 0}
+        if vs["state"] != state:
+            vs["since"] = now
+            print(f"[view] calibration: {state}" + (f" - {reason}" if reason else ""))
+        vs["state"], vs["reason"], vs["last_check"] = state, reason, now
+        if state == "calibrated":
+            vs["last_success"] = now
+        if moved is not None:
+            vs["boxes_moved"] = moved
+
+    def calibration_brief(self) -> dict:
+        vs = getattr(self, "view_state", None) or {}
+        now, cam = time.time(), self.camera
+        connected = round(now - cam.state_since) if cam.state == "STREAMING" else None
+        r = lambda t: None if t is None else round(now - t)
+        return {"state": vs.get("state", "offline") if cam.state == "STREAMING" else "offline",
+                "reason": vs.get("reason", "")[:160], "connected_s": connected, "state_s": r(vs.get("since")),
+                "last_check_s": r(vs.get("last_check")), "last_success_s": r(vs.get("last_success")),
+                "boxes_moved": vs.get("boxes_moved", 0)}
+
     def watch_view(self):
         """Every 15 s: has the camera's view moved? Confident (twice in a row)
         -> every box re-aligned through the portal; not confident -> say so
@@ -852,7 +892,8 @@ class Service:
         if self.demo:
             return
         while True:
-            self.view_wake.wait(self.VIEW_CHECK_UNSETTLED_S if self.view_unstable else self.VIEW_CHECK_S)
+            fast = self.view_unstable or self.view_in_startup(time.time())
+            self.view_wake.wait(self.VIEW_CHECK_UNSETTLED_S if fast else self.VIEW_CHECK_S)
             self.view_wake.clear()
             try:
                 self._check_view()
@@ -951,8 +992,17 @@ class Service:
         within 1 %) and the match is strong. No chaining, so no drift."""
         frame, at = self.camera.latest()
         zones, door = self.cfg.get("zones", []), self.cfg.get("door")
-        if frame is None or time.time() - at > 5 or not (zones or door) or self.view_settling(time.time()):
+        now = time.time()
+        if self.camera.state != "STREAMING":
+            self._set_view_state("offline", "no stream", now)
             return
+        if frame is None or now - at > 5 or not (zones or door):
+            return
+        if self.view_settling(now):
+            self._set_view_state("settling", "waiting for the picture to settle after (re)connecting", now)
+            return
+        startup = self.view_in_startup(now)
+        dynamic = realign.dynamic_regions(zones)
         with self.lock:
             people = [t.box for t in self.tracks]
         current = realign.boxes_of(zones, door)
@@ -960,6 +1010,7 @@ class Service:
             got = realign.load_anchor(self._anchor_path())
             if got:
                 self.view_anchor, self.view_anchor_boxes, self.view_applied = got
+                self.view_Hn = realign.load_anchor_H(self._anchor_path())
                 print(f"[view] anchor loaded from disk ({len(self.view_anchor_boxes)} boxes)")
         # Our last move sent, but the boxes not re-read from the portal yet:
         # wait (otherwise the same move is sent again, or taken for an edit).
@@ -969,18 +1020,24 @@ class Service:
         # Boxes that are neither the anchor's nor the ones we placed = staff drew / edited them.
         ours = self.view_applied or self.view_anchor_boxes
         if self.view_anchor is None or not realign.same_boxes(current, ours):
-            if self.view_unstable:
-                return                       # never take a new anchor while the view is moving
-            self.view_anchor = realign.make_reference(frame, people, "")
+            if self.view_unstable or startup:
+                return                       # never a new anchor while the view moves or just after power-on
+            self.view_anchor = realign.make_reference(frame, people, "", dynamic)
             self.view_anchor_boxes, self.view_applied = dict(current), {}
-            self.view_pending, self.view_lost_checks = None, 0
+            self.view_pending, self.view_lost_checks, self.view_Hn = None, 0, None
             realign.save_anchor(self._anchor_path(), self.view_anchor, self.view_anchor_boxes, {})
+            self._set_view_state("calibrated", "boxes as staff drew them (new reference)", now, 0)
             print(f"[view] anchor kept: {len(current)} box(es), {len(self.view_anchor.keypoints)} room features")
             return
-        m = realign.compare(self.view_anchor, frame, people)
+        m = realign.compare(self.view_anchor, frame, people, dynamic)
         strong = m.confident and m.inliers >= realign.APPLY_MIN_INLIERS and m.ratio >= realign.APPLY_MIN_RATIO
         if not strong:
             self.view_pending = None
+            if startup:
+                self._set_view_state("settling", f"no strong match yet ({m.inliers} matching points)", now)
+            else:
+                self._set_view_state("needs_review", f"the room could not be matched reliably ({m.inliers} "
+                                     "matching points) - boxes left as they were", now)
             if m.moved or not m.confident:
                 self.view_unstable = True
                 self.view_lost_checks += 1
@@ -994,17 +1051,27 @@ class Service:
         predicted, lost = realign.predict(m.homography, self.view_anchor_boxes)
         if len(lost) * 2 > len(self.view_anchor_boxes):
             self.view_unstable = True
+            self._set_view_state("settling" if startup else "needs_review",
+                                 f"{len(lost)} of {len(self.view_anchor_boxes)} boxes would leave the picture - not moved", now)
             print(f"[view] {len(lost)} of {len(self.view_anchor_boxes)} boxes would leave the picture - not moving them")
             return
         if realign.max_corner_gap(predicted, current) <= realign.SETTLED and not lost:
             if self.view_unstable:
                 print(f"[view] boxes are in place ({m.summary()})")
             self.view_pending, self.view_unstable = None, False
+            self.view_Hn = m.homography
+            self._set_view_state("calibrated", f"boxes match the room ({m.inliers} matching points)", now)
             return
         self.view_unstable = True
         if self.view_pending is None or realign.max_corner_gap(predicted, self.view_pending) > realign.SETTLED:
             self.view_pending = predicted        # still moving? wait for a second look that agrees
+            self.view_pending_since = now
+            self._set_view_state("calibrating", "the view moved - waiting until it has settled", now)
             print(f"[view] view moved ({m.summary()}) - waiting until it has settled")
+            return
+        if startup and now - getattr(self, "view_pending_since", now) < getattr(self, "VIEW_STABLE_S", 20.0):
+            self._set_view_state("calibrating", f"view steady for {now - self.view_pending_since:.0f} of "
+                                 f"{self.VIEW_STABLE_S:.0f} s", now)
             return
         boxes = [{"id": k, "x": v[0], "y": v[1], "w": v[2], "h": v[3]} for k, v in predicted.items()]
         try:
@@ -1022,8 +1089,11 @@ class Service:
         for k in lost:                            # left the picture: unchanged in the portal
             if k in current:
                 self.view_applied[k] = current[k]
-        realign.save_anchor(self._anchor_path(), self.view_anchor, self.view_anchor_boxes, self.view_applied)
+        self.view_Hn = m.homography
+        realign.save_anchor(self._anchor_path(), self.view_anchor, self.view_anchor_boxes, self.view_applied, self.view_Hn)
         self.view_pending = None
+        self._set_view_state("calibrated", f"{len(boxes)} box(es) re-aligned to the room ({m.inliers} matching points)",
+                             now, len(boxes))
         print(f"[view] {len(boxes)} box(es) re-aligned from the anchor, {len(lost)} left the picture ({m.summary()})")
         self.event("CAMERA_VIEW_MOVED", f"The camera's view moved; {len(boxes)} box(es) re-aligned to the room"
                    + (f", {len(lost)} left the picture - redraw those" if lost else "") + ".")

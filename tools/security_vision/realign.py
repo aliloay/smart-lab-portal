@@ -62,7 +62,24 @@ class Match:
 _orb = cv2.ORB_create(nfeatures=2500)
 
 
-def _prepare(frame: np.ndarray, people: list[tuple]) -> tuple[np.ndarray, np.ndarray, float]:
+# 2026-11-12 (Gemini CAL-2): a lit monitor or a moving robot changes its pixels all the time; ORB points there do not
+# belong to the room and weaken the match. PC boxes: the inner part (screen) is masked, the bezel / desk edge kept as
+# fixed anchors; robot boxes (alert_on_motion False): masked whole.
+PC_SCREEN_INSET = 0.15                 # mask the inner 70 % of a PC box
+
+
+def dynamic_regions(zones: list[dict]) -> list[tuple]:
+    """(x, y, w, h, inset) as fractions of the picture: the parts of the mapped boxes that keep changing."""
+    out = []
+    for z in zones or []:
+        if z.get("alert_on_motion", True) is False:
+            out.append((z["x"], z["y"], z["w"], z["h"], 0.0))
+        elif str(z.get("name", "")).upper().startswith("PC"):
+            out.append((z["x"], z["y"], z["w"], z["h"], PC_SCREEN_INSET))
+    return out
+
+
+def _prepare(frame: np.ndarray, people: list[tuple], dynamic: Optional[list] = None) -> tuple[np.ndarray, np.ndarray, float]:
     h, w = frame.shape[:2]
     s = WORK_WIDTH / w
     gray = cv2.cvtColor(cv2.resize(frame, (WORK_WIDTH, int(round(h * s)))), cv2.COLOR_BGR2GRAY)
@@ -70,17 +87,22 @@ def _prepare(frame: np.ndarray, people: list[tuple]) -> tuple[np.ndarray, np.nda
     for (x, y, bw, bh) in people:         # people move: never part of the room
         x0, y0 = max(0, int((x - 0.1 * bw) * s)), max(0, int((y - 0.05 * bh) * s))
         mask[y0:int((y + 1.05 * bh) * s), x0:int((x + 1.1 * bw) * s)] = 0
+    gh, gw = gray.shape
+    for (x, y, bw, bh, inset) in dynamic or []:
+        x0, y0 = int((x + inset * bw) * gw), int((y + inset * bh) * gh)
+        x1, y1 = int((x + (1 - inset) * bw) * gw), int((y + (1 - inset) * bh) * gh)
+        mask[max(0, y0):max(0, min(gh, y1)), max(0, x0):max(0, min(gw, x1))] = 0
     return gray, mask, s
 
 
-def make_reference(frame: np.ndarray, people: list[tuple], zones_key: str) -> Reference:
-    gray, mask, _ = _prepare(frame, people)
+def make_reference(frame: np.ndarray, people: list[tuple], zones_key: str, dynamic: Optional[list] = None) -> Reference:
+    gray, mask, _ = _prepare(frame, people, dynamic)
     kp, des = _orb.detectAndCompute(gray, mask)
     return Reference(gray, kp, des, (frame.shape[1], frame.shape[0]), zones_key)
 
 
-def compare(ref: Reference, frame: np.ndarray, people: list[tuple]) -> Match:
-    gray, mask, _ = _prepare(frame, people)
+def compare(ref: Reference, frame: np.ndarray, people: list[tuple], dynamic: Optional[list] = None) -> Match:
+    gray, mask, _ = _prepare(frame, people, dynamic)
     kp, des = _orb.detectAndCompute(gray, mask)
     none = Match(False, False, 0, 0.0, 0.0, None)
     if ref.descriptors is None or des is None or len(kp) < 8 or len(ref.keypoints) < 8:
@@ -171,11 +193,34 @@ def max_corner_gap(a: dict, b: dict) -> float:
     return max(gaps) if gaps else 0.0
 
 
-def save_anchor(path: str, ref: Reference, anchor_boxes: dict, applied: dict) -> None:
+def move_seats(Hn: Optional[np.ndarray], seats: dict) -> dict:
+    """Seat boxes (PC name -> [x, y, w, h], recorded in the anchor's view) where they land in the current view
+    (Gemini CAL-1). Always from the recorded seats, never from moved ones: no drift. A seat that would leave the
+    picture keeps its recorded place."""
+    if Hn is None:
+        return seats
+    out = {}
+    for name, b in seats.items():
+        nb = move_box(Hn, {"x": b[0], "y": b[1], "w": b[2], "h": b[3]})
+        out[name] = [nb["x"], nb["y"], nb["w"], nb["h"]] if nb else list(b)
+    return out
+
+
+def save_anchor(path: str, ref: Reference, anchor_boxes: dict, applied: dict, Hn: Optional[np.ndarray] = None) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     np.savez_compressed(path, gray=ref.gray, size=np.array(ref.size),
                         meta=np.array(json.dumps({"anchor": {str(k): v for k, v in anchor_boxes.items()},
-                                                  "applied": {str(k): v for k, v in applied.items()}})))
+                                                  "applied": {str(k): v for k, v in applied.items()},
+                                                  "H": None if Hn is None else np.asarray(Hn).tolist()})))
+
+
+def load_anchor_H(path: str) -> Optional[np.ndarray]:
+    """The anchor -> current-view transform last accepted (None: boxes are where staff drew them)."""
+    try:
+        h = json.loads(str(np.load(path, allow_pickle=False)["meta"])).get("H")
+        return None if h is None else np.asarray(h, np.float64)
+    except (OSError, KeyError, ValueError):
+        return None
 
 
 def load_anchor(path: str) -> Optional[tuple[Reference, dict, dict]]:
