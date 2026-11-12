@@ -16,7 +16,7 @@ def code(s):
 
 
 md("""# Smart Lab - lab detector, round 5 (multi-object)
-Upload to **My Drive/SmartLab/**: `lab_r1.zip` (already there) and **`lab_multi_labeled.zip`** = the 152 wide lab photos
+Upload to **My Drive/SmartLab/**: `lab_r1.zip` (already there) and **`lab_multi_labeled.zip`** (or, unreviewed, `lab_multi_prelabel.zip` - trains, but multi-object is then not scored) = the 152 wide lab photos
 from `lab_multi_prelabel.zip` AFTER the boxes were corrected (images/ + labels/ + classes.txt, same 12 classes, same order).
 Runtime > T4 GPU > Run all. Results: `SmartLab/lab_r5_<time>/` (report.json, summary.md, candidate onnx).
 This notebook never replaces the deployed model.""")
@@ -31,8 +31,12 @@ drive.mount('/content/drive')
 ROOT = next((c for c in glob.glob('/content/drive/MyDrive/SmartLab*')
              if os.path.isdir(c) and os.path.exists(os.path.join(c, 'lab_r1.zip'))), None)
 assert ROOT, 'lab_r1.zip not found in My Drive/SmartLab'
-MULTI = os.path.join(ROOT, 'lab_multi_labeled.zip')
-assert os.path.exists(MULTI), 'Upload lab_multi_labeled.zip (the corrected 152 multi-object photos) to ' + ROOT
+MULTI = os.path.join(ROOT, 'lab_multi_labeled.zip')          # corrected by a human: also used as test_multi
+REVIEWED = os.path.exists(MULTI)
+if not REVIEWED:                                              # 2026-11-12: run now on the uncorrected pre-labels
+    MULTI = os.path.join(ROOT, 'lab_multi_prelabel.zip')
+    assert os.path.exists(MULTI), 'Upload lab_multi_labeled.zip (corrected) or lab_multi_prelabel.zip to ' + ROOT
+    print('WARNING: UNREVIEWED pre-labels (model guesses) - all multi photos go to TRAIN; no test_multi score.')
 STAMP = time.strftime('%Y-%m-%d_%H%M')
 OUT = os.path.join(ROOT, f'lab_r5_{STAMP}')
 CK = os.path.join(ROOT, 'lab_r5_checkpoints')
@@ -68,7 +72,9 @@ for p in imgs:
     lbl = p.replace(os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep).rsplit('.', 1)[0] + '.txt'
     if not os.path.exists(lbl):
         continue
-    if test_s is not None:
+    if not REVIEWED:
+        is_test = False                       # never grade on model guesses
+    elif test_s is not None:
         is_test = session(p) in test_s
     else:
         is_test = int(hashlib.md5(open(p, 'rb').read()).hexdigest(), 16) % 100 < 35
@@ -165,14 +171,16 @@ report = {}
 for name in RUNS:
     w = f'/content/runs/{name}/weights/best.pt'
     if os.path.exists(w):
-        report[name] = {s: evaluate(w, s) for s in ('test', 'test_multi')}
+        report[name] = {s: evaluate(w, s) for s in (('test', 'test_multi') if REVIEWED else ('test',))}
+        report[name]['labels'] = 'human-reviewed' if REVIEWED else 'UNREVIEWED pre-labels (multi-object not scored)'
 json.dump(report, open(os.path.join(OUT, 'report.json'), 'w'), indent=1)
 print(json.dumps(report, indent=1))""")
 
 code("""# Candidate export ONLY (beside the results). Deploying is the owner's decision after comparing with the deployed
 # model on the SAME test + test_multi. Gates: lab_pc not worse, false hits not worse, multi-object recall better.
 def recall(k):
-    return int(report[k]['test_multi']['instance_recall'].split('/')[0])
+    split = 'test_multi' if REVIEWED else 'test'
+    return int(report[k][split]['instance_recall'].split('/')[0])
 best = max(report, key=recall) if report else None
 if best:
     YOLO(f'/content/runs/{best}/weights/best.pt').export(format='onnx', imgsz=640, opset=12, simplify=True)

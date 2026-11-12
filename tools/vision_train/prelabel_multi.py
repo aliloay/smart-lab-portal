@@ -15,7 +15,9 @@ os.makedirs(os.path.join(OUT, "images"), exist_ok=True); os.makedirs(os.path.joi
 names = [c["name"] for c in sorted(spec["classes"], key=lambda c: c["index"])]
 open(os.path.join(OUT, "classes.txt"), "w").write("\n".join(names) + "\n")
 per_photo, per_class = [], {}
-for p in sorted(glob.glob(os.path.join(HERE, "data", "lab_src_multi", "**", "*.*"), recursive=True)):
+SRC = sorted(glob.glob(os.path.join(HERE, "data", "lab_src_multi", "**", "*.*"), recursive=True)
+             + glob.glob(os.path.join(HERE, "data", "lab_src_multi2", "*.jpg")))   # 2026-11-12: + Multi_Boxes (120)
+for p in SRC:
     if os.path.splitext(p)[1].lower() not in (".jpg", ".jpeg", ".png"):
         continue
     img = cv2.imread(p)
