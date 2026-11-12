@@ -203,6 +203,18 @@ def merge_targets(pcs: list[Pc], targets: list[dict]) -> list[str]:
     return added
 
 
+def address_here(ip: str) -> bool:
+    """True when this laptop currently owns ip (the lab cable 192.168.1.200 is plugged in)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((ip, 0))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def main() -> None:
     cfg = json.loads((HERE / "lan_presence.json").read_text(encoding="utf-8"))
     src, lab = cfg["source_ip"], cfg.get("lab", "LAB_01")
@@ -212,7 +224,19 @@ def main() -> None:
     log = (HERE / "presence_log.jsonl").open("a", encoding="utf-8")
     print(f"LAN presence: {len(pcs)} PC(s), from {src}, every {CYCLE_S:g} s -> {portal}")
     last_sweep, last_post, last_targets = 0.0, "", -TARGETS_S
+    waiting = False
     while True:
+        # 2026-11-12: off the lab network (home Wi-Fi) the source address does not exist and the sweep crashed
+        # (WinError 10049); wait for the cable instead, so it starts by itself at the lab.
+        if not address_here(src):
+            if not waiting:
+                print(f"{datetime.now():%H:%M:%S}  waiting for the lab network ({src} not on this laptop) - checking every 30 s", flush=True)
+                waiting = True
+            time.sleep(30)
+            continue
+        if waiting:
+            print(f"{datetime.now():%H:%M:%S}  lab network is back ({src})", flush=True)
+            waiting = False
         t0 = time.monotonic()
         if t0 - last_targets >= TARGETS_S:
             last_targets = t0

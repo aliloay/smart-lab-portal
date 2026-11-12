@@ -417,7 +417,14 @@ export default function Scan() {
       if (ab && now - ab.at < 5000) {
         const x = s.mirror ? mx(ox + (ab.x + ab.w) * pw) : ox + ab.x * pw, y = oy + ab.y * ph
         ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 3; ctx.strokeStyle = '#38bdf8'; ctx.globalAlpha = 1
-        ctx.strokeRect(x, y, ab.w * pw, ab.h * ph); ctx.restore()
+        ctx.strokeRect(x, y, ab.w * pw, ab.h * ph)
+        if (ab.label) {                       // 2026-11-12 (Gemini AR-3): the primary box gets the same name pill as the others
+          ctx.setLineDash([]); ctx.font = '600 12px Inter, sans-serif'
+          const tw = ctx.measureText(ab.label).width, ly = Math.max(14, y - 4)
+          ctx.fillStyle = 'rgba(2,6,23,0.75)'; ctx.fillRect(x, ly - 13, tw + 8, 18)
+          ctx.fillStyle = '#e0f2fe'; ctx.fillText(ab.label, x + 4, ly)
+        }
+        ctx.restore()
       }
       // every other object the detectors saw in the same frame (2026-11-02, owner: "detect everything in frame")
       const al = apAll.current
@@ -522,7 +529,7 @@ export default function Scan() {
   // "Which box is this?" - one frame against the owner's enclosure photos: a HINT, never an identification
   const [boxHint, setBoxHint0] = useState<string>('')
   const boxAt = useRef(0)
-  const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number; cls: string } | null>(null)
+  const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number; cls: string; label?: string } | null>(null)
   const apAll = useRef<{ at: number; list: NonNullable<AppearanceHint['detections']> } | null>(null)
   const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
   // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
@@ -556,9 +563,13 @@ export default function Scan() {
         if (r.decision === 'PROBABLE' && r.best) logHistory('look', 'a:' + r.best.code,
           `${r.best.class === 'reusable_items_dock' ? 'Reusable bin' : r.best.class.replace(/_/g, ' ')} recognised by its look (${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}%` : `${r.best.inliers} points`}, unverified)`,
           iconFor(r.best.class.replace(/_/g, ' ')))
-        apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class } : null
+        apBox.current = r.decision === 'PROBABLE' && r.best?.box ? { ...r.best.box, at: Date.now(), cls: r.best.class,
+          label: `${name(r.best.code)}${r.best.box_kind === 'detector' ? ` ${Math.round((r.best.confidence ?? 0) * 100)}%` : ''}` } : null
         // the best one already has its frame; the rest are drawn with their own labels
-        const rest = (r.detections ?? []).filter(d => !(r.best && r.best.box_kind === 'detector' && d.code === r.best.code))
+        // Extra instances of one class come with their own codes ("type:lab_pc#2", "#3"...), so this drops only the
+        // primary box (drawn separately) and assets whose marker is in view (already shown by their marker card).
+        const rest = (r.detections ?? []).filter(d => !(r.best && r.best.box_kind === 'detector' && d.code === r.best.code)
+                                                     && !inViewRef.current.includes(d.code))
         apAll.current = rest.length ? { at: Date.now(), list: rest } : null
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}% sure` : `${r.best.inliers} matching points`})${r.best.registered === false ? ' - not a registered asset yet, so no live data.' : ' - scan its marker to see its live data.'}`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
@@ -573,7 +584,15 @@ export default function Scan() {
   whichBoxRef.current = whichBox
   useEffect(() => {
     if (!running || paused) return
-    const t = window.setInterval(() => { if (!document.hidden && inViewRef.current.length === 0 && Date.now() > boxQuietUntil.current) whichBoxRef.current(true) }, 3000)
+    // 2026-11-12 (Gemini audit AR-2): one visible marker used to stop the object detector for the whole frame, so the
+    // PCs / switches / bins around it were never boxed. Now it keeps running - every 3 s with no marker in view, every
+    // 6 s while markers are in view (the marked asset already has its live card; boxes for it are skipped below).
+    let tick = 0
+    const t = window.setInterval(() => {
+      tick++
+      if (document.hidden || Date.now() <= boxQuietUntil.current) return
+      if (inViewRef.current.length === 0 || tick % 2 === 0) whichBoxRef.current(true)
+    }, 3000)
     return () => window.clearInterval(t)
   }, [running, paused])
   // 2026-10-28 (owner: "a refresh button - after it detects something and speaks, refresh so I can walk on faster"):

@@ -60,7 +60,10 @@ function Show {
             ForEach-Object { '{0} {1:N1}' -f $_.InstanceName, ($_.CookedValue / 100) }) -join ', '
     $gpu = try { (& nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>$null) } catch { '' }
     Write-Host ("  load: CPU {0:N0} %   paging {1:N0} pages/s   disk latency {2}   GPU {3} %   top cores: {4}" -f $cpu, $pin, $disks, $gpu, $top)
-    if ($pin -gt 500) { Write-Host "  PAGING to disk: RAM is full - close apps; the pagefile is on the slow D: disk" -ForegroundColor Yellow }
+    if ($pin -gt 500) {
+      $pf = ((Get-CimInstance Win32_PageFileUsage -ErrorAction SilentlyContinue).Name | Select-Object -First 1) -replace '\\pagefile\.sys', ''
+      Write-Host "  PAGING to disk: RAM is full - close apps (pagefile on $pf)" -ForegroundColor Yellow
+    }
   } catch { Write-Host '  load: counters unavailable' -ForegroundColor DarkGray }
   $ds = docker compose --project-directory $root ps -a --format '{{.Service}}={{.State}}' 2>$null
   if ($ds) {
