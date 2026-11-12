@@ -17,7 +17,8 @@ import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from jose import JWTError, jwt
+import jwt  # PyJWT
+from jwt import PyJWTError as JWTError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 

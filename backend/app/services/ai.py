@@ -439,7 +439,9 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None,
 OLLAMA_RESULT_CHARS = 6_000
 # Retry size when the engine crashes: 4k tokens fits any GPU.
 OLLAMA_FALLBACK_CTX = 4096
-OLLAMA_KEEP_ALIVE = "10m"   # was 24h, then 30m: idle unload frees ~1.2 GB on the 16 GB laptop (GPU reload ~3 s); cameras come first
+# was 24h, then 30m, then 10m (RAM). 2026-11-11 (owner: "answer instantly"): 30m again, settable. Measured: a question
+# after an unload waited 30 s (portal) / 63 s (direct); kept loaded the model holds ~0.6 GB RAM (qwen2.5:1.5b on GPU).
+OLLAMA_KEEP_ALIVE = __import__("os").environ.get("OLLAMA_KEEP_ALIVE", "30m")
 # Set once the GPU has failed and the processor worked (until restart).
 _ollama_state = {"cpu": False}
 _gate_cache: dict[str, Any] = {"at": 0.0, "cpu": True, "reason": "not asked yet"}

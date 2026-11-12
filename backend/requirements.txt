@@ -7,14 +7,14 @@ alembic==1.14.0
 psycopg[binary]==3.2.3
 pydantic==2.10.4
 pydantic-settings==2.7.0
-python-jose[cryptography]==3.5.0
+PyJWT==2.15.1
 passlib[bcrypt]==1.7.4
 # Argon2id for new password hashes (bcrypt hashes still verify, upgraded on sign-in).
 argon2-cffi==23.1.0
 bcrypt==4.0.1
 python-multipart==0.0.32
 qrcode[pil]==8.0
-Pillow==12.3.0
+Pillow==13.0.0
 # The door's QR decoder (the face server's cv2.QRCodeDetector, same pin):
 # every issued token is checked to be readable before it is handed out.
 opencv-python-headless==4.10.0.84

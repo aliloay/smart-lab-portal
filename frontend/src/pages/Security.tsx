@@ -33,12 +33,24 @@ const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Recor
  *  camera service's own data (activity.py) - who, top colour, posture, the mapped box they are near. Scrolls like a
  *  news ticker when it is longer than the bar; a hover pauses it. Updates with the cameras' state (every ~2 s). */
 function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: SecurityCamera) => string }) {
-  const items = cams.flatMap(c => (c.online ? c.activity ?? [] : []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
+  // 2026-11-11 (owner: "the two cameras must work together"): a NAMED person seen by both cameras is one line
+  // ("Cam 1 + Cam 2"), not two. Unnamed people are not merged - two cameras' "Person 3" may be different people.
+  const all = cams.flatMap(c => (c.online ? c.activity ?? [] : []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
+  const items: typeof all = []
+  for (const a of all) {
+    const same = a.named && a.label ? items.find(b => b.named && b.label === a.label) : undefined
+    if (same) same.cam = `${same.cam} + ${a.cam}`
+    else items.push({ ...a })
+  }
+  // The views overlap, so the room count is the larger camera count (adding them would count people twice).
+  const inView = Math.max(0, ...cams.filter(c => c.online).map(c => c.people ?? 0))
   return (
     <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-ink-600/70 bg-ink-900/80 px-2.5 py-1.5 overflow-hidden"
          aria-live="polite" aria-label="What the cameras see now">
       <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-rose-300">
         <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" /> Live</span>
+      {inView > 0 && <span className="shrink-0 text-[12.5px] font-semibold text-white tnum">
+        {inView} {inView === 1 ? 'person' : 'people'} in view ·</span>}
       {items.length === 0
         ? <span className="text-[12.5px] text-slate-400">Nobody in view right now.</span>
         : <div className="relative flex-1 overflow-hidden group">
@@ -197,12 +209,29 @@ function CamState({ c }: { c: SecurityCamera }) {
   )
 }
 
+/** Startup box alignment (2026-11-12): each camera on its own - settling after (re)connecting, calibrating (view
+ *  moved, waiting until steady), calibrated (boxes match the room), needs review (match not reliable: boxes left as
+ *  they were). The reason is the tooltip; no picture or path. */
+function CalibrationChip({ c }: { c: SecurityCamera }) {
+  const k = c.calibration
+  if (!k || k.state === 'offline') return null
+  const look = {
+    settling: ['bg-slate-600 text-white', 'Settling'], calibrating: ['bg-sky-600 text-white', 'Aligning boxes'],
+    calibrated: ['bg-emerald-600/90 text-white', 'Boxes aligned'], needs_review: ['bg-orange-500 text-black', 'Check boxes'],
+  }[k.state]
+  const ago = (s: number | null) => s == null ? '' : s < 90 ? `${s} s ago` : `${Math.round(s / 60)} min ago`
+  const tip = [k.reason, k.last_success_s != null ? `last aligned ${ago(k.last_success_s)}` : '',
+               k.boxes_moved ? `${k.boxes_moved} box(es) moved` : ''].filter(Boolean).join(' · ')
+  return <span title={tip} className={`px-2 py-0.5 rounded-md ${look[0]}`}>{look[1]}</span>
+}
+
 function CamFacts({ c }: { c: SecurityCamera }) {
   const live = c.online === true && c.source_ok !== false
   if (!live) return <span className="text-slate-300">Camera not reporting</span>
   const seen = c.people ?? 0
   return <>
     <span className="px-2 py-0.5 rounded-md bg-black/70 text-white tnum">{seen} seen · {c.inside} entered</span>
+    <CalibrationChip c={c} />
     {seen > c.inside && <span className="px-2 py-0.5 rounded-md bg-bad text-white">
       {c.inside === 0 ? 'Person with no door entry' : 'More people than entered'}</span>}
     {c.named.filter(n => n.face).map(n => (

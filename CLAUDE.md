@@ -23,7 +23,7 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Repo moved 2026-11-11 to `C:\Projects\smart-lab-portal` (out of OneDrive). Training data: `D:\SmartLabData` (junction). Docker disk: `D:\DockerData`.
 - `py -m pytest -q tools/security_vision` · `py -m pytest -q tools/robot_monitor` · `py -m pytest -q tools/knowledge`
 - Frontend: `npx tsc --noEmit -p frontend` and `npx vite build` (in frontend/)
-- The running backend/frontend are baked images: code changes are live only after `docker compose build backend frontend` + `up -d --no-deps backend frontend` (owner OK).
+- The running backend/frontend are baked images: code changes are live only after `docker build -t smart-lab-portal-backend:latest .\backend` (same for frontend) + `docker compose up -d --no-deps backend frontend` (owner OK). Since 2026-11-11 `docker compose build` (Compose v5, bake) exits 0 WITHOUT building ("additional privileges requested") - always check the image's CreatedSince.
 
 ## Tools (MCP, user scope, set up 2026-10-28)
 - chrome-devtools (1.12.0, headless, isolated profile, no usage stats / CrUX): console, network, perf traces, emulation. Point it at the test copy (:5176 / :8100), never click door/robot/emergency controls.

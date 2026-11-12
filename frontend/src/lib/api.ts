@@ -115,6 +115,10 @@ export interface SecurityCamera extends SecurityCameraTile {
   door_open?: boolean | null
   /** Measured camera pipeline timings (tools/security_vision/latency.py); null until reported. */
   metrics?: Record<string, number | null> | null
+  // 2026-11-12: startup box alignment (camera service), null when offline / not reported
+  calibration?: { state: 'offline' | 'settling' | 'calibrating' | 'calibrated' | 'needs_review'; reason: string;
+                  connected_s: number | null; state_s: number | null; last_check_s: number | null;
+                  last_success_s: number | null; boxes_moved: number | null } | null
 }
 /** Where a record came from (thesis traceability); set once, never rewritten. */
 export type Provenance = 'REAL_OPERATION' | 'PHYSICAL_TEST' | 'BENCH_TEST' | 'SOFTWARE_TEST'

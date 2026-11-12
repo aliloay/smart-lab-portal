@@ -15,7 +15,7 @@ docker run -d --name smartlab-testdb --network smart-lab-portal_default `
   postgres:16-alpine -c fsync=off -c synchronous_commit=off -c full_page_writes=off | Out-Null
 try {
   do { Start-Sleep 1; docker exec smartlab-testdb pg_isready -U smartlab -d smartlab_test 2>$null | Out-Null } while ($LASTEXITCODE -ne 0)
-  $args2 = if ($PytestArgs) { $PytestArgs } else { @() }
+  $args2 = @($PytestArgs | Where-Object { $_ })    # @(): one argument stays an array (a bare string splats per character)
   docker compose run --rm --no-deps -T `
     -e TEST_DATABASE_URL=postgresql+psycopg://smartlab:testonly@smartlab-testdb:5432/smartlab_test `
     -v "${root}\backend:/app" backend python -m pytest -q -p no:cacheprovider @args2

@@ -155,3 +155,7 @@ lab_usb_kit/site.json
 lab_usb_kit/python/
 lab_usb_kit/pc_agent/
 lab_usb_kit/relay/
+
+# 2026-11-12: local reports with personal paths / host inventory - never public
+docs/reports/laptop-optimization-2026-11-11/
+docs/reports/local-only-*/

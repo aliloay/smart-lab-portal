@@ -195,6 +195,40 @@ def sc_long_occlusion():
     return fr, ppl, ent, faces
 
 
+def _hide(fr, pid, s0, s1, pre=12.0):
+    for f in fr:
+        if s0 <= f.t - pre < s1 and pid in f.people:
+            del f.people[pid]
+            f.hidden.add(pid)
+    return fr
+
+
+def sc_dead_zone_25s():
+    """2026-11-11 (owner: "keep my label when I stand in a dead zone"): U1 stands behind the pillar 25 s, then
+    steps out at the same place; U2 stays in view the whole time."""
+    fr, ppl, ent, faces = _named_pair(50, lambda s: {1: box_at(250 + 18 * s if s < 10 else 430, 420),
+                                                     2: box_at(760, 425)})
+    return _hide(fr, 1, 10.0, 35.0), ppl, ent, faces
+
+
+def sc_dead_zone_25s_lookalike():
+    """Same, but U2 wears similar clothes and walks to the spot where U1 vanished while U1 is hidden: U2 must
+    never be shown as U1 (a wrong name is worse than none)."""
+    def m(s):
+        b2 = box_at(760, 425) if s < 14 else walk((760, 425), (470, 420), 14, 20, s) if s < 30 else \
+            walk((470, 420), (780, 425), 30, 34, s)
+        return {1: box_at(250 + 18 * s if s < 10 else 430, 420), 2: b2}
+    fr, ppl, ent, faces = _named_pair(50, m, similar=True)
+    return _hide(fr, 1, 10.0, 35.0), ppl, ent, faces
+
+
+def sc_leave_and_return():
+    """U1 leaves the view (still inside the lab by the door records) for 3 minutes and comes back."""
+    fr, ppl, ent, faces = _named_pair(220, lambda s: {1: box_at(250 + 18 * s if s < 12 else 470, 420),
+                                                      2: box_at(760, 425)})
+    return _hide(fr, 1, 12.0, 192.0), ppl, ent, faces
+
+
 def sc_rapid():
     def m(s):                                    # running, sharp turns every 1.2 s
         seg = int(s / 1.2)
@@ -224,6 +258,9 @@ SCENARIOS = {
     "06 sit / bend / crouch / lie / stand": sc_posture,
     "07 hidden 1.5 s, reappears": sc_occlusion,
     "07b hidden 4 s, reappears": sc_long_occlusion,
+    "07c dead zone 25 s": sc_dead_zone_25s,
+    "07d dead zone 25 s, look-alike walks there": sc_dead_zone_25s_lookalike,
+    "11 leaves view 3 min, returns": sc_leave_and_return,
     "08 running, sharp turns": sc_rapid,
     "09 camera off 10 s": sc_disconnect,
     "10 lighting drops to 55 %": sc_lighting,

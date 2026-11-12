@@ -19,6 +19,11 @@ def _svc(state="STREAMING", since_ago=10.0):
         lock=threading.Lock(), tracks=[], view_anchor=None, view_before={}, view_applied={},
         view_anchor_boxes={}, view_unstable=False, VIEW_STARTUP_QUIET_S=sv.Service.VIEW_STARTUP_QUIET_S)
     s.view_settling = lambda now: sv.Service.view_settling(s, now)
+    for name in ("VIEW_STABLE_S", "VIEW_STARTUP_MAX_S"):          # 2026-11-12 calibration status / startup window
+        setattr(s, name, getattr(sv.Service, name))
+    s.view_state = None
+    for name in ("view_in_startup", "_set_view_state", "calibration_brief"):
+        setattr(s, name, getattr(sv.Service, name).__get__(s))
     return s
 
 

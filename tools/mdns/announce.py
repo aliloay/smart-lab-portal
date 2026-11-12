@@ -11,6 +11,18 @@ import time
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
 
 
+def address_here(ip: str) -> bool:
+    """True when this laptop currently owns ip (the lab cable 192.168.1.200 is plugged in)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((ip, 0))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ip", action="append", default=[], help="address to announce (default 192.168.1.200)")
@@ -18,6 +30,11 @@ def main():
     a = ap.parse_args()
     ips = a.ip or ["192.168.1.200"]
     host = f"{a.name}.local."
+    # 2026-11-12: off the lab network the address does not exist and Zeroconf crashed - wait for the cable instead.
+    if not all(address_here(i) for i in ips):
+        print(f"Waiting for the lab network ({', '.join(ips)} not on this laptop) - checking every 30 s", flush=True)
+        while not all(address_here(i) for i in ips):
+            time.sleep(30)
     # Bind only to the announced addresses so the name never leaks onto another network (e.g. home Wi-Fi).
     zc = Zeroconf(interfaces=ips, ip_version=IPVersion.V4Only)
     infos = [ServiceInfo(t, f"Smart Lab portal.{t}", port=p, server=host,

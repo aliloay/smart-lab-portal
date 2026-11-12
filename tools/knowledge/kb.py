@@ -499,13 +499,16 @@ def chunk_key(d: dict) -> str:
     return sha256((d["source"] + "\x1f" + d["heading"] + "\x1f" + d["text"]).encode())[:20]
 
 
-def embed(cfg: dict, texts: list, prefix: str):
+def embed(cfg: dict, texts: list, prefix: str, threads: int = 0):
     import numpy as np
     url = cfg["ollama"].rstrip("/")
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", url):
         raise RuntimeError("non-local embedding endpoint refused")
+    opts = {"num_gpu": 0}
+    if threads:
+        opts["num_thread"] = threads
     body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
-            "keep_alive": "30m", "options": {"num_gpu": 0}}    # was 15m (2.5 s reload), then 2h; 30m since 2026-11-03 (RAM)
+            "keep_alive": "30m", "options": opts}    # was 15m (2.5 s reload), then 2h; 30m since 2026-11-03 (RAM)
     req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=cfg.get("embed_timeout_s", 120)) as r:
         v = np.asarray(json.loads(r.read())["embeddings"], dtype=np.float32)
@@ -525,7 +528,10 @@ def build_embeddings(cfg: dict, batch: int = 32, log=print) -> dict:
     t0, done = time.perf_counter(), 0
     for s in range(0, len(todo), batch):
         part = todo[s:s + batch]
-        vec = embed(cfg, [idx["docs"][i]["heading"] + "\n" + idx["docs"][i]["text"] for i in part], "search_document: ")
+        # 2026-11-11 laptop audit: a background build held 5.6 of 12 cores for 20+ min (Ollama's default thread count),
+        # next to both camera services. Builds are not urgent: 3 threads, set build_embed_threads 0 for the old way.
+        vec = embed(cfg, [idx["docs"][i]["heading"] + "\n" + idx["docs"][i]["text"] for i in part], "search_document: ",
+                    threads=int(cfg.get("build_embed_threads", 3)))
         for i, v in zip(part, vec):
             old[keys[i]] = v
         done += len(part)
