@@ -68,10 +68,19 @@ sessions = sorted({session(p) for p in imgs})
 random.Random(5).shuffle(sessions)
 test_s = set(sessions[: max(1, round(len(sessions) * 0.35))]) if len(sessions) >= 3 else None
 print('capture sessions:', len(sessions), '(fewer than 3 -> split by image hash, a weaker leakage guard)')
+# lab_r1.zip already holds some of these photos (images/multi_test/multi__v00xx.jpg): skip a photo whose bytes are
+# already in the dataset, so nothing appears twice (found by the duplicate check below on 12 Nov).
+have = {hashlib.md5(open(q, 'rb').read()).hexdigest() for q in glob.glob(str(W / 'images' / '*' / '*'))}
+skipped = 0
 for p in imgs:
     lbl = p.replace(os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep).rsplit('.', 1)[0] + '.txt'
     if not os.path.exists(lbl):
         continue
+    h = hashlib.md5(open(p, 'rb').read()).hexdigest()
+    if h in have:
+        skipped += 1
+        continue
+    have.add(h)
     if not REVIEWED:
         is_test = False                       # never grade on model guesses
     elif test_s is not None:
@@ -83,6 +92,7 @@ for p in imgs:
     (W / 'labels' / split).mkdir(parents=True, exist_ok=True)
     shutil.copy2(p, W / 'images' / split / ('m_' + os.path.basename(p)))
     shutil.copy2(lbl, W / 'labels' / split / ('m_' + os.path.basename(lbl)))
+print('multi photos already in lab_r1 (skipped):', skipped)
 hashes = {}
 for p in glob.glob(str(W / 'images' / '*' / '*')):
     hashes.setdefault(hashlib.md5(open(p, 'rb').read()).hexdigest(), []).append(p)
