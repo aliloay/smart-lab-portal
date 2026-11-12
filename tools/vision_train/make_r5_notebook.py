@@ -93,12 +93,17 @@ for p in imgs:
     shutil.copy2(p, W / 'images' / split / ('m_' + os.path.basename(p)))
     shutil.copy2(lbl, W / 'labels' / split / ('m_' + os.path.basename(lbl)))
 print('multi photos already in lab_r1 (skipped):', skipped)
+# Only the splits this notebook trains / scores on. lab_r1.zip has its own unused folders (multi_train, ...) that repeat
+# some photos - they are not read by data.yaml, so they are not a leak (seen 12 Nov: train/old__neg_* = multi_train/labcam_*).
+USED = ('train', 'val', 'test', 'test_multi')
 hashes = {}
-for p in glob.glob(str(W / 'images' / '*' / '*')):
-    hashes.setdefault(hashlib.md5(open(p, 'rb').read()).hexdigest(), []).append(p)
+for s_ in USED:
+    for p in glob.glob(str(W / 'images' / s_ / '*')):
+        hashes.setdefault(hashlib.md5(open(p, 'rb').read()).hexdigest(), []).append(p)
 dups = [v for v in hashes.values() if len({Path(x).parent.name for x in v}) > 1]
-print('duplicate images across splits:', len(dups))
-assert not dups, dups[:3]
+ours = [v for v in dups if any(os.path.basename(x).startswith('m_') for x in v)]
+print('photos in two used splits: lab_r1 own', len(dups) - len(ours), '| from the multi pack', len(ours))
+assert not ours, ours[:3]               # the new photos must never leak; lab_r1's own repeats are only reported
 for s in ('train', 'val', 'test', 'test_multi'):
     d = W / 'labels' / s
     files = list(d.glob('*.txt')) if d.exists() else []
