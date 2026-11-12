@@ -182,7 +182,11 @@ try {
     // ------------------------------------------------------------ 4
     await step('staff runs a simulation scenario (no API writes)', async () => {
       const writes = []
-      const onReq = r => { if (r.url().includes('/api/') && r.method() !== 'GET') writes.push(r.url()) }
+      // POST /api/auth/ws-ticket (2026-11-11 security fix) only fetches a one-time ticket for the live-update connection
+      // on page load - it writes no data, so it is not a simulation write. Every other non-GET call still fails the test.
+      const onReq = r => {
+        if (r.url().includes('/api/') && r.method() !== 'GET' && !r.url().includes('/api/auth/ws-ticket')) writes.push(r.url())
+      }
       page.on('request', onReq)
       await page.goto(`${BASE}/demo`)
       await page.getByText(/simulation/i).first().waitFor({ timeout: 8000 })
