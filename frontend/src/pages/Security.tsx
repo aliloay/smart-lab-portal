@@ -209,12 +209,29 @@ function CamState({ c }: { c: SecurityCamera }) {
   )
 }
 
+/** Startup box alignment (2026-11-12): each camera on its own - settling after (re)connecting, calibrating (view
+ *  moved, waiting until steady), calibrated (boxes match the room), needs review (match not reliable: boxes left as
+ *  they were). The reason is the tooltip; no picture or path. */
+function CalibrationChip({ c }: { c: SecurityCamera }) {
+  const k = c.calibration
+  if (!k || k.state === 'offline') return null
+  const look = {
+    settling: ['bg-slate-600 text-white', 'Settling'], calibrating: ['bg-sky-600 text-white', 'Aligning boxes'],
+    calibrated: ['bg-emerald-600/90 text-white', 'Boxes aligned'], needs_review: ['bg-orange-500 text-black', 'Check boxes'],
+  }[k.state]
+  const ago = (s: number | null) => s == null ? '' : s < 90 ? `${s} s ago` : `${Math.round(s / 60)} min ago`
+  const tip = [k.reason, k.last_success_s != null ? `last aligned ${ago(k.last_success_s)}` : '',
+               k.boxes_moved ? `${k.boxes_moved} box(es) moved` : ''].filter(Boolean).join(' · ')
+  return <span title={tip} className={`px-2 py-0.5 rounded-md ${look[0]}`}>{look[1]}</span>
+}
+
 function CamFacts({ c }: { c: SecurityCamera }) {
   const live = c.online === true && c.source_ok !== false
   if (!live) return <span className="text-slate-300">Camera not reporting</span>
   const seen = c.people ?? 0
   return <>
     <span className="px-2 py-0.5 rounded-md bg-black/70 text-white tnum">{seen} seen · {c.inside} entered</span>
+    <CalibrationChip c={c} />
     {seen > c.inside && <span className="px-2 py-0.5 rounded-md bg-bad text-white">
       {c.inside === 0 ? 'Person with no door entry' : 'More people than entered'}</span>}
     {c.named.filter(n => n.face).map(n => (

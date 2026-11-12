@@ -13,7 +13,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from jose import JWTError, jwt
+import jwt  # PyJWT (2026-11-12: replaces python-jose, which pulled in the unfixed ecdsa package)
+from jwt import PyJWTError as JWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings

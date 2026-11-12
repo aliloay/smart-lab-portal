@@ -240,6 +240,20 @@ class StateReport(BaseModel):
     # 2026-11-11: one short line per tracked person (who / top colour / posture / nearest mapped box) for the
     # live bar under the camera views. Text only - no picture, no biometric.
     activity: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    # 2026-11-12: startup box-alignment status (offline / settling / calibrating / calibrated / needs_review), reason,
+    # seconds since connect / state change / last check / last success, boxes moved. No picture, no path.
+    calibration: dict[str, Any] = Field(default_factory=dict)
+
+
+CALIBRATION_STATES = {"offline", "settling", "calibrating", "calibrated", "needs_review"}
+
+
+def _calibration(c: dict) -> Optional[dict]:
+    if not c or c.get("state") not in CALIBRATION_STATES:
+        return None
+    num = lambda v: v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    return {"state": c["state"], "reason": str(c.get("reason") or "")[:160],
+            **{k: num(c.get(k)) for k in ("connected_s", "state_s", "last_check_s", "last_success_s", "boxes_moved")}}
 
 
 @router.post("/state", tags=["devices"])
@@ -257,7 +271,8 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     def seen(s: dict) -> tuple:
         return (s.get("people"), s.get("unknown"), s.get("source_ok"), s.get("door_open"),
                 tuple(sorted((n.get("label") or "", n.get("name") or "") for n in s.get("named", []))),
-                tuple(sorted((z.get("id"), z.get("status")) for z in s.get("zones", []))))
+                tuple(sorted((z.get("id"), z.get("status")) for z in s.get("zones", []))),
+                (s.get("calibration") or {}).get("state"))
     was_online = d.is_online
     d.last_seen_at, d.is_online = now, True
     d.component_state = {"port": prev.get("port", 5100),
@@ -268,7 +283,8 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
                                       for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
-                         "zones": [z.model_dump() for z in req.zones], "at": now.isoformat()}
+                         "zones": [z.model_dump() for z in req.zones], "at": now.isoformat(),
+                         "calibration": _calibration(req.calibration)}
     # Robots in this lab: the camera's view of each robot's box feeds the
     # telemetry + camera comparison (robot_fusion) - also when telemetry is gone.
     from app.api.routes.robots import update_fusion
@@ -388,6 +404,7 @@ def camera_summary(db: Session, d: Device, now: datetime) -> dict:
             "door_open": st.get("door_open") if online else None,
             "activity": st.get("activity", []) if online else [],
             "metrics": st.get("metrics") if online else None,
+            "calibration": st.get("calibration") if online else None,
             "inside": len(occupants(db, d.lab_id)),
             "open_events": db.query(SecurityEvent).filter_by(
                 device_id=d.id, acknowledged_at=None).count()}
@@ -679,7 +696,8 @@ def purge_old_snapshots(db: Session, now: Optional[datetime] = None) -> int:
 # in the audit log. "Delete" (administrators) only moves a file into the
 # deleted/ folder on the laptop - recoverable, and in the audit log.
 import re as _re
-from jose import JWTError, jwt as _jwt
+import jwt as _jwt  # PyJWT
+from jwt import PyJWTError as JWTError
 
 _REC_NAME = _re.compile(r"^[A-Za-z0-9_-]+_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.mp4$")
 _LINK_MINUTES = 10
