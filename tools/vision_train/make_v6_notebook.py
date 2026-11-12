@@ -32,16 +32,29 @@ from google.colab import drive
 drive.mount('/content/drive')
 ROOT = '/content/drive/MyDrive/SmartLab'
 ZIP = os.path.join(ROOT, 'lab_v6.zip')
-for i in range(60):                    # Google Drive for desktop may still be uploading the 400 MB zip
-    if os.path.exists(ZIP):
-        break
-    print('waiting for lab_v6.zip to appear in Drive...', i, 'min', flush=True); time.sleep(60)
-assert os.path.exists(ZIP), 'lab_v6.zip is not in My Drive/SmartLab after 60 min - check the Drive app on the laptop'
+ZIP_ID = '1Y8VKROFWL1p1hUk7qLsn7cXutgRc3eOi'          # lab_v6.zip in My Drive/SmartLab (Drive file id)
+if not os.path.exists(ZIP):                              # Colab's Drive view can lag or point at another 'SmartLab'
+    hits = glob.glob('/content/drive/MyDrive/**/lab_v6.zip', recursive=True)
+    if hits:
+        ZIP = hits[0]
+    else:                                                # download straight from Drive by id (works for private files)
+        from google.colab import auth
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
+        auth.authenticate_user()
+        req = build('drive', 'v3').files().get_media(fileId=ZIP_ID)
+        ZIP = '/content/lab_v6_download.zip'
+        with open(ZIP, 'wb') as fh:
+            dl, done = MediaIoBaseDownload(fh, req, chunksize=64 * 2**20), False
+            while not done:
+                st, done = dl.next_chunk()
+                print(f'downloading lab_v6.zip {int(st.progress() * 100)} %', flush=True)
+print('dataset zip:', ZIP, os.path.getsize(ZIP) // 2**20, 'MB')
 V2 = '/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753'
 for r in ('r1_n', 'r2_s'):
     assert os.path.exists(f'{V2}/{r}/weights/best.pt'), f'missing lab model {V2}/{r}/weights/best.pt'
 OUT = os.path.join(ROOT, 'lab_v6_results')
-CK = os.path.join(OUT, f'checkpoints_{os.path.getsize(ZIP)}')       # tied to this exact dataset
+CK = os.path.join(OUT, 'checkpoints_423445150')       # tied to this exact dataset
 os.makedirs(CK, exist_ok=True)
 W = Path('/content/lab_v6')
 if not (W / 'data.yaml').exists():
