@@ -28,7 +28,13 @@ code("""import glob, json, os, shutil, time, zipfile
 from pathlib import Path
 import numpy as np
 from google.colab import drive
-drive.mount('/content/drive')
+for attempt in range(3):                 # Colab's Drive connection sometimes times out on a big Drive
+    try:
+        drive.mount('/content/drive', force_remount=attempt > 0, timeout_ms=600000)
+        break
+    except Exception as e:
+        print('Drive connect failed, retrying...', repr(e)[:120], flush=True); time.sleep(20)
+assert os.path.isdir('/content/drive/MyDrive'), 'Drive did not connect - Runtime > Disconnect and delete runtime, then Run all'
 def find(name):
     hits = sorted(glob.glob(f'/content/drive/MyDrive/**/{name}', recursive=True), key=os.path.getmtime, reverse=True)
     assert hits, f'{name} not found in My Drive'
