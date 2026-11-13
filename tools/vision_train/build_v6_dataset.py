@@ -66,6 +66,25 @@ stats = {"dropped_camera_frames_marked_empty": 0, "multi_train": 0, "multi_test"
          "single_added": {}, "single_skipped_no_box": [], "single_dropped_like_test": 0, "cam_train": 0, "cam_test": 0}
 seen = set()
 
+# Owner-corrected robot/pendant/PC/door boxes (make_robot_pack.py + FIX_ROBOT_BOXES.bat): a label file saved after the
+# pack was built is human-checked and replaces the single auto box of the same photo, in whatever split it is.
+PACK = r"D:\SmartLabData\colab\robot_pack"
+PACKED = {}
+if os.path.exists(os.path.join(PACK, "classes.txt")):
+    t_built = os.path.getmtime(os.path.join(PACK, "classes.txt"))
+    for lp in glob.glob(os.path.join(PACK, "labels", "*.txt")):
+        if os.path.basename(lp) != "classes.txt" and os.path.getmtime(lp) > t_built + 60:
+            PACKED[os.path.splitext(os.path.basename(lp))[0]] = open(lp).readlines()
+stats["robot_pack_reviewed"] = len(PACKED); stats["robot_pack_used"] = 0
+
+
+def pack_label(stem, default):
+    if stem in PACKED:
+        stats["robot_pack_used"] += 1
+        return PACKED.pop(stem)
+    return default
+
+
 # 1. base
 for s in ("train", "val", "test"):
     for p in sorted(glob.glob(os.path.join(R1, "images", s, "*"))):
@@ -76,7 +95,7 @@ for s in ("train", "val", "test"):
                 stats["dropped_camera_frames_marked_empty"] += 1
                 continue
         lp = os.path.join(R1, "labels", s, os.path.splitext(n)[0] + ".txt")
-        put(p, s, n, open(lp).readlines() if os.path.exists(lp) else None)
+        put(p, s, n, pack_label(os.path.splitext(n)[0], open(lp).readlines() if os.path.exists(lp) else None))
         seen.add(md5(p))
 test_hash = [h for h in (dhash(p) for p in glob.glob(os.path.join(R1, "images", "test", "*"))) if h is not None]
 
@@ -122,6 +141,11 @@ for cls in NAMES:
         if any(ham(dh, t) <= 6 for t in test_hash):
             stats["single_dropped_like_test"] += 1; seen.add(h)
             continue
+        stem = f"{cls}__{os.path.splitext(os.path.basename(p))[0]}"
+        if stem in PACKED:                               # owner boxed it: no auto box needed
+            seen.add(h); put(p, "train", f"s6_{cls}__{os.path.basename(p)}", pack_label(stem, None))
+            stats["single_added"][cls] = stats["single_added"].get(cls, 0) + 1
+            continue
         img = cv2.imread(p)
         hits = [x for x in bd._infer_multi(rt, spec, img) if x["class"] == cls]
         if not hits:
@@ -132,6 +156,10 @@ for cls in NAMES:
         put(p, "train", f"s6_{cls}__{os.path.basename(p)}",
             [f"{NAMES.index(cls)} {b['x'] + b['w']/2:.6f} {b['y'] + b['h']/2:.6f} {b['w']:.6f} {b['h']:.6f}\n"])
         stats["single_added"][cls] = stats["single_added"].get(cls, 0) + 1
+
+# 3b. owner-boxed photos from chats / the UR5e video (only in the robot pack) -> train
+for stem in [k for k in PACKED if k.startswith(("chat_", "vid_"))]:
+    put(os.path.join(PACK, "images", stem + ".jpg"), "train", "r6_" + stem + ".jpg", pack_label(stem, None))
 
 # 4. camera views (only after the owner checked the reference boxes)
 if os.path.exists(os.path.join(CAM, "REVIEWED")):
