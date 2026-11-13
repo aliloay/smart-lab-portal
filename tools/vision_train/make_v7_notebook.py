@@ -58,6 +58,7 @@ for tag, z in ZIPS.items():
         open(W / 'data.yaml', 'w').write(y)
         print(tag, 'unpacked in', round(time.time() - t0), 's')
     DS[tag] = W
+    assert len(list((W / 'images' / 'cam_test').glob('*'))) >= 10, f'{tag}: old zip (no camera frames) - wait for the Drive upload, then Run all again'
     for s in ('train', 'val', 'test', 'test_multi', 'cam_test'):
         n = len(list((W / 'images' / s).glob('*')))
         b = sum(len([l for l in open(f) if l.strip()]) for f in (W / 'labels' / s).glob('*.txt'))
