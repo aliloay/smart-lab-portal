@@ -25,9 +25,10 @@ D = r"D:\SmartLabData\vision_train_data"
 R1 = os.path.join(D, "lab_r1")
 MULTI = r"D:\SmartLabData\colab\lab_multi_prelabel"
 CAM = r"D:\SmartLabData\colab\lab_cam_views"
-OUT = r"D:\SmartLabData\colab\lab_v6"
-ZIP = r"D:\SmartLabData\colab\lab_v6.zip"
-DRIVE = r"G:\My Drive\SmartLab\lab_v6.zip"
+TAG = os.environ.get("V6_TAG", "lab_v6")           # lab_v6 = owner-changed pack photos only, lab_v6b = all 224
+OUT = r"D:\SmartLabData\colab" + os.sep + TAG
+ZIP = OUT + ".zip"
+DRIVE = r"G:\My Drive\SmartLab" + os.sep + TAG + ".zip"
 M = os.path.join(HERE, "..", "..", "backend", "data", "models")
 NAMES = ['reusable_bin', 'consumables_node', 'environment_node', 'master_node', 'network_switch', 'network_router',
          'ur5e_robot', 'ur5e_teach_pendant', 'fanuc_robot', 'fanuc_teach_pendant', 'lab_pc', 'lab_door']
@@ -71,9 +72,9 @@ seen = set()
 PACK = r"D:\SmartLabData\colab\robot_pack"
 PACKED = {}
 if os.path.exists(os.path.join(PACK, "classes.txt")):
-    t_built = os.path.getmtime(os.path.join(PACK, "classes.txt"))
+    t_built = max(os.path.getmtime(q) for q in glob.glob(os.path.join(PACK, "images", "*")))   # pack finished
     for lp in glob.glob(os.path.join(PACK, "labels", "*.txt")):
-        if os.path.basename(lp) != "classes.txt" and os.path.getmtime(lp) > t_built + 60:
+        if os.path.basename(lp) != "classes.txt" and (os.environ.get("PACK_ALL") or os.path.getmtime(lp) > t_built + 5):
             PACKED[os.path.splitext(os.path.basename(lp))[0]] = open(lp).readlines()
 stats["robot_pack_reviewed"] = len(PACKED); stats["robot_pack_used"] = 0
 
