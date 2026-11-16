@@ -11,7 +11,7 @@ try {
   const page = await (await browser.newContext({ viewport: { width: 1600, height: 1000 } })).newPage()
   await page.goto(`${BASE}/login`)
   await page.fill('#email', process.env.E2E_EMAIL || 'admin@giu-uni.de')
-  await page.fill('#password', process.env.E2E_PASSWORD || 'Admin#2026')
+  await page.fill('#password', (process.env.E2E_PASSWORD ?? (() => { throw new Error('Set E2E_PASSWORD in the environment (no default password)') })()))
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 15000 })
   await page.click('button[aria-label="Open AI assistant"]')

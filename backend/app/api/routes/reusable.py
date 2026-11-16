@@ -43,6 +43,10 @@ to an item on the Inventory page.
 """
 from __future__ import annotations
 
+import logging
+import time
+import uuid
+from collections import deque
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -393,8 +397,7 @@ def _tx(db: Session, a: Asset, user_id: int, action: str, device: Device,
     return tx
 
 
-@router.post("/scan", tags=["devices"])
-def scan(req: ScanReport, db: Session = Depends(get_db),
+def _scan_impl(req: ScanReport, db: Session = Depends(get_db),
          identity: str = Depends(require_device)):
     """A tag at the bin. Replies with what the node does and shows."""
     device_scope(identity, req.device_uid)
@@ -460,8 +463,7 @@ class CompleteReport(BaseModel):
     mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/complete", tags=["devices"])
-def complete_return(req: CompleteReport, db: Session = Depends(get_db),
+def _complete_impl(req: CompleteReport, db: Session = Depends(get_db),
                     identity: str = Depends(require_device)):
     """After OPEN_FOR_RETURN: the lid cycle finished. The return is recorded
     only if the lid opened (the item could go in) - it is never assumed."""
@@ -526,8 +528,7 @@ class CheckoutCompleteReport(BaseModel):
     mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/checkout-complete", tags=["devices"])
-def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db),
+def _checkout_complete_impl(req: CheckoutCompleteReport, db: Session = Depends(get_db),
                       identity: str = Depends(require_device)):
     """After OPEN_LID for a checkout: the bin weighed before and after.
     About one item less = the selected item is CHECKED_OUT to the person."""
@@ -606,8 +607,7 @@ class WeightChangeReport(BaseModel):
     mass_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/weight-change", tags=["devices"])
-def weight_change(req: WeightChangeReport, db: Session = Depends(get_db),
+def _weight_change_impl(req: WeightChangeReport, db: Session = Depends(get_db),
                   identity: str = Depends(require_device)):
     """A settled weight change with no request running: nobody explained it."""
     device_scope(identity, req.device_uid)
@@ -633,3 +633,69 @@ def weight_change(req: WeightChangeReport, db: Session = Depends(get_db),
            link="/admin/equipment?tab=reusables", severity="warning")
     db.commit()
     return {"alerted": True, "guess": guess.strip(" -")}
+
+
+# ----------------------------------------------- live hint to open pages ---
+log = logging.getLogger("smartlab.bin")
+_timings: deque = deque(maxlen=200)   # last bin-event timings of this process (diagnostics/tests); no identifiers
+
+def _bin_hint(db: Session, device_uid: str, kind: str, t_recv_ns: Optional[int] = None) -> None:
+    """2026-11-16: after a bin node's report was accepted, tell open pages to refetch (no UID, names or
+    weights in the message - GET /reusable/items stays the only source of truth). Best effort.
+
+    Timing (monotonic clock of THIS process only): `acc_ms` = request received -> report accepted (validation, processing
+    and the DB commit when the route writes; the weight-change route returns early and writes nothing for a tiny delta),
+    measured around the route body; `pub_ms` = time to hand the message to the live socket (enqueue, not delivery).
+    `eid` ties the push to the browser's own receive/render marks. No device clock is involved."""
+    try:
+        device = get_device(db, device_uid)
+        if device is not None and device.lab_id is not None:
+            from app.services.environment import publish
+            t_acc = time.perf_counter_ns()
+            eid = uuid.uuid4().hex[:12]
+            msg = {"type": "reusable_update", "lab_id": device.lab_id, "kind": kind, "eid": eid}
+            if t_recv_ns is not None:
+                msg["acc_ms"] = round((t_acc - t_recv_ns) / 1e6, 3)
+            publish([msg])
+            pub_ms = round((time.perf_counter_ns() - t_acc) / 1e6, 3)
+            _timings.append({"eid": eid, "kind": kind, "acc_ms": msg.get("acc_ms"), "pub_ms": pub_ms})
+            log.info("bin_event eid=%s kind=%s acc_ms=%s pub_ms=%s", eid, kind, msg.get("acc_ms"), pub_ms)
+    except Exception:
+        pass
+
+
+@router.post("/scan", tags=["devices"])
+def scan(req: ScanReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """A tag at the bin. Replies with what the node does and shows."""
+    t0 = time.perf_counter_ns()
+    out = _scan_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "scan", t0)
+    return out
+
+
+@router.post("/complete", tags=["devices"])
+def complete_return(req: CompleteReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """After OPEN_FOR_RETURN: the lid cycle finished. The return is recorded only when the lid really opened."""
+    t0 = time.perf_counter_ns()
+    out = _complete_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "complete", t0)
+    return out
+
+
+@router.post("/checkout-complete", tags=["devices"])
+def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db),
+                      identity: str = Depends(require_device)):
+    """After OPEN_LID for a checkout: the bin weighed before and after."""
+    t0 = time.perf_counter_ns()
+    out = _checkout_complete_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "checkout", t0)
+    return out
+
+
+@router.post("/weight-change", tags=["devices"])
+def weight_change(req: WeightChangeReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """A settled weight change with no request running: nobody explained it."""
+    t0 = time.perf_counter_ns()
+    out = _weight_change_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "weight", t0)
+    return out

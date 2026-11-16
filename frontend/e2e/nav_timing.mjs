@@ -19,7 +19,7 @@ try {
   })
   await page.goto(`${BASE}/login`)
   await page.fill('#email', process.env.E2E_EMAIL || 'admin@giu-uni.de')
-  await page.fill('#password', process.env.E2E_PASSWORD || 'Admin#2026')
+  await page.fill('#password', (process.env.E2E_PASSWORD ?? (() => { throw new Error('Set E2E_PASSWORD in the environment (no default password)') })()))
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 })
   // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.

@@ -13,8 +13,8 @@ async function login(base, email, pw) {
   await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'))
   return p
 }
-const admin = await login('https://192.168.1.200', 'admin@giu-uni.de', 'Admin#2026')
-const student = await login('http://192.168.1.200', process.env.VIEWER || 'ramy@giu-uni.de', process.env.VIEWER_PW || 'Staff#2026')
+const admin = await login('https://192.168.1.200', 'admin@giu-uni.de', (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()))
+const student = await login('http://192.168.1.200', process.env.VIEWER || 'ramy@giu-uni.de', process.env.VIEWER_PW || (process.env.SEED_STAFF_PASSWORD ?? (() => { throw new Error('Set SEED_STAFF_PASSWORD in the environment') })()))
 await admin.goto('https://192.168.1.200/admin/equipment?tab=noncons', { waitUntil: 'networkidle' })
 const btn = admin.locator('button:has-text("Choose screen or window")')
 console.log('share button enabled (https):', await btn.isEnabled())

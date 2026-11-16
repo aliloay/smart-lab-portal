@@ -16,16 +16,16 @@ import { visibleInterval } from '../lib/visibleInterval'
 export default function EnvironmentOverview() {
   const [rows, setRows] = useState<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[] | null>(null)
   // One request for every lab (it used to be one per lab).
-  const load = useCallback(() => {
-    api.allEnvironments().then(setRows).catch(() => setRows(r => r ?? []))
+  const load = useCallback((fresh = false) => {
+    api.allEnvironments(fresh).then(setRows).catch(() => setRows(r => r ?? []))
   }, [])
   useEffect(() => {
     load()
-    const t = visibleInterval(load, 20000)
+    const t = visibleInterval(() => load(), 20000)
     return () => window.clearInterval(t)
   }, [load])
   // New readings arrive every ~10 s and on every change: show them at once.
-  useLiveMessages(m => { if (m.type === 'env_update' || m.type === 'hazard') load() })
+  useLiveMessages(m => { if (m.type === 'env_update' || m.type === 'hazard') load(true) })
 
   if (!rows) return <Spinner label="Loading environment" />
   if (!rows.length) {

@@ -1,5 +1,38 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-16 (home, before the lab day) - local commits, NOT pushed; LOCAL portal DEPLOYED (backend cce108cddfb4, frontend 0ad323b9a5a9; later same evening)
+HEAD 510e081 on qa/browser-and-camera-docs. 92f21dd Welcome SpotlightCard; c73263a UR5e mirror test follows mountYaw=180 (owner 19 Oct);
+7ce3307 removed dead WelcomeArms/DragTwin; eeaa0dd e2e scripts no fallback password (S1); 510e081 `reusable_update` live hint
+(scan/complete/checkout/weight -> Smart bin card refetches at once) + seed-password regression test.
+Verified: backend 787 passed / 3 skipped (test_backend_fast.ps1, 356 s), tsc 0, vite build ok, frontend unit 7/7.
+Findings: env + consumables already push live (env_update, inventory_update); L1-L5 are defined in
+docs/reports/local-only-final-2026-11-12/SMART_LAB_CONTINUATION_REPORT_2026-11-12.md section 8 (not in LAB_TEST_2026-10-15.md).
+Done later 16 Nov: deployed, isolated e2e (navigation 98 / workflows 30 / live bin 20/20), Floorplan descriptions 696+372, docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md, CI without fixed passwords. See docs/reports/local-only-2026-11-16/IMMEDIATE_CLOSURE_2026-11-16.md. Still open:
+live-account password rotation (owner, set_password.py). Lab checklist: docs/reports/local-only-2026-11-16/LAB_DAY_CHECKLIST_2026-11-17.md.
+
+## UPDATE 2026-11-16 late evening - final closure round (NOT pushed)
+Redeployed LOCAL portal: backend fbc6741f7dad, frontend 68335eb55be8 (rollback tags pre-timing-20261116 = cce108cddfb4 / 0ad323b9a5a9). Fresh dump backups/predeploy2_20261116_2138.dump.
+Added: per-stage bin-event timing (eid, acc_ms; browser marks opt-in via localStorage slab.timing), duplicate-event + stale-fetch guards, lab-code contract tests
+(reusable bin = Modular fw reuse-mod-0.1, LAB_ID LAB_01 -> lab 1; "BENCH" only in the legacy file; no reflash needed), full Master TFT + Modular bin mapping,
+random per-run test-DB password in tools/ops/test_backend_fast.ps1. Backend 795 passed / 3 skipped; e2e 98 / 30 / live bin 30 trials.
+**OWNER: admin@giu-uni.de and ramy@giu-uni.de still use the published default password** - `docker compose exec backend python set_password.py <email>`.
+Reports: docs/reports/local-only-2026-11-16/FINAL_CLOSURE_AND_LAB_READINESS_2026-11-16.md. Lab-only items remain PENDING.
+
+## RESUME HERE - 2026-11-14 (AR model v7 live; UI tooling round; Haiku->Opus agents)
+Branch `qa/browser-and-camera-docs`, HEAD 5b17382 (16+ commits ahead of origin, NOT pushed - owner pushes).
+- AR detector: v7 A_y11s live since 14 Nov (backend image rebuilt). Laptop, live thresholds, truth = owner boxes:
+  single 177/183, multi 223/238, security-camera view 219/240 (previous 0/240), FANUC 6/6, PCs 16/16, 162 ms CPU.
+  lab_pc max_instances 16. Backups in D:/SmartLabData/model_backups/. Training kit: tools/vision_train
+  (build_v6_dataset.py, make_cam_views.py, make_robot_pack.py, make_v7_notebook.py); datasets lab_v6.zip / lab_v6b.zip on Drive.
+- Removed from training: 397 security-camera frames that lab_r1 had marked "empty" (robots/PCs in view).
+- UI: React Bits SpotlightCard on Welcome section 05 only (+6.8 KB entry JS). GSAP and Lenis evaluated, not installed.
+- Floorplan 0.8.0 plugin installed; map in floorplan/ (git-ignored), `node floorplan/serve.mjs` -> http://127.0.0.1:4378.
+  File/route descriptions not written yet.
+- `.claude/agents/smartlab-haiku-{intake,worker}.md` + CLAUDE.local.md (local-only) - tested: intake ran on Haiku.
+- Open: frontend unit test "UR5e hangs from the frame top" fails (stale mirror expectation since the 19 Oct twin turn);
+  e2e not run (test copy :5176/:8100 down); camera-2 recording (~10 min) + more FANUC photos at the lab, then one
+  last training round; seed passwords; lab tests L1-L5; push.
+
 ## RESUME HERE - 2026-11-11 ~01:00 (closure mission in progress; NOTHING committed, NOTHING pushed)
 Branch `qa/browser-and-camera-docs` on fdfd1fe, working tree dirty on purpose. Recovery: branch
 `backup/before-closure-2026-11-11`, DB dump + diffs in `C:\Users\dell\smart-lab-backups\closure-2026-11-11\`.

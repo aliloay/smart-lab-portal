@@ -147,6 +147,7 @@
 .wl-step span{color:#94a3b8;font-size:14px}
 .wl-step-n{flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:12px;color:#24d4f2;border:1px solid rgba(36,212,242,.4);background:rgba(36,212,242,.1)}
 .wl-step-n svg{width:20px;height:20px}
+.wl-spot{padding:12px 14px;border-radius:14px}
 .wl-door{padding:20px;border-radius:20px;border:1px solid rgba(80,110,150,.4);background:rgba(16,35,63,.5)}
 .wl-door>svg{width:100%;height:auto}
 

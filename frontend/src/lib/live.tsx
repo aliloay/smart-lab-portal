@@ -34,6 +34,9 @@ export type LiveMessage =
   /** New environment readings for a lab: refetch. */
   | { type: 'env_update'; lab_id: number }
   | { type: 'inventory_update'; bins: string[] }
+  /** The smart-bin node reported (tag scan, lid cycle, weight change): refetch /reusable/items. No data inside. */
+  | { type: 'reusable_update'; lab_id: number; kind: 'scan' | 'complete' | 'checkout' | 'weight'
+      eid?: string; acc_ms?: number }
   /** Live robot joints (staff, up to 5 a second per robot). */
   | { type: 'robot_state'; device_id: number; lab_id: number; state: string; q: number[] | null
       qd: number[] | null; joints_moving: boolean[]; home: string; source: string; telemetry_age_ms: number | null }

@@ -84,6 +84,10 @@ class ConnectionManager:
             # "New readings for this lab - refetch": the same facts GET
             # /labs/{id}/environment shows any signed-in user.
             return client.lab_filter is None or message.get("lab_id") == client.lab_filter
+        if kind == "reusable_update":
+            # "The smart bin node reported (scan / lid / weight) - refetch /reusable/items": the same facts any
+            # signed-in user already reads there; no tag UID, name or weight in the message.
+            return client.lab_filter is None or message.get("lab_id") == client.lab_filter
         if kind == "inventory_update":
             # "A bin was weighed - refetch": staff pages (GET /inventory/bins is staff-only).
             return client.is_staff

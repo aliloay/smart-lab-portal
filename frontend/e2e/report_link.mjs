@@ -9,7 +9,7 @@ import { chromium } from 'playwright-core'
 
 const BASE = process.argv[2] || process.env.E2E_BASE || 'http://localhost'
 const EMAIL = process.env.E2E_EMAIL || 'admin@giu-uni.de'
-const PASSWORD = process.env.E2E_PASSWORD || 'Admin#2026'
+const PASSWORD = (process.env.E2E_PASSWORD ?? (() => { throw new Error('Set E2E_PASSWORD in the environment (no default password)') })())
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true })
 let failed = false

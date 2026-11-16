@@ -11,9 +11,9 @@ const BASE = process.argv[2] || 'http://127.0.0.1:5173'
 const OUT = process.argv[3] || 'e2e-shots'
 mkdirSync(OUT, { recursive: true })
 const ROLES = [
-  { name: 'admin', email: 'admin@giu-uni.de', password: 'Admin#2026' },
-  { name: 'staff', email: 'ramy@giu-uni.de', password: 'Staff#2026' },
-  { name: 'student', email: 'ali@giu-uni.de', password: 'Student#2026' },
+  { name: 'admin', email: 'admin@giu-uni.de', password: (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()) },
+  { name: 'staff', email: 'ramy@giu-uni.de', password: (process.env.SEED_STAFF_PASSWORD ?? (() => { throw new Error('Set SEED_STAFF_PASSWORD in the environment') })()) },
+  { name: 'student', email: 'ali@giu-uni.de', password: (process.env.SEED_STUDENT_PASSWORD ?? (() => { throw new Error('Set SEED_STUDENT_PASSWORD in the environment') })()) },
 ]
 const SECTIONS = ['wl-intro', 'wl-hero', 'wl-labs', 'wl-robots', 'wl-auto', 'wl-access', 'wl-end']
 let failed = 0

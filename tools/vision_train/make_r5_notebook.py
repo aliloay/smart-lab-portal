@@ -39,7 +39,10 @@ if not REVIEWED:                                              # 2026-11-12: run 
     print('WARNING: UNREVIEWED pre-labels (model guesses) - all multi photos go to TRAIN; no test_multi score.')
 STAMP = time.strftime('%Y-%m-%d_%H%M')
 OUT = os.path.join(ROOT, f'lab_r5_{STAMP}')
-CK = os.path.join(ROOT, 'lab_r5_checkpoints')
+# 2026-11-12: checkpoints are tied to THIS dataset (zip size + reviewed flag). A shared folder made the human-reviewed
+# run 'resume' the finished pre-label run: it trained 0 epochs and scored nothing.
+CK = os.path.join(ROOT, f"lab_r5_checkpoints_{'reviewed' if REVIEWED else 'prelabel'}_{os.path.getsize(MULTI)}")
+print('REVIEWED (human-corrected boxes):', REVIEWED, '|', MULTI, os.path.getsize(MULTI), 'bytes')
 os.makedirs(OUT, exist_ok=True)
 os.makedirs(CK, exist_ok=True)
 print('results ->', OUT)""")
@@ -54,8 +57,12 @@ with zipfile.ZipFile(os.path.join(ROOT, 'lab_r1.zip')) as z:
 shutil.copytree('/content/lab_r1', W)
 if os.path.exists('/content/multi'):
     shutil.rmtree('/content/multi')
-with zipfile.ZipFile(MULTI) as z:
-    z.extractall('/content/multi')
+with zipfile.ZipFile(MULTI) as z:                 # names normalised: a Windows-made zip uses backslash paths
+    for zi in z.infolist():
+        name = zi.filename.replace(chr(92), '/')
+        if not name.endswith('/'):
+            os.makedirs(os.path.dirname(os.path.join('/content/multi', name)) or '/content/multi', exist_ok=True)
+            open(os.path.join('/content/multi', name), 'wb').write(z.read(zi))
 NAMES = [l.strip() for l in open(glob.glob('/content/multi/**/classes.txt', recursive=True)[0]) if l.strip()]
 y = yaml.safe_load(open(W / 'data.yaml'))
 r1_names = y['names'] if isinstance(y['names'], list) else [y['names'][k] for k in sorted(y['names'])]
@@ -92,7 +99,8 @@ for p in imgs:
     (W / 'labels' / split).mkdir(parents=True, exist_ok=True)
     shutil.copy2(p, W / 'images' / split / ('m_' + os.path.basename(p)))
     shutil.copy2(lbl, W / 'labels' / split / ('m_' + os.path.basename(lbl)))
-print('multi photos already in lab_r1 (skipped):', skipped)
+print('multi photos found in the zip:', len(imgs), '| already in lab_r1 (skipped):', skipped)
+assert len(imgs) >= 100, f'only {len(imgs)} multi photos read from {MULTI} - stop, the zip layout is wrong'
 # Only the splits this notebook trains / scores on. lab_r1.zip has its own unused folders (multi_train, ...) that repeat
 # some photos - they are not read by data.yaml, so they are not a leak (seen 12 Nov: train/old__neg_* = multi_train/labcam_*).
 USED = ('train', 'val', 'test', 'test_multi')
@@ -111,7 +119,18 @@ for s in ('train', 'val', 'test', 'test_multi'):
     print(f'{s}: {len(files)} photos, {boxes} boxes')""")
 
 code("""from ultralytics import YOLO
-RUNS = {'r5_n': 'yolo11n.pt', 'r5_s': 'yolo11s.pt'}
+# 2026-11-12: start from the trained lab models, not generic YOLO (R5 from yolo11n/s: 141 and 147/171 vs 153 deployed).
+# Exact folder, exact run names; anything else stops the notebook (no silent fallback to generic weights).
+V2 = glob.glob('/content/drive/MyDrive/SmartLab_results/lab_v2_2026-11-03_1753')
+assert len(V2) == 1, 'lab_v2_2026-11-03_1753 not found in My Drive/SmartLab_results'
+START = {'r5_n': os.path.join(V2[0], 'r1_n', 'weights', 'best.pt'),     # old deployed lab_detector (153/171)
+         'r5_s': os.path.join(V2[0], 'r2_s', 'weights', 'best.pt')}     # deployed since 2026-11-12 (158/171)
+for k, w in START.items():
+    assert os.path.exists(w), f'start weights missing for {k}: {w}'
+    names = list(YOLO(w).names.values())
+    assert names == NAMES, f'{k}: start weights have other classes {names}'
+    print(k, 'starts from', w)
+RUNS = START
 HP = dict(data=str(W / 'data.yaml'), imgsz=640, epochs=120, patience=30, batch=16, optimizer='AdamW', lr0=0.001,
           cos_lr=True, mosaic=1.0, close_mosaic=15, mixup=0.0, copy_paste=0.1, degrees=5, fliplr=0.5,
           project='/content/runs', exist_ok=True)
@@ -126,14 +145,18 @@ def ckpt_cb(name):
     return cb
 for name, base in RUNS.items():
     last = os.path.join(CK, name, 'last.pt')
-    if os.path.exists(last):            # a real resume of an interrupted run (same args are stored in last.pt)
+    if os.path.exists(last) and os.path.exists(os.path.join(CK, name, 'unfinished')):   # resume only a cut-off run
         m = YOLO(last)
         m.add_callback('on_fit_epoch_end', ckpt_cb(name))
         m.train(resume=True)
     else:
         m = YOLO(base)
         m.add_callback('on_fit_epoch_end', ckpt_cb(name))
-        m.train(name=name, **HP)""")
+        os.makedirs(os.path.join(CK, name), exist_ok=True)
+        open(os.path.join(CK, name, 'unfinished'), 'w').close()
+        m.train(name=name, **HP)
+    os.remove(os.path.join(CK, name, 'unfinished'))
+    assert os.path.exists(f'/content/runs/{name}/weights/best.pt'), f'{name}: training produced no best.pt'""")
 
 code("""# Evaluation on HUMAN labels only: every GT box matched one-to-one (same class, IoU >= 0.5).
 import numpy as np
@@ -193,6 +216,9 @@ print(json.dumps(report, indent=1))""")
 
 code("""# Candidate export ONLY (beside the results). Deploying is the owner's decision after comparing with the deployed
 # model on the SAME test + test_multi. Gates: lab_pc not worse, false hits not worse, multi-object recall better.
+# Baseline on the SAME splits: the model live since 2026-11-12 (v2 r2_s, 158/171) - the bar a candidate must beat.
+BASE = {s: evaluate(START['r5_s'], s) for s in (('test', 'test_multi') if REVIEWED else ('test',))}
+print('BASELINE (deployed v2 r2_s):', json.dumps(BASE, indent=1))
 def recall(k):
     split = 'test_multi' if REVIEWED else 'test'
     return int(report[k][split]['instance_recall'].split('/')[0])
@@ -200,7 +226,7 @@ best = max(report, key=recall) if report else None
 if best:
     YOLO(f'/content/runs/{best}/weights/best.pt').export(format='onnx', imgsz=640, opset=12, simplify=True)
     shutil.copy2(f'/content/runs/{best}/weights/best.onnx', os.path.join(OUT, f'{best}_candidate.onnx'))
-    open(os.path.join(OUT, 'summary.md'), 'w').write(f'# Round 5\\nCandidate: {best} (NOT deployed)\\n\\n' + json.dumps(report, indent=1))
+    open(os.path.join(OUT, 'summary.md'), 'w').write(f'# Round 5\\nCandidate: {best} (NOT deployed)\\n\\n' + json.dumps({'baseline_deployed_v2_r2_s': BASE, **report}, indent=1))
 print('done ->', OUT)""")
 
 nb = {"cells": cells, "metadata": {"accelerator": "GPU", "kernelspec": {"name": "python3", "display_name": "Python 3"}},

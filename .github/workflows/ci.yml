@@ -80,13 +80,15 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/smartlab
-      # seed.py gives new accounts a random password unless these are set (2026-10-27). The browser tests sign in
-      # with these throwaway values; they exist only in this CI database.
-      SEED_ADMIN_PASSWORD: Admin#2026
-      SEED_STAFF_PASSWORD: Staff#2026
-      SEED_STUDENT_PASSWORD: Student#2026
     steps:
       - uses: actions/checkout@v4
+      - name: Generate throwaway seed passwords (random, masked, this job only)
+        run: |
+          for k in ADMIN STAFF STUDENT; do
+            p="$(openssl rand -hex 18)"
+            echo "::add-mask::$p"
+            echo "SEED_${k}_PASSWORD=$p" >> "$GITHUB_ENV"
+          done
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -134,13 +136,15 @@ jobs:
     # a phone uses it, the API on :8000 as the ESP32 master calls it.
     name: Docker Compose (full stack)
     runs-on: ubuntu-latest
-    env:
-      # Throwaway first-run passwords for the seeded accounts; scripts/compose_smoke.py signs in with the student one.
-      SEED_ADMIN_PASSWORD: Admin#2026
-      SEED_STAFF_PASSWORD: Staff#2026
-      SEED_STUDENT_PASSWORD: Student#2026
     steps:
       - uses: actions/checkout@v4
+      - name: Generate throwaway seed passwords (random, masked, this job only)
+        run: |
+          for k in ADMIN STAFF STUDENT; do
+            p="$(openssl rand -hex 18)"
+            echo "::add-mask::$p"
+            echo "SEED_${k}_PASSWORD=$p" >> "$GITHUB_ENV"
+          done
       - name: Start the stack
         run: docker compose up -d --build
       - name: Phone and ESP32 paths

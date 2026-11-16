@@ -1,7 +1,7 @@
 [
  {
   "file": "lab_detector.onnx",
-  "note": "2026-11-02 Colab lab_2026-11-02_1731 best=r1_n (YOLO11n, 12 classes). Test split at conf 0.5: bin 15/15, consumables 22/22, environment 34/35, master 26/26, switch 12/29, router 18/18, UR5e 7/7, UR5e pendant 2/2, FANUC 2/6, FANUC pendant 3/3, PC 3/4, door 4/4; mAP50 0.947, mAP50-95 0.839. Report: tools/vision_train/results/lab_2026-11-02_1731. Skipped (file missing) until the model is copied here; while it is loaded it also answers the bin, so bin_detector.onnx is not run twice. 2026-11-11: all_detector.onnx no longer run (second full pass, 205 -> 104 ms per image). With the switch threshold 0.35 this model alone found 153/171 test objects (switch 19/29), 0 false on 221 empty frames - the two-model set found 150-154. tools/vision_train/eval_detector_sets.py data.",
+  "note": "2026-11-14: v7 A_y11s (YOLO11s on lab_v6 + 228 blurred security-camera frames + owner-boxed robot pack). Laptop, live thresholds, truth = owner boxes: single 177/183, multi 223/238, camera view 219/240 (previous v6_v8s: 168, 219, 0/240), FANUC 6/6 (was 3/6), PCs 16/16, 1/200 empty photos with a box, ~162 ms CPU. lab_pc max_instances 16 (a camera view shows ~10 PCs). Backup D:/SmartLabData/model_backups/lab_detector_v6_v8s_2026-11-14.onnx. 2026-11-13: v6_v8s (YOLOv8s fine-tuned on lab_v6: base minus 397 camera frames wrongly marked empty + 272 human-corrected multi photos + 150 new single photos). Laptop, live thresholds: single 164/171, multi 219/238 (human labels), 17 extra boxes, 1/200 empty photos with a box, ~187 ms CPU. Previous v2 r2_s: 158/171, 134/238, 28 extra (backup D:/SmartLabData/model_backups/lab_detector_v2_r2_s_2026-11-13.onnx). Colab: SmartLab (1)/lab_v6_results/comparison.md. 2026-11-12: swapped to Colab lab_v2_2026-11-03_1753 r2_s (YOLO11s, same 12 classes); switch 0.25, fanuc 0.28. Offline: 158/171 test objects (switch 24/29), 0 false on 221 empty frames, vs 153 for the old r1_n (backup D:/SmartLabData/model_backups/lab_detector_v2_r1_n_2026-11-12.onnx). R5 (pseudo-labelled) scored 147 and was not used. tools/vision_train/eval_detector_sets.py data. 2026-11-02 Colab lab_2026-11-02_1731 best=r1_n (YOLO11n, 12 classes). Test split at conf 0.5: bin 15/15, consumables 22/22, environment 34/35, master 26/26, switch 12/29, router 18/18, UR5e 7/7, UR5e pendant 2/2, FANUC 2/6, FANUC pendant 3/3, PC 3/4, door 4/4; mAP50 0.947, mAP50-95 0.839. Report: tools/vision_train/results/lab_2026-11-02_1731. Skipped (file missing) until the model is copied here; while it is loaded it also answers the bin, so bin_detector.onnx is not run twice. 2026-11-11: all_detector.onnx no longer run (second full pass, 205 -> 104 ms per image). With the switch threshold 0.35 this model alone found 153/171 test objects (switch 19/29), 0 false on 221 empty frames - the two-model set found 150-154. tools/vision_train/eval_detector_sets.py data.",
   "classes": [
    {
     "index": 0,
@@ -35,7 +35,7 @@
     "index": 4,
     "name": "network_switch",
     "label": "Network switch (TP-Link)",
-    "conf": 0.35,
+    "conf": 0.25,
     "code": null
    },
    {
@@ -63,7 +63,7 @@
     "index": 8,
     "name": "fanuc_robot",
     "label": "FANUC ER-4iA robot",
-    "conf": 0.5,
+    "conf": 0.28,
     "code": "SLAB:D:FANUC_01"
    },
    {
@@ -79,7 +79,7 @@
     "label": "Lab PC",
     "conf": 0.5,
     "code": null,
-    "max_instances": 6
+    "max_instances": 16
    },
    {
     "index": 11,
