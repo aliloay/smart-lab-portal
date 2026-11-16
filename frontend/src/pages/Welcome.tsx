@@ -496,7 +496,7 @@ export default function Welcome() {
                 <rect x="20" y="146" width="130" height="12" rx="3" fill="#1f2937" stroke="#334155" />
                 <text x="85" y="178" textAnchor="middle" fontSize="10" fill="#cbd5e1" fontFamily="monospace">LAB PC · PORTAL</text>
               </g>
-              <text className="ac-step" x="560" y="300" fontSize="11" fill="#9ef3ff" fontFamily="monospace">
+              <text className="ac-step" x="560" y="340" fontSize="11" fill="#9ef3ff" fontFamily="monospace">
                 <tspan className="ac-t1">1 card / QR read</tspan><tspan className="ac-t2" x="560">2 face / finger check</tspan>
                 <tspan className="ac-t3" x="560">3 ESP32: unlock</tspan><tspan className="ac-t4" x="560">4 door open · logged</tspan></text>
               {[['M110 230 C 180 300, 330 300, 400 285', '0s'], ['M460 250 C 460 200, 300 140, 270 108', '2.4s'], ['M520 285 C 590 285, 640 260, 645 245', '3.6s']].map(([d, b]) =>
@@ -508,7 +508,7 @@ export default function Welcome() {
               <path d="M355 110 C 430 110, 520 140, 560 160" stroke="#24d4f2" strokeOpacity=".7" strokeWidth="1.6" strokeDasharray="3 6" fill="none" className="wl-flow" />
               <text x="250" y="320" fontSize="9" fill="#7e97b8" fontFamily="monospace">credential</text>
               <text x="355" y="180" fontSize="9" fill="#ffd08a" fontFamily="monospace">lock</text>
-              <text x="570" y="300" fontSize="9" fill="#7e97b8" fontFamily="monospace">events</text>
+              <text x="528" y="304" fontSize="9" fill="#7e97b8" fontFamily="monospace">events</text>
               <text x="440" y="122" fontSize="9" fill="#7e97b8" fontFamily="monospace">video</text>
               <text x="20" y="440" fontSize="10" fill="#7e97b8" fontFamily="monospace">ILLUSTRATION · DEMO LOOP · NOT LIVE</text>
             </svg>
