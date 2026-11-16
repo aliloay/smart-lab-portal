@@ -20,6 +20,7 @@ import { firstName, useAuth } from '../lib/auth'
 import { warmRoute } from '../lib/warm'
 import { InstitutionLogo, SmartLabMark } from '../components/Brand'
 import './welcome.css'
+import SpotlightCard from '../components/reactbits/SpotlightCard'
 import { WRITE } from '../components/welcome/writeState'
 
 const WelcomePair = lazy(() => import('../components/welcome/WelcomePair'))
@@ -413,7 +414,14 @@ export default function Welcome() {
                 [<DoorClosed key="c" />, 'The Master ESP32 decides', 'Only the physical controller drives the lock.'],
                 [<ScrollText key="d" />, 'Every attempt is logged', 'Granted and denied attempts appear in the access monitor.'],
               ].map(([ic, t, s], k) => (
-                <R key={k} d={250 + k * 120} className="wl-step"><span className="wl-step-n">{ic}</span><div><b>{t}</b><span>{s}</span></div></R>))}
+                <R key={k} d={250 + k * 120}>
+                  {/* React Bits SpotlightCard: a soft light follows the pointer (idle when untouched, off with reduced motion). */}
+                  <SpotlightCard className="wl-step wl-spot" spotlightColor="rgba(36, 212, 242, 0.55)" spotlightSize={260}
+                                 intensity={0.5} borderGlow={0.7} grain={0}
+                                 style={{ '--spotlight-card-surface': 'rgba(12, 30, 54, 0.55)', '--spotlight-card-border': 'rgba(36, 212, 242, 0.14)', '--spotlight-card-shadow': 'none' } as CSSProperties}>
+                    <span className="wl-step-n">{ic}</span><div><b>{t}</b><span>{s}</span></div>
+                  </SpotlightCard>
+                </R>))}
             </ol>
           </div>
           <R d={300} className="wl-door">

@@ -1,5 +1,20 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## RESUME HERE - 2026-11-14 (AR model v7 live; UI tooling round; Haiku->Opus agents)
+Branch `qa/browser-and-camera-docs`, HEAD 5b17382 (16+ commits ahead of origin, NOT pushed - owner pushes).
+- AR detector: v7 A_y11s live since 14 Nov (backend image rebuilt). Laptop, live thresholds, truth = owner boxes:
+  single 177/183, multi 223/238, security-camera view 219/240 (previous 0/240), FANUC 6/6, PCs 16/16, 162 ms CPU.
+  lab_pc max_instances 16. Backups in D:/SmartLabData/model_backups/. Training kit: tools/vision_train
+  (build_v6_dataset.py, make_cam_views.py, make_robot_pack.py, make_v7_notebook.py); datasets lab_v6.zip / lab_v6b.zip on Drive.
+- Removed from training: 397 security-camera frames that lab_r1 had marked "empty" (robots/PCs in view).
+- UI: React Bits SpotlightCard on Welcome section 05 only (+6.8 KB entry JS). GSAP and Lenis evaluated, not installed.
+- Floorplan 0.8.0 plugin installed; map in floorplan/ (git-ignored), `node floorplan/serve.mjs` -> http://127.0.0.1:4378.
+  File/route descriptions not written yet.
+- `.claude/agents/smartlab-haiku-{intake,worker}.md` + CLAUDE.local.md (local-only) - tested: intake ran on Haiku.
+- Open: frontend unit test "UR5e hangs from the frame top" fails (stale mirror expectation since the 19 Oct twin turn);
+  e2e not run (test copy :5176/:8100 down); camera-2 recording (~10 min) + more FANUC photos at the lab, then one
+  last training round; seed passwords; lab tests L1-L5; push.
+
 ## RESUME HERE - 2026-11-11 ~01:00 (closure mission in progress; NOTHING committed, NOTHING pushed)
 Branch `qa/browser-and-camera-docs` on fdfd1fe, working tree dirty on purpose. Recovery: branch
 `backup/before-closure-2026-11-11`, DB dump + diffs in `C:\Users\dell\smart-lab-backups\closure-2026-11-11\`.
