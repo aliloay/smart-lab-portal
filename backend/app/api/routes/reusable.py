@@ -393,8 +393,7 @@ def _tx(db: Session, a: Asset, user_id: int, action: str, device: Device,
     return tx
 
 
-@router.post("/scan", tags=["devices"])
-def scan(req: ScanReport, db: Session = Depends(get_db),
+def _scan_impl(req: ScanReport, db: Session = Depends(get_db),
          identity: str = Depends(require_device)):
     """A tag at the bin. Replies with what the node does and shows."""
     device_scope(identity, req.device_uid)
@@ -460,8 +459,7 @@ class CompleteReport(BaseModel):
     mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/complete", tags=["devices"])
-def complete_return(req: CompleteReport, db: Session = Depends(get_db),
+def _complete_impl(req: CompleteReport, db: Session = Depends(get_db),
                     identity: str = Depends(require_device)):
     """After OPEN_FOR_RETURN: the lid cycle finished. The return is recorded
     only if the lid opened (the item could go in) - it is never assumed."""
@@ -526,8 +524,7 @@ class CheckoutCompleteReport(BaseModel):
     mass_after_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/checkout-complete", tags=["devices"])
-def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db),
+def _checkout_complete_impl(req: CheckoutCompleteReport, db: Session = Depends(get_db),
                       identity: str = Depends(require_device)):
     """After OPEN_LID for a checkout: the bin weighed before and after.
     About one item less = the selected item is CHECKED_OUT to the person."""
@@ -606,8 +603,7 @@ class WeightChangeReport(BaseModel):
     mass_g: Optional[float] = Field(default=None, ge=-10000, le=10000)
 
 
-@router.post("/weight-change", tags=["devices"])
-def weight_change(req: WeightChangeReport, db: Session = Depends(get_db),
+def _weight_change_impl(req: WeightChangeReport, db: Session = Depends(get_db),
                   identity: str = Depends(require_device)):
     """A settled weight change with no request running: nobody explained it."""
     device_scope(identity, req.device_uid)
@@ -633,3 +629,49 @@ def weight_change(req: WeightChangeReport, db: Session = Depends(get_db),
            link="/admin/equipment?tab=reusables", severity="warning")
     db.commit()
     return {"alerted": True, "guess": guess.strip(" -")}
+
+
+# ----------------------------------------------- live hint to open pages ---
+def _bin_hint(db: Session, device_uid: str, kind: str) -> None:
+    """2026-11-16: after a bin node's report was accepted, tell open pages to refetch (no UID, names or
+    weights in the message - GET /reusable/items stays the only source of truth). Best effort."""
+    try:
+        device = get_device(db, device_uid)
+        if device is not None and device.lab_id is not None:
+            from app.services.environment import publish
+            publish([{"type": "reusable_update", "lab_id": device.lab_id, "kind": kind}])
+    except Exception:
+        pass
+
+
+@router.post("/scan", tags=["devices"])
+def scan(req: ScanReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """A tag at the bin. Replies with what the node does and shows."""
+    out = _scan_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "scan")
+    return out
+
+
+@router.post("/complete", tags=["devices"])
+def complete_return(req: CompleteReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """After OPEN_FOR_RETURN: the lid cycle finished. The return is recorded only when the lid really opened."""
+    out = _complete_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "complete")
+    return out
+
+
+@router.post("/checkout-complete", tags=["devices"])
+def checkout_complete(req: CheckoutCompleteReport, db: Session = Depends(get_db),
+                      identity: str = Depends(require_device)):
+    """After OPEN_LID for a checkout: the bin weighed before and after."""
+    out = _checkout_complete_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "checkout")
+    return out
+
+
+@router.post("/weight-change", tags=["devices"])
+def weight_change(req: WeightChangeReport, db: Session = Depends(get_db), identity: str = Depends(require_device)):
+    """A settled weight change with no request running: nobody explained it."""
+    out = _weight_change_impl(req, db, identity)
+    _bin_hint(db, req.device_uid, "weight")
+    return out

@@ -387,3 +387,51 @@ def test_staff_takes_several_and_the_weight_says_how_many(client, db, staff, ali
         db.refresh(b)
     out = [b for b in bbs if b.status == AssetStatus.CHECKED_OUT]
     assert len(out) == 2 and all(b.holder_id == alice.id for b in out)
+
+
+# ------------------------------------------- live hint to open pages (2026-11-16) ---
+@pytest.fixture
+def published(monkeypatch):
+    """Everything the portal would push over the live socket during the test."""
+    from app.ws.manager import manager
+    sent: list[dict] = []
+    monkeypatch.setattr(manager, "publish", lambda m: sent.append(m))
+    return sent
+
+
+def _hints(published):
+    return [m for m in published if m.get("type") == "reusable_update"]
+
+
+def test_accepted_scan_pushes_a_hint_without_uid_or_names(client, arduino, bin_node, device_headers, lab, published):
+    assert _scan(client, device_headers, arduino.nfc_uid)["lcd2"] == "TAKE VIA PORTAL"
+    h = _hints(published)
+    assert h == [{"type": "reusable_update", "lab_id": lab.id, "kind": "scan"}]
+    assert arduino.nfc_uid not in str(h) and arduino.name not in str(h)
+
+
+def test_unknown_tag_also_pushes_so_the_assign_screen_updates(client, bin_node, device_headers, published):
+    assert _scan(client, device_headers, "04 11 22 33 44 55 66")["action"] == "UNKNOWN"
+    assert len(_hints(published)) == 1
+
+
+def test_rejected_report_pushes_nothing(client, arduino, bin_node, published):
+    r = client.post("/api/reusable/scan", headers={"X-Device-Key": "wrong"},
+                    json={"device_uid": "REUSE_BIN_1", "nfc_uid": arduino.nfc_uid})
+    assert r.status_code in (401, 403)
+    assert _hints(published) == []
+
+
+def test_unexplained_weight_change_pushes_a_hint(client, bin_node, device_headers, lab, published):
+    r = client.post("/api/reusable/weight-change", headers=device_headers,
+                    json={"device_uid": "REUSE_BIN_1", "delta_g": -120.0, "mass_g": 500.0})
+    assert r.status_code == 200
+    assert _hints(published) == [{"type": "reusable_update", "lab_id": lab.id, "kind": "weight"}]
+
+
+def test_hint_reaches_only_its_lab_and_any_signed_in_user():
+    from app.ws.manager import Client, manager
+    msg = {"type": "reusable_update", "lab_id": 7, "kind": "scan"}
+    assert manager._wants(Client(user_id=1, is_staff=False, lab_filter=None), msg)
+    assert manager._wants(Client(user_id=1, is_staff=False, lab_filter=7), msg)
+    assert not manager._wants(Client(user_id=1, is_staff=False, lab_filter=8), msg)

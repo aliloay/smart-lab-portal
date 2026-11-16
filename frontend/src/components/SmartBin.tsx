@@ -32,6 +32,7 @@ export default function SmartBin({ labId }: { labId: number }) {
   }, [load])
   useLiveMessages(m => {
     if ((m.type === 'access_event' && m.event.lab_id === labId) ||
+        (m.type === 'reusable_update' && m.lab_id === labId) ||
         (m.type === 'staff' && m.kind === 'device_command')) load()
   })
 

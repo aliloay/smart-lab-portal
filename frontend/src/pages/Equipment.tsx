@@ -29,7 +29,7 @@ function EquipmentRegister() {
   useEffect(() => { load(); api.labs().then(setLabs).catch(() => {}) }, [load])
   useLiveMessages(m => {
     if ((m.type === 'access_event' && m.event.event_type.startsWith('ASSET')) ||
-        (m.type === 'staff' && m.kind === 'issue')) load()
+        (m.type === 'staff' && m.kind === 'issue') || m.type === 'reusable_update') load()
   })
 
   const list = useMemo(() => (rows ?? []).filter(a =>
