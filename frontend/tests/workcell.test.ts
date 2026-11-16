@@ -17,8 +17,11 @@ test('UR5e hangs from the frame top: base at 1.88 m, flange below it', () => {
   const q = [0, -Math.PI / 2, 0, -Math.PI / 2, 0, 0]
   const pts = chainPoints(UR5E, q, 0)
   close(pts[0], [0, 0, UR5E.ceilingHeight!])
-  const tip = tipPosition(UR5E, q)                          // base frame; world = flipped about x, raised
-  close(pts[pts.length - 2], [tip[0], -tip[1], UR5E.ceilingHeight! - tip[2]])
+  const tip = tipPosition(UR5E, q)                          // base frame; world = flipped about x, turned by mountYaw, raised
+  // Owner decision 2026-10-19: mountYaw = 180 deg, the gripper faces the table. Flip about x gives (x,-y,H-z); a 180 deg
+  // turn about the vertical then negates x and y: (-x, +y, H-z). A yaw of 0 would be (x,-y,H-z) - that is the old, wrong mirror.
+  assert.equal(UR5E.mountYaw, Math.PI)
+  close(pts[pts.length - 2], [-tip[0], tip[1], UR5E.ceilingHeight! - tip[2]])
   assert.ok(pts[pts.length - 2][2] < UR5E.ceilingHeight!)
   assert.equal(baseToWorld(FANUC_LRMATE200ID)[14], 0)
 })
