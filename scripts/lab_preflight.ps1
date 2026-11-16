@@ -76,7 +76,8 @@ if (-not $NoDevices) {
     $up = Ping1 $d.ip
     $port = if ($d.tcp) { Tcp $d.ip $d.tcp } else { $null }
     $state = if ($up -or $port) { 'PASS' } else { 'FAIL' }
-    $detail = "ping $(if ($up) { 'ok' } else { 'no reply' })" + $(if ($d.tcp) { ", tcp $($d.tcp) $(if ($port) { 'open' } else { 'closed' })" } else { '' })
+    $detail = "ping $(if ($up) { 'ok' } else { 'no reply' })" + $(if ($d.tcp) { ", tcp $($d.tcp) $(if ($port) { 'open' } else { 'closed' })" } else { '' }) +
+      $(if (-not $up -and -not $port) { ' - not answering: powered and on the cable yet? (this is not a verdict on its firmware)' } else { '' })
     Add 'Devices' "$($d.name) $($d.ip)" $state $detail
   }
 }
@@ -95,3 +96,5 @@ $logs = Join-Path $root 'logs'; New-Item -ItemType Directory -Force $logs | Out-
 $out = Join-Path $logs "preflight-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
 $rows | Format-Table -AutoSize | Out-String -Width 220 | Set-Content -Encoding utf8 $out
 Write-Host "  saved $out" -ForegroundColor DarkGray
+# Exit code (2026-11-17): 0 = no FAIL, 1 = at least one FAIL (WARN alone stays 0). Nothing above changed anything on this PC.
+exit $(if ($f) { 1 } else { 0 })
