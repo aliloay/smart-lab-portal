@@ -14,7 +14,7 @@ try {
   const page = await ctx.newPage()
   await page.goto(`${BASE}/login`)
   await page.fill('#email', process.env.E2E_EMAIL || 'admin@giu-uni.de')
-  await page.fill('#password', process.env.E2E_PASSWORD || 'Admin#2026')
+  await page.fill('#password', (process.env.E2E_PASSWORD ?? (() => { throw new Error('Set E2E_PASSWORD in the environment (no default password)') })()))
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'))
   for (const path of ['/', '/labs', '/labs/1', '/admin/access', '/admin/operations', '/command', '/admin/devices']) {
