@@ -50,3 +50,10 @@ def test_ci_generates_its_seed_passwords():
     ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "openssl rand" in ci and "add-mask" in ci
     assert not re.search(r"SEED_\w+_PASSWORD:\s*\S", ci)
+
+
+def test_fast_backend_test_script_uses_a_random_database_password():
+    ps = (ROOT / "tools/ops/test_backend_fast.ps1").read_text(encoding="utf-8")
+    assert "RandomNumberGenerator" in ps and "$dbPass" in ps
+    assert not re.search(r"POSTGRES_PASSWORD=(?!\$)\S+", ps), "a fixed POSTGRES_PASSWORD is back"
+    assert not re.search(r"smartlab:(?!\$\{?dbPass)[^@\s]+@smartlab-testdb", ps), "a fixed test-DB URL password is back"

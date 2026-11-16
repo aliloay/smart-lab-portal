@@ -406,7 +406,8 @@ def _hints(published):
 def test_accepted_scan_pushes_a_hint_without_uid_or_names(client, arduino, bin_node, device_headers, lab, published):
     assert _scan(client, device_headers, arduino.nfc_uid)["lcd2"] == "TAKE VIA PORTAL"
     h = _hints(published)
-    assert h == [{"type": "reusable_update", "lab_id": lab.id, "kind": "scan"}]
+    assert len(h) == 1 and {k: h[0][k] for k in ("type", "lab_id", "kind")} == {"type": "reusable_update", "lab_id": lab.id, "kind": "scan"}
+    assert set(h[0]) == {"type", "lab_id", "kind", "eid", "acc_ms"}
     assert arduino.nfc_uid not in str(h) and arduino.name not in str(h)
 
 
@@ -426,7 +427,8 @@ def test_unexplained_weight_change_pushes_a_hint(client, bin_node, device_header
     r = client.post("/api/reusable/weight-change", headers=device_headers,
                     json={"device_uid": "REUSE_BIN_1", "delta_g": -120.0, "mass_g": 500.0})
     assert r.status_code == 200
-    assert _hints(published) == [{"type": "reusable_update", "lab_id": lab.id, "kind": "weight"}]
+    h = _hints(published)
+    assert len(h) == 1 and {k: h[0][k] for k in ("type", "lab_id", "kind")} == {"type": "reusable_update", "lab_id": lab.id, "kind": "weight"}
 
 
 def test_hint_reaches_only_its_lab_and_any_signed_in_user():
@@ -435,3 +437,75 @@ def test_hint_reaches_only_its_lab_and_any_signed_in_user():
     assert manager._wants(Client(user_id=1, is_staff=False, lab_filter=None), msg)
     assert manager._wants(Client(user_id=1, is_staff=False, lab_filter=7), msg)
     assert not manager._wants(Client(user_id=1, is_staff=False, lab_filter=8), msg)
+
+
+# ------------------- which lab a bin node belongs to (2026-11-16: LAB_ID "BENCH" vs "LAB_01") ---
+# The heartbeat's lab_id is a lab CODE looked up in Lab.code. The Modular firmware (reuse-mod-0.1, the one the portal
+# last heard from) reports "LAB_01"; the older single-file firmware (reuse-0.3, kept for reference) still says "BENCH".
+def _beat(client, headers, lab_code, uid="REUSE_BIN_1"):
+    return client.post("/api/access/heartbeat", headers=headers, json={
+        "device_uid": uid, "lab_id": lab_code, "device_type": "SENSOR_NODE", "firmware_version": "reuse-mod-0.1",
+        "components": {"reusable_bin": True, "hx711": True}})
+
+
+def test_heartbeat_with_the_labs_code_keeps_the_bin_in_that_lab(client, db, bin_node, lab, device_headers):
+    r = _beat(client, device_headers, lab.code)
+    assert r.status_code == 200 and r.json()["status"] == "ok" and r.json()["lab"] == lab.code
+    db.expire_all()
+    assert db.get(Device, bin_node.id).lab_id == lab.id
+
+
+def test_heartbeat_naming_an_unknown_lab_changes_nothing(client, db, bin_node, lab, device_headers):
+    before = (bin_node.lab_id, bin_node.last_seen_at, dict(bin_node.component_state or {}))
+    r = _beat(client, device_headers, "BENCH")
+    assert r.status_code == 200 and r.json() == {"status": "unknown_lab"}
+    db.expire_all()
+    d = db.get(Device, bin_node.id)
+    assert (d.lab_id, d.last_seen_at, dict(d.component_state or {})) == before
+    assert db.query(Device).filter(Device.device_uid == "REUSE_BIN_1").count() == 1   # no duplicate node
+
+
+def test_repeated_heartbeats_do_not_duplicate_the_node(client, db, lab, device_headers):
+    for _ in range(3):
+        assert _beat(client, device_headers, lab.code, uid="REUSE_BIN_NEW").json()["status"] == "ok"
+    assert db.query(Device).filter(Device.device_uid == "REUSE_BIN_NEW").count() == 1
+
+
+def test_bin_hint_names_the_lab_the_node_belongs_to(client, bin_node, device_headers, lab, published):
+    client.post("/api/reusable/scan", headers=device_headers, json={"device_uid": "REUSE_BIN_1", "nfc_uid": "04 AA BB CC DD"})
+    assert [m["lab_id"] for m in published if m.get("type") == "reusable_update"] == [lab.id]
+
+
+# ------------------------------- per-stage timing and correlation id (2026-11-16) ---
+def test_each_accepted_report_gets_its_own_event_id_and_timing(client, arduino, bin_node, device_headers, published):
+    from app.api.routes import reusable as rr
+    rr._timings.clear()
+    _scan(client, device_headers, arduino.nfc_uid)
+    client.post("/api/reusable/weight-change", headers=device_headers,
+                json={"device_uid": "REUSE_BIN_1", "delta_g": 0.0, "mass_g": 0.0})
+    hints = _hints(published)
+    assert [h["kind"] for h in hints] == ["scan", "weight"]
+    assert len({h["eid"] for h in hints}) == 2 and all(len(h["eid"]) == 12 for h in hints)
+    for h in hints:
+        assert isinstance(h["acc_ms"], float) and 0 <= h["acc_ms"] < 5000          # request received -> accepted
+    assert [t["eid"] for t in rr._timings] == [h["eid"] for h in hints]            # same ids in the diagnostics ring
+    assert all(t["pub_ms"] >= 0 for t in rr._timings)                              # publish (enqueue) measured after, never before, acceptance
+
+
+def test_the_hint_carries_no_identifier_or_device_clock(client, arduino, bin_node, device_headers, published):
+    _scan(client, device_headers, arduino.nfc_uid)
+    h = _hints(published)[0]
+    assert set(h) == {"type", "lab_id", "kind", "eid", "acc_ms"}                  # no uid, name, weight, user or device timestamp
+
+
+def test_rejected_and_unknown_device_reports_publish_no_timing(client, arduino, bin_node, published):
+    from app.api.routes import reusable as rr
+    rr._timings.clear()
+    r = client.post("/api/reusable/scan", headers={"X-Device-Key": "wrong"},
+                    json={"device_uid": "REUSE_BIN_1", "nfc_uid": arduino.nfc_uid})
+    assert r.status_code in (401, 403) and _hints(published) == [] and not rr._timings
+
+
+def test_timing_ring_is_bounded():
+    from app.api.routes import reusable as rr
+    assert rr._timings.maxlen == 200

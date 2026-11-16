@@ -26,9 +26,18 @@ const scan = () => post('/reusable/scan', { device_uid: 'REUSE_BIN_1', nfc_uid: 
 
 const browser = await chromium.launch({ channel: process.env.E2E_CHANNEL || 'chrome', headless: true })
 try {
-  const page = await (await browser.newContext({ viewport: { width: 1366, height: 860 } })).newPage()
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 } })
+  await ctx.addInitScript(() => { try { localStorage.setItem('slab.timing', '1') } catch { /* optional */ } })
+  const page = await ctx.newPage()
   let frames = 0
-  page.on('websocket', ws => ws.on('framereceived', f => { if (String(f.payload).includes('"reusable_update"')) frames++ }))
+  const acc = {}                                   // backend: request received -> accepted (its own monotonic clock)
+  const eids = new Set()
+  page.on('websocket', ws => ws.on('framereceived', f => {
+    const t = String(f.payload)
+    if (!t.includes('"reusable_update"')) return
+    frames++
+    try { const m = JSON.parse(t); if (typeof m.acc_ms === 'number') (acc[m.kind] ??= []).push(m.acc_ms); if (m.eid) eids.add(m.eid) } catch { /* ignore */ }
+  }))
   const errors = []
   page.on('pageerror', e => errors.push(String(e)))
   await page.goto(`${BASE}/login`)
@@ -76,6 +85,15 @@ try {
   if (errors.length) bad('page errors: ' + errors.slice(0, 2).join(' | '))
   const st = a => { const s = [...a].sort((x, y) => x - y); const q = p => s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; return `n=${s.length} min=${s[0]} median=${q(0.5)} p95=${q(0.95)} max=${s[s.length - 1]} ms` }
   console.log('SYNTHETIC latency, request sent -> card rendered:', st(lat))
+  for (const [k, v] of Object.entries(acc)) console.log(`  backend received -> accepted, kind=${k}${k === 'scan' ? ' (writes the node last-seen)' : ' (zero-gram: no DB write)'}:`, st(v))
+  if (eids.size !== frames) bad(`event ids not unique: ${eids.size} ids for ${frames} pushes`)
+  const tm = await page.evaluate(() => window.__binTiming || [])
+  const col = k => tm.map(x => x[k]).filter(v => typeof v === 'number')
+  if (tm.length) {
+    console.log('  browser fresh fetch (start -> answer):', st(col('fetch_ms')))
+    console.log('  browser state set -> painted (next animation frame):', st(col('state_to_paint_ms')))
+    console.log('  browser push received -> painted:', st(col('receive_to_paint_ms')))
+  } else bad('no browser timing marks recorded')
   console.log('  of which HTTP round trip (request -> response):', st(rtt))
 } finally { await browser.close() }
 console.log(problems.length ? `${problems.length} problem(s)` : 'live bin: 0 problems')

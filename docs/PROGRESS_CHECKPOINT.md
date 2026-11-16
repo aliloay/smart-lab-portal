@@ -10,6 +10,14 @@ docs/reports/local-only-final-2026-11-12/SMART_LAB_CONTINUATION_REPORT_2026-11-1
 Done later 16 Nov: deployed, isolated e2e (navigation 98 / workflows 30 / live bin 20/20), Floorplan descriptions 696+372, docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md, CI without fixed passwords. See docs/reports/local-only-2026-11-16/IMMEDIATE_CLOSURE_2026-11-16.md. Still open:
 live-account password rotation (owner, set_password.py). Lab checklist: docs/reports/local-only-2026-11-16/LAB_DAY_CHECKLIST_2026-11-17.md.
 
+## UPDATE 2026-11-16 late evening - final closure round (NOT pushed)
+Redeployed LOCAL portal: backend fbc6741f7dad, frontend 68335eb55be8 (rollback tags pre-timing-20261116 = cce108cddfb4 / 0ad323b9a5a9). Fresh dump backups/predeploy2_20261116_2138.dump.
+Added: per-stage bin-event timing (eid, acc_ms; browser marks opt-in via localStorage slab.timing), duplicate-event + stale-fetch guards, lab-code contract tests
+(reusable bin = Modular fw reuse-mod-0.1, LAB_ID LAB_01 -> lab 1; "BENCH" only in the legacy file; no reflash needed), full Master TFT + Modular bin mapping,
+random per-run test-DB password in tools/ops/test_backend_fast.ps1. Backend 795 passed / 3 skipped; e2e 98 / 30 / live bin 30 trials.
+**OWNER: admin@giu-uni.de and ramy@giu-uni.de still use the published default password** - `docker compose exec backend python set_password.py <email>`.
+Reports: docs/reports/local-only-2026-11-16/FINAL_CLOSURE_AND_LAB_READINESS_2026-11-16.md. Lab-only items remain PENDING.
+
 ## RESUME HERE - 2026-11-14 (AR model v7 live; UI tooling round; Haiku->Opus agents)
 Branch `qa/browser-and-camera-docs`, HEAD 5b17382 (16+ commits ahead of origin, NOT pushed - owner pushes).
 - AR detector: v7 A_y11s live since 14 Nov (backend image rebuilt). Laptop, live thresholds, truth = owner boxes:

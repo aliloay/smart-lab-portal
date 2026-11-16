@@ -6,7 +6,7 @@
  * completes the checkout. Returning: scan the item at the bin. Staff also
  * see who holds what and the tag of each item.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Boxes, PackageOpen, Wifi, WifiOff } from 'lucide-react'
 import { BinItem, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
@@ -24,15 +24,52 @@ export default function SmartBin({ labId }: { labId: number }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
 
-  const load = useCallback((fresh = false) => { api.binItems(labId, fresh).then(setData).catch(() => setData(null)) }, [labId])
+  // A slow, older answer must never overwrite a newer one: only the latest request may set the card.
+  const seq = useRef(0)
+  const mark = useRef<{ eid: string; rx: number; fetchStart: number; fetched: number } | null>(null)
+  const load = useCallback((fresh = false, eid?: string, rx?: number) => {
+    const mine = ++seq.current
+    if (eid && rx !== undefined) mark.current = { eid, rx, fetchStart: performance.now(), fetched: 0 }
+    api.binItems(labId, fresh).then(d => {
+      if (mine !== seq.current) return
+      if (mark.current && mark.current.eid === eid) mark.current.fetched = performance.now()
+      setData(d)
+    }).catch(() => { if (mine === seq.current) setData(null) })
+  }, [labId])
+  // Optional timing (off by default: localStorage 'slab.timing' = '1'). Bounded ring in window.__binTiming; no identifiers.
+  useEffect(() => {
+    const m = mark.current
+    if (!m || !m.fetched) return
+    requestAnimationFrame(() => {
+      const done = performance.now()
+      try {
+        if (localStorage.getItem('slab.timing') !== '1') return
+        const w = window as unknown as { __binTiming?: unknown[] }
+        const ring = (w.__binTiming ??= [])
+        ring.push({ eid: m.eid, fetch_ms: +(m.fetched - m.fetchStart).toFixed(1), state_to_paint_ms: +(done - m.fetched).toFixed(1),
+                    receive_to_paint_ms: +(done - m.rx).toFixed(1) })
+        if (ring.length > 50) ring.shift()
+      } catch { /* timing is optional */ }
+    })
+    mark.current = null
+  }, [data])
   useEffect(() => {
     load()
     const t = visibleInterval(() => load(), 15000)
     return () => window.clearInterval(t)
   }, [load])
+  const seen = useRef<string[]>([])
   useLiveMessages(m => {
+    const rx = performance.now()
+    if (m.type === 'reusable_update' && m.lab_id === labId) {
+      if (m.eid) {                                       // the same event twice (socket replay) = one refetch
+        if (seen.current.includes(m.eid)) return
+        seen.current = [...seen.current.slice(-19), m.eid]
+      }
+      load(true, m.eid, rx)
+      return
+    }
     if ((m.type === 'access_event' && m.event.lab_id === labId) ||
-        (m.type === 'reusable_update' && m.lab_id === labId) ||
         (m.type === 'staff' && m.kind === 'device_command')) load(true)
   })
 
