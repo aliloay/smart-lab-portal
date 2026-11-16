@@ -23,7 +23,7 @@ The AI part runs on either:
 |---|---|---|
 | Who | Lab staff, administrators | Any signed-in user |
 | Sees | Analytics through 8 read-only tools | Only the caller's own bookings and reports, plus the lab list with booked time slots (never who booked) |
-| Free model (Ollama) | `qwen2.5:3b`, 8k context (reliable tool calling) | `qwen2.5:1.5b`, 4k context (fast; loaded next to the staff model) |
+| Free model (Ollama) | `qwen2.5:1.5b`, 4k context (what the lab runs since 19 Oct 2026; the keyword tool router and the small snapshot prompt make up for its size; `qwen2.5:3b` was the earlier default) | `qwen2.5:1.5b`, 4k context (fast; the same model, so one copy stays loaded) |
 | Claude model | `claude-opus-5` | `claude-haiku-4-5` |
 | Limit per user | 30 questions/hour | 20 questions/hour |
 | Audit action | `AI_QUESTION` | `AI_STUDENT_QUESTION` |
@@ -60,7 +60,7 @@ agent.py - add a line to teach it a new fix.
 ## How the assistant works
 
 ```
-staff question ─► FastAPI /api/ai/ask ─► Ollama qwen2.5:3b  or  Claude
+staff question ─► FastAPI /api/ai/ask ─► Ollama qwen2.5:1.5b  or  Claude
                                             │  calls read-only tools
                                             ▼
                app/services/ai.py tools = the SAME functions the portal uses:
@@ -122,7 +122,7 @@ the GPU. Without a GPU they still run on the CPU, just slower.
    (it sits in the tray and starts with Windows).
 2. In PowerShell, download the two models (about 3 GB in total, one time):
    ```
-   ollama pull qwen2.5:3b
+   ollama pull qwen2.5:1.5b
    ```
 3. Restart the portal (`launch.bat`). From then on `launch.bat` starts Ollama
    if it is not already running, and downloads any missing model in a
@@ -173,7 +173,7 @@ only** (`num_gpu: 0`), so the chat usually still answers, just more slowly.
 `CUDA error: device kernel image is invalid` means the NVIDIA driver is too old
 for Ollama's GPU code. To fix it at the source:
 
-1. Test Ollama alone: `ollama run qwen2.5:3b "say hi"`. If this also
+1. Test Ollama alone: `ollama run qwen2.5:1.5b "say hi"`. If this also
    crashes, the problem is Ollama/driver, not the portal.
 2. Update the NVIDIA driver (GeForce Experience or nvidia.com) and Ollama
    (download the latest installer), then restart the laptop.
@@ -196,7 +196,7 @@ for Ollama's GPU code. To fix it at the source:
 3. Restart: `launch.bat` (or `docker compose up -d --build`).
 
 Optional settings (backend env): `AI_PROVIDER` (`auto`/`ollama`/`anthropic`),
-`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL` (empty = share the staff model), `OLLAMA_NUM_CTX` (8192; the portal retries at 4096 if Ollama crashes), `OLLAMA_STUDENT_NUM_CTX` (4096),
+`OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_STUDENT_MODEL` (empty = share the staff model), `OLLAMA_NUM_CTX` (4096, the same for both assistants so one model copy serves both; the portal retries at 4096 if Ollama's engine crashes), `OLLAMA_STUDENT_NUM_CTX` (4096),
 `AI_MODEL` (default `claude-opus-5`), `AI_STUDENT_MODEL` (`claude-haiku-4-5`),
 `AI_EFFORT` (default `medium`), `AI_MAX_TOOL_ROUNDS` (6),
 `AI_QUESTIONS_PER_HOUR` (30), `AI_STUDENT_ENABLED` (true),

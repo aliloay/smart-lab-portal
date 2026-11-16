@@ -62,10 +62,15 @@ def test_unexpected_errors_are_generic_outside_and_logged_inside(client, caplog)
     def boom():
         raise RuntimeError("secret detail: postgresql://user:pw@db/x")
 
+    before = len(app.router.routes)
     app.include_router(router)
     from fastapi.testclient import TestClient
-    with TestClient(app, raise_server_exceptions=False) as c:
-        r = c.get("/api/__boom", headers={"X-Request-ID": "req-12345678"})
+    try:
+        with TestClient(app, raise_server_exceptions=False) as c:
+            r = c.get("/api/__boom", headers={"X-Request-ID": "req-12345678"})
+    finally:                                   # the temporary route must not outlive this test (the authz sweep lists every route)
+        del app.router.routes[before:]
+        app.openapi_schema = None
     assert r.status_code == 500
     body = r.json()
     assert body["detail"] == "An unexpected error occurred." and body["error_id"]

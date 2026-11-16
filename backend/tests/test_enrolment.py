@@ -2,12 +2,20 @@
 Lab access setup reminder: information only. The door logic never reads
 these flags - they only tell a person to get their biometrics registered.
 """
+import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models import Notification
 from tests.conftest import auth_headers
 
 NEW = {"email": "new@example.com", "username": "new.student", "full_name": "New Student", "password": "Lab-Secure#2026"}
+
+
+@pytest.fixture(autouse=True)
+def open_signup(monkeypatch):
+    """These tests exercise the explicit open mode (no approval). The shipped default is approval-required: test_signup_default.py."""
+    monkeypatch.setattr(settings, "SIGNUP_REQUIRES_APPROVAL", False)
 
 
 def _titles(db, user_id):

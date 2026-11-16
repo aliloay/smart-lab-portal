@@ -107,6 +107,19 @@ services:
     build: ./backend
     depends_on:
       db: { condition: service_healthy }
+    # Ready = /api/health answers AND says the database works (2026-11-16): the endpoint returns HTTP 200 with
+    # "status":"degraded" when the database is down, so a status-code-only check (the image's own curl HEALTHCHECK)
+    # would call that healthy. Python is always in the image; no shell, no environment values involved.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,sys,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)); sys.exit(0 if r.get('status')=='ok' and r.get('database') is True else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -170,11 +183,14 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       SIGNUP_EMAIL_DOMAINS: ${SIGNUP_EMAIL_DOMAINS:-}
-      SIGNUP_REQUIRES_APPROVAL: ${SIGNUP_REQUIRES_APPROVAL:-false}
+      SIGNUP_REQUIRES_APPROVAL: ${SIGNUP_REQUIRES_APPROVAL:-true}
       # Lab PC kit enrollment: true only while installing lab PCs (2026-11-11: it was not passed through at all,
       # so it could never be closed from .env).
       PC_ENROLL_OPEN: ${PC_ENROLL_OPEN:-false}
-      # The door boards use the shared key: keep true until every device has its own key.
+      # Temporary compatibility mode (checked 2026-11-16): the Master and the environment node already have their own
+      # keys, but the consumable bin and the Modular reusable bin still send this shared key, so false would lock them
+      # out. One shared key = a larger blast radius if one device is compromised. After the lab: issue own keys on
+      # Devices, flash one node at a time, then set false (docs/hardware/DEVICE_KEY_MIGRATION.md).
       DEVICE_SHARED_KEY: ${DEVICE_SHARED_KEY:-true}
     # Migrations run before the API accepts traffic, so a fresh volume comes
     # up with the right schema without a manual step. seed.py only creates
@@ -198,7 +214,10 @@ services:
     # `docker compose stop`, which this policy respects - a deliberate stop stays stopped.
     restart: unless-stopped
     build: ./frontend
-    depends_on: [backend]
+    # Starts once the backend is READY, not merely started: without this the first page loads after a cold
+    # `docker compose up` could get 502 while the API runs its migrations (2026-11-16).
+    depends_on:
+      backend: { condition: service_healthy }
     # The portal for browsers and phones: http://<laptop LAN IP>/
     # nginx serves the app and forwards /api and /ws to the backend, so the
     # browser only ever talks to this one address (no CORS, no API URL).
@@ -226,13 +245,18 @@ services:
     restart: unless-stopped
     image: n8nio/n8n:2.40.7   # the tested version (2026-11-04): "latest" could change under the 20+ workflows at any pull
     profiles: ["automation"]
+    # Started, not "ready": n8n runs by itself and only calls the API when a workflow fires.
     depends_on: [backend]
     environment:
       GENERIC_TIMEZONE: ${TZ_NAME:-Africa/Cairo}
       TZ: ${TZ_NAME:-Africa/Cairo}
+      # false on purpose: the editor is published on 127.0.0.1 only, over plain HTTP, and a Secure cookie needs HTTPS.
+      # Not suitable for an exposed deployment: put TLS in front first, then set true (checked 2026-11-16).
       N8N_SECURE_COOKIE: "false"
       # IPv4: n8n binds "::" by default and exits on hosts with IPv6 disabled.
       N8N_LISTEN_ADDRESS: 0.0.0.0
+      # Keep the SAME key that is already stored in the n8ndata volume's config file (a different one makes saved
+      # credentials unreadable). Never commit it; empty = n8n generates one and keeps it only in that volume.
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
       # The lab runs on a router with no internet: no telemetry or update
       # checks, which otherwise fill the log with ENOTFOUND errors.

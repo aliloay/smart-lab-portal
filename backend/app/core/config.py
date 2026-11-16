@@ -201,8 +201,9 @@ class Settings(BaseSettings):
     # tools/knowledge/serve.py on 127.0.0.1:5199 (not reachable from the lab network).
     KB_SERVICE_URL: str = "http://127.0.0.1:5199"
     KB_SERVICE_KEY: str = ""
-    # Staff assistant: must support tool calling. qwen2.5:3b fits a 4 GB GPU.
-    OLLAMA_MODEL: str = "qwen2.5:3b"
+    # Staff assistant: must support tool calling. qwen2.5:1.5b = what the lab runs (docker-compose and .env.example
+    # use the same; 3b was the earlier default - 2026-11-16 aligned so a run without compose behaves like the lab).
+    OLLAMA_MODEL: str = "qwen2.5:1.5b"
     # Student helper: answers from a small, pre-fetched context - no tools.
     # A separate, smaller model so both stay loaded side by side and neither
     # chat waits for the other's model to be swapped in. Empty = share the
@@ -262,8 +263,9 @@ class Settings(BaseSettings):
     # Comma-separated allowed email domains, e.g. "giu-uni.de". Empty = any.
     SIGNUP_EMAIL_DOMAINS: str = ""
     # True = new accounts start disabled until an administrator activates
-    # them on Users & roles.
-    SIGNUP_REQUIRES_APPROVAL: bool = False
+    # them on Users & roles. Default true (2026-11-16 hardening): an open, unapproved sign-up is only possible by
+    # setting SIGNUP_REQUIRES_APPROVAL=false on purpose (a startup warning then says so).
+    SIGNUP_REQUIRES_APPROVAL: bool = True
     SIGNUPS_PER_IP_PER_HOUR: int = 10
     # Give every new account (admin-created or signed up) the next door
     # identity USERn = fingerprint slot n. It opens nothing until staff enrol

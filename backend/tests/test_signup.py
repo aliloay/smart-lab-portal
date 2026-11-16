@@ -1,4 +1,5 @@
 """Self-service sign-up: always an un-enrolled student, admins notified."""
+import pytest
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -6,6 +7,12 @@ from app.models import Notification, Role, User
 
 NEW = {"email": "New.Student@Example.com", "username": "new.student", "full_name": "New Student",
        "password": "Lab-Secure#2026", "student_id": "S-9", "department": "EE"}
+
+
+@pytest.fixture(autouse=True)
+def open_signup(monkeypatch):
+    """These tests exercise the explicit open mode (no approval). The shipped default is approval-required: test_signup_default.py."""
+    monkeypatch.setattr(settings, "SIGNUP_REQUIRES_APPROVAL", False)
 
 
 def test_signup_creates_student_and_logs_in(client, db, admin):

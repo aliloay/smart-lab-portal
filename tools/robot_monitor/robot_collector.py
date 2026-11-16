@@ -13,10 +13,11 @@ Sources:
             RTDEReceiveInterface): actual_q, actual_qd, actual_TCP_pose,
             robot_mode, safety_mode, runtime_state, controller timestamp.
             Port 30004 on the controller. NOT VERIFIED on the lab's UR5e yet.
-  fanuc     NOT IMPLEMENTED until the controller is inspected (model,
-            software, enabled options). `fanuc_probe.py` reads what the
-            controller's own web pages show, read-only, so the right
-            interface can be chosen; no protocol is assumed here.
+  fanuc     FanucWebSource (below): HTTP GET of the controller's own web page /MD/CURPOS.DG only - joint angles and
+            the world TCP, nothing else (no alarms, I/O, speeds, registers, programs; no login, no POST, no other
+            port). parse_curpos() reports nothing unless all six joints are found. Live-verified once (14 Oct 2026,
+            read-only; KNOWN_ISSUES.md). `fanuc_probe.py` is the separate read-only inspection tool.
+            (This header said "NOT IMPLEMENTED" until 2026-11-16; the class had existed for a while.)
   sim       a scripted demo motion, posted as source "SIMULATION": the
             portal shows it as DEMO DATA, never as a real robot.
 
