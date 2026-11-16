@@ -19,9 +19,9 @@ import { deflateSync } from 'node:zlib'
 import { chromium } from 'playwright-core'
 
 const BASE = process.argv[2] || process.env.E2E_BASE || 'http://127.0.0.1:5173'
-const STUDENT = { email: 'ali@giu-uni.de', password: 'Student#2026' }
-const STAFF = { email: 'ramy@giu-uni.de', password: 'Staff#2026' }
-const ADMIN = { email: 'admin@giu-uni.de', password: 'Admin#2026' }
+const STUDENT = { email: 'ali@giu-uni.de', password: (process.env.SEED_STUDENT_PASSWORD ?? (() => { throw new Error('Set SEED_STUDENT_PASSWORD in the environment') })()) }
+const STAFF = { email: 'ramy@giu-uni.de', password: (process.env.SEED_STAFF_PASSWORD ?? (() => { throw new Error('Set SEED_STAFF_PASSWORD in the environment') })()) }
+const ADMIN = { email: 'admin@giu-uni.de', password: (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()) }
 const INTERNAL = 'E2E internal - ordered replacement probe'
 
 const problems = []

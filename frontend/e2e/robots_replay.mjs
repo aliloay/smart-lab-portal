@@ -15,7 +15,7 @@ try {
   p.on('console', m => { if (m.type() === 'error' && !m.text().includes('503')) errors.push(m.text()) })
   p.on('pageerror', e => errors.push(String(e)))
   await p.goto(`${BASE}/login`)
-  await p.fill('#email', 'admin@giu-uni.de'); await p.fill('#password', 'Admin#2026')
+  await p.fill('#email', 'admin@giu-uni.de'); await p.fill('#password', (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()))
   await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'))
   await p.goto(`${BASE}/robots/${ID}`); await p.waitForSelector('canvas'); await p.waitForTimeout(9000)
   await p.screenshot({ path: `${OUT}/robot_live.png` })

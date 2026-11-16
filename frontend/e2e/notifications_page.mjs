@@ -15,7 +15,7 @@ try {
   page.on('pageerror', e => errors.push(String(e)))
   await page.goto(`${BASE}/login`)
   await page.fill('#email', 'admin@giu-uni.de')
-  await page.fill('#password', 'Admin#2026')
+  await page.fill('#password', (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()))
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 })
   // Sign-in lands on the full-screen /welcome (no sidebar) since 2026-10-15: start from a framed page.

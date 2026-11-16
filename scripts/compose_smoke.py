@@ -87,7 +87,7 @@ check("API reachable through the portal, database connected",
       s == 200 and json.loads(body).get("database") is True, body[:120])
 
 s, body = call("POST", f"{WEB}/api/auth/login",
-               {"email": "ali@giu-uni.de", "password": "Student#2026"})
+               {"email": "ali@giu-uni.de", "password": os.environ["SEED_STUDENT_PASSWORD"]})
 check("seeded student can sign in", s == 200, f"HTTP {s} {body[:120]}")
 token = json.loads(body)["access_token"] if s == 200 else ""
 auth = {"Authorization": f"Bearer {token}"}

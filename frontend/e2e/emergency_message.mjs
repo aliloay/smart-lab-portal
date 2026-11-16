@@ -25,7 +25,7 @@ try {
 
   await page.goto(`${BASE}/login`)
   await page.fill('#email', 'ali@giu-uni.de')
-  await page.fill('#password', 'Student#2026')
+  await page.fill('#password', (process.env.SEED_STUDENT_PASSWORD ?? (() => { throw new Error('Set SEED_STUDENT_PASSWORD in the environment') })()))
   await page.click('button[type=submit]')
   await page.waitForURL(u => !u.pathname.startsWith('/login'), { timeout: 20000 })
   await page.getByTestId('emergency-message').waitFor({ timeout: 15000 })

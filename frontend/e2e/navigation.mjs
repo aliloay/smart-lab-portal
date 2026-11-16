@@ -11,7 +11,7 @@ import { chromium } from 'playwright-core'
 const BASE = process.argv[2] || process.env.E2E_BASE || 'http://127.0.0.1:5173'
 
 const ROLES = [
-  { name: 'student', email: 'ali@giu-uni.de', password: 'Student#2026',
+  { name: 'student', email: 'ali@giu-uni.de', password: (process.env.SEED_STUDENT_PASSWORD ?? (() => { throw new Error('Set SEED_STUDENT_PASSWORD in the environment') })()),
     // Dashboard -> Laboratories -> Laboratory details -> New booking ->
     // My bookings -> Booking details -> QR -> Dashboard
     journey: async page => {
@@ -25,12 +25,12 @@ const ROLES = [
       }
       await clickNav(page, '/')
     } },
-  { name: 'staff', email: 'ramy@giu-uni.de', password: 'Staff#2026',
+  { name: 'staff', email: 'ramy@giu-uni.de', password: (process.env.SEED_STAFF_PASSWORD ?? (() => { throw new Error('Set SEED_STAFF_PASSWORD in the environment') })()),
     journey: async page => {
       for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/devices',
                        '/admin/equipment', '/admin/alerts', '/issues', '/']) await clickNav(page, p)
     } },
-  { name: 'admin', email: 'admin@giu-uni.de', password: 'Admin#2026',
+  { name: 'admin', email: 'admin@giu-uni.de', password: (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()),
     journey: async page => {
       for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/reports',
                        '/admin/users', '/admin/devices', '/admin/equipment', '/admin/alerts',
