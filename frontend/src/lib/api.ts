@@ -1431,7 +1431,7 @@ export const api = {
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),
   labSensors: (id: number) => request<unknown[]>(`/labs/${id}/sensors`),
   labEnvironment: (id: number) => request<LabEnvironment>(`/labs/${id}/environment`),
-  allEnvironments: () => request<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[]>('/labs/environment/all'),
+  allEnvironments: (fresh = false) => request<{ lab: Pick<Lab, 'id' | 'code' | 'name'>; env: LabEnvironment }[]>('/labs/environment/all', fresh ? { cache: 'no-store' } : undefined),
   activeHazards: () => request<ActiveHazard[]>('/labs/hazards/active'),
   labIssues: (id: number) => request<LabIssueBrief[]>(`/labs/${id}/issues`),
   availability: (id: number, start: string, end: string) =>
@@ -1556,7 +1556,7 @@ export const api = {
   securityEvents: (q: { lab_id?: number; open_only?: boolean; limit?: number } = {}) =>
     request<SecurityEvent[]>(`/security/events${qs(q)}`),
   ackSecurityEvent: (id: number) => post<SecurityEvent>(`/security/events/${id}/ack`),
-  inventoryBins: () => request<InventoryBin[]>('/inventory/bins'),
+  inventoryBins: (fresh = false) => request<InventoryBin[]>('/inventory/bins', fresh ? { cache: 'no-store' } : undefined),
   equipment: () => request<{
     device_id: number; device_uid: string; kind: 'ROBOT' | 'PC'; name: string; asset_tag: string | null
     lab_code: string | null; online: boolean | null; last_seen_at: string | null
@@ -1642,9 +1642,11 @@ export const api = {
   pcMessage: (id: number, text: string, expiresMinutes?: number) =>
     post<DeviceCommand>(`/equipment/${id}/message`, { text, expires_minutes: expiresMinutes || undefined }),
   pcMessageClear: (id: number) => post<{ cleared: boolean }>(`/equipment/${id}/message/clear`, {}),
-  binItems: (labId: number) =>
+  /** `fresh`: skip the 1 s shared-read window - a live push (reusable_update) must not get the answer of the fetch
+   *  that ran a moment before it (e2e/live_bin.mjs, 2026-11-16: the card stayed "Bin offline" after a scan). */
+  binItems: (labId: number, fresh = false) =>
     request<{ bin_online: boolean; bin_device: string | null; inside: boolean; items: BinItem[] }>(
-      `/reusable/items?lab_id=${labId}`),
+      `/reusable/items?lab_id=${labId}`, fresh ? { cache: 'no-store' } : undefined),
   staffTakeFromBin: (assetIds: number[], userId: number) =>
     post<DeviceCommand & { message: string }>('/reusable/staff-checkout', { asset_ids: assetIds, user_id: userId }),
   staffReturnToBin: (assetId: number, note: string) =>

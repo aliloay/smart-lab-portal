@@ -24,16 +24,16 @@ export default function SmartBin({ labId }: { labId: number }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
 
-  const load = useCallback(() => { api.binItems(labId).then(setData).catch(() => setData(null)) }, [labId])
+  const load = useCallback((fresh = false) => { api.binItems(labId, fresh).then(setData).catch(() => setData(null)) }, [labId])
   useEffect(() => {
     load()
-    const t = visibleInterval(load, 15000)
+    const t = visibleInterval(() => load(), 15000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {
     if ((m.type === 'access_event' && m.event.lab_id === labId) ||
         (m.type === 'reusable_update' && m.lab_id === labId) ||
-        (m.type === 'staff' && m.kind === 'device_command')) load()
+        (m.type === 'staff' && m.kind === 'device_command')) load(true)
   })
 
   if (!data || (!data.items.length && !data.bin_device)) return null

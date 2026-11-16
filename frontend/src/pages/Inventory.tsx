@@ -43,15 +43,15 @@ export function ConsumableBins() {
   const [open, setOpen] = useState<InventoryBin | null>(null)
   const [creating, setCreating] = useState(false)
 
-  const load = useCallback(() => {
-    api.inventoryBins().then(setBins).catch(e => setError(e.message))
+  const load = useCallback((fresh = false) => {
+    api.inventoryBins(fresh).then(setBins).catch(e => setError(e.message))   // fresh: a live push must not get the answer of the fetch just before it
   }, [])
   useEffect(() => {
     load()
-    const t = visibleInterval(load, 15000)       // fallback if the live link drops
+    const t = visibleInterval(() => load(), 15000)       // fallback if the live link drops
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'inventory_update') load() })   // each weighing, at once
+  useLiveMessages(m => { if (m.type === 'inventory_update') load(true) })   // each weighing, at once
 
   return (
     <div className="space-y-6">
