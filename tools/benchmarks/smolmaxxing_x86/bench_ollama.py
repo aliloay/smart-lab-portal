@@ -155,12 +155,13 @@ def main(argv=None):
     ap.add_argument("--min-free-mb", type=int, default=700, help="abort when available RAM falls below this")
     ap.add_argument("--max-minutes", type=int, default=25)
     ap.add_argument("--out", default=str(HERE / "results.json"))
+    ap.add_argument("--golden", default=str(HERE / "golden_set.json"), help="alternative case file / system prompt (to A/B a prompt change)")
     a = ap.parse_args(argv)
 
     busy = [p for p in CAMERA_PORTS if port_listening(p)]
     if busy:
         sys.exit(f"REFUSING: a camera service is listening on {busy}; the GPU and CPU belong to the cameras. Stop nothing - run this when they are idle.")
-    gs = json.loads((HERE / "golden_set.json").read_text(encoding="utf-8"))
+    gs = json.loads(Path(a.golden).read_text(encoding="utf-8"))
     started = time.time()
     report = {"model": a.model, "url": a.url, "repeats": a.repeats, "host_ram_available_mb_start": round(available_ram_mb()),
               "gpu_start": gpu_snapshot(), "configs": {}}

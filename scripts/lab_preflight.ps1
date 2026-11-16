@@ -14,6 +14,8 @@ $devices = @(
   @{ name = 'ESP32-CAM (door face)';     ip = '192.168.1.150'; tcp = $null },
   @{ name = 'Master ESP32 (door)';       ip = '192.168.1.151'; tcp = $null },
   @{ name = 'Environment node';          ip = '192.168.1.152'; tcp = $null },
+  @{ name = 'Consumables bin node';      ip = '192.168.1.153'; tcp = $null },   # firmware LOCAL_IP (added 2026-11-17)
+  @{ name = 'Reusable bin node (Modular)'; ip = '192.168.1.154'; tcp = $null },  # firmware STATIC_IP (added 2026-11-17)
   @{ name = 'Security camera 1';         ip = '192.168.1.155'; tcp = 554 },
   @{ name = 'Security camera 2';         ip = '192.168.1.156'; tcp = 554 }
 )
