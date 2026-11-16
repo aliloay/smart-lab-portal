@@ -1,13 +1,13 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-## UPDATE 2026-11-16 (home, before the lab day) - 5 local commits, NOT pushed, NOT deployed
+## UPDATE 2026-11-16 (home, before the lab day) - local commits, NOT pushed; LOCAL portal DEPLOYED (backend cce108cddfb4, frontend 0ad323b9a5a9; later same evening)
 HEAD 510e081 on qa/browser-and-camera-docs. 92f21dd Welcome SpotlightCard; c73263a UR5e mirror test follows mountYaw=180 (owner 19 Oct);
 7ce3307 removed dead WelcomeArms/DragTwin; eeaa0dd e2e scripts no fallback password (S1); 510e081 `reusable_update` live hint
 (scan/complete/checkout/weight -> Smart bin card refetches at once) + seed-password regression test.
 Verified: backend 787 passed / 3 skipped (test_backend_fast.ps1, 356 s), tsc 0, vite build ok, frontend unit 7/7.
 Findings: env + consumables already push live (env_update, inventory_update); L1-L5 are defined in
 docs/reports/local-only-final-2026-11-12/SMART_LAB_CONTINUATION_REPORT_2026-11-12.md section 8 (not in LAB_TEST_2026-10-15.md).
-Not done: e2e on :5176/:8100 (test copy not started), Floorplan descriptions, deploy of the new images, firmware LCD/unit mapping,
+Done later 16 Nov: deployed, isolated e2e (navigation 98 / workflows 30 / live bin 20/20), Floorplan descriptions 696+372, docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md, CI without fixed passwords. See docs/reports/local-only-2026-11-16/IMMEDIATE_CLOSURE_2026-11-16.md. Still open:
 live-account password rotation (owner, set_password.py). Lab checklist: docs/reports/local-only-2026-11-16/LAB_DAY_CHECKLIST_2026-11-17.md.
 
 ## RESUME HERE - 2026-11-14 (AR model v7 live; UI tooling round; Haiku->Opus agents)
