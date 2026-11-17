@@ -274,3 +274,32 @@ def test_set_as_current_stock_reanchors_the_container(client, db, staff, lab, no
         _report(client, device_headers, m)
     assert client.post(f"/api/inventory/bins/{resistors.id}/count", headers=h,
                        json={"actual_count": 30, "recalibrate": True}).status_code in (201, 409)
+
+
+def test_slow_steps_of_a_real_take_are_not_absorbed_as_drift(client, db, lab, node, resistors, device_headers):
+    """Lab 2026-11-17: 30 in the glass read 27-28 after takes/returns - small settling steps (< 0.3 pc each) were
+    followed as drift and swallowed ~4 resistors. Drift is now followed at most DRIFT_STEP_G per reading."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.204, 125.5, 0.04
+    db.commit()
+    full = 125.5 + 30 * 0.204
+    for m in (full, full):
+        _report(client, device_headers, round(full, 2))
+    m = full
+    for _ in range(12):                                   # 3 pieces leave in 12 small steps of 0.05 g
+        m -= 0.051
+        last = _report(client, device_headers, round(m, 2)).json()["bins"][0]
+    for _ in range(3):
+        last = _report(client, device_headers, round(m, 2)).json()["bins"][0]
+    assert last["qty_est"] == 27                          # booked as taken, not hidden in the empty mass
+    db.refresh(resistors)
+    assert abs(resistors.tare_g - 125.5) < 0.15
+
+
+def test_real_slow_creep_is_still_followed(client, db, lab, node, resistors, device_headers):
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.204, 125.5, 0.04
+    db.commit()
+    m = 125.5 + 30 * 0.204
+    for _ in range(60):                                   # 0.0015 g per reading = 0.09 g/min (9x today's creep)
+        m += 0.0015
+        last = _report(client, device_headers, round(m, 3)).json()["bins"][0]
+    assert last["qty_est"] == 30 and last["transaction"] is None

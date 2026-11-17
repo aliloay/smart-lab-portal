@@ -128,6 +128,11 @@ CLEAN_PC = 0.3
 # While the container is lifted the platform is empty: that reading is a fresh
 # zero. Used for the next readings when it is this close to 0 (else ignored).
 ZERO_MAX_G = 0.5
+# Drift is followed at most this much per reading (lab 2026-11-17: following ANY change under CLEAN_PC let slowly
+# settling takes and a hand on the glass move the empty-container mass by 0.9 g = 4 resistors in 6 min; the count
+# read 27-28 with 30 in the glass). Measured creep today: ~0.01 g per MINUTE (empty 0 -> 1.1 g in ~2 h); 0.002 g per
+# 1 s reading (0.12 g/min) follows it with a 10x margin, a real piece (0.2 g) is 100x more and is booked.
+DRIFT_STEP_G = 0.002
 
 
 def _zero_g(db: Session, b: InventoryBin) -> float:
@@ -200,9 +205,10 @@ def record(db: Session, b: InventoryBin, mass: float,
         x = (mass - b.last_mass_g) / b.unit_mass_g
         n = round(x)
         if n == 0:
-            if abs(x) <= CLEAN_PC:       # no change: follow the drift
-                b.tare_g = round(b.tare_g + (mass - b.last_mass_g), 4)
-                b.last_mass_g, b.last_measured_at = mass, now
+            if abs(x) <= CLEAN_PC:       # no change: follow the drift - SLOWLY (DRIFT_STEP_G per reading)
+                step = max(-DRIFT_STEP_G, min(DRIFT_STEP_G, mass - b.last_mass_g))
+                b.tare_g = round(b.tare_g + step, 4)
+                b.last_mass_g, b.last_measured_at = round(b.last_mass_g + step, 4), now
             return None
         if abs(x - n) > CLEAN_PC:
             return None                  # between two counts (still settling): wait
