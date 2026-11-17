@@ -14,6 +14,14 @@ import onnxruntime as ort  # noqa: E402
 from app.services import bin_detector as bd  # noqa: E402
 
 OUT = r"D:\SmartLabData\colab\lab_cam_views"
+# 2026-11-17 (lab day): a NEW day's recordings go to their own folder, so the owner-corrected references above are never
+# regenerated:  set CAM_VIEWS_DAY=2026-11-17 (recordings in D:\SmartLabData\lab_<day>\recordings, one frame / 15 s);
+# the output then defaults to D:\SmartLabData\colab\lab_cam_views_<day> (CAM_VIEWS_OUT overrides it).
+DAY = os.environ.get("CAM_VIEWS_DAY", "").strip()
+if DAY:
+    OUT = os.environ.get("CAM_VIEWS_OUT") or rf"D:\SmartLabData\colab\lab_cam_views_{DAY}"
+DAY_REC = os.path.join(r"D:\SmartLabData", f"lab_{DAY}", "recordings") if DAY else ""
+DAY_EVERY_S = 15
 SV = os.path.join(REPO, "tools", "security_vision")
 SNAP = os.path.join(SV, "anchors", "box_snapshots", "2026-10-21_1539")
 M = os.path.join(REPO, "backend", "data", "models")
@@ -29,6 +37,9 @@ ROUGH = {
     "cam2_2026-10-21": [("ur5e_robot", .165, .255, .215, .425), ("fanuc_robot", .848, .330, .888, .445),
                         ("lab_door", .642, .125, .685, .405)],
 }
+if DAY:                   # starting points for the new day's views: the last known positions (the owner corrects them)
+    ROUGH[f"cam1_{DAY}"] = ROUGH["cam1_2026-10-21"]
+    ROUGH[f"cam2_{DAY}"] = ROUGH["cam2_2026-10-21"]
 
 _person = None
 
@@ -58,6 +69,15 @@ def blur_people(img):
 
 
 def frames():
+    if DAY:                                    # only the new day's two cameras, nothing from the earlier rounds
+        for cam in ("1", "2"):
+            for f in sorted(glob.glob(os.path.join(DAY_REC, f"SECCAM_LAB0{cam}_{DAY}_*.mp4"))):
+                cap = cv2.VideoCapture(f); fps = cap.get(5) or 15; n = int(cap.get(7)); step = max(1, int(fps * DAY_EVERY_S))
+                for i in range(step // 2, n, step):
+                    cap.set(1, i); ok, im = cap.read()
+                    if ok:
+                        yield f"cam{cam}_{DAY}", f"c{cam}_{os.path.basename(f)[13:32]}_{i:06d}", im
+        return
     for f in sorted(glob.glob(os.path.join(SV, "recordings", "SECCAM_LAB01_2026-10-12_*.mp4"))):
         cap = cv2.VideoCapture(f); fps = cap.get(5) or 15; n = int(cap.get(7)); step = int(fps * EVERY_S)
         for i in range(step // 2, n, step):
