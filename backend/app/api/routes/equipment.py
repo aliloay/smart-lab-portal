@@ -542,6 +542,9 @@ def lan_targets(db: Session = Depends(get_db), identity: str = Depends(require_d
     return out
 
 
+PC_SEEN_EVERY_S = 30
+
+
 @router.get("/pc/poll", tags=["devices"])
 def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db),
             identity: str = Depends(require_device)):
@@ -552,6 +555,12 @@ def pc_poll(device_uid: str = Query(max_length=64), db: Session = Depends(get_db
     d = get_device(db, device_uid)
     if d is None or d.device_type != DeviceType.PC:
         return {"mode": "NORMAL", "mirror": False, "message": None}
+    # 2026-11-17 lab: Hemaly's PC polled every second but its status report never arrived, so its card looked
+    # offline. A poll proves the agent is alive: refresh last_seen, at most one write per PC_SEEN_EVERY_S.
+    now_seen = datetime.now(timezone.utc)
+    if d.last_seen_at is None or (now_seen - d.last_seen_at).total_seconds() > PC_SEEN_EVERY_S:
+        d.last_seen_at = now_seen
+        db.commit()
     c = db.scalar(select(DeviceCommand).where(
         DeviceCommand.device_id == d.id, DeviceCommand.command == PC_MESSAGE,
         DeviceCommand.status == "PENDING").order_by(DeviceCommand.created_at))

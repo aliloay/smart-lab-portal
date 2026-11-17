@@ -300,6 +300,10 @@ constexpr uint32_t DENIED_DISPLAY_MS      = 2000;  // must be >= DENY_BEEP_MS,
                                                    // the alert short
 constexpr uint32_t DOOR_DEBOUNCE_MS       = 100;
 constexpr uint32_t RFID_HEARTBEAT_MS      = 3000;  // link self-test interval
+// 2026-11-17 lab: the reader stopped reading after a while until USB was replugged. Software-only recovery (no
+// RESET wire): re-send the reader setup every RFID_REFRESH_MS (antenna/RF config lost while it still answers),
+// and if a reinit fails, free a stuck I2C bus (9 clock pulses + STOP) and restart I2C before trying again.
+constexpr uint32_t RFID_REFRESH_MS        = 120000;
 // How long the green "QR CODE OK" / "RFID OK" confirmation shows before the
 // step-2 prompt replaces it. Display only: face/finger are accepted from
 // the first moment of step 2.
@@ -451,6 +455,7 @@ uint32_t lastUIDSeenMs = 0;   // last time the remembered card was in the field
 // RFID link health
 bool     rfidLinkDown = false;
 uint32_t lastHeartbeatMs = 0;
+uint32_t lastRfidRefreshMs = 0;
 
 // Latest vision result pulled from the camera board
 String   visionQr        = "";
@@ -540,6 +545,32 @@ bool rfidRecover() {
   bool ok = rfidFirmwareOk(fw);
   printFirmware("[RFID][RECOVER]", fw);
   Serial.printf("[RFID][RECOVER] %s\n", ok ? "(recovered)" : "(STILL DOWN - check wiring)");
+  return ok;
+}
+
+// A slave can hold SDA low after an interrupted transfer; only clock pulses free it (I2C spec, bus clear).
+void rfidBusClear() {
+  Wire.end();
+  pinMode(RFID_SDA_PIN, INPUT_PULLUP);
+  pinMode(RFID_SCL_PIN, OUTPUT_OPEN_DRAIN);
+  for (int i = 0; i < 9 && digitalRead(RFID_SDA_PIN) == LOW; i++) {
+    digitalWrite(RFID_SCL_PIN, LOW);  delayMicroseconds(10);
+    digitalWrite(RFID_SCL_PIN, HIGH); delayMicroseconds(10);
+  }
+  pinMode(RFID_SDA_PIN, OUTPUT_OPEN_DRAIN);            // STOP: SDA low -> high while SCL high
+  digitalWrite(RFID_SDA_PIN, LOW);  delayMicroseconds(10);
+  digitalWrite(RFID_SCL_PIN, HIGH); delayMicroseconds(10);
+  digitalWrite(RFID_SDA_PIN, HIGH); delayMicroseconds(10);
+  Wire.begin(RFID_SDA_PIN, RFID_SCL_PIN);
+  Wire.setClock(100000);
+  delay(20);
+}
+
+bool rfidDeepRecover() {
+  Serial.println("[RFID][RECOVER] Reinit failed - clearing the I2C bus and restarting I2C...");
+  rfidBusClear();
+  bool ok = rfidRecover();
+  if (!ok) Serial.println("[RFID][RECOVER] Reader still silent: the PN532 itself is frozen - only a power cycle clears it (no RESET wire)");
   return ok;
 }
 
@@ -1703,7 +1734,7 @@ void sendHeartbeat() {
   String body = String("{\"device_uid\":\"") + DEVICE_ID +
                 "\",\"lab_id\":\"" + LAB_ID +
                 "\",\"ip_address\":\"" + WiFi.localIP().toString() +
-                "\",\"firmware_version\":\"portal-1.0\"" +
+                "\",\"firmware_version\":\"portal-1.1\"" +
                 ",\"door_closed\":" + (doorClosed ? "true" : "false") +
                 // Per-component health for the admin view. The LCD is not
                 // here: its bus has no return line, so a dead display
@@ -2633,8 +2664,13 @@ void loop() {
 
         if (!rfidFirmwareOk(fw)) {
           bool ok = rfidRecover();
+          if (!ok) ok = rfidDeepRecover();
           if (!ok && !rfidLinkDown) { rfidLinkDown = true;  displayDirty = true; }
           if ( ok &&  rfidLinkDown) { rfidLinkDown = false; displayDirty = true; }
+        } else if (!rfidLinkDown && millis() - lastRfidRefreshMs > RFID_REFRESH_MS) {
+          // answers, but may have lost its RF setup (reads no card): re-send it, harmless when already set
+          lastRfidRefreshMs = millis();
+          nfc.SAMConfig();
         } else if (rfidLinkDown) {
           // It answers now but was never configured (boot init failed):
           // run SAMConfig, or it replies to firmware queries yet reads no card.
