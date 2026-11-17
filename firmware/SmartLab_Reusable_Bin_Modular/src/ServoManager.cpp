@@ -55,6 +55,10 @@ bool ServoManager::open() {
   _sweepTo = _open;
   _sweepStart = _lastStepMs = millis();
   _sweepDur = SERVO_OPEN_MS;
+  if (SERVO_OPEN_MS == 0) {                       // direct: full torque all the way, the pedal cannot stick
+    if (!moveTo(_open)) return false;
+    _sweepAt = _sweepTo;
+  }
   _state = ServoState::MOVING_TO_OPEN;
   LOG("SERVO", "Pressing the pedal -> %d deg (eased, %lu ms)", _open, (unsigned long)SERVO_OPEN_MS);
   return true;

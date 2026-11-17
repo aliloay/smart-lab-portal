@@ -106,7 +106,8 @@ constexpr int      SERVO_PULSE_MIN_US   = 500;    // MG90S range used by ESP32Se
 constexpr int      SERVO_PULSE_MAX_US   = 2400;
 constexpr uint32_t SERVO_MOVE_MS        = 600;    // VERIFY: time to reach an angle
 constexpr uint32_t SERVO_CLOSE_MS       = 600;     // closing: 1 deg per step (90 deg = ~0.7 s; was 16 ms = 1.5 s, owner 17 Nov: "quite slow")
-constexpr uint32_t SERVO_OPEN_MS        = 400;
+constexpr uint32_t SERVO_OPEN_MS        = 0;      // 0 = one direct move at full torque (lab 17 Nov: an eased open
+                                                  // stick-slipped on the pedal spring; serial log showed no brown-out)
 constexpr uint32_t SERVO_FRAME_MS       = 20;     // one new angle per servo pulse (50 Hz): smaller steps only make it stutter      // opening (2026-11-17): 1 deg per step (90 deg = ~0.35 s; 8 ms was "quite slow").
                                                   // Was one jump at full speed: the MG90S stuttered ("steps") under the pedal load.
 constexpr uint32_t SERVO_MAX_HOLD_MS    = 15000;  // never hold the pedal longer than this
@@ -145,7 +146,7 @@ const char *const PATH_RFID_INVENTORY = "";   // no portal endpoint yet: invento
 
 const char *const DEVICE_ID = "REUSE_BIN_1";
 const char *const LAB_ID    = "LAB_01";       // Robotics Lab (the breadboards are lab 1 items)
-const char *const FIRMWARE_VERSION = "reuse-mod-0.4";   // 0.2: smooth opening sweep, Wi-Fi sleep off; 0.3 (17 Nov): faster sweeps
+const char *const FIRMWARE_VERSION = "reuse-mod-0.5";   // 0.2: smooth opening sweep, Wi-Fi sleep off; 0.3 (17 Nov): faster sweeps
 // Fixed address on the Smart_Lab router (as the old bin firmware: .154).
 #define USE_STATIC_IP 1
 constexpr uint8_t STATIC_IP[4] = {192, 168, 1, 154}, GATEWAY_IP[4] = {192, 168, 1, 1},
