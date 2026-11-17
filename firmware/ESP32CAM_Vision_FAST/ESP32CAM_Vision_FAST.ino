@@ -67,6 +67,14 @@ const int   SERVER_PORT = 5000;
 // loads the WiFi and the laptop; 1200ms is a reasonable balance.
 constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 
+// 2026-11-17 lab: sending nonstop filled the 2.4 GHz channel - the bins next to the camera lost up to half their
+// reports (10-50 % ping loss with the camera on, ~0 % with it off). IDLE: one frame per IDLE_INTERVAL_MS. ACTIVE
+// (full speed) for ACTIVE_HOLD_MS after a face or QR was seen, or after the picture CHANGED (JPEG size differs by
+// MOTION_SIZE_PCT from the last frame - someone walking up). A person at the door gets full speed within ~1 s.
+constexpr uint32_t IDLE_INTERVAL_MS = 1000;
+constexpr uint32_t ACTIVE_HOLD_MS   = 10000;
+constexpr uint32_t MOTION_SIZE_PCT  = 8;
+
 // JPEG quality, 0-63, LOWER = better quality and a BIGGER file. Every frame
 // is uploaded over WiFi, so file size is frame rate: at a weak signal the
 // upload, not the laptop, is what limits speed. 12 made ~20 KB frames;
@@ -153,6 +161,8 @@ constexpr uint32_t ANALYZE_BACKOFF_STEP_MS = 150;
 constexpr uint32_t ANALYZE_BACKOFF_MAX_MS  = 1500;
 uint32_t analyzeFails   = 0;
 uint32_t analyzeDelayMs = 0;     // extra delay before the next frame
+uint32_t lastMotionMs = 0;       // picture changed (JPEG size jump) - keeps the camera at full speed
+size_t   lastJpegLen  = 0;
 uint32_t lastFailLogMs  = 0;
 
 // [PERF] accumulators
@@ -245,6 +255,11 @@ void analyzeFrame(AnalyzeWorker &w) {
   perfCaptureMs += capMs;
   perfBytes     += fb->len;
   hdrCapMs = prevCaptureMs;  hdrPostMs = prevPostMs;  hdrFails = totalFails;
+  if (lastJpegLen > 0) {
+    size_t d = fb->len > lastJpegLen ? fb->len - lastJpegLen : lastJpegLen - fb->len;
+    if (d * 100 > lastJpegLen * MOTION_SIZE_PCT) lastMotionMs = millis();
+  }
+  lastJpegLen = fb->len;
   UNLOCK();
 
   // Per-worker client, so the TCP connection survives between frames. At a
@@ -348,7 +363,10 @@ void analyzeTask(void *arg) {
   vTaskDelay(pdMS_TO_TICKS(index * ANALYZE_INTERVAL_MS / ANALYZE_WORKERS));
   for (;;) {
     LOCK();
-    uint32_t gap = ANALYZE_INTERVAL_MS + analyzeDelayMs;
+    uint32_t now = millis();
+    bool active = (everFace && now - lastFaceMs < ACTIVE_HOLD_MS) || (everQr && now - lastQrMs < ACTIVE_HOLD_MS) ||
+                  (lastMotionMs && now - lastMotionMs < ACTIVE_HOLD_MS);
+    uint32_t gap = (active ? ANALYZE_INTERVAL_MS : IDLE_INTERVAL_MS) + analyzeDelayMs;
     UNLOCK();
     if (!analyzeBusy && millis() - w.lastStartMs > gap) {
       w.lastStartMs = millis();
