@@ -67,9 +67,8 @@ export function ConsumableBins() {
               detail="Create a bin with the same code as in the bin node's firmware (e.g. BIN-R10K)." />
           : <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
               {bins.map(b => (
-                <button key={b.id} onClick={() => setOpen(b)}
-                        className={`card p-5 text-left hover:border-ink-500 transition-colors
-                                    ${b.low ? 'border-warn/50' : ''}`}>
+                <div key={b.id} className={`card text-left ${b.low ? 'border-warn/50' : ''}`}>
+                <button onClick={() => setOpen(b)} className="w-full p-5 pb-3 text-left hover:bg-ink-800/40 rounded-t-2xl transition-colors">
                   <div className="flex items-start gap-2">
                     <div className="min-w-0">
                       <div className="text-white font-semibold truncate">{b.item_name}</div>
@@ -95,7 +94,9 @@ export function ConsumableBins() {
                       : b.reorder_qty !== null ? `Reorder at ${b.reorder_qty}` : 'No reorder level'}
                     {b.measured_at && <> · {relative(b.measured_at)}</>}
                   </div>
-                </button>))}
+                </button>
+                {b.calibrated && <BinQuickActions bin={b} onDone={() => load(true)} />}
+                </div>))}
             </div>}
       </section>
 
@@ -105,6 +106,49 @@ export function ConsumableBins() {
       <Drawer open={creating} onClose={() => setCreating(false)} title="New bin">
         {creating && <CreateBin onDone={() => { setCreating(false); load() }} />}
       </Drawer>
+    </div>
+  )
+}
+
+/** 2026-11-17 (lab, owner): Zero and "set as current stock" right on the card, not hidden in the drawer. */
+function BinQuickActions({ bin, onDone }: { bin: InventoryBin; onDone: () => void }) {
+  const [busy, setBusy] = useState('')
+  const [count, setCount] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  async function zero() {
+    setBusy('zero'); setMsg(null)
+    try {
+      const r = await api.zeroBin(bin.id)
+      setMsg({ ok: true, text: r.zeroed_by === 'node' ? 'Sent to the node - it zeroes itself in a few seconds. Put the container back.'
+        : `Zeroed (${r.zero_offset_g.toFixed(2)} g removed). Put the container back.` })
+      onDone()
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Zero failed' }) }
+    finally { setBusy('') }
+  }
+  async function setStock() {
+    setBusy('count'); setMsg(null)
+    try {
+      const r = await api.recordBinCount(bin.id, parseInt(count, 10), 'set on the card', true)
+      setMsg({ ok: true, text: `Now counting from ${r.actual_count} (was ~${r.estimate ?? '—'}).` })
+      setCount(''); onDone()
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed' }) }
+    finally { setBusy('') }
+  }
+  return (
+    <div className="border-t border-ink-600/60 px-5 py-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-ghost btn-sm" disabled={!!busy} onClick={zero}
+                title="Take the container off the platform first">
+          {busy === 'zero' ? 'Zeroing…' : 'Zero scale (container off)'}</button>
+        <div className="flex gap-1.5 ml-auto">
+          <input className="input !py-1 !text-[13px] w-24" inputMode="numeric" placeholder="Real count"
+                 value={count} onChange={e => setCount(e.target.value)} />
+          <button type="button" className="btn-primary btn-sm" disabled={!!busy || !/^\d+$/.test(count)} onClick={setStock}
+                  title="Container on the scale: the portal re-anchors so this reading shows this count">
+            {busy === 'count' ? 'Saving…' : 'Set as stock'}</button>
+        </div>
+      </div>
+      {msg && <p className={`text-[12px] ${msg.ok ? 'text-ok-soft' : 'text-warn-soft'}`}>{msg.text}</p>}
     </div>
   )
 }

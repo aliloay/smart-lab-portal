@@ -107,7 +107,7 @@ def test_physical_count_records_the_error(client, db, staff, lab, node, resistor
     r = client.post(f"/api/inventory/bins/{resistors.id}/count",
                     headers=auth_headers(client, staff.email), json={"actual_count": 990})
     assert r.json() == {"bin_code": "BIN-R10K", "estimate": 1000, "actual_count": 990,
-                        "error": 10, "mass_g": 300.0}
+                        "error": 10, "mass_g": 300.0, "recalibrated": False, "tare_g": 100.0}
 
 
 def test_device_binding_and_permissions(client, db, lab, node, resistors, alice, device_headers):
@@ -250,3 +250,27 @@ def test_portal_zero_asks_a_bin_04_node_to_tare_itself(client, db, staff, lab, n
     assert resistors.tare_g == 128.752                     # unchanged: the node removes the offset itself
     assert _report(client, device_headers, 15.3).json()["bins"][0]["tare"] is True
     assert "tare" not in _report(client, device_headers, 0.0).json()["bins"][0]   # asked once only
+
+
+def test_set_as_current_stock_reanchors_the_container(client, db, staff, lab, node, resistors, device_headers):
+    """Lab day 2026-11-17: after Zero the box + 30 read 131.96 g net -> ~16 with the 1 Nov m0 (128.752).
+    'Set as current stock = 30' moves m0 so the same reading shows 30, and later takes still count."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 146.292, 0.04
+    db.commit()
+    for m in (149.5, 149.5):
+        last = _report(client, device_headers, m).json()["bins"][0]
+    assert last["qty_est"] == 16
+    h = auth_headers(client, staff.email)
+    r = client.post(f"/api/inventory/bins/{resistors.id}/count", headers=h,
+                    json={"actual_count": 30, "recalibrate": True})
+    assert r.status_code == 201 and r.json()["recalibrated"] is True
+    db.refresh(resistors)
+    assert abs(resistors.tare_g - (149.5 - 30 * 0.2066)) < 1e-6
+    for m in (149.5 - 5 * 0.2066,) * 2:                    # 5 taken
+        last = _report(client, device_headers, round(m, 2)).json()["bins"][0]
+    assert last["qty_est"] == 25 and last["transaction"] == "WITHDRAWAL"
+    # refused with the container off
+    for m in (17.5, 17.5):
+        _report(client, device_headers, m)
+    assert client.post(f"/api/inventory/bins/{resistors.id}/count", headers=h,
+                       json={"actual_count": 30, "recalibrate": True}).status_code in (201, 409)

@@ -172,6 +172,9 @@ def bin_history(bin_id: int, hours: int = Query(168, ge=1, le=24 * 365),
 class CountRequest(BaseModel):
     actual_count: int = Field(ge=0)
     note: str = Field(default="", max_length=255)
+    # Lab day 2026-11-17: "Set as current stock" - the hand count re-anchors the empty-container mass m0 so
+    # the CURRENT reading shows exactly this count (the container's mass or the scale's span changed).
+    recalibrate: bool = False
 
 
 @router.post("/bins/{bin_id}/count", status_code=status.HTTP_201_CREATED)
@@ -182,14 +185,29 @@ def record_count(bin_id: int, req: CountRequest, db: Session = Depends(get_db),
     if b is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bin not found")
     est = inv.qty_estimate(b, b.last_mass_g)
+    note = req.note
+    if req.recalibrate:
+        if not inv.calibrated(b) or b.last_mass_g is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Needs a calibrated bin with a current reading")
+        if inv.lifted(b, b.last_mass_g) or b.last_mass_g - req.actual_count * b.unit_mass_g <= 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Put the container (with its contents) on the scale first")
+        old = b.tare_g
+        b.tare_g = round(b.last_mass_g - req.actual_count * b.unit_mass_g, 4)
+        note = (note + " " if note else "") + f"set as stock: m0 {old:.3f} -> {b.tare_g:.3f} g"
+        db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_RECOUNTED", entity_type="inventory_bin",
+                        entity_id=str(b.id), detail={"count": req.actual_count, "estimate": est,
+                                                     "tare_g_before": old, "tare_g_after": b.tare_g}))
     t = InventoryTransaction(bin_id=b.id, kind="COUNT", qty_est_after=est,
                              actual_count=req.actual_count, recorded_by_id=staff.id,
-                             note=req.note, attribution="STAFF_COUNT")
+                             note=note, attribution="STAFF_COUNT")
     db.add(t)
     db.commit()
+    if req.recalibrate:
+        from app.services.environment import publish
+        publish([{"type": "inventory_update", "bins": [b.code]}])
     return {"bin_code": b.code, "estimate": est, "actual_count": req.actual_count,
             "error": None if est is None else est - req.actual_count,
-            "mass_g": b.last_mass_g}
+            "mass_g": b.last_mass_g, "recalibrated": req.recalibrate, "tare_g": b.tare_g}
 
 
 # Portal "Zero scale" (lab day 2026-11-17): after transport the load cell can read 10-20 g with the

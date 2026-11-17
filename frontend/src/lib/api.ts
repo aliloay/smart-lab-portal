@@ -1670,9 +1670,10 @@ export const api = {
       `/inventory/bins/${id}/history?hours=${hours}`),
   zeroBin: (id: number) =>
     post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
-  recordBinCount: (id: number, actual_count: number, note = '') =>
-    post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null }>(
-      `/inventory/bins/${id}/count`, { actual_count, note }),
+  recordBinCount: (id: number, actual_count: number, note = '', recalibrate = false) =>
+    post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null;
+           recalibrated: boolean; tare_g: number | null }>(
+      `/inventory/bins/${id}/count`, { actual_count, note, recalibrate }),
   myFaceSubmission: () => request<FaceSubmission | null>('/auth/me/face-submission'),
   submitFacePhotos: (files: File[], onProgress?: (f: number) => void) => {
     const form = new FormData()
