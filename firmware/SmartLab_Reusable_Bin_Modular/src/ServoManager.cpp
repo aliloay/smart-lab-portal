@@ -51,12 +51,12 @@ bool ServoManager::open() {
   // jump made the servo stutter under the pedal load (owner, lab 2026-11-17).
   int from = _target >= 0 ? _target : (_idle >= 0 ? _idle : _open);
   if (!moveTo(from)) return false;
-  _sweepAt = from;
+  _sweepFrom = _sweepAt = from;
   _sweepTo = _open;
-  _lastStepMs = millis();
+  _sweepStart = _lastStepMs = millis();
+  _sweepDur = SERVO_OPEN_MS;
   _state = ServoState::MOVING_TO_OPEN;
-  LOG("SERVO", "Pressing the pedal -> %d deg (sweep, ~%lu ms)", _open,
-      (unsigned long)(abs(_open - from) * SERVO_OPEN_STEP_MS));
+  LOG("SERVO", "Pressing the pedal -> %d deg (eased, %lu ms)", _open, (unsigned long)SERVO_OPEN_MS);
   return true;
 }
 
@@ -65,12 +65,12 @@ void ServoManager::release() {
   int to = _idle >= 0 ? _idle : _target;       // no idle angle saved: stay put, then detach
   // Close gently: step 1 degree every SERVO_CLOSE_STEP_MS (update() does the steps).
   _sweepTo = to;
-  _sweepAt = _target >= 0 ? _target : to;
-  _lastStepMs = millis();
+  _sweepFrom = _sweepAt = _target >= 0 ? _target : to;
+  _sweepStart = _lastStepMs = millis();
+  _sweepDur = SERVO_CLOSE_MS;
   _state = ServoState::RELEASING;
   _since = millis();
-  LOG("SERVO", "Releasing -> %d deg (gently, ~%lu ms)", to,
-      (unsigned long)(abs(to - _sweepAt) * SERVO_CLOSE_STEP_MS));
+  LOG("SERVO", "Releasing -> %d deg (eased, %lu ms)", to, (unsigned long)SERVO_CLOSE_MS);
 }
 
 bool ServoManager::manualAngle(int a) {
@@ -95,28 +95,14 @@ void ServoManager::update() {
   uint32_t el = millis() - _since;
   switch (_state) {
     case ServoState::MOVING_TO_OPEN:
-      if (_sweepAt != _sweepTo) {                     // still sweeping towards the open angle
-        if (millis() - _lastStepMs >= SERVO_OPEN_STEP_MS) {
-          _lastStepMs = millis();
-          _sweepAt += _sweepTo > _sweepAt ? 1 : -1;
-          moveTo(_sweepAt);                             // also restarts _since
-        }
-        break;
-      }
+      if (sweepStep()) break;                         // still moving towards the open angle
       if (el >= SERVO_MOVE_MS) { _state = ServoState::HOLDING_OPEN; _since = millis(); }
       break;
     case ServoState::HOLDING_OPEN:
       if (el >= SERVO_MAX_HOLD_MS) { LOG("SERVO", "Max hold %lu ms reached - releasing", (unsigned long)SERVO_MAX_HOLD_MS); release(); }
       break;
     case ServoState::RELEASING:
-      if (_sweepAt != _sweepTo) {                     // still sweeping towards the idle angle
-        if (millis() - _lastStepMs >= SERVO_CLOSE_STEP_MS) {
-          _lastStepMs = millis();
-          _sweepAt += _sweepTo > _sweepAt ? 1 : -1;
-          moveTo(_sweepAt);                             // also restarts _since
-        }
-        break;
-      }
+      if (sweepStep()) break;                         // still moving towards the idle angle
       if (el >= SERVO_MOVE_MS) {
         if (g_servo.attached()) g_servo.detach();     // no holding torque at rest
         _state = ServoState::SAFE_IDLE;
@@ -128,6 +114,22 @@ void ServoManager::update() {
       break;
     default: break;
   }
+}
+
+// 2026-11-17 lab (owner: "moves in microsteps, not smooth"): 1 degree every 4-8 ms was faster than the servo's own
+// 50 Hz pulse, so it jumped ~5 degrees per pulse and stopped. Now one angle per SERVO_FRAME_MS on an ease-in-out
+// curve over a fixed time: smooth start, fast middle, soft stop.
+bool ServoManager::sweepStep() {
+  if (_sweepAt == _sweepTo || _sweepDur == 0) return false;
+  uint32_t now = millis();
+  if (now - _lastStepMs < SERVO_FRAME_MS) return true;
+  _lastStepMs = now;
+  float u = (float)(now - _sweepStart) / (float)_sweepDur;
+  if (u >= 1.0f) { _sweepAt = _sweepTo; moveTo(_sweepAt); return false; }
+  float e = u < 0.5f ? 2.0f * u * u : 1.0f - 2.0f * (1.0f - u) * (1.0f - u);   // ease-in-out
+  int a = _sweepFrom + (int)lroundf((_sweepTo - _sweepFrom) * e);
+  if (a != _sweepAt) { _sweepAt = a; moveTo(a); }   // moveTo also restarts _since
+  return true;
 }
 
 void ServoManager::setIdleAngle(int a) {

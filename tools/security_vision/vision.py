@@ -1555,7 +1555,10 @@ class Labeler:
         for t in tracks:
             t.hint = None
         taken: set[int] = set()
+        named_now = {(t.name or "").strip().lower() for t in tracks if t.label}
         for text, names in hints.items():
+            if text.rstrip("?").strip().lower() in named_now:
+                continue                           # that person is already named in view (lab 17 Nov: Ali got "Hemaly?")
             rects = [zones_px[n] for n in names if n in zones_px]
             best = None
             for t in tracks:

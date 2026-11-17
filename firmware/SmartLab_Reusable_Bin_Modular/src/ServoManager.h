@@ -46,6 +46,9 @@ class ServoManager {
   bool moveTo(int angle);
   int _idle = -1, _open = -1, _target = -1, _sweepAt = -1, _sweepTo = -1;
   uint32_t _lastStepMs = 0;
+  int _sweepFrom = -1;
+  uint32_t _sweepStart = 0, _sweepDur = 0;
+  bool sweepStep();                       // eased move, one angle per servo frame; true while moving
   ServoState _state = ServoState::SAFE_IDLE;
   uint32_t _since = 0;
   bool _locked = false;

@@ -45,3 +45,12 @@ def test_one_person_per_guess_even_with_two_at_his_desks():
     owner = Track(2, (232, 112, 40, 50), 0, 0)              # at PC-01, a bit off its centre
     Labeler().desk_hints([hemaly, owner], {"Eng. Hemaly?": ["PC-04", "PC-01"]}, zones)
     assert [hemaly.hint, owner.hint].count("Eng. Hemaly?") == 1
+
+
+def test_no_desk_guess_for_someone_already_named_in_view():
+    """Lab 17 Nov: Hemaly was named; the owner at PC-01 (another of Hemaly's desks) still got 'Hemaly?'."""
+    zones = {"PC-04": (100, 100, 40, 30), "PC-01": (220, 110, 40, 30)}
+    hemaly = Track(1, (105, 95, 40, 50), 0, 0); hemaly.label, hemaly.name = "USER5", "Eng. Hemaly"
+    owner = Track(2, (222, 105, 40, 50), 0, 0)
+    Labeler().desk_hints([hemaly, owner], {"Eng. Hemaly?": ["PC-04", "PC-01"]}, zones)
+    assert owner.hint is None

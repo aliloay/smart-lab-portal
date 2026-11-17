@@ -213,3 +213,24 @@ def test_look_link_refused_when_two_people_look_alike(path):
     for k in range(labmap.LINK_PASSES + 2):
         c2.assign([me], {}, now=101.0 + k * 0.2, peer_tracks=peer)
     assert me.lab_no == mine
+
+
+def test_a_confirmed_name_comes_back_with_the_look(path):
+    """Lab 17 Nov: Ali was confirmed, bent down, the track broke and the new track was 'Person 230'."""
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    ali = T(1, vec(5), label="USER1"); ali.name, ali.role, ali.source = "Ali Loay", "STUDENT", "operator"
+    cam.assign([ali], {}, now=100.0)
+    cam.assign([], {}, now=104.0)                                   # track broke
+    back = T(2, near(vec(5), 0.05))
+    cam.assign([back], {}, now=106.0)
+    assert back.lab_no == ali.lab_no and cam.restore and cam.restore[0][1]["auth_subject"] == "USER1"
+
+
+def test_a_guessed_name_is_not_given_back(path):
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    g = T(1, vec(5), label="USER5"); g.name, g.role, g.source = "Hemaly", "STAFF", "look"   # only a look guess
+    cam.assign([g], {}, now=100.0)
+    cam.assign([], {}, now=104.0)
+    back = T(2, near(vec(5), 0.05))
+    cam.assign([back], {}, now=106.0)
+    assert not cam.restore

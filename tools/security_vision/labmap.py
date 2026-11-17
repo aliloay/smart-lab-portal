@@ -41,7 +41,9 @@ LOCK_STALE_S = 5.0           # a lock file older than this was left by a crashed
 # A number crosses between cameras only on a SOLID pairing (lab 2026-11-17, first live run: short-lived pairings
 # around the busy UR5e table spread "Person 1" to everyone, and the lower number never went back):
 LINK_PASSES = 12             # paired this many passes in a row (~2 s; crosscam names need STABLE_PASSES = 4)
-LINK_LOOK_MAX = 0.55         # looks agree (crosscam APPEAR_NAME_MAX, between the measured medians 0.31 / 0.79)
+LINK_LOOK_MAX = 0.55
+# Names that survive a track break (bending down, passing behind someone): door, face, staff-confirmed, carried over
+KEEP_NAME_SOURCES = {"door", "face", "operator", "peer"}         # looks agree (crosscam APPEAR_NAME_MAX, between the measured medians 0.31 / 0.79)
 
 
 def _dist(a, b) -> Optional[float]:
@@ -142,6 +144,7 @@ class LabNumbers:
         peer_tracks: the other camera's current tracks (crosscam's last /peer answer, only when fresh)."""
         now = time.time() if now is None else now
         self.notes = []
+        self.restore = []                                    # (track, confirmed name) to give back - applied by the caller
         alive = {t.id for t in tracks}
         self.looks = {k: v for k, v in self.looks.items() if k in alive}
         self.born = {k: v for k, v in self.born.items() if k in alive}
@@ -217,6 +220,11 @@ class LabNumbers:
                 if lk is None and now - self.born[t.id] < LOOK_WAIT_S:
                     continue                                 # no look yet: wait a moment before a new number
                 no = self._returning(people, busy, lk) if lk is not None else None
+                if no is not None and not t.label and people[str(no)].get("who"):
+                    w = people[str(no)]["who"]
+                    held = {o.label for o in tracks if o.label}
+                    if w["auth_subject"] not in held:
+                        self.restore.append((t, w))
                 if no is not None:
                     self._note("LAB_NUMBER_BACK", t, f"came back: same look as Person {no} "
                                                      f"(left {now - people[str(no)]['seen']:.0f} s ago)")
@@ -226,9 +234,11 @@ class LabNumbers:
                 t.lab_no = no
                 busy.add(no)
             for t in tracks:                                 # refresh everyone with a number: look, last seen
-                if t.lab_no is None or t.label:
+                if t.lab_no is None:
                     continue
                 e = people.setdefault(str(t.lab_no), {"first": now})
+                if t.label and getattr(t, "source", None) in KEEP_NAME_SOURCES:
+                    e["who"] = {"auth_subject": t.label, "name": t.name, "role": t.role, "source": t.source}
                 lk = looks[t.id]
                 if lk is not None:
                     old = e.get("deep")

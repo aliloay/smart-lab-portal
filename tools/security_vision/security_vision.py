@@ -648,6 +648,11 @@ class Service:
                         fresh = pv and -1.0 <= t0 - float(pv.get("t", 0)) <= 1.0
                         notes_cc = notes_cc + self.labnums.assign(tracks, self.crosscam.links, t0,
                                                                   pv.get("tracks") if fresh else None)
+                        for t_back, who in self.labnums.restore:   # same look came back: its confirmed name too
+                            src = "operator" if who.get("source") == "operator" else "peer"
+                            self.labeler._give(t_back, who, src, how="came back (same look)")
+                            notes_cc.append({"kind": "NAME_BACK_BY_LOOK", "track_id": t_back.id, "label": who["auth_subject"],
+                                             "detail": f"same look as Person {t_back.lab_no} - confirmed name given back"})
                     except Exception as e:             # a register problem never stops tracking
                         print(f"[labmap] skipped: {e.__class__.__name__}: {e}")
                     self.frame_wh = (w, h)
