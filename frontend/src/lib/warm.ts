@@ -18,7 +18,7 @@ const STAFF_PAGES: Record<string, string[]> = {
   '/admin/users': ['/face-submissions', '/users'],
   '/admin/access': ['/labs', '/users', '/access-events?limit=400'],
   '/admin/bookings': ['/bookings'],
-  '/admin/incidents': ['/incidents?state=ACTIVE'],
+  '/admin/incidents': ['/incidents?state=ACTIVE&view=summary'],
   '/admin/operations': ['/analytics/trends?weeks=5', '/analytics/operations?days=30', '/labs'],
   '/admin/system': ['/system/health', '/analytics/anomalies', '/analytics/system?days=30'],
   '/admin/reliability': ['/reliability/briefing'],

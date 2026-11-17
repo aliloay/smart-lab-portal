@@ -57,3 +57,27 @@ def test_calibration_status_reaches_the_camera_list_and_unknown_values_are_dropp
                 json={"device_uid": "SECCAM_T", "calibration": {"state": "hacked", "reason": "x"}})
     cam = next(c for c in client.get("/api/security/cameras", headers=h).json() if c["device_uid"] == "SECCAM_T")
     assert cam["calibration"] is None                                # an unknown state is not shown
+
+
+def test_argon_partial_pose_metadata_is_accepted_but_not_stored(client, db, lab, staff, device_headers):
+    """Integration contract 2026-11-18: the camera (activity.py) now also sends "partial" and a per-joint
+    "pose_visibility" map (box-geometry PREDICTED / OCCLUDED / OUT_OF_FRAME). The portal does not use them (the
+    posture text already says "upper body in view"), so an old backend and this one both accept the report and keep
+    only the known fields - no 422, no per-joint guesses stored in the device row every 2 s."""
+    _camera(db, lab)
+    line = {"track_id": 7, "label": "USER6", "who": "Nour", "colour": "black", "posture": "upper body in view",
+            "near": None, "named": True, "text": "Nour (black top) - upper body in view", "lab_no": 2, "at": False,
+            "size": 0.19, "hint": None, "partial": True,
+            "pose_visibility": {"head": {"state": "PREDICTED", "confidence": 0.5, "xy": [470.0, 437.0],
+                                         "basis": "box_geometry"},
+                                "ankles": {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None,
+                                           "basis": "box_geometry"}}}
+    r = client.post("/api/security/state", headers=device_headers,
+                    json={"device_uid": "SECCAM_T", "fps": 9, "people": 1, "named": [], "unknown": 0,
+                          "activity": [line]})
+    assert r.status_code == 200, r.text
+    cam = next(c for c in client.get("/api/security/cameras", headers=auth_headers(client, staff.email)).json()
+               if c["device_uid"] == "SECCAM_T")
+    kept = cam["activity"][0]
+    assert kept["posture"] == "upper body in view" and kept["lab_no"] == 2
+    assert "pose_visibility" not in kept and "partial" not in kept

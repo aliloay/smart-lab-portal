@@ -32,18 +32,36 @@ export default function Incidents() {
   const [params] = useSearchParams()
   const [open, setOpen] = useState<number | null>(params.get('open') ? Number(params.get('open')) : null)
   const [error, setError] = useState('')
+  // Older pages (2026-11-18 keyset cursor): fetched on request, kept until a filter changes. The 20 s refresh
+  // re-reads the newest page only; an id already shown there is not repeated from an older page.
+  const [older, setOlder] = useState<{ rows: List['incidents']; next: string | null }>({ rows: [], next: null })
+  const [olderBusy, setOlderBusy] = useState(false)
   const load = useCallback(() => {
     api.incidents({ state, severity, q }).then(setList).catch(e => setError(e.message))
   }, [state, severity, q])
+  useEffect(() => { setOlder({ rows: [], next: null }) }, [state, severity, q])
   useEffect(() => { const t = window.setTimeout(load, q ? 300 : 0); return () => window.clearTimeout(t) }, [load, q])
   useEffect(() => { const t = visibleInterval(load, 20000); return () => window.clearInterval(t) }, [load])
+  const nextCursor = older.rows.length ? older.next : list?.next_cursor ?? null
+  const loadOlder = () => {
+    if (!nextCursor) return
+    setOlderBusy(true)
+    api.incidents({ state, severity, q, before: nextCursor })
+      .then(r => setOlder(o => ({ rows: [...o.rows, ...r.incidents], next: r.next_cursor ?? null })))
+      .catch(e => setError(e.message)).finally(() => setOlderBusy(false))
+  }
+  const shown = useMemo(() => {
+    const first = list?.incidents ?? []
+    const ids = new Set(first.map(i => i.id))
+    return [...first, ...older.rows.filter(i => !ids.has(i.id))]
+  }, [list, older.rows])
   const groups = useMemo(() => {
-    const m = new Map<string, NonNullable<typeof list>['incidents']>()
-    for (const i of list?.incidents ?? []) { const k = groupKey(i); m.set(k, [...(m.get(k) ?? []), i]) }
+    const m = new Map<string, List['incidents']>()
+    for (const i of shown) { const k = groupKey(i); m.set(k, [...(m.get(k) ?? []), i]) }
     return [...m.values()]
-  }, [list])
+  }, [shown])
   const rows = grouped ? groups.map(g => ({ ...g[0], similar: g.length, oldest: g[g.length - 1].created_at })) :
-    (list?.incidents ?? []).map(i => ({ ...i, similar: 1, oldest: i.created_at }))
+    shown.map(i => ({ ...i, similar: 1, oldest: i.created_at }))
   return (
     <div>
       <PageHeader eyebrow="Operations" title="Incidents"
@@ -56,7 +74,7 @@ export default function Incidents() {
           <option value="">All severities</option>{['CRITICAL', 'WARNING', 'INFO'].map(s => <option key={s} value={s}>{s.toLowerCase()}</option>)}</select>
         <input className="input !py-1.5 w-56" placeholder="Search title or detail" value={q} onChange={e => setQ(e.target.value)} />
         <label className="flex items-center gap-1 text-[12.5px] text-slate-300"><input type="checkbox" checked={grouped} onChange={e => setGrouped(e.target.checked)} /> group similar</label>
-        {list && <span className="text-[12px] text-slate-400">{list.incidents.length} shown{list.reports != null && list.reports > list.incidents.length ? ` (${list.reports} reports grouped)` : ''} · {list.counts.OPEN} open · {list.counts.ACKNOWLEDGED + list.counts.INVESTIGATING + (list.counts.MITIGATED ?? 0)} in progress
+        {list && <span className="text-[12px] text-slate-400">{shown.length}{list.total != null && list.total > shown.length ? ` of ${list.total}` : ''} shown{list.reports != null && list.reports > shown.length ? ` (${list.reports} reports grouped)` : ''} · {list.counts.OPEN} open · {list.counts.ACKNOWLEDGED + list.counts.INVESTIGATING + (list.counts.MITIGATED ?? 0)} in progress
           {list.escalations > 0 && <b className="text-bad-soft"> · {list.escalations} need escalation</b>}</span>}
         <Link to="/admin/reliability?tab=quality" className="ml-auto text-[12px] text-accent-300 hover:underline">Alert quality</Link>
       </div>
@@ -79,6 +97,9 @@ export default function Incidents() {
             <span className="ml-auto text-[12px] text-slate-500">{i.owner ? `${i.owner} · ` : ''}{relative(i.created_at)}
               {(i.occurrences ?? 1) > 1 && i.last_seen_at ? ` · last ${relative(i.last_seen_at)}` : ''}</span>
           </button>))}
+        {nextCursor && <button type="button" onClick={loadOlder} disabled={olderBusy}
+          className="w-full px-4 py-2.5 text-[12.5px] text-accent-300 hover:bg-ink-800/60 disabled:opacity-60">
+          {olderBusy ? 'Loading older incidents…' : 'Load older incidents'}</button>}
       </div>
       {open != null && <IncidentDrawer id={open} onClose={() => setOpen(null)} onChange={load} />}
     </div>

@@ -1606,10 +1606,13 @@ export const api = {
     bin_id: number; bin: string; item: string; measured_qty: number | null; measured_error: number | null; last_measured_at: string | null
     last_count: number | null; last_count_at: string | null; net_since_count: number; transactions_since_count: number
     unattributed_withdrawals: number; expected_qty: number | null; difference: number | null; status: string }[] }>('/reports-center/inventory-discrepancies'),
-  incidents: (f: { state?: string; severity?: string; q?: string }) => request<{ incidents: { id: number; code: string; title: string; detail: string; severity: string; state: string; lab: string | null
-    device: string | null; source: string; created_at: string; acknowledged_at: string | null; acknowledged_by: string | null
-    owner: string | null; owner_id: number | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null; escalate: boolean; provenance?: string | null; occurrences?: number; last_seen_at?: string; reopened_count?: number; escalation_reason?: string | null; fingerprint?: string | null }[];
-    counts: Record<string, number>; escalations: number; reports?: number }>(`/incidents${qs({ state: f.state, severity: f.severity, q: f.q })}`),
+  /** The Incidents list (2026-11-18: view=summary - only the fields the rows draw; polled every 20 s. The drawer
+   *  reads detail / resolution / fingerprint from incident(id). `before` = next_cursor of the previous page). */
+  incidents: (f: { state?: string; severity?: string; q?: string; before?: string }) => request<{ incidents: { id: number; code: string; title: string; severity: string; state: string; lab: string | null
+    device: string | null; created_at: string; owner: string | null; escalate: boolean; provenance?: string | null; occurrences?: number
+    last_seen_at?: string; reopened_count?: number; escalation_reason?: string | null }[];
+    counts: Record<string, number>; escalations: number; reports?: number; total?: number; truncated?: boolean; next_cursor?: string | null }>(
+    `/incidents${qs({ state: f.state, severity: f.severity, q: f.q, view: 'summary', before: f.before })}`),
   incident: (id: number) => request<{ id: number; code: string; title: string; detail: string; severity: string; state: string; lab: string | null
     device: string | null; source: string; created_at: string; acknowledged_at: string | null; acknowledged_by: string | null
     owner: string | null; owner_id: number | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null; escalate: boolean; provenance?: string | null; occurrences?: number; last_seen_at?: string; reopened_count?: number; escalation_reason?: string | null; fingerprint?: string | null } & { facts: string[]; related_note: string

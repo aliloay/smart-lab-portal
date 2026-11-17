@@ -77,3 +77,60 @@ def test_state_filter_is_applied_before_the_row_cap(client, db, staff, lab):
     r = client.get("/api/incidents?state=OPEN", headers=auth_headers(client, staff.email)).json()
     assert any(x["title"] == "old open one" for x in r["incidents"])
     assert r["total"] >= 1 and r["truncated"] is False
+
+
+def test_default_contract_is_unchanged_and_summary_view_is_lean(client, db, staff, lab):
+    """2026-11-18: the list is polled every 20 s. view=summary drops the drawer-only fields; the default stays full."""
+    _alert(db, lab, detail="long detail text " * 20)
+    h = auth_headers(client, staff.email)
+    full = client.get("/api/incidents?state=ACTIVE", headers=h).json()
+    row = full["incidents"][0]
+    for k in ("detail", "resolution", "fingerprint", "acknowledged_by", "owner_id", "source", "title", "state"):
+        assert k in row
+    assert full["next_cursor"] is None and full["truncated"] is False and full["total"] == 1
+    lean = client.get("/api/incidents?state=ACTIVE&view=summary", headers=h).json()
+    s = lean["incidents"][0]
+    assert "detail" not in s and "resolution" not in s and "fingerprint" not in s
+    assert {k: s[k] for k in s} == {k: row[k] for k in s}                     # same values, fewer keys
+    assert lean["counts"] == full["counts"] and lean["escalations"] == full["escalations"]
+
+
+def test_cursor_pages_cover_every_row_once_and_counts_describe_the_whole_view(client, db, staff, lab):
+    now = datetime.now(timezone.utc)
+    made = []
+    for i in range(7):
+        a = _alert(db, lab, title=f"page row {i}")
+        a.created_at = now - timedelta(minutes=i)
+        made.append(a)
+    made[3].created_at = made[2].created_at                                  # a tie: id breaks it
+    db.commit()
+    h = auth_headers(client, staff.email)
+    seen, before, pages = [], None, 0
+    while True:
+        url = "/api/incidents?view=summary&limit=3" + (f"&before={before}" if before else "")
+        r = client.get(url, headers=h).json()
+        pages += 1
+        assert r["total"] == 7 and r["counts"]["OPEN"] == 7                  # whole view on every page
+        seen += [x["id"] for x in r["incidents"]]
+        before = r["next_cursor"]
+        assert r["truncated"] is (before is not None)
+        if not before:
+            break
+    assert pages == 3 and len(seen) == 7 and len(set(seen)) == 7
+    assert client.get("/api/incidents?before=not-a-cursor", headers=h).status_code == 422
+    assert client.get("/api/incidents?limit=501", headers=h).status_code == 422
+
+
+def test_sql_state_and_lab_filters_match_the_lifecycle_rules(client, db, staff, lab):
+    """state(): resolved <=> is_resolved; an unresolved row whose lifecycle column says RESOLVED reads as OPEN."""
+    _alert(db, lab, title="plain open")
+    stale = _alert(db, lab, title="stale resolved column")
+    db.execute(text("update alerts set state='RESOLVED', is_resolved=false where id=:i"), {"i": stale.id})
+    _alert(db, lab, title="really resolved", is_resolved=True, resolved_at=datetime.now(timezone.utc))
+    db.commit()
+    h = auth_headers(client, staff.email)
+    titles = lambda q: sorted(x["title"] for x in client.get(f"/api/incidents{q}", headers=h).json()["incidents"])
+    assert titles("?state=OPEN") == ["plain open", "stale resolved column"]
+    assert titles("?state=ACTIVE") == ["plain open", "stale resolved column"]
+    assert titles("?state=RESOLVED") == ["really resolved"]
+    assert len(titles(f"?lab={lab.code}")) == 3 and titles("?lab=NOPE") == []

@@ -15,7 +15,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, or_, select
+from sqlalchemy import desc, false, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_staff
@@ -94,30 +94,86 @@ def _maps(db: Session):
     return labs, users, devices
 
 
+# The list rows the Incidents page draws (view=summary). The drawer reads the rest from GET /incidents/{id}.
+SUMMARY_KEYS = ("id", "code", "title", "severity", "state", "lab", "device", "created_at", "owner", "escalate",
+                "escalation_reason", "provenance", "occurrences", "last_seen_at", "reopened_count")
+PAGE_MAX = 500
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _cursor(a: Alert) -> str:
+    """URL-safe keyset cursor "<created_at in epoch microseconds>_<id>" (digits only: an unencoded "+" from an ISO
+    offset would arrive as a space)."""
+    return f"{(_utc(a.created_at) - _EPOCH) // timedelta(microseconds=1)}_{a.id}"
+
+
+def _after_cursor(before: str):
+    """(created_at, id) of a `before` cursor; 422 when it is not one this endpoint handed out."""
+    try:
+        us, ident = before.split("_")
+        return _EPOCH + timedelta(microseconds=int(us)), int(ident)
+    except (ValueError, TypeError, OverflowError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "before: not a cursor from this list")
+
+
 @router.get("")
 def list_incidents(state_: Optional[str] = Query(None, alias="state", pattern="^(OPEN|ACKNOWLEDGED|INVESTIGATING|MITIGATED|RESOLVED|ACTIVE)$"),
                    severity: Optional[str] = Query(None, max_length=16), lab: Optional[str] = Query(None, max_length=16),
                    q: Optional[str] = Query(None, max_length=80), days: int = Query(30, ge=1, le=365),
+                   view: Literal["full", "summary"] = Query("full"),
+                   limit: int = Query(PAGE_MAX, ge=1, le=PAGE_MAX),
+                   before: Optional[str] = Query(None, max_length=64),
                    db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Incidents newest first. Defaults are the pre-2026-11-18 contract (full rows, first 500, total/truncated).
+
+    2026-11-18 (integration, payload polled every 20 s): state and lab are filtered in SQL with the same meaning as
+    state() / the lab code (were Python filters over every row of the window, each fully built first);
+    view=summary returns only the list's fields (~40 % of the bytes; detail/resolution/fingerprint stay in
+    GET /incidents/{id}); limit + before give stable keyset pages ordered by (created_at, id) - `next_cursor` is
+    set when older rows exist. counts / escalations / reports / total always describe the whole filtered view."""
     now = datetime.now(timezone.utc)
-    # 2026-11-17: the lab/state filters below run in Python, so the 500-row cap is applied AFTER them (it was applied
-    # before: a filtered view silently missed older matches). SQL still bounds the scan with a generous safety cap.
-    stmt = select(Alert).where(Alert.created_at >= now - timedelta(days=days)).order_by(desc(Alert.created_at)).limit(5000)
+    stmt = (select(Alert).where(Alert.created_at >= now - timedelta(days=days))
+            .order_by(desc(Alert.created_at), desc(Alert.id)).limit(5000))           # safety cap on the scan
     if severity:
         stmt = stmt.where(Alert.severity == severity)
     if q:
         stmt = stmt.where(or_(Alert.title.ilike(f"%{q}%"), Alert.detail.ilike(f"%{q}%")))
     labs, users, devices = _maps(db)
-    rows = [_out(a, labs, users, devices, now) for a in db.scalars(stmt).all()]
     if lab:
-        rows = [r for r in rows if r["lab"] == lab]
+        ids = [i for i, c in labs.items() if c == lab]
+        stmt = stmt.where(Alert.lab_id.in_(ids)) if ids else stmt.where(false())
+    # state(): RESOLVED <=> is_resolved; otherwise the lifecycle column, where a stale "RESOLVED" reads as OPEN
     if state_ == "ACTIVE":
-        rows = [r for r in rows if r["state"] != "RESOLVED"]
+        stmt = stmt.where(Alert.is_resolved.is_(False))
+    elif state_ == "RESOLVED":
+        stmt = stmt.where(Alert.is_resolved.is_(True))
+    elif state_ == "OPEN":
+        stmt = stmt.where(Alert.is_resolved.is_(False), Alert.state.in_(("OPEN", "RESOLVED")))
     elif state_:
-        rows = [r for r in rows if r["state"] == state_]
-    counts = {s: sum(1 for r in rows if r["state"] == s) for s in STATES}
-    return {"incidents": rows[:500], "counts": counts, "escalations": sum(1 for r in rows if r["escalate"]),
-            "reports": sum(r["occurrences"] for r in rows), "total": len(rows), "truncated": len(rows) > 500}
+        stmt = stmt.where(Alert.is_resolved.is_(False), Alert.state == state_)
+    alerts = db.scalars(stmt).all()
+    counts = dict.fromkeys(STATES, 0)
+    escalations = reports = 0
+    for a in alerts:                                    # aggregates without building every row
+        st = state(a)
+        if st in counts:                                # only the five lifecycle states, as before
+            counts[st] += 1
+        sev = a.severity.value if hasattr(a.severity, "value") else str(a.severity)
+        escalations += escalation(a, st, sev, now) is not None
+        reports += a.occurrences or 1
+    start = 0
+    if before:
+        c_at, c_id = _after_cursor(before)
+        start = next((k for k, a in enumerate(alerts) if (_utc(a.created_at), a.id) < (c_at, c_id)), len(alerts))
+    page = alerts[start:start + limit]
+    more = start + limit < len(alerts)
+    rows = [_out(a, labs, users, devices, now) for a in page]
+    if view == "summary":
+        rows = [{k: r[k] for k in SUMMARY_KEYS} for r in rows]
+    return {"incidents": rows, "counts": counts, "escalations": escalations, "reports": reports,
+            "total": len(alerts), "truncated": more, "next_cursor": _cursor(page[-1]) if more and page else None}
 
 
 @router.get("/quality")
