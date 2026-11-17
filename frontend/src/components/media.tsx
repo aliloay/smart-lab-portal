@@ -6,7 +6,7 @@
  * short-lived object URL.
  */
 import { DragEvent, useEffect, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m as motion } from 'framer-motion'
 import {
   ChevronLeft, ChevronRight, Download, ImagePlus, Minus, Plus, Trash2, X,
 } from 'lucide-react'

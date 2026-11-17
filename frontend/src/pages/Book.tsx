@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m as motion } from 'framer-motion'
 import {
   ArrowLeft, ArrowRight, Boxes, Calendar, Check, CircuitBoard, Clock, FileText, FlaskConical,
   MapPin, QrCode, Search, ShieldCheck, UserRound,

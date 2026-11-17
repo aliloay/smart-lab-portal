@@ -2,7 +2,7 @@ import { ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useNewVersion } from '../lib/freshness'
 import { startJankProbe } from '../lib/jankProbe'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m as motion } from 'framer-motion'
 import {
   Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
   ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,

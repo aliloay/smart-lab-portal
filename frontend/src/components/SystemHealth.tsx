@@ -7,7 +7,7 @@
  * not "offline" and not "healthy".
  */
 import { useEffect, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m as motion } from 'framer-motion'
 import { Activity } from 'lucide-react'
 import { SystemStatus, api } from '../lib/api'
 import { useLive } from '../lib/live'

@@ -61,3 +61,19 @@ def test_related_records_are_by_time_only_and_never_name_a_person_from_timing(cl
     door = next(x for x in r["related"] if x["source"] == "door")
     assert door["person"] == alice.full_name                                    # named by the door record itself
     assert alice.full_name not in " ".join(r["facts"])                          # never pinned on the incident
+
+
+def test_state_filter_is_applied_before_the_row_cap(client, db, staff, lab):
+    """2026-11-17: the 500-row cap was applied BEFORE the Python state filter - one older OPEN incident behind 500
+    newer resolved ones disappeared from the 'OPEN' view."""
+    now = datetime.now(timezone.utc)
+    old = _alert(db, lab, title="old open one")
+    old.created_at = now - timedelta(days=2)
+    for i in range(501):
+        a = _alert(db, lab, title=f"newer {i}")
+        a.is_resolved = True
+        a.resolved_at = now
+    db.commit()
+    r = client.get("/api/incidents?state=OPEN", headers=auth_headers(client, staff.email)).json()
+    assert any(x["title"] == "old open one" for x in r["incidents"])
+    assert r["total"] >= 1 and r["truncated"] is False

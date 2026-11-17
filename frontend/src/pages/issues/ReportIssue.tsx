@@ -6,7 +6,7 @@
  */
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { m as motion } from 'framer-motion'
 import {
   AlertOctagon, ArrowRight, Ban, Boxes, Bug, Check, Cpu, FileQuestion, Hammer,
   KeyRound, PackageX, ShieldAlert, Wifi, Wrench,
