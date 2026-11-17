@@ -32,25 +32,30 @@ const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Recor
 /** The live bar under a lab's cameras (2026-11-11): what each camera sees now, one short line per person, from the
  *  camera service's own data (activity.py) - who, top colour, posture, the mapped box they are near. Scrolls like a
  *  news ticker when it is longer than the bar; a hover pauses it. Updates with the cameras' state (every ~2 s). */
-/** 2026-11-17 (owner: "not each camera on its own - they work together"): one entry per PERSON in the lab. Both
- *  camera services share one lab number per unnamed person (labmap.py: same floor spot / desk on both cameras, or the
- *  same look coming back), so a name or a lab number seen on both cameras is ONE person: one line, labelled
- *  "Camera 1 + Camera 2", described by the camera that sees them bigger (nearer, more reliable posture and PC).
- *  The count is these distinct people, never a sum of the cameras (and at least the larger camera count, in case a
- *  camera sends fewer lines than people). */
+/** 2026-11-17 (owner: "not each camera on its own - they work together"). The two cameras look at ONE room from
+ *  opposite corners, so the lab count is the LARGER camera count: everyone the other camera sees is one of these
+ *  people unless someone is hidden from both cameras at once (lab test, 3 people: camera 1 saw all 3, camera 2 saw 2
+ *  of them; adding up the unlinked numbers said 4 - wrong). The lines are that camera's people; a person the other
+ *  camera ALSO recognises (same name, or the same lab number - labmap.py) is marked "Camera 1 + Camera 2" and
+ *  described by the camera that sees them bigger (nearer: more reliable posture and PC). */
 function mergeLab(cams: SecurityCamera[], label: (c: SecurityCamera) => string) {
   const live = cams.filter(c => c.online === true && c.source_ok !== false)
-  const all = live.flatMap(c => (c.activity ?? []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
-  const ident = (a: (typeof all)[number]) => a.named && a.label ? `name:${a.label}` : a.lab_no ? `lab:${a.lab_no}` : null
-  const items: typeof all = []
-  for (const a of all) {
-    const id = ident(a)
-    const i = id ? items.findIndex(b => ident(b) === id) : -1
-    if (i < 0) { items.push({ ...a }); continue }
-    const b = items[i], cam = `${b.cam} + ${a.cam}`
-    items[i] = (a.size ?? 0) > (b.size ?? 0) ? { ...a, cam } : { ...b, cam }   // keep the nearer camera's description
+  const lines = (c: SecurityCamera) => (c.activity ?? []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` }))
+  const count = Math.max(0, ...live.map(c => c.people ?? 0))
+  const order = [...live].sort((a, b) => ((b.people ?? 0) - (a.people ?? 0)) || ((b.activity?.length ?? 0) - (a.activity?.length ?? 0)))
+  if (!order.length) return { items: [], count }
+  type Line = ReturnType<typeof lines>[number]
+  const ident = (a: Line) => a.named && a.label ? `name:${a.label}` : a.lab_no ? `lab:${a.lab_no}` : null
+  const items: Line[] = lines(order[0])
+  for (const other of order.slice(1)) {
+    for (const a of lines(other)) {
+      const id = ident(a)
+      const i = id ? items.findIndex(b => ident(b) === id) : -1
+      if (i < 0) continue                       // not recognised as one of them: shown under its own camera only
+      const b = items[i], cam = b.cam.includes(a.cam) ? b.cam : `${b.cam} + ${a.cam}`
+      items[i] = (a.size ?? 0) > (b.size ?? 0) ? { ...a, cam } : { ...b, cam }
+    }
   }
-  const count = Math.max(items.length, ...live.map(c => c.people ?? 0), 0)
   return { items, count }
 }
 
@@ -269,8 +274,7 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
 }) {
   const [split, setSplit] = useState(true)
   const live = cam.online === true && cam.source_ok !== false
-  // 2026-11-17 (lab, owner): the room count is the LAB's - distinct people over both cameras (mergeLab: one name or
-  // lab number = one person), not the selected camera's and never the two cameras added up.
+  // 2026-11-17 (lab, owner): the room count is the LAB's (mergeLab: the larger live camera count), not the selected camera's.
   const labCams = (siblings.length ? siblings : [cam]).filter(c => c.online === true && c.source_ok !== false)
   const labPeople = mergeLab(siblings.length ? siblings : [cam], () => '').count
   const mostLabel = labCams.length > 1 ? 'both cameras together' : ''
