@@ -557,3 +557,14 @@ docs/BACKLOG.md (open items), docs/SECURITY_FINDINGS_2026-10-18.md.
 
 ## 2026-11-07 master finalization (not committed, not deployed)
 Thesis and manuscript: `thesis_overleaf/FINAL_SUBMISSION/FINAL_RELEASE_2026-11-07_v2`. Backend 753 passed, 2 skipped. New: `pc_account_keys` migration f1a7c3d9e250 (needs `tools/deploy/deploy.py --allow-migration` with SMARTLAB_PASSWORD); PC kit 1.1 with Install/Check/Uninstall-CurrentUser, Start/Stop-Agent, DPAPI keys, tray icon, site.json; scripts syntax-checked only (execution policy off on this laptop). Door fault open, firmware unchanged. Containers db, backend, frontend, backup left running.
+
+### 2026-11-17 - GIU lab day (live integration) - branch fix/pre-lab-hardening, local commits up to HEAD (not pushed)
+* Reports (local-only): docs/reports/local-only-2026-11-17/ - LAB_SESSION_FINAL_REPORT.md, CAMERA_AND_VISION_LIVE_RESULTS.md,
+  FULL_CONCURRENT_SYSTEM_TEST.md, SMART_LAB_COMPLETE_SYSTEM_DOSSIER_FOR_GEMINI_AUDIT_2026-11-17.pdf (10 pages).
+* Built + deployed today: shared lab numbers across cameras (labmap.py), staff Confirm, name hand-back, desk-guess fixes,
+  live bar per camera, consumables Zero / Set as stock / drift cap / live count, PC poll last_seen.
+* Flashed (owner-approved): bins bin-0.5 / reuse-mod-0.5 (Wi-Fi sleep off, direct lid open); ESP32-CAM restored to the
+  18 Oct core-3.2.1 image (core 3.3.12 builds break its camera). Master portal-1.1 NFC recovery compiled, NOT flashed.
+* Open: consumables load cell drifts grams/min since today's re-mounts (re-mount as before / replace); relay on Hemaly's
+  PC does not start (stick relay vs --allow); UR5e-area floor map; L2/L3 re-test, L5 not run; people register not persistent.
+* AR round 8: lab_v8.zip + colab_train_lab_v8.ipynb on Drive, training was running at 18:40.
