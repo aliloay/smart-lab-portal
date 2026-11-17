@@ -1549,14 +1549,27 @@ class Labeler:
         his desk, "TA?" at the TA's desk - instead of plain "Unknown". hints: {"Eng. Hemaly?": ["PC-04",
         "PC-01"], "TA?": ["PC-16"]}. Only t.hint is set: no name, no identity state, not counted, not
         shared with the other camera (crosscam reads t.label), and gone as soon as a real name arrives."""
+        # 2026-11-17 lab: ONE person per guess. Hemaly's desks are PC-04 and PC-01; the owner sat at PC-01 in front of
+        # him and BOTH were shown "Eng. Hemaly?". The guess now goes only to the seated person whose centre is
+        # closest to one of those desks (in desk widths) - a guess about one person is never shown on two.
         for t in tracks:
             t.hint = None
+        taken: set[int] = set()
         for text, names in hints.items():
             rects = [zones_px[n] for n in names if n in zones_px]
+            best = None
             for t in tracks:
-                if (not t.label and t.box[2] > 0 and t.box[3] / t.box[2] <= standing_ratio
-                        and any(at_desk(t.box, r) for r in rects)):
-                    t.hint = text
+                if (t.label or t.id in taken or t.box[2] <= 0 or t.box[3] / t.box[2] > standing_ratio
+                        or not any(at_desk(t.box, r) for r in rects)):
+                    continue
+                cx, cy = t.box[0] + t.box[2] / 2, t.box[1] + t.box[3] / 2
+                d = min(math.hypot((cx - (r[0] + r[2] / 2)) / max(r[2], 1), (cy - (r[1] + r[3] / 2)) / max(r[3], 1))
+                        for r in rects if at_desk(t.box, r))
+                if best is None or d < best[0]:
+                    best = (d, t)
+            if best is not None:
+                best[1].hint = text
+                taken.add(best[1].id)
 
     def _note(self, kind: str, track_id, label, detail: str):
         """A decision worth reading later: printed, and kept for /identity (service drains notes)."""

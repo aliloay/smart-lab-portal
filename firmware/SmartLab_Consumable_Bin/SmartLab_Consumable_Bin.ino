@@ -45,7 +45,7 @@ constexpr uint16_t BACKEND_PORT = 8000;
 const char *LAB_ID    = "LAB_01";      // Robotics Lab (was BENCH, which the portal does not have)
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
-const char *FIRMWARE  = "bin-0.4";      // 0.4 (2026-11-17): "Zero scale" button in the portal
+const char *FIRMWARE  = "bin-0.5";      // 0.4: portal "Zero scale"; 0.5 (2026-11-17): Wi-Fi modem sleep off
 const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -531,6 +531,9 @@ void setup() {
   drawLcd();
 
   WiFi.mode(WIFI_STA);
+  // 2026-11-17 lab: modem sleep made every report 100-300 ms slow and lost packets (ping: bins 144-161 ms / 10-50 % loss,
+  // master + environment node, which already disable it, 13-14 ms / 0 %). Mains-powered node: keep the radio awake.
+  WiFi.setSleep(false);
   WiFi.config(LOCAL_IP, GATEWAY, SUBNET, GATEWAY);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   uint32_t start = millis();

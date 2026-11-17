@@ -36,3 +36,12 @@ def test_standing_or_named_people_get_no_guess_and_it_clears_when_they_leave():
     t.box = ELSEWHERE
     lab.desk_hints([t], HINTS, ZONES)
     assert t.hint is None
+
+
+def test_one_person_per_guess_even_with_two_at_his_desks():
+    """Lab 2026-11-17: Hemaly at PC-04 and the owner at PC-01 (both Hemaly's desks) were BOTH 'Eng. Hemaly?'."""
+    zones = {"PC-04": (100, 100, 40, 30), "PC-01": (220, 110, 40, 30)}
+    hemaly = Track(1, (105, 95, 40, 50), 0, 0)              # centred on PC-04
+    owner = Track(2, (232, 112, 40, 50), 0, 0)              # at PC-01, a bit off its centre
+    Labeler().desk_hints([hemaly, owner], {"Eng. Hemaly?": ["PC-04", "PC-01"]}, zones)
+    assert [hemaly.hint, owner.hint].count("Eng. Hemaly?") == 1

@@ -144,7 +144,7 @@ const char *const PATH_RFID_INVENTORY = "";   // no portal endpoint yet: invento
 
 const char *const DEVICE_ID = "REUSE_BIN_1";
 const char *const LAB_ID    = "LAB_01";       // Robotics Lab (the breadboards are lab 1 items)
-const char *const FIRMWARE_VERSION = "reuse-mod-0.2";   // 0.2 (2026-11-17): lid opens with a smooth sweep
+const char *const FIRMWARE_VERSION = "reuse-mod-0.2";   // 0.2 (2026-11-17): lid opens with a smooth sweep; Wi-Fi modem sleep off
 // Fixed address on the Smart_Lab router (as the old bin firmware: .154).
 #define USE_STATIC_IP 1
 constexpr uint8_t STATIC_IP[4] = {192, 168, 1, 154}, GATEWAY_IP[4] = {192, 168, 1, 1},

@@ -6,6 +6,9 @@
 
 void WiFiManager::begin() {
   WiFi.mode(WIFI_STA);
+  // 2026-11-17 lab: modem sleep made every report 100-300 ms slow and lost packets (ping: bins 144-161 ms / 10-50 % loss,
+  // master + environment node, which already disable it, 13-14 ms / 0 %). Mains-powered node: keep the radio awake.
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
 #if USE_STATIC_IP
   WiFi.config(IPAddress(STATIC_IP[0], STATIC_IP[1], STATIC_IP[2], STATIC_IP[3]),
