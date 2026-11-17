@@ -24,6 +24,10 @@ def look(x=200.0, feat=None, n=1):
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     saved = []
+    # The looks are synthetic and the store step is replaced, so the real SFace models are never used - only the
+    # endpoint's engine gate needs "sface". 2026-11-18: without this the suite failed (501) when run from the repo
+    # root (model paths are relative to the working directory) or in a worktree (the models are git-ignored).
+    monkeypatch.setattr(fs, "ENGINE", "sface")
     monkeypatch.setattr(fs, "DATASET_DIR", str(tmp_path / "dataset"))
     monkeypatch.setattr(fs, "_store_sample", lambda name, img, gray, box, al, feat:
                         (saved.append((name, feat)), fs._last_sample_feat.__setitem__(name, feat), len(saved) - 1)[2])

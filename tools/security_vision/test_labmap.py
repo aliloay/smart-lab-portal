@@ -284,3 +284,21 @@ def test_confirmed_person_reuses_lab_number_immediately_after_restart(path):
     cam_restarted.assign([ali_after], {}, now=100.5)
     assert ali_after.lab_no == first_no
 
+
+
+def test_lock_retries_when_windows_reports_the_lock_file_as_delete_pending(path, monkeypatch):
+    """Integration 2026-11-18 (root cause of the intermittent two-writer failure): on Windows, creating the lock
+    file while the other camera process is deleting it raises PermissionError (delete pending), not
+    FileExistsError. It escaped _lock(), so the whole assign() pass raised. It must be retried like a held lock."""
+    real_open, calls = os.open, {"n": 0}
+
+    def flaky_open(p, flags, *a):
+        if p.endswith(".lock") and calls["n"] < 2:
+            calls["n"] += 1
+            raise PermissionError(13, "Permission denied", p)
+        return real_open(p, flags, *a)
+    monkeypatch.setattr(labmap.os, "open", flaky_open)
+    reg = Register(path)
+    assert reg._lock() is True and calls["n"] == 2
+    reg._unlock()
+    assert not os.path.exists(path + ".lock")

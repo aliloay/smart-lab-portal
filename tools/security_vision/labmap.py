@@ -80,7 +80,9 @@ class Register:
                 fd = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 os.close(fd)
                 return True
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
+                # PermissionError: Windows refuses to create a file the other camera process is deleting right now
+                # ("delete pending") - the lock is being released, so wait and retry like a held lock (2026-11-18).
                 try:
                     if time.time() - os.path.getmtime(self.lock_path) > LOCK_STALE_S:
                         os.remove(self.lock_path)            # left behind by a crashed process

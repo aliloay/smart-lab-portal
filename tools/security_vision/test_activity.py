@@ -105,7 +105,17 @@ def test_bottom_clipped_partial_box_reports_upper_body_and_explicit_joint_visibi
     assert "lying down" not in e["text"] and "bending" not in e["text"]
     assert e["partial"] is True
     pv = e["pose_visibility"]
-    assert pv["head"]["state"] == "OBSERVED" and pv["head"]["xy"] is not None
+    # box detector only (no keypoint model): a visible part is a PREDICTED position, never OBSERVED
+    assert pv["head"]["state"] == "PREDICTED" and pv["head"]["xy"] is not None
+    assert all(v["state"] != "OBSERVED" and v["basis"] == "box_geometry" for v in pv.values())
     assert pv["ankles"]["state"] == "OUT_OF_FRAME" and pv["ankles"]["xy"] is None
     assert pv["knees"]["state"] == "OUT_OF_FRAME" and pv["knees"]["xy"] is None
+
+
+def test_pose_visibility_never_claims_observed_for_a_full_standing_box():
+    """Integration review 2026-11-18: even a whole, uncrowded standing box has no keypoints behind it."""
+    from activity import pose_visibility
+    pv = pose_visibility((100, 50, 100, 300), fw=960, fh=520)
+    assert {v["state"] for v in pv.values()} == {"PREDICTED"}
+    assert all(v["confidence"] <= 0.5 for v in pv.values())
 

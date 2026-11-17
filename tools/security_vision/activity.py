@@ -49,8 +49,12 @@ def is_bottom_clipped(box, fh: int = 0, partial: bool = False) -> bool:
 
 
 def pose_visibility(box, fw: int = 0, fh: int = 0, crowded: bool = False, partial: bool = False) -> dict[str, dict]:
-    """Explicitly classify visibility of anatomical body parts: OBSERVED, OCCLUDED, PREDICTED, or OUT_OF_FRAME.
-    Never invents coordinates for joints that are out of frame or occluded."""
+    """Classify each anatomical body part as PREDICTED, OCCLUDED or OUT_OF_FRAME from the person BOX only.
+
+    These cameras run a person-box detector, not a keypoint/pose model, so no joint is ever OBSERVED here:
+    a part inside the visible box gets a PREDICTED position (canonical body proportions inside the box,
+    basis "box_geometry"), and parts cut off by the frame edge or likely hidden by a neighbour get xy=None.
+    (Integration review 2026-11-18: the first version said OBSERVED at 0.85 for these box-proportion guesses.)"""
     x, y, w, h = box
     w_safe = max(float(w), 1e-6)
     full_h = max(float(h), FULL_BODY_RATIO * w_safe)
@@ -62,20 +66,21 @@ def pose_visibility(box, fw: int = 0, fh: int = 0, crowded: bool = False, partia
     out: dict[str, dict] = {}
     for name, y0, y1 in BODY_KEYPOINTS:
         if bottom_cut and y0 >= vis_bottom:
-            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None}
+            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None, "basis": "box_geometry"}
         elif top_cut and y1 <= vis_top:
-            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None}
+            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None, "basis": "box_geometry"}
         elif (bottom_cut and y1 > vis_bottom) or (top_cut and y0 < vis_top):
-            out[name] = {"state": "OCCLUDED", "confidence": 0.35, "xy": None}
+            out[name] = {"state": "OCCLUDED", "confidence": 0.35, "xy": None, "basis": "box_geometry"}
         elif side_cut and name in ("elbows", "wrists"):
-            out[name] = {"state": "OCCLUDED", "confidence": 0.40, "xy": None}
+            out[name] = {"state": "OCCLUDED", "confidence": 0.40, "xy": None, "basis": "box_geometry"}
         elif crowded and name in ("elbows", "wrists", "hips", "knees", "ankles"):
-            out[name] = {"state": "OCCLUDED", "confidence": 0.45, "xy": None}
+            out[name] = {"state": "OCCLUDED", "confidence": 0.45, "xy": None, "basis": "box_geometry"}
         else:
             rel_y = ((y0 + y1) * 0.5) / max(vis_bottom, 1e-6) if bottom_cut else (y0 + y1) * 0.5
             cy = round(float(y + min(1.0, max(0.0, rel_y)) * h), 1)
             cx = round(float(x + 0.5 * w), 1)
-            out[name] = {"state": "OBSERVED", "confidence": 0.85, "xy": [cx, cy]}
+            # inside the visible box, but where exactly is a proportion guess - never OBSERVED without keypoints
+            out[name] = {"state": "PREDICTED", "confidence": 0.5, "xy": [cx, cy], "basis": "box_geometry"}
     return out
 
 
