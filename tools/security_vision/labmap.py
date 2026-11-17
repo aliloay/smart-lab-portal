@@ -43,7 +43,12 @@ LOCK_STALE_S = 5.0           # a lock file older than this was left by a crashed
 LINK_PASSES = 12             # paired this many passes in a row (~2 s; crosscam names need STABLE_PASSES = 4)
 LINK_LOOK_MAX = 0.55
 # Names that survive a track break (bending down, passing behind someone): door, face, staff-confirmed, carried over
-KEEP_NAME_SOURCES = {"door", "face", "operator", "peer"}         # looks agree (crosscam APPEAR_NAME_MAX, between the measured medians 0.31 / 0.79)
+KEEP_NAME_SOURCES = {"door", "face", "operator", "peer"}
+# Second tier for a CONFIRMED name only (lab 17 Nov: Ali and Nour came back turned / from another angle and the
+# strict MATCH_MAX refused): when exactly ONE confirmed person left in the last NAME_BACK_S, a new person whose look
+# is at most NAME_BACK_MAX (between the measured medians 0.31 same / 0.79 different) gets that name back.
+NAME_BACK_S = 120.0
+NAME_BACK_MAX = 0.55         # looks agree (crosscam APPEAR_NAME_MAX, between the measured medians 0.31 / 0.79)
 
 
 def _dist(a, b) -> Optional[float]:
@@ -220,6 +225,8 @@ class LabNumbers:
                 if lk is None and now - self.born[t.id] < LOOK_WAIT_S:
                     continue                                 # no look yet: wait a moment before a new number
                 no = self._returning(people, busy, lk) if lk is not None else None
+                if no is None and lk is not None and not t.label:
+                    no = self._confirmed_back(people, busy, lk, now, {o.label for o in tracks if o.label})
                 if no is not None and not t.label and people[str(no)].get("who"):
                     w = people[str(no)]["who"]
                     held = {o.label for o in tracks if o.label}
@@ -247,9 +254,33 @@ class LabNumbers:
                 e["seen"], e["cam"] = now, self.device
             return None
 
+        def names_by_number(d):
+            # a track whose number (from the other camera / a merge) already carries a confirmed name gets it
+            people = d["people"]
+            held = {o.label for o in tracks if o.label}
+            queued = {w["auth_subject"] for _, w in self.restore}
+            for t in tracks:
+                if t.label or t.lab_no is None or any(t is x for x, _ in self.restore):
+                    continue
+                w = (people.get(str(t.lab_no)) or {}).get("who")
+                if w and w["auth_subject"] not in held and w["auth_subject"] not in queued:
+                    self.restore.append((t, w)); queued.add(w["auth_subject"])
+            return None
+
         self.reg.update(work)
+        self.reg.update(names_by_number)
         self.last_write = now
         return self.notes
+
+    @staticmethod
+    def _confirmed_back(people: dict, busy: set, look, now: float, held: set) -> Optional[int]:
+        gone = {int(k): v for k, v in people.items() if int(k) not in busy and v.get("who")
+                and v["who"]["auth_subject"] not in held and now - v.get("seen", 0) <= NAME_BACK_S}
+        if len(gone) != 1:
+            return None                                      # none, or two confirmed people left: no guess
+        k, v = next(iter(gone.items()))
+        d = _dist(look, v.get("deep"))
+        return k if d is not None and d <= NAME_BACK_MAX else None
 
     @staticmethod
     def _returning(people: dict, busy: set, look) -> Optional[int]:

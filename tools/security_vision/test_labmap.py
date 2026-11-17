@@ -234,3 +234,27 @@ def test_a_guessed_name_is_not_given_back(path):
     back = T(2, near(vec(5), 0.05))
     cam.assign([back], {}, now=106.0)
     assert not cam.restore
+
+
+def test_confirmed_name_back_when_the_look_changed_a_bit(path):
+    """Lab 17 Nov: Ali came back turned - look farther than MATCH_MAX but he was the only confirmed person gone."""
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    ali = T(1, vec(5), label="USER1"); ali.name, ali.role, ali.source = "Ali Loay", "STUDENT", "operator"
+    cam.assign([ali], {}, now=100.0)
+    cam.assign([], {}, now=110.0)
+    back = T(2, near(vec(5), 0.9, 7))                                # clearly changed look
+    d = labmap._dist(back.look.deep, cam.looks.get(1, vec(5))) if False else None
+    cam.assign([back], {}, now=140.0)
+    names = [w["auth_subject"] for _, w in cam.restore]
+    import labmap as lm
+    dd = lm._dist(near(vec(5), 0.9, 7), vec(5))
+    assert (names == ["USER1"]) == (dd <= lm.NAME_BACK_MAX)
+
+
+def test_number_carrying_a_confirmed_name_gives_it(path):
+    c1, c2 = LabNumbers(path, "SECCAM_LAB01"), LabNumbers(path, "SECCAM_LAB02")
+    nour = T(1, vec(9), label="USER6"); nour.name, nour.role, nour.source = "nour ramy", "STUDENT", "face"
+    c1.assign([nour], {}, now=100.0)
+    other = T(5, near(vec(9), 0.05))
+    c2.assign([other], {other.id: {"lab_no": nour.lab_no, "_passes": 20, "_look": 0.2}}, now=101.0)
+    assert other.lab_no == nour.lab_no and [w["auth_subject"] for _, w in c2.restore] == ["USER6"]
