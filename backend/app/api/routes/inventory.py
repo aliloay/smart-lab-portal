@@ -57,8 +57,11 @@ def post_measurements(req: MeasurementReport, db: Session = Depends(get_db),
                                     f"{r.bin_code} is weighed by another device")
             device.last_seen_at = now
         tx = inv.record(db, b, round(r.mass_g, 2), now)
+        lv = inv.live_count(b)
         item = {"bin_code": b.code, "known": True, "item_name": b.item_name,
-                "qty_est": inv.qty_estimate(b, b.last_mass_g), "qty_err": inv.qty_error(b),
+                # the LCD shows qty_est: the LIVE count while the weight moves, the booked count once settled
+                "qty_est": lv["qty_live"] if lv else inv.qty_estimate(b, b.last_mass_g), "qty_err": inv.qty_error(b),
+                "qty_booked": inv.qty_estimate(b, b.last_mass_g),
                 "calibrated": inv.calibrated(b),
                 "transaction": tx.kind if tx is not None else None}
         asked = _PENDING_TARE.pop(b.code, None)

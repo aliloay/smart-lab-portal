@@ -303,3 +303,20 @@ def test_real_slow_creep_is_still_followed(client, db, lab, node, resistors, dev
         m += 0.0015
         last = _report(client, device_headers, round(m, 3)).json()["bins"][0]
     assert last["qty_est"] == 30 and last["transaction"] is None
+
+
+def test_live_count_follows_every_reading_and_settles(client, db, staff, lab, node, resistors, device_headers):
+    """Owner 17 Nov: the number should change with the weight at once and settle when the weight settles."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.204, 125.0, 0.04
+    db.commit()
+    full = round(125.0 + 30 * 0.204, 2)
+    for m in (full, full):
+        _report(client, device_headers, m)
+    moving = _report(client, device_headers, round(full - 4 * 0.204, 2)).json()["bins"][0]
+    assert moving["qty_est"] == 26 and moving["qty_booked"] == 30          # LCD shows 26 at once, not yet booked
+    b = client.get("/api/inventory/bins", headers=auth_headers(client, staff.email)).json()[0]
+    assert b["qty_live"] == 26 and b["settled"] is False
+    settled = _report(client, device_headers, round(full - 4 * 0.204, 2)).json()["bins"][0]
+    assert settled["qty_booked"] == 26 and settled["qty_est"] == 26
+    b = client.get("/api/inventory/bins", headers=auth_headers(client, staff.email)).json()[0]
+    assert b["qty_live"] == 26 and b["settled"] is True

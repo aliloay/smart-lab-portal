@@ -80,8 +80,13 @@ export function ConsumableBins() {
                     <div>
                       <div className="label">Quantity</div>
                       <div className="font-display text-3xl text-white tnum">
-                        {b.qty_est !== null ? <>~{b.qty_est}{b.qty_err !== null &&
+                        {/* 2026-11-17: the LIVE count while the weight moves, the booked count once it settles */}
+                        {b.qty_live != null && !b.settled
+                          ? <span className="text-warn-soft">~{b.qty_live}</span>
+                          : b.qty_est !== null ? <>~{b.qty_est}{b.qty_err !== null &&
                           <span className="text-base text-slate-400"> ±{b.qty_err}</span>}</> : '—'}</div>
+                      {b.qty_live != null && !b.settled &&
+                        <div className="text-[11.5px] text-warn-soft">settling… (booked {b.qty_est ?? '—'})</div>}
                     </div>
                     <div>
                       <div className="label">Mass</div>

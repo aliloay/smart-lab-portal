@@ -226,6 +226,7 @@ export interface InventoryBin {
   id: number; code: string; item_name: string; category: string
   lab_id: number; lab_code: string | null; device_uid: string | null
   mass_g: number | null; measured_at: string | null
+  qty_live?: number | null; settled?: boolean   // 2026-11-17: live count while the weight moves
   quality: 'VALID' | 'STALE' | 'MISSING' | 'DEVICE_OFFLINE'
   calibrated: boolean; tare_g: number | null; unit_mass_g: number | null
   noise_g: number | null; calibrated_at: string | null; min_change_g: number
@@ -316,6 +317,7 @@ export interface ScanCard {
 }
 export interface LiveJoint { index: number; name: string; deg: number; vel_deg_s: number | null }
 export interface LiveBin { code: string; item: string; mass_g: number | null; qty_est: number | null; qty_err: number | null
+
   calibrated: boolean; quality: string; reorder_qty: number | null; low: boolean; stock_max: number | null
   measured_at: string | null; age_s: number | null; count_is: string }
 export type LiveBlock =

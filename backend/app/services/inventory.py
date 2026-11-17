@@ -16,6 +16,7 @@ Nothing is estimated from defaults: an uncalibrated bin reports mass only.
 from __future__ import annotations
 
 import math
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -44,6 +45,21 @@ def threshold_g(b: InventoryBin) -> float:
 
 def calibrated(b: InventoryBin) -> bool:
     return b.tare_g is not None and bool(b.unit_mass_g)
+
+
+# 2026-11-17 lab (owner: "the number should change rapidly with the weight and settle when it settles"): a LIVE
+# count from every reading, shown on the LCD and the card while the weight moves. Display only - stock is still
+# booked from clean, agreeing readings (record()). Memory only, per backend process (one uvicorn process).
+LIVE: dict[int, tuple[float, int, float]] = {}            # bin id -> (raw mass, live count, time)
+LIVE_FRESH_S = 10.0
+
+
+def live_count(b: InventoryBin) -> Optional[dict]:
+    v = LIVE.get(b.id)
+    if v is None or time.time() - v[2] > LIVE_FRESH_S:
+        return None
+    booked = qty_estimate(b, b.last_mass_g)
+    return {"qty_live": v[1], "settled": booked is not None and v[1] == booked}
 
 
 def qty_estimate(b: InventoryBin, mass: Optional[float]) -> Optional[int]:
@@ -177,6 +193,9 @@ def record(db: Session, b: InventoryBin, mass: float,
                      .where(InventoryMeasurement.bin_id == b.id)
                      .order_by(InventoryMeasurement.recorded_at.desc(),
                                InventoryMeasurement.id.desc()).limit(1))
+    if calibrated(b) and b.tare_g:
+        z_live = _zero_g(db, b)
+        LIVE[b.id] = (mass, qty_estimate(b, mass - z_live) if not lifted(b, mass) else 0, time.time())
     if lifted(b, mass):
         db.add(InventoryMeasurement(bin_id=b.id, mass_g=mass, recorded_at=now))
         return None                      # keep the confirmed stock until it is back
@@ -271,6 +290,7 @@ def bin_out(db: Session, b: InventoryBin, now: Optional[datetime] = None) -> dic
             "calibrated": calibrated(b), "tare_g": b.tare_g, "unit_mass_g": b.unit_mass_g,
             "noise_g": b.noise_g, "calibrated_at": b.calibrated_at,
             "min_change_g": threshold_g(b), "qty_est": qty, "qty_err": qty_error(b),
+            **(live_count(b) or {"qty_live": None, "settled": True}),
             "reorder_qty": b.reorder_qty, "stock_max": b.stock_max,
             "low": qty is not None and b.reorder_qty is not None and qty <= b.reorder_qty,
             "notes": b.notes, "is_active": b.is_active}
