@@ -189,3 +189,64 @@ def test_never_more_than_the_lab_owns(client, db, lab, node, resistors, device_h
     for m in (133.80, 133.80):                       # a real take of 5 still counts
         last = _report(client, device_headers, m).json()["bins"][0]
     assert last["transaction"] == "WITHDRAWAL" and last["qty_est"] == 25
+
+
+def test_portal_zero_absorbs_a_transport_offset(client, db, staff, lab, node, resistors, device_headers):
+    """Lab day 2026-11-17: after transport the EMPTY platform read ~15 g. 'Zero scale' with the container
+    off makes the glass box + 30 resistors count 30 (not 30 + 15 g / 0.2066 = 103), books nothing, and
+    pressing it again replaces the offset instead of stacking it."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 128.752, 0.04
+    resistors.last_mass_g = 134.95
+    db.commit()
+    h = auth_headers(client, staff.email)
+    for m in (15.3, 15.31, 15.3):                         # container off, platform empty, settled
+        _report(client, device_headers, m)
+    r = client.post(f"/api/inventory/bins/{resistors.id}/zero", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["zero_offset_g"] == 15.3
+    db.refresh(resistors)
+    assert resistors.tare_g == round(128.752 + 15.3, 4) and resistors.last_mass_g is None
+    box30 = 128.752 + 15.3 + 30 * 0.2066
+    for m in (box30, box30):
+        last = _report(client, device_headers, round(m, 2)).json()["bins"][0]
+    assert last["qty_est"] == 30 and last["transaction"] is None
+    # Container off again, the drift is now 12 g: the offset is replaced, not added.
+    for m in (12.0, 12.0, 12.01):
+        _report(client, device_headers, m)
+    assert client.post(f"/api/inventory/bins/{resistors.id}/zero", headers=h).status_code == 200
+    db.refresh(resistors)
+    assert abs(resistors.tare_g - (128.752 + 12.0)) < 0.03          # replaced (a stacked offset would be ~156 g)
+    assert db.query(InventoryTransaction).filter(InventoryTransaction.kind != "COUNT").count() == 0
+
+
+def test_portal_zero_refuses_unsafe_cases(client, db, staff, alice, lab, node, resistors, device_headers):
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 128.752, 0.04
+    db.commit()
+    h = auth_headers(client, staff.email)
+    url = f"/api/inventory/bins/{resistors.id}/zero"
+    assert client.post(url, headers=h).status_code == 409                       # no reading at all
+    for m in (150.0, 150.0, 150.0):                                              # container still on
+        _report(client, device_headers, m)
+    r = client.post(url, headers=h)
+    assert r.status_code == 409 and "off the platform" in r.json()["detail"]
+    for m in (15.0, 18.0):                                                       # not settled
+        _report(client, device_headers, m)
+    assert client.post(url, headers=h).status_code == 409
+    assert client.post(url, headers=auth_headers(client, alice.email)).status_code == 403   # staff only
+    db.refresh(resistors)
+    assert resistors.tare_g == 128.752
+
+
+def test_portal_zero_asks_a_bin_04_node_to_tare_itself(client, db, staff, lab, node, resistors, device_headers):
+    """bin-0.4 nodes zero themselves (the LCD shows 0 too): the button only asks, once, in the next reply."""
+    resistors.unit_mass_g, resistors.tare_g, resistors.noise_g = 0.2066, 128.752, 0.04
+    node.firmware_version = "bin-0.4"
+    db.commit()
+    for m in (15.3, 15.3, 15.3):
+        assert "tare" not in _report(client, device_headers, m).json()["bins"][0]
+    r = client.post(f"/api/inventory/bins/{resistors.id}/zero", headers=auth_headers(client, staff.email))
+    assert r.status_code == 200 and r.json()["zeroed_by"] == "node"
+    db.refresh(resistors)
+    assert resistors.tare_g == 128.752                     # unchanged: the node removes the offset itself
+    assert _report(client, device_headers, 15.3).json()["bins"][0]["tare"] is True
+    assert "tare" not in _report(client, device_headers, 0.0).json()["bins"][0]   # asked once only

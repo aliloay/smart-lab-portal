@@ -45,7 +45,7 @@ constexpr uint16_t BACKEND_PORT = 8000;
 const char *LAB_ID    = "LAB_01";      // Robotics Lab (was BENCH, which the portal does not have)
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
-const char *FIRMWARE  = "bin-0.3";
+const char *FIRMWARE  = "bin-0.4";      // 0.4 (2026-11-17): "Zero scale" button in the portal
 const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -343,6 +343,23 @@ void averageSamples(int n) {
   Serial.printf("[AVG] %d samples: raw %.1f (sd %.1f) -> %.3f g (sd %.3f g)\n", got, mean, sd, g, sdg);
 }
 
+// Zero with the platform empty: the serial `tare` and (bin-0.4) the portal's "Zero scale" button.
+void doTare(const char *why) {
+  scale.set_scale(1);
+  scale.tare(20);
+  zeroOffset = scale.get_offset();
+  if (scaleFactor != 0) scale.set_scale(scaleFactor);
+  saveCalibration();
+  resetFilter();
+  anchorG = NAN; followStable = false; zeroTrimCounts = 0;
+  saveMassReference(NAN);              // the old restart reference no longer applies
+  Serial.printf("[CAL] Zero set by %s (offset %ld)\n", why, zeroOffset);
+}
+
+// The portal asks only after checking the container is off the platform; the node checks again:
+// settled and no more than PORTAL_TARE_MAX_G on the platform (so it can never zero a full container).
+constexpr float PORTAL_TARE_MAX_G = 60.0;
+
 void handleSerial() {
   static String line;
   while (Serial.available()) {
@@ -351,15 +368,7 @@ void handleSerial() {
     if (c != '\n') { if (line.length() < 32) line += c; continue; }
     line.trim();
     if (line == "tare") {
-      scale.set_scale(1);
-      scale.tare(20);
-      zeroOffset = scale.get_offset();
-      if (scaleFactor != 0) scale.set_scale(scaleFactor);
-      saveCalibration();
-      resetFilter();
-      anchorG = NAN; followStable = false; zeroTrimCounts = 0;
-      saveMassReference(NAN);              // the old restart reference no longer applies
-      Serial.printf("[CAL] Zero set (offset %ld)\n", zeroOffset);
+      doTare("serial");
     } else if (line.startsWith("cal ")) {
       float g = line.substring(4).toFloat();
       if (g <= 0 || g > MAX_LOAD_G) {
@@ -442,6 +451,10 @@ void sendMass() {
   if (reply.indexOf("\"known\":false") >= 0) {
     Serial.printf("[NET] The portal has no bin %s - create it under Inventory\n", BIN_CODE);
     return;
+  }
+  if (reply.indexOf("\"tare\":true") >= 0) {
+    if (stable && !isnan(shownG) && fabs(shownG) <= PORTAL_TARE_MAX_G) doTare("portal");
+    else Serial.printf("[CAL] Portal zero refused: %.2f g, %s\n", shownG, stable ? "too heavy" : "settling");
   }
   itemName = jsonStr(reply, "item_name");
   qtyEst = jsonLong(reply, "qty_est");

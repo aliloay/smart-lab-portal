@@ -133,6 +133,20 @@ function BinDetail({ bin, onChanged }: { bin: InventoryBin; onChanged: (b: Inven
         noise_g: num(f.noise_g), reorder_qty: f.reorder_qty === '' ? null : parseInt(f.reorder_qty, 10) }))
     } catch (err) { setError(err instanceof Error ? err.message : 'Save failed') }
   }
+  const [zeroMsg, setZeroMsg] = useState('')
+  const [zeroing, setZeroing] = useState(false)
+  async function zero() {
+    setError(''); setZeroMsg(''); setZeroing(true)
+    try {
+      const r = await api.zeroBin(bin.id)
+      onChanged(r)
+      setF(x => ({ ...x, tare_g: r.tare_g?.toString() ?? '' }))
+      setZeroMsg(r.zeroed_by === 'node'
+        ? 'Sent to the bin node: it zeroes itself within a few seconds (its screen shows 0 g too). Now put the container back.'
+        : `Zeroed in the portal (offset ${r.zero_offset_g.toFixed(2)} g removed). Put the container back; the node's own screen still shows raw grams.`)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Zero failed') }
+    finally { setZeroing(false) }
+  }
   async function recordCount(e: FormEvent) {
     e.preventDefault(); setError('')
     try {
@@ -166,6 +180,15 @@ function BinDetail({ bin, onChanged }: { bin: InventoryBin; onChanged: (b: Inven
         </p>
         <button className="btn-primary w-full">Save</button>
       </form>
+
+      <div className="space-y-2">
+        <div className="label">Zero the scale (after moving it)</div>
+        <p className="text-[11.5px] text-slate-400">Take the container OFF the platform, wait 3 s, then press. Nothing is booked;
+          the next reading with the container back is the new starting point.</p>
+        <button type="button" className="btn-ghost w-full" onClick={zero} disabled={zeroing}>
+          {zeroing ? 'Zeroing…' : 'Zero scale (platform empty)'}</button>
+        {zeroMsg && <p className="text-[12.5px] text-ok-soft">{zeroMsg}</p>}
+      </div>
 
       <form onSubmit={recordCount} className="space-y-2">
         <div className="label">Physical count (estimation error)</div>

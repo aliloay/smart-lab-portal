@@ -1668,6 +1668,8 @@ export const api = {
   binHistory: (id: number, hours = 168) =>
     request<{ bin: InventoryBin; measurements: { mass_g: number; at: string }[]; transactions: InventoryTx[] }>(
       `/inventory/bins/${id}/history?hours=${hours}`),
+  zeroBin: (id: number) =>
+    post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
   recordBinCount: (id: number, actual_count: number, note = '') =>
     post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null }>(
       `/inventory/bins/${id}/count`, { actual_count, note }),

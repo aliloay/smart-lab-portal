@@ -265,6 +265,15 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
   const most = labCams.length > 1 ? labCams.find(c => (c.people ?? 0) === labPeople) : undefined
   const mostLabel = most ? `Camera ${(siblings.length ? siblings : [cam]).indexOf(most) + 1}` : ''
   const extra = live && labPeople > cam.inside
+  // 2026-11-17 (lab, owner): double-click a camera picture to enlarge it; double-click again, Esc or X closes.
+  const [big, setBig] = useState<number | null>(null)
+  useEffect(() => {
+    if (big === null) return
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setBig(null) }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [big])
+  const bigCam = big === null ? undefined : (siblings.length ? siblings : [cam]).find(c => c.device_id === big)
   async function accept(zoneId: number) {
     await api.acceptSecurityZone(cam.device_id, zoneId).catch(() => {})
     onChange()
@@ -281,6 +290,7 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
           const ok = c.online === true && c.source_ok !== false
           return (
             <button key={c.device_id} type="button" onClick={() => onSelect?.(c.device_id)}
+                    onDoubleClick={() => setBig(c.device_id)} title="Double-click to enlarge"
                     className={`relative text-left rounded-2xl overflow-hidden border-2 ${c.device_id === cam.device_id ? 'border-accent-400/80' : 'border-ink-600/70'}`}>
               <LiveCameraFeed deviceId={c.device_id} intervalMs={LIVE_MS} fit="contain" className="aspect-video" />
               <CamActivity c={c} />
@@ -297,9 +307,20 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
       <LiveActivity cams={siblings.length ? siblings : [cam]}
         label={c => { const all = siblings.length ? siblings : [cam]; return all.length > 1 ? `Camera ${all.indexOf(c) + 1}` : 'Camera' }} />}
     <div className={siblings.length > 1 && split ? '' : 'grid xl:grid-cols-[1fr_340px] gap-4'}>
+      {bigCam && (
+        <div className="fixed inset-0 z-[60] bg-ink-950/95 flex flex-col p-3 sm:p-5" onDoubleClick={() => setBig(null)}>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-white font-semibold text-[15px]">{bigCam.name} <span className="mono text-slate-400 text-[12px]">{bigCam.device_uid}</span></span>
+            <span className="text-slate-500 text-[12px]">double-click or Esc to close</span>
+            <button type="button" className="btn-ghost ml-auto" onClick={() => setBig(null)} aria-label="Close">✕</button>
+          </div>
+          <LiveCameraFeed deviceId={bigCam.device_id} intervalMs={LIVE_MS} fit="contain" className="flex-1 min-h-0 rounded-xl" />
+          <CamActivity c={bigCam} />
+        </div>)}
       {!(siblings.length > 1 && split) &&
-      <LiveCameraFeed deviceId={cam.device_id} intervalMs={LIVE_MS} fit="contain"
-                      className="rounded-2xl border border-ink-600/70 aspect-video" />}
+      <div onDoubleClick={() => setBig(cam.device_id)} title="Double-click to enlarge">
+        <LiveCameraFeed deviceId={cam.device_id} intervalMs={LIVE_MS} fit="contain"
+                        className="rounded-2xl border border-ink-600/70 aspect-video" /></div>}
       <div className={siblings.length > 1 && split ? 'grid md:grid-cols-2 xl:grid-cols-3 gap-3 items-start' : 'space-y-3'}>
         <div className="card p-4 space-y-2">
           <div className="flex items-center gap-2">

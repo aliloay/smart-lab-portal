@@ -57,10 +57,14 @@ def post_measurements(req: MeasurementReport, db: Session = Depends(get_db),
                                     f"{r.bin_code} is weighed by another device")
             device.last_seen_at = now
         tx = inv.record(db, b, round(r.mass_g, 2), now)
-        out.append({"bin_code": b.code, "known": True, "item_name": b.item_name,
-                    "qty_est": inv.qty_estimate(b, b.last_mass_g), "qty_err": inv.qty_error(b),
-                    "calibrated": inv.calibrated(b),
-                    "transaction": tx.kind if tx is not None else None})
+        item = {"bin_code": b.code, "known": True, "item_name": b.item_name,
+                "qty_est": inv.qty_estimate(b, b.last_mass_g), "qty_err": inv.qty_error(b),
+                "calibrated": inv.calibrated(b),
+                "transaction": tx.kind if tx is not None else None}
+        asked = _PENDING_TARE.pop(b.code, None)
+        if asked is not None and (now - asked).total_seconds() <= ZERO_FRESH_S:
+            item["tare"] = True              # bin-0.4: the node zeroes itself (and checks it is empty)
+        out.append(item)
     db.commit()
     # Open Consumables pages refetch at once instead of waiting for their poll.
     from app.services.environment import publish
@@ -186,3 +190,81 @@ def record_count(bin_id: int, req: CountRequest, db: Session = Depends(get_db),
     return {"bin_code": b.code, "estimate": est, "actual_count": req.actual_count,
             "error": None if est is None else est - req.actual_count,
             "mass_g": b.last_mass_g}
+
+
+# Portal "Zero scale" (lab day 2026-11-17): after transport the load cell can read 10-20 g with the
+# platform EMPTY, which the node's own boot zero (< 2 g) does not remove and the serial `tare` needs a USB
+# cable. The portal absorbs that offset instead: with the container OFF the platform, the latest settled raw
+# reading becomes the new zero by moving the empty-container mass m0 by the same amount. Nothing is booked
+# (the next reading is the new starting point); the node's LCD keeps showing raw grams. The running total
+# of the offset is kept in the audit row, so pressing it again later replaces (never stacks) the offset.
+ZERO_FRESH_S = 180
+ZERO_MAX_OFFSET_G = 60.0
+# bin-0.4+ nodes zero THEMSELVES when the reply to their next report says "tare": true (the LCD then shows
+# 0 as well). One backend process (uvicorn, no workers), so a short-lived in-memory request is enough.
+_PENDING_TARE: dict[str, datetime] = {}
+
+
+def _node_can_tare(db: Session, b: InventoryBin) -> bool:
+    from app.models import Device
+    d = db.get(Device, b.device_id) if b.device_id else None
+    fw = (d.firmware_version or "") if d is not None else ""
+    if not fw.startswith("bin-"):
+        return False
+    try:
+        major, minor = (int(x) for x in fw[4:].split(".")[:2])
+    except ValueError:
+        return False
+    return (major, minor) >= (0, 4)
+
+
+@router.post("/bins/{bin_id}/zero")
+def zero_bin(bin_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    b = db.get(InventoryBin, bin_id)
+    if b is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bin not found")
+    if not inv.calibrated(b) or not b.tare_g:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Calibrate the bin first (empty mass and mass per item)")
+    rows = db.execute(select(InventoryMeasurement.mass_g, InventoryMeasurement.recorded_at)
+                      .where(InventoryMeasurement.bin_id == b.id)
+                      .order_by(InventoryMeasurement.recorded_at.desc(), InventoryMeasurement.id.desc())
+                      .limit(3)).all()
+    now = datetime.now(timezone.utc)
+    if not rows or (now - rows[0][1]).total_seconds() > ZERO_FRESH_S:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "No reading in the last 3 minutes - is the bin node on and connected?")
+    thr = inv.threshold_g(b)
+    if len(rows) < 2 or max(r[0] for r in rows) - min(r[0] for r in rows) > thr / 2:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The scale is not settled yet - wait a few seconds and try again")
+    reading = rows[0][0]
+    if not inv.lifted(b, reading):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"Take the container off the platform first (the scale reads {reading:.2f} g)")
+    prev = db.scalar(select(AuditLog).where(AuditLog.action == "INVENTORY_BIN_ZEROED",
+                                            AuditLog.entity_type == "inventory_bin",
+                                            AuditLog.entity_id == str(b.id))
+                     .order_by(AuditLog.id.desc()).limit(1))
+    prev_total = float((prev.detail or {}).get("offset_total_g", 0.0)) if prev is not None else 0.0
+    total = round(reading - inv._zero_g(db, b), 3)
+    if abs(total) > ZERO_MAX_OFFSET_G:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"The empty platform reads {reading:.2f} g - too far from zero to correct here; "
+                            "use the serial 'tare' on the node")
+    old_tare = b.tare_g
+    if _node_can_tare(db, b):
+        # The node zeroes itself: drop any earlier portal offset, the node's next readings start at 0 g.
+        b.tare_g = round(old_tare - prev_total, 4)
+        b.last_mass_g = None
+        _PENDING_TARE[b.code] = now
+        db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_ZEROED", entity_type="inventory_bin",
+                        entity_id=str(b.id), detail={"reading_g": reading, "offset_total_g": 0.0, "by": "node",
+                                                     "tare_g_before": old_tare, "tare_g_after": b.tare_g}))
+        db.commit()
+        return {**inv.bin_out(db, b), "zero_offset_g": 0.0, "zeroed_by": "node"}
+    b.tare_g = round(old_tare - prev_total + total, 4)
+    b.last_mass_g = None                 # the next reading (container back on) is the new starting point
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_ZEROED", entity_type="inventory_bin",
+                    entity_id=str(b.id), detail={"reading_g": reading, "offset_total_g": total,
+                                                 "tare_g_before": old_tare, "tare_g_after": b.tare_g}))
+    db.commit()
+    return {**inv.bin_out(db, b), "zero_offset_g": total, "zeroed_by": "portal"}
