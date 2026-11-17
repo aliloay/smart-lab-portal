@@ -1431,6 +1431,48 @@ def make_app(svc: Service) -> Flask:
             return Response("device key required", status=401)
         return jsonify(svc.recorder.status())
 
+    # ---- staff confirms who a person is (2026-11-17, owner: "Hemaly is at his desk - I press confirm") ----
+    @app.get("/known")
+    def known_people():
+        if not authorised():
+            return Response("device key required", status=401)
+        return jsonify([{"label": k["auth_subject"], "name": k.get("name") or k["auth_subject"], "role": k.get("role")}
+                        for k in (svc.cfg.get("known") or []) if k.get("auth_subject")])
+
+    @app.post("/confirm")
+    def confirm():
+        """Staff confirm who a tracked person is (portal, admin only, audited there). Source "operator": kept when the
+        door has no entry for them, counted as confirmed and shared with the other camera like a door/face name.
+        The same name is taken off any other track here first - one name, one person."""
+        if not authorised():
+            return Response("device key required", status=401)
+        body = request.get_json(silent=True) or {}
+        try:
+            tid = int(body.get("track_id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "track_id required"}), 400
+        label = str(body.get("label") or "")[:64]
+        k = next((x for x in (svc.cfg.get("known") or []) if x.get("auth_subject") == label), None)
+        if k is None:
+            return jsonify({"ok": False, "error": "unknown person"}), 404
+        with svc.label_lock:
+            t = next((x for x in svc.tracker.tracks if x.id == tid), None)
+            if t is None:
+                return jsonify({"ok": False, "error": "that person is no longer in view"}), 409
+            for o in svc.tracker.tracks:
+                if o is not t and o.label == label:
+                    o.label = o.name = o.role = o.source = None
+                    o.verified = False
+            svc.labeler._give(t, k, "operator", how="staff confirmed")
+            t.hint = None
+        by = str(body.get("by", ""))[:80]
+        note = {"t": round(time.time(), 2), "kind": "OPERATOR_CONFIRMED", "track_id": tid, "label": label,
+                "detail": f"confirmed by staff ({by or '?'}) in the portal"}
+        svc.identity_log.append(note)
+        svc._persist_identity(note)
+        print(f"[identity] OPERATOR_CONFIRMED track {tid} {label}: by {by or '?'}")
+        return jsonify({"ok": True, "track_id": tid, "label": label, "name": k.get("name") or label})
+
     @app.post("/record/<action>")
     def record(action):
         if not authorised():

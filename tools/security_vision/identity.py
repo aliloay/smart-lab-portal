@@ -41,7 +41,7 @@ from typing import Optional
 # start at the door's 0.90 - as if the door had just named them).
 REACQUIRE_HOW = ("look", "place", "crossing", "other camera")
 
-STATES = ("UNKNOWN", "TENTATIVE", "FACE_CONFIRMED", "DOOR_CONFIRMED", "FUSED_CONFIRMED",
+STATES = ("UNKNOWN", "TENTATIVE", "FACE_CONFIRMED", "DOOR_CONFIRMED", "FUSED_CONFIRMED", "OPERATOR_CONFIRMED",
           "REID_CONFIRMED", "OCCLUDED", "IDENTITY_UNCERTAIN", "IDENTITY_CONFLICT")
 
 
@@ -199,6 +199,8 @@ class IdentityLedger:
             return "OCCLUDED"
         if t.source == "look":                             # a guess from the stored look (vision.Labeler.LOOK_GUESS)
             return "IDENTITY_UNCERTAIN"
+        if t.source == "operator":                         # staff confirmed it in the portal (audited, 2026-11-17)
+            return "OPERATOR_CONFIRMED"
         if rec.confidence < self.cfg.uncertain_at:
             return "IDENTITY_UNCERTAIN"
         if t.verified and face_fresh:

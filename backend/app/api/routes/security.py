@@ -280,7 +280,7 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
                          "activity": [{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
                                        if k in ("track_id", "label", "who", "colour", "posture", "near", "named", "text",
-                                                "lab_no", "at", "size")}   # 2026-11-17: lab number (both cameras)
+                                                "lab_no", "at", "size", "hint")}   # 2026-11-17: lab number (both cameras)
                                       for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
@@ -734,6 +734,39 @@ def recording_switch(device_id: int, action: Literal["start", "stop"], db: Sessi
     db.add(AuditLog(actor_user_id=admin.id, action=f"SECURITY_RECORDING_{action.upper()}",
                     entity_type="device", entity_id=str(d.id),
                     detail={"device_uid": d.device_uid, **{k: body.get(k) for k in ("file", "duration_s", "size_bytes")}}))
+    db.commit()
+    return body
+
+
+class ConfirmRequest(BaseModel):
+    track_id: int = Field(ge=0)
+    label: str = Field(min_length=1, max_length=64)
+
+
+@router.get("/cameras/{device_id}/known")
+def known_people(device_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """The registered people this camera can name (for the Confirm picker)."""
+    r = _service(_camera(db, device_id), "GET", "/known")
+    if r.status_code != 200:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service cannot confirm people (update it).")
+    return r.json()
+
+
+@router.post("/cameras/{device_id}/confirm")
+def confirm_person(device_id: int, req: ConfirmRequest, db: Session = Depends(get_db),
+                   admin: User = Depends(require_admin)):
+    """2026-11-17 (owner): staff confirm who a tracked person is - the name then stays on that person, counts as
+    confirmed and is shared with the other camera. Admin only; every confirmation is in the audit log."""
+    d = _camera(db, device_id)
+    r = _service(d, "POST", "/confirm", json={"track_id": req.track_id, "label": req.label, "by": admin.full_name})
+    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+    if r.status_code == 404 and not body:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service cannot confirm people (update it).")
+    if not body.get("ok"):
+        raise HTTPException(status.HTTP_409_CONFLICT, body.get("error") or "Could not confirm.")
+    db.add(AuditLog(actor_user_id=admin.id, action="SECURITY_IDENTITY_CONFIRMED", entity_type="device",
+                    entity_id=str(d.id), detail={"device_uid": d.device_uid, "track_id": req.track_id,
+                                                 "label": req.label}))
     db.commit()
     return body
 

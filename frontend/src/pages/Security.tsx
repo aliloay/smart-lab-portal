@@ -90,7 +90,46 @@ function CamActivity({ c }: { c: SecurityCamera }) {
     <div className="px-2.5 py-2 bg-ink-950/90 border-t border-ink-600/70">
       <div className="text-[12.5px] font-bold text-white mb-0.5">{(c.people ?? 0)} {c.people === 1 ? 'person' : 'people'} in this view</div>
       {lines.length === 0 ? <div className="text-[12.5px] text-slate-400">Nobody in view.</div>
-        : lines.map((a, i) => <div key={`${a.track_id}-${i}`} className="text-[13px] font-semibold text-slate-100 leading-snug">{a.text}</div>)}
+        : lines.map((a, i) => <ConfirmLine key={`${a.track_id}-${i}`} c={c} a={a} />)}
+    </div>
+  )
+}
+
+/** 2026-11-17 (owner: "Hemaly is at his desk - I press confirm and the label stays"): staff confirm who a person is.
+ *  The camera then keeps that name on the person (shared with the other camera); admin only, audited. */
+function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamera['activity']>[number] }) {
+  const [open, setOpen] = useState(false)
+  const [known, setKnown] = useState<{ label: string; name: string }[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [msg, setMsg] = useState('')
+  const sure = a.named && !a.who.endsWith('?')
+  async function start() {
+    setOpen(true); setMsg('')
+    try {
+      const k = await api.cameraKnown(c.device_id); setKnown(k)
+      const guess = (a.hint || (a.named ? a.who : '')).replace(/\?$/, '').trim().toLowerCase()
+      const hit = k.find(p => a.label === p.label) || k.find(p => guess && p.name.toLowerCase().includes(guess))
+      setPick(hit?.label ?? '')
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Could not load people') }
+  }
+  async function save() {
+    try { const r = await api.confirmPerson(c.device_id, a.track_id, pick); setMsg(`Confirmed: ${r.name}`); setOpen(false) }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Could not confirm') }
+  }
+  return (
+    <div className="text-[13px] font-semibold text-slate-100 leading-snug flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5">
+      <span className="flex-1 min-w-0">{a.text}{a.hint && !a.named ? <span className="text-warn-soft"> - guess: {a.hint}</span> : null}</span>
+      {!open && <button type="button" className="btn-ghost btn-sm !py-0.5" onClick={start}
+                        title="Confirm who this is - the name then stays on them on both cameras">{sure ? 'Change' : 'Confirm'}</button>}
+      {open && <span className="flex items-center gap-1.5">
+        <select className="input !py-0.5 !text-[12.5px]" value={pick} onChange={e => setPick(e.target.value)}>
+          <option value="">Who is this?</option>
+          {(known ?? []).map(p => <option key={p.label} value={p.label}>{p.name}</option>)}
+        </select>
+        <button type="button" className="btn-primary btn-sm !py-0.5" disabled={!pick} onClick={save}>Confirm</button>
+        <button type="button" className="btn-ghost btn-sm !py-0.5" onClick={() => setOpen(false)}>Cancel</button>
+      </span>}
+      {msg && <span className="w-full text-[12px] text-ok-soft">{msg}</span>}
     </div>
   )
 }

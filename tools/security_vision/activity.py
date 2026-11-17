@@ -116,6 +116,7 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
                     # 2026-11-17: the portal merges the two cameras' lines of one person (same name or lab
                     # number) and keeps the closer camera's description (bigger box = nearer, more reliable)
                     "lab_no": getattr(t, "lab_no", None), "at": bool(nz and nz[1]),
+                    "hint": getattr(t, "hint", None),      # desk guess ("Eng. Hemaly?") - preselected by Confirm
                     "size": round(t.box[3] / fh, 3) if fh else 0.0})
     out.sort(key=lambda e: (not e["named"], e["track_id"]))
     return out[:max_lines]

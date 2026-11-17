@@ -1120,7 +1120,7 @@ class Labeler:
         # A door name whose person left the lab is dropped from its track (a
         # face name stays: the face, not the door, said who it is).
         for t in tracks:
-            if t.label and t.label not in inside and t.source not in ("face", "peer") \
+            if t.label and t.label not in inside and t.source not in ("face", "peer", "operator") \
                     and not (t.source == "look" and t.label in self.face_named):
                 t.label = t.name = t.role = t.source = t.mismatch = None
                 t.verified = False

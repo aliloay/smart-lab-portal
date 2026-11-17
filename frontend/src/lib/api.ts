@@ -107,7 +107,7 @@ export interface SecurityCameraTile {
   activity?: { track_id: number; label: string | null; who: string; colour: string | null; posture: string
                near: string | null; named: boolean; text: string
                /** 2026-11-17: one number per unnamed person on BOTH cameras; at = seated at that box; size = box height 0-1 */
-               lab_no?: number | null; at?: boolean; size?: number }[]
+               lab_no?: number | null; at?: boolean; size?: number; hint?: string | null }[]
 }
 export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null
@@ -1672,6 +1672,10 @@ export const api = {
       `/inventory/bins/${id}/history?hours=${hours}`),
   zeroBin: (id: number) =>
     post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
+  cameraKnown: (deviceId: number) =>
+    request<{ label: string; name: string; role: string | null }[]>(`/security/cameras/${deviceId}/known`),
+  confirmPerson: (deviceId: number, track_id: number, label: string) =>
+    post<{ ok: boolean; name: string }>(`/security/cameras/${deviceId}/confirm`, { track_id, label }),
   recordBinCount: (id: number, actual_count: number, note = '', recalibrate = false) =>
     post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null;
            recalibrated: boolean; tare_g: number | null }>(

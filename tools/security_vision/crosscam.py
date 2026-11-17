@@ -38,8 +38,9 @@ STABLE_PASSES = 4       # the pairing holds this many passes in a row before a n
 # 2026-10-18: this set held "CONFIRMED"/"VERIFIED", which the ledger never sets, so no name ever
 # crossed - the simulated scenario bench found it; the unit tests had used the made-up state.)
 # Not shared: UNKNOWN, TENTATIVE, OCCLUDED, IDENTITY_UNCERTAIN, IDENTITY_CONFLICT.
-SHARE_STATES = {"DOOR_CONFIRMED", "FACE_CONFIRMED", "FUSED_CONFIRMED", "REID_CONFIRMED", "CONFIRMED", "VERIFIED"}
-SHARE_SOURCES = {"door", "face", "peer"}      # ...given by door or face (or carried over already)
+SHARE_STATES = {"DOOR_CONFIRMED", "FACE_CONFIRMED", "FUSED_CONFIRMED", "REID_CONFIRMED", "CONFIRMED", "VERIFIED",
+                "OPERATOR_CONFIRMED"}       # 2026-11-17: confirmed by staff in the portal (audited)
+SHARE_SOURCES = {"door", "face", "peer", "operator"}      # ...given by door or face (or carried over already)
 
 # 2026-10-19 (lab, both cameras live):
 # * A person whose box touches the bottom of the picture (feet cut off - right in front of camera 1)
