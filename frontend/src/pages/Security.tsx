@@ -249,7 +249,14 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
 }) {
   const [split, setSplit] = useState(true)
   const live = cam.online === true && cam.source_ok !== false
-  const extra = live && (cam.people ?? 0) > cam.inside
+  // 2026-11-17 (lab, owner: "camera 2 sees 3 but it says 2"): the room count is the lab's, not the selected camera's.
+  // The views overlap, so it is the LARGER count of the lab's live cameras (adding them would count people twice);
+  // the camera that sees the most is named. A floor-map union of both views is the next step (post-lab).
+  const labCams = (siblings.length ? siblings : [cam]).filter(c => c.online === true && c.source_ok !== false)
+  const labPeople = Math.max(0, ...labCams.map(c => c.people ?? 0))
+  const most = labCams.length > 1 ? labCams.find(c => (c.people ?? 0) === labPeople) : undefined
+  const mostLabel = most ? `Camera ${(siblings.length ? siblings : [cam]).indexOf(most) + 1}` : ''
+  const extra = live && labPeople > cam.inside
   async function accept(zoneId: number) {
     await api.acceptSecurityZone(cam.device_id, zoneId).catch(() => {})
     onChange()
@@ -275,6 +282,11 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
             </button>)
         })}
       </div>)}
+    {/* 2026-11-17 (lab, owner): the live description bar also under the Live pictures - everyone in view, unknown
+        people as "Person N" with colour, posture and nearest box; a known person under their name. */}
+    {(siblings.length ? siblings : [cam]).some(c => c.online) &&
+      <LiveActivity cams={siblings.length ? siblings : [cam]}
+        label={c => { const all = siblings.length ? siblings : [cam]; return all.length > 1 ? `Camera ${all.indexOf(c) + 1}` : 'Camera' }} />}
     <div className={siblings.length > 1 && split ? '' : 'grid xl:grid-cols-[1fr_340px] gap-4'}>
       {!(siblings.length > 1 && split) &&
       <LiveCameraFeed deviceId={cam.device_id} intervalMs={LIVE_MS} fit="contain"
@@ -298,8 +310,8 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
         <div className={`card p-4 ${extra ? 'border-bad/60' : ''}`}>
           <div className="label mb-2 flex items-center gap-1.5"><Users size={13} /> People</div>
           <div className="flex items-baseline gap-4">
-            <div><span className="text-3xl font-extrabold text-white tnum">{live ? cam.people ?? 0 : '–'}</span>
-              <span className="ml-1.5 text-slate-400 text-[12.5px]">seen</span></div>
+            <div><span className="text-3xl font-extrabold text-white tnum">{live ? labPeople : '–'}</span>
+              <span className="ml-1.5 text-slate-400 text-[12.5px]">seen{live && mostLabel ? ` in the lab (most by ${mostLabel})` : ''}</span></div>
             <div><span className="text-3xl font-extrabold text-slate-200 tnum">{cam.inside}</span>
               <span className="ml-1.5 text-slate-400 text-[12.5px]">entered at the door</span></div>
           </div>
