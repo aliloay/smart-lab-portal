@@ -45,15 +45,17 @@ function mergeLab(cams: SecurityCamera[], label: (c: SecurityCamera) => string) 
   const order = [...live].sort((a, b) => ((b.people ?? 0) - (a.people ?? 0)) || ((b.activity?.length ?? 0) - (a.activity?.length ?? 0)))
   if (!order.length) return { items: [], count }
   type Line = ReturnType<typeof lines>[number]
-  const ident = (a: Line) => a.named && a.label ? `name:${a.label}` : a.lab_no ? `lab:${a.lab_no}` : null
+  // Same person = same name, or the same lab number (named people carry one too, so "nour ramy" on one camera and
+  // her number on the other link up; the line then shows the NAME).
+  const same = (a: Line, b: Line) => (a.named && b.named && !!a.label && a.label === b.label) || (!!a.lab_no && a.lab_no === b.lab_no)
   const items: Line[] = lines(order[0])
   for (const other of order.slice(1)) {
     for (const a of lines(other)) {
-      const id = ident(a)
-      const i = id ? items.findIndex(b => ident(b) === id) : -1
+      const i = items.findIndex(b => same(a, b))
       if (i < 0) continue                       // not recognised as one of them: shown under its own camera only
       const b = items[i], cam = b.cam.includes(a.cam) ? b.cam : `${b.cam} + ${a.cam}`
-      items[i] = (a.size ?? 0) > (b.size ?? 0) ? { ...a, cam } : { ...b, cam }
+      const keep = a.named !== b.named ? (a.named ? a : b) : ((a.size ?? 0) > (b.size ?? 0) ? a : b)   // a name beats a number
+      items[i] = { ...keep, cam }
     }
   }
   return { items, count }
@@ -278,6 +280,21 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
   const labCams = (siblings.length ? siblings : [cam]).filter(c => c.online === true && c.source_ok !== false)
   const labPeople = mergeLab(siblings.length ? siblings : [cam], () => '').count
   const mostLabel = labCams.length > 1 ? 'both cameras together' : ''
+  // 2026-11-17 (lab, owner: "UR5e is in use in one camera and not in the other"): ONE status per item for the lab.
+  // Each camera judges its own picture; the item is in use / changed when either camera sees it so (a person can
+  // overlap the robot's box in one view and stand beside it in the other). Accept acts on the camera that flagged it.
+  const RANK: Record<string, number> = { CHANGED: 5, MOTION: 4, IN_USE: 3, OCCUPIED: 3 }
+  const labZones = Object.values((siblings.length ? siblings : [cam]).filter(c => c.online === true).reduce((acc, c, ci) => {
+    for (const z of c.zones) {
+      const k = z.name.trim().toLowerCase(), was = acc[k], label = `Camera ${ci + 1}`
+      if (!was) acc[k] = { ...z, camId: c.device_id, seenBy: label }
+      else {
+        const seenBy = `${was.seenBy} + ${label}`
+        acc[k] = (RANK[z.status] ?? 0) > (RANK[was.status] ?? 0) ? { ...z, camId: c.device_id, seenBy } : { ...was, seenBy }
+      }
+    }
+    return acc
+  }, {} as Record<string, SecurityCamera['zones'][number] & { camId: number; seenBy: string }>))
   const extra = live && labPeople > cam.inside
   // 2026-11-17 (lab, owner): double-click a camera picture to enlarge it; double-click again, Esc or X closes.
   const [big, setBig] = useState<number | null>(null)
@@ -288,8 +305,8 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
     return () => window.removeEventListener('keydown', k)
   }, [big])
   const bigCam = big === null ? undefined : (siblings.length ? siblings : [cam]).find(c => c.device_id === big)
-  async function accept(zoneId: number) {
-    await api.acceptSecurityZone(cam.device_id, zoneId).catch(() => {})
+  async function accept(zoneId: number, deviceId: number = cam.device_id) {
+    await api.acceptSecurityZone(deviceId, zoneId).catch(() => {})
     onChange()
   }
   return (
@@ -386,15 +403,15 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
         </div>
         <div className="card p-4">
           <div className="label mb-2 flex items-center gap-1.5"><Eye size={13} /> Watched equipment</div>
-          {!cam.zones.length ? <p className="text-[12.5px] text-slate-500">No boxes yet - draw them under Equipment & door boxes.</p> : (
+          {!labZones.length ? <p className="text-[12.5px] text-slate-500">No boxes yet - draw them under Equipment & door boxes.</p> : (
             <ul className="space-y-1.5 text-[13px]">
-              {cam.zones.map(z => (
-                <li key={z.id} className="flex items-center gap-2">
-                  <span className="text-slate-100 flex-1 truncate">{z.name}</span>
+              {labZones.map(z => (
+                <li key={`${z.camId}-${z.id}`} className="flex items-center gap-2">
+                  <span className="text-slate-100 flex-1 truncate" title={`seen by ${z.seenBy}`}>{z.name}</span>
                   <Chip tone={ZONE_TONE[z.status] ?? 'idle'} dot>{z.status === 'MOTION' ? 'moving' : z.status.toLowerCase().replace('_', ' ')}</Chip>
                   {(z.status === 'CHANGED' || z.status === 'MOTION') && (
                     <button className="btn-ghost btn-sm" title="The new position/look is fine - relearn it"
-                            onClick={() => accept(z.id)}><Check size={13} /> Accept</button>)}
+                            onClick={() => accept(z.id, z.camId)}><Check size={13} /> Accept</button>)}
                 </li>))}
             </ul>)}
         </div>

@@ -106,11 +106,12 @@ def test_two_alike_departed_people_give_a_new_number_not_a_guess(path):
     assert back.lab_no not in (a.lab_no, b.lab_no)
 
 
-def test_named_people_are_not_numbered(path):
+def test_named_people_get_a_number_too_but_not_from_the_gallery(path):
+    """Lab 2026-11-17: Nour named on camera 2, Unknown on camera 1 - the number is what links the two boxes."""
     cam = LabNumbers(path, "SECCAM_LAB01")
     ali = T(1, vec(5), label="USER1")
     cam.assign([ali], {}, now=100.0)
-    assert ali.lab_no is None
+    assert ali.lab_no is not None
 
 
 def test_waits_for_a_look_then_numbers_anyway(path):

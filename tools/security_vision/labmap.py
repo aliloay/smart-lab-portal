@@ -171,11 +171,10 @@ class LabNumbers:
         # uses for names (at most MATCH_MAX, every other person on BOTH cameras at least MATCH_MARGIN further),
         # held LINK_PASSES passes in a row, never while touching someone, never onto a number held here.
         keep: dict[tuple[int, int], int] = {}
-        theirs_all = [p for p in (peer_tracks or []) if p.get("lab_no") and p.get("deep") is not None
-                      and not p.get("label")]
+        theirs_all = [p for p in (peer_tracks or []) if p.get("lab_no") and p.get("deep") is not None]
         for t in tracks:
             lk = looks.get(t.id)
-            if t.label or lk is None or getattr(t, "crowded", False) or not theirs_all:
+            if lk is None or getattr(t, "crowded", False) or not theirs_all:
                 continue
             d = [(_dist(lk, p["deep"]), p) for p in theirs_all]
             d = [(x, p) for x, p in d if x is not None]
@@ -198,7 +197,9 @@ class LabNumbers:
                                                        f"camera (clear look {a:.2f}, {LINK_PASSES}+ passes)")
                 t.lab_no = best["lab_no"]
         self.lstreak = keep
-        need = [t for t in tracks if t.lab_no is None and not t.label]   # a name always wins
+        # Named people get a number too (lab 2026-11-17: Nour named on camera 2, "Unknown" on camera 1 - the
+        # number links the two boxes; the NAME is still what is shown). Only the look gallery skips named people.
+        need = [t for t in tracks if t.lab_no is None]
         if not need and now - self.last_write < WRITE_EVERY_S:
             return self.notes
         for t in need:
