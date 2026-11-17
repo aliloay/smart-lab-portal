@@ -9,7 +9,7 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
-import { AnimatePresence, motion, useInView } from 'framer-motion'
+import { AnimatePresence, m as motion, useInView } from 'framer-motion'
 import { AlertTriangle, Inbox, Info, X } from 'lucide-react'
 import {
   STATUS_LABEL, Tone, bookingTone, issueStatusTone, severityTone,

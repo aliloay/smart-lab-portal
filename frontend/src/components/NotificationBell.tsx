@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m as motion } from 'framer-motion'
 import { Bell, BellOff, CheckCheck } from 'lucide-react'
 import { Notification, api } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
