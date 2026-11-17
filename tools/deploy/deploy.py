@@ -8,9 +8,10 @@ Safe portal deployment (2026-10-18) - the steps the portal was deployed with by 
      --allow-migration: then a dump + an isolated restore-and-migrate drill (tools/evidence/restore_drill.py
      --migrate-test) must pass before `alembic upgrade head` runs on production (additive migrations only)
   3. rollback point: the running backend/frontend images are tagged :previous
-  4. version stamp: git commit + dirty flag + time -> backend/app/build_info.json (git-ignored), served by
-     /api/health as "version"
-  5. build + `up -d --no-deps backend frontend` (nothing else is restarted: cameras, robots, n8n, db untouched)
+  4. version stamp: git commit + dirty flag + time -> image build args BUILD_COMMIT / BUILD_TIME, served by
+     /api/health as "version" and by the web app as /version.json
+  5. `docker build` each image + `up -d --no-deps backend frontend` (nothing else is restarted: cameras, robots,
+     n8n, db untouched)
   6. readiness: /api/health 200 with the new version within 120 s
   7. smoke tests (read-only, credentials from SMARTLAB_EMAIL / SMARTLAB_PASSWORD): sign-in, summary,
      services, briefing, robots, incidents, the web app's index page
@@ -128,11 +129,19 @@ def main():
     # version stamp
     _, sha, _ = run(["git", "rev-parse", "--short", "HEAD"])
     _, dirty, _ = run(["git", "status", "--porcelain"])
-    version = f"{sha.strip()}{'-dirty' if dirty.strip() else ''}-{time.strftime('%Y%m%d%H%M%S')}"
-    with open(os.path.join(REPO, "backend", "app", "build_info.json"), "w", encoding="utf-8") as f:
-        json.dump({"id": version, "built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, f)
+    commit = f"{sha.strip()}{'-dirty' if dirty.strip() else ''}"
+    built = time.strftime('%Y%m%d%H%M%S')
+    version = f"{commit}-{built}"                      # what /api/health reports (app/main.py _build_info)
     rec["version"] = version
-    c, out, s = run(["docker", "compose", "build", "backend", "frontend"], timeout=1800)
+    # 2026-11-18: explicit `docker build` per image with the stamp as build args. `docker compose build`
+    # (Compose v5 / bake) exits 0 WITHOUT building on this laptop, so readiness never saw the new version.
+    c = 0
+    s = 0.0
+    for svc in ("backend", "frontend"):
+        ci, out, si = run(["docker", "build", "-t", f"smart-lab-portal-{svc}:latest",
+                           "--build-arg", f"BUILD_COMMIT={commit}", "--build-arg", f"BUILD_TIME={built}",
+                           os.path.join(REPO, svc)], timeout=1800)
+        c, s = c or ci, s + si
     rec["steps"]["build"] = {"ok": c == 0, "s": s}
     if c != 0:
         return finish(rec, "FAILED: build failed - the running version was not touched")

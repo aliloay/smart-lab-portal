@@ -166,16 +166,28 @@ _BUILD: Optional[dict] = None
 
 
 def _build_info() -> dict:
-    """The deployed version (tools/deploy/deploy.py stamps app/build_info.json)."""
+    """The deployed version, from the image's build args (docker build --build-arg BUILD_COMMIT/BUILD_TIME,
+    set by tools/deploy/build_images.ps1 and deploy.py).
+
+    2026-11-18 integration fix: the stamp used to be a git-ignored app/build_info.json that `COPY . .` baked
+    into every hand-built image - a 28 Oct file (1be41ab) kept being reported by newer images. The file is now
+    in .dockerignore, so an image carries only its own build args; the file is read only in a dev mount."""
     global _BUILD
     if _BUILD is None:
         import json
         import os
-        try:
-            with open(os.path.join(os.path.dirname(__file__), "build_info.json"), encoding="utf-8") as f:
-                _BUILD = json.load(f)
-        except (OSError, ValueError):
-            _BUILD = {"id": "unstamped", "note": "deployed without tools/deploy/deploy.py"}
+        commit = (os.environ.get("SMARTLAB_BUILD_COMMIT") or "").strip()
+        built = (os.environ.get("SMARTLAB_BUILD_TIME") or "").strip()
+        if commit:
+            _BUILD = {"id": f"{commit}-{built}" if built else commit, "commit": commit,
+                      "built_at": built or None, "source": "image build args"}
+        else:
+            try:
+                with open(os.path.join(os.path.dirname(__file__), "build_info.json"), encoding="utf-8") as f:
+                    _BUILD = {**json.load(f), "source": "build_info.json (dev mount)"}
+            except (OSError, ValueError):
+                _BUILD = {"id": "unstamped",
+                          "note": "image built without --build-arg BUILD_COMMIT (use tools/deploy/build_images.ps1)"}
     return _BUILD
 
 

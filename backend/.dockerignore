@@ -18,3 +18,7 @@ uploads/
 *.log
 *.dump
 *.backup
+
+# 2026-11-18: a stale local version stamp (28 Oct, 1be41ab) was baked into newer images by `COPY . .`.
+# The stamp now comes only from build args (app/main.py _build_info).
+app/build_info.json
