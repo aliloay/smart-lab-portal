@@ -112,6 +112,13 @@ async def serve(listen: str, maps: list[tuple[int, str, int]], allow: list | Non
             servers.append(await asyncio.start_server(handler(host, rport, allow=allow), listen, lport))
             log(f"relay {listen}:{lport} -> {host}:{rport}")
         except OSError as e:
+            if listen not in ("0.0.0.0", "127.0.0.1", "::"):
+                try:
+                    servers.append(await asyncio.start_server(handler(host, rport, allow=allow), "0.0.0.0", lport))
+                    log(f"cannot listen on {listen}:{lport} ({e}) - fell back to 0.0.0.0:{lport} -> {host}:{rport}")
+                    continue
+                except OSError:
+                    pass
             log(f"cannot listen on {listen}:{lport} ({e}) - port in use or not allowed; skipped")
     return servers
 

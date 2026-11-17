@@ -61,3 +61,16 @@ def test_a_refused_client_is_closed_without_touching_the_portal():
         w.close(); srv.close(); echo.close()
         return relay.stats["refused"] - before
     assert asyncio.run(go()) == 1
+
+
+def test_serve_falls_back_to_all_interfaces_when_specific_ip_is_unavailable():
+    """2026-11-17 S2PC136 relay fix: if --listen specifies a static GIU IP that is not bound on any
+    local adapter (WinError 10049), serve() falls back to 0.0.0.0 so the relay still starts."""
+    async def go():
+        srvs = await relay.serve("198.51.100.254", [(0, "127.0.0.1", 8000)])
+        ok = len(srvs) == 1
+        for s in srvs:
+            s.close()
+        return ok
+    assert asyncio.run(go()) is True
+

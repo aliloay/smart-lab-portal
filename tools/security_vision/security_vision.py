@@ -658,8 +658,16 @@ class Service:
                     self.frame_wh = (w, h)
                     id_events = list(self.labeler.events)
                     notes, self.labeler.notes = getattr(self.labeler, "notes", []) + notes_cc, []
+                if not hasattr(self, "_note_seen"):
+                    self._note_seen: dict[tuple, float] = {}
+                now_log = round(time.time(), 2)
                 for nt in notes:                       # hand-back / door decisions, readable via /identity
-                    self.identity_log.append({"t": round(time.time(), 2), **nt})
+                    if nt.get("kind") == "CROSSCAM_CONFLICT":
+                        key = (nt.get("kind"), nt.get("track_id"), nt.get("label"), nt.get("detail"))
+                        if now_log - self._note_seen.get(key, -1e9) < 30.0:
+                            continue                   # throttle identical per-pass conflict spam to 1 per 30 s
+                        self._note_seen[key] = now_log
+                    self.identity_log.append({"t": now_log, **nt})
                     self._persist_identity(self.identity_log[-1])
                 self._identity_events(id_events, tracks, occupants)
                 track_ms = (time.perf_counter() - k0) * 1000

@@ -48,9 +48,10 @@ function Show {
   # 2026-11-11 (Gemini FG-08): free RAM alone hid the real cause of slowness - real paging to the D: hard disk
   # (Pages Input/sec ~1,170, D: 31 ms per transfer) and Explorer/OneDrive at 5-7 cores. One 1 s sample per refresh.
   try {
-    $cs = (Get-Counter -ErrorAction Stop -SampleInterval 1 -MaxSamples 1 -Counter @(
+    $cs = (Get-Counter -ErrorAction SilentlyContinue -SampleInterval 1 -MaxSamples 1 -Counter @(
       '\Processor(_Total)\% Processor Time', '\Memory\Pages Input/sec', '\PhysicalDisk(*)\Avg. Disk sec/Transfer',
       '\Process(*)\% Processor Time')).CounterSamples
+    if (-not $cs) { throw 'no counters' }
     $cpu = ($cs | Where-Object Path -like '*processor(_total)*').CookedValue
     $pin = ($cs | Where-Object Path -like '*pages input/sec').CookedValue
     $disks = ($cs | Where-Object { $_.Path -like '*physicaldisk*' -and $_.InstanceName -ne '_total' } |

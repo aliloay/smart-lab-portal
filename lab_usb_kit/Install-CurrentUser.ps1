@@ -27,11 +27,21 @@ foreach ($need in 'MANIFEST.json', 'site.json', 'enroll.key', 'python\pythonw.ex
     if (-not (Test-Path (Join-Path $src $need))) { Say "The kit is incomplete: $need is missing in $src" Red; Finish; return }
 }
 $manifest = Get-Content -Raw (Join-Path $src 'MANIFEST.json') | ConvertFrom-Json
+function Test-KitFile($file, $expected) {
+    if (-not (Test-Path $file)) { return $false }
+    if ((Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -eq $expected) { return $true }
+    if ($file -match '\.(ps1|md|json|py|txt)$') {
+        $lf = [byte[]]([IO.File]::ReadAllBytes($file) | Where-Object { $_ -ne 13 })
+        $h = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($lf)).Replace('-', '').ToLower()
+        if ($h -eq $expected) { return $true }
+    }
+    return $false
+}
 $bad = @()
 foreach ($item in $manifest.files.PSObject.Properties) {
     if ($item.Name -like 'python/*' -and $item.Name -notmatch '^python/pythonw?\.exe$') { continue }    # runtime: Check-CurrentUser.ps1 -Full
     $file = Join-Path $src $item.Name
-    if (-not (Test-Path $file) -or (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() -ne $item.Value) { $bad += $item.Name }
+    if (-not (Test-KitFile $file $item.Value)) { $bad += $item.Name }
 }
 if ($bad.Count) { Say "The kit is damaged - copy it again. Wrong files: $($bad -join ', ')" Red; Finish; return }
 

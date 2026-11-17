@@ -440,12 +440,15 @@ String jsonStr(const String &s, const char *key) {
 }
 
 void sendMass() {
+  static uint32_t lastFailMs = 0;
+  if (lastFailMs != 0 && millis() - lastFailMs < 5000) return;  // 5 s backoff on failed POST so HX711 sampling never stalls
   String body = String("{\"device_uid\":\"") + DEVICE_ID + "\",\"readings\":[{\"bin_code\":\"" +
                 BIN_CODE + "\",\"mass_g\":" + String(shownG, 2) + "}]}";
   int code;
   String reply = post("/inventory/measurements", body, &code);
   netOk = code == 200;
-  if (!netOk) { Serial.printf("[NET] measurement not recorded (HTTP %d)\n", code); return; }
+  if (!netOk) { lastFailMs = millis(); Serial.printf("[NET] measurement not recorded (HTTP %d)\n", code); return; }
+  lastFailMs = 0;
   lastSentG = shownG;
   lastSentMs = millis();
   if (reply.indexOf("\"known\":false") >= 0) {

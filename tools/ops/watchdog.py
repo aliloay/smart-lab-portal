@@ -35,8 +35,8 @@ SERVICES = [
     ("face server (door camera)", 5000, None, False),
     ("security camera 1", 5100, "/health", False),
     ("security camera 2", 5101, "/health", False),
-    ("knowledge service", 5199, None, False),
-    ("voice service", 5320, None, False),
+    ("knowledge service", 5199, "/health", False),
+    ("voice service", 5320, "/health", False),
     ("local AI (Ollama)", 11434, "/api/version", False),
     ("OPC UA feed", 4840, None, False),
 ]

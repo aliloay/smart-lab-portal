@@ -258,3 +258,29 @@ def test_number_carrying_a_confirmed_name_gives_it(path):
     other = T(5, near(vec(9), 0.05))
     c2.assign([other], {other.id: {"lab_no": nour.lab_no, "_passes": 20, "_look": 0.2}}, now=101.0)
     assert other.lab_no == nour.lab_no and [w["auth_subject"] for _, w in c2.restore] == ["USER6"]
+
+
+def test_conflicting_labels_never_merge_lab_numbers(path):
+    """2026-11-17 fix: two tracks carrying different confirmed labels never merge lab_no via links or look."""
+    c1, c2 = LabNumbers(path, "SECCAM_LAB01"), LabNumbers(path, "SECCAM_LAB02")
+    ali = T(1, vec(5), label="USER1"); ali.name, ali.role, ali.source = "Ali", "STUDENT", "door"
+    nour = T(2, near(vec(5), 0.02), label="USER6"); nour.name, nour.role, nour.source = "Nour", "STUDENT", "face"
+    c1.assign([ali], {}, now=100.0)
+    c2.assign([nour], {}, now=100.1)
+    assert ali.lab_no != nour.lab_no
+    c2.assign([nour], {nour.id: {"lab_no": ali.lab_no, "label": "USER1", "_passes": 20, "_look": 0.1}}, now=101.0)
+    assert nour.lab_no != ali.lab_no
+
+
+def test_confirmed_person_reuses_lab_number_immediately_after_restart(path):
+    """When a service restarts or a confirmed track re-appears with its confirmed label within PRESENT_S,
+    it reclaims its existing lab number in the register rather than inflating next."""
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    ali = T(1, vec(5), label="USER1"); ali.name, ali.role, ali.source = "Ali", "STUDENT", "face"
+    cam.assign([ali], {}, now=100.0)
+    first_no = ali.lab_no
+    cam_restarted = LabNumbers(path, "SECCAM_LAB01")
+    ali_after = T(10, vec(77), label="USER1"); ali_after.name, ali_after.role, ali_after.source = "Ali", "STUDENT", "face"
+    cam_restarted.assign([ali_after], {}, now=100.5)
+    assert ali_after.lab_no == first_no
+

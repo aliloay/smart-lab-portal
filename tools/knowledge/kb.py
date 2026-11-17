@@ -169,7 +169,7 @@ def load_config(path: str | None = None) -> dict:
         cfg[k] = os.path.abspath(os.path.expanduser(os.path.expandvars(cfg[k])))
     cfg.setdefault("allow", DEFAULT_ALLOW)
     cfg.setdefault("ollama", "http://127.0.0.1:11434")
-    cfg.setdefault("model", "qwen2.5:3b")
+    cfg.setdefault("model", "qwen2.5:1.5b")
     cfg.setdefault("llm_on_cpu", True)
     REDACT_LITERALS[:] = [x for x in cfg.get("redact_literals", []) if isinstance(x, str) and len(x) >= 4]
     return cfg

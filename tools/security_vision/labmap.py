@@ -164,11 +164,15 @@ class LabNumbers:
                 t.lab_no = None
             else:
                 seen_no[t.lab_no] = t
-        # 1) solidly paired with the other camera: both take the lower number (never one held by someone else here)
+        # 1) solidly paired with the other camera: both take the lower number (never one held by someone else here,
+        # and never across two tracks that already carry different confirmed names)
         for t in tracks:
             p = links.get(t.id)
             theirs = p.get("lab_no") if p else None
-            solid = bool(p) and p.get("_passes", LINK_PASSES) >= LINK_PASSES and not p.get("_crowded")                 and not getattr(t, "crowded", False) and (p.get("_look") is None or p["_look"] <= LINK_LOOK_MAX)
+            same_or_unnamed = not (t.label and p and p.get("label") and t.label != p.get("label"))
+            solid = (bool(p) and same_or_unnamed and p.get("_passes", LINK_PASSES) >= LINK_PASSES
+                     and not p.get("_crowded") and not getattr(t, "crowded", False)
+                     and (p.get("_look") is None or p["_look"] <= LINK_LOOK_MAX))
             held = {o.lab_no for o in tracks if o is not t and o.lab_no is not None}
             if solid and theirs and theirs not in held and (t.lab_no is None or theirs < t.lab_no):
                 if t.lab_no is not None:
@@ -191,6 +195,8 @@ class LabNumbers:
             a, best = min(d, key=lambda z: z[0])
             if a > MATCH_MAX or best.get("crowded") or best["lab_no"] == t.lab_no:
                 continue
+            if t.label and best.get("label") and t.label != best.get("label"):
+                continue                                     # known different people: never merge numbers
             if any(x - a < MATCH_MARGIN for x, p in d if p is not best):
                 continue                                     # someone else there looks about as close
             rivals = [_dist(looks.get(o.id), best["deep"]) for o in tracks if o is not t]
@@ -218,13 +224,21 @@ class LabNumbers:
             people = d["people"]
             for k in [k for k, v in people.items() if now - v.get("seen", 0) > GALLERY_S]:
                 del people[k]                                # forgotten after GALLERY_S
-            # numbers in view right now on either camera: never handed to a new person
+            # numbers in view right now on either camera: never handed to a new unnamed person
             busy = {int(k) for k, v in people.items() if now - v.get("seen", 0) <= PRESENT_S} | mine_now
             for t in need:
                 lk = looks[t.id]
-                if lk is None and now - self.born[t.id] < LOOK_WAIT_S:
+                # If this track already has a confirmed identity stored in the register, reuse its lab number first
+                no = None
+                if t.label and getattr(t, "source", None) in KEEP_NAME_SOURCES:
+                    for k, v in people.items():
+                        if int(k) not in mine_now and (v.get("who") or {}).get("auth_subject") == t.label:
+                            no = int(k)
+                            break
+                if no is None and lk is None and now - self.born[t.id] < LOOK_WAIT_S:
                     continue                                 # no look yet: wait a moment before a new number
-                no = self._returning(people, busy, lk) if lk is not None else None
+                if no is None and lk is not None:
+                    no = self._returning(people, busy, lk)
                 if no is None and lk is not None and not t.label:
                     no = self._confirmed_back(people, busy, lk, now, {o.label for o in tracks if o.label})
                 if no is not None and not t.label and people[str(no)].get("who"):
@@ -252,11 +266,7 @@ class LabNumbers:
                     e["deep"] = [round(float(x), 4) for x in
                                  (lk if old is None or len(old) != len(lk) else _norm((1 - EMA) * np.asarray(old) + EMA * lk))]
                 e["seen"], e["cam"] = now, self.device
-            return None
-
-        def names_by_number(d):
             # a track whose number (from the other camera / a merge) already carries a confirmed name gets it
-            people = d["people"]
             held = {o.label for o in tracks if o.label}
             queued = {w["auth_subject"] for _, w in self.restore}
             for t in tracks:
@@ -264,11 +274,11 @@ class LabNumbers:
                     continue
                 w = (people.get(str(t.lab_no)) or {}).get("who")
                 if w and w["auth_subject"] not in held and w["auth_subject"] not in queued:
-                    self.restore.append((t, w)); queued.add(w["auth_subject"])
+                    self.restore.append((t, w))
+                    queued.add(w["auth_subject"])
             return None
 
         self.reg.update(work)
-        self.reg.update(names_by_number)
         self.last_write = now
         return self.notes
 

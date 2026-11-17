@@ -67,7 +67,7 @@ def camera_state(port: int, key: str, timeout: float = 1.5) -> dict:
     except (OSError, ValueError, socket.timeout):
         return out
     fps = float((m.get("analysis") or {}).get("fps") or 0.0)
-    live = (m.get("stream") or {}).get("state") == "LIVE" or fps > LIVE_FPS
+    live = (m.get("stream") or {}).get("state") in ("STREAMING", "LIVE") or fps > LIVE_FPS
     g = m.get("gpu") or {}
     free = (g["mem_total_mb"] - g["mem_used_mb"]) if g.get("mem_total_mb") and g.get("mem_used_mb") is not None else None
     out.update(state="live" if live else "idle", fps=round(fps, 2), gpu_free_mb=free)
