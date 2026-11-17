@@ -34,8 +34,18 @@ def top_colour(color: Optional[np.ndarray]) -> Optional[str]:
         return None
     band = np.asarray(color[n:2 * n], dtype=np.float32)
     hue, val = band[:HUE_BINS], band[HUE_BINS:]
-    if float(hue.sum()) >= 0.35:                      # clearly coloured clothes
-        return HUE_NAMES[int(np.argmax(hue))]
+    # 2026-11-17 (lab: "red top" on a person in black): the box middle also holds skin, the orange-brown chairs and
+    # wooden desks, all moderately saturated red/orange. A colour is named only when it clearly dominates the band;
+    # red/orange/yellow (the skin and wood range) needs even more. Otherwise the brightness name is used.
+    mass = float(hue.sum())
+    if mass > 0:
+        top = int(np.argmax(hue))
+        share = float(hue[top]) / mass                   # how much of the coloured part is this one hue
+        warm = HUE_NAMES[top] in ("red", "orange", "yellow")
+        if mass >= (0.70 if warm else 0.55) and share >= 0.6:
+            return HUE_NAMES[top]
+    if float(val.sum()) <= 0:
+        return None
     return VAL_NAMES[int(np.argmax(val))]
 
 

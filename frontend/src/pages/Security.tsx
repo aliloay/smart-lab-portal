@@ -44,26 +44,34 @@ function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: Secu
   }
   // The views overlap, so the room count is the larger camera count (adding them would count people twice).
   const inView = Math.max(0, ...cams.filter(c => c.online).map(c => c.people ?? 0))
+  // 2026-11-17 (lab, owner: "bolder and much clearer"): one line per person, wrapped (no scrolling ticker), larger text.
   return (
-    <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-ink-600/70 bg-ink-900/80 px-2.5 py-1.5 overflow-hidden"
+    <div className="mt-2 rounded-xl border-2 border-rose-400/40 bg-ink-900/95 px-3.5 py-2.5"
          aria-live="polite" aria-label="What the cameras see now">
-      <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-rose-300">
-        <span className="h-2 w-2 rounded-full bg-rose-400 animate-pulse" /> Live</span>
-      {inView > 0 && <span className="shrink-0 text-[12.5px] font-semibold text-white tnum">
-        {inView} {inView === 1 ? 'person' : 'people'} in view ·</span>}
-      {items.length === 0
-        ? <span className="text-[12.5px] text-slate-400">Nobody in view right now.</span>
-        : <div className="relative flex-1 overflow-hidden group">
-            <div className={`flex gap-6 whitespace-nowrap text-[12.5px] ${items.length > 2 ? 'smartlab-ticker group-hover:[animation-play-state:paused]' : ''}`}
-                 style={items.length > 2 ? { animationDuration: `${Math.max(14, items.length * 6)}s` } : undefined}>
-              {(items.length > 2 ? [...items, ...items] : items).map((a, i) => (
-                <span key={`${a.key}-${i}`} className={a.named ? 'text-white' : 'text-slate-300'}>
-                  <span className="text-slate-500">{a.cam} · </span>{a.text}</span>))}
-            </div>
-          </div>}
-      <style>{`@keyframes smartlab-ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
-               .smartlab-ticker { animation: smartlab-ticker linear infinite; will-change: transform }
-               @media (prefers-reduced-motion: reduce) { .smartlab-ticker { animation: none; flex-wrap: wrap } }`}</style>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="inline-flex items-center gap-1.5 text-[13px] font-extrabold uppercase tracking-wider text-rose-300">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-400 animate-pulse" /> Live</span>
+        <span className="text-[15px] font-bold text-white tnum">
+          {inView > 0 ? `${inView} ${inView === 1 ? 'person' : 'people'} in the lab` : 'Nobody in view right now'}</span>
+      </div>
+      {items.length > 0 && <ul className="grid gap-1 md:grid-cols-2">
+        {items.map(a => (
+          <li key={a.key} className={`text-[14px] leading-snug font-semibold ${a.named ? 'text-white' : 'text-slate-100'}`}>
+            <span className="text-[12px] font-bold text-accent-300 mr-1.5">{a.cam}</span>{a.text}</li>))}
+      </ul>}
+    </div>
+  )
+}
+
+/** The same description, only for one camera, under its own picture (2026-11-17, owner: "a live bar at each camera"). */
+function CamActivity({ c }: { c: SecurityCamera }) {
+  if (!(c.online === true && c.source_ok !== false)) return null
+  const lines = c.activity ?? []
+  return (
+    <div className="px-2.5 py-2 bg-ink-950/90 border-t border-ink-600/70">
+      <div className="text-[12.5px] font-bold text-white mb-0.5">{(c.people ?? 0)} {c.people === 1 ? 'person' : 'people'} in this view</div>
+      {lines.length === 0 ? <div className="text-[12.5px] text-slate-400">Nobody in view.</div>
+        : lines.map((a, i) => <div key={`${a.track_id}-${i}`} className="text-[13px] font-semibold text-slate-100 leading-snug">{a.text}</div>)}
     </div>
   )
 }
@@ -275,6 +283,7 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
             <button key={c.device_id} type="button" onClick={() => onSelect?.(c.device_id)}
                     className={`relative text-left rounded-2xl overflow-hidden border-2 ${c.device_id === cam.device_id ? 'border-accent-400/80' : 'border-ink-600/70'}`}>
               <LiveCameraFeed deviceId={c.device_id} intervalMs={LIVE_MS} fit="contain" className="aspect-video" />
+              <CamActivity c={c} />
               <div className="absolute top-2 left-2 right-2 flex items-center gap-2 pointer-events-none">
                 <span className="px-2 py-0.5 rounded-md bg-ink-950/80 text-[12px] text-white font-semibold">{c.name} <span className="mono text-slate-400">{c.device_uid}</span></span>
                 <Chip tone={ok ? 'ok' : 'bad'} dot className="ml-auto">{ok ? 'live' : c.online ? 'no picture' : 'offline'}</Chip>

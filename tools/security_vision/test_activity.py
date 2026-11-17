@@ -54,3 +54,30 @@ def test_sentences_named_first_and_guesses_keep_their_question_mark():
     assert [e["who"] for e in out] == ["Ali ?", "Person 9"]
     assert out[0]["text"] == "Ali ? (green top) - standing"
     assert out[1]["text"] == "Person 9 (blue top) - bending or crouching - most likely at UR5e"
+
+
+def test_skin_or_wood_red_does_not_become_a_red_top():
+    # 2026-11-17 lab: a seated person in black was described as "red top" (skin, chair and desk in the box middle)
+    c = bands()
+    c[N:2 * N] = 0
+    c[N + 0] = 0.5                                        # half the upper band warm red/orange (skin, wood)...
+    c[N + 12 + 0] = 0.5                                   # ...half black: dark clothes
+    assert top_colour(c) == "black"
+
+
+def test_a_clearly_red_top_is_still_red():
+    c = bands()
+    c[N:2 * N] = 0
+    c[N + 0] = 0.85
+    c[N + 12 + 0] = 0.15
+    assert top_colour(c) == "red"
+
+
+def test_mixed_colours_fall_back_to_brightness():
+    c = bands()
+    c[N:2 * N] = 0
+    c[N + 4] = 0.35                                       # green
+    c[N + 7] = 0.30                                       # blue - no single colour dominates
+    c[N + 12 + 3] = 0.35                                  # white
+    assert top_colour(c) == "white"
+
