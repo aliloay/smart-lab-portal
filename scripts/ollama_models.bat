@@ -8,7 +8,7 @@ set "OLLAMA_EXE=ollama"
 where ollama >nul 2>&1 || set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
 
 rem Model names: the same defaults as docker-compose.yml, or .env if set there.
-set "M1=qwen2.5:3b"
+set "M1=qwen2.5:1.5b"
 set "M2=qwen2.5:1.5b"
 if exist "%~dp0..\.env" (
   for /f "usebackq tokens=1,* delims==" %%a in ("%~dp0..\.env") do (

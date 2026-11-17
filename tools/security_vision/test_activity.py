@@ -91,3 +91,21 @@ def test_unnumbered_person_is_new_and_lines_carry_lab_number_and_size():
     t.lab_no = 12
     e = describe([t], [], 1000, 1000)[0]
     assert e["who"] == "Person 12" and e["lab_no"] == 12
+
+
+def test_bottom_clipped_partial_box_reports_upper_body_and_explicit_joint_visibility():
+    """2026-11-17 fix: a person at Camera 2's bottom edge (legs cut off, h/w < 0.8) must read
+    'upper body in view' instead of 'lying down', and hidden lower-body joints must be OUT_OF_FRAME
+    with xy=None (never invented)."""
+    t = types.SimpleNamespace(id=7, label="USER6", name="Nour", source="face",
+                              box=(400, 420, 140, 100), vel=(0, 0), crowded=False,
+                              look=types.SimpleNamespace(color=bands(top_val=0), partial=True), lab_no=2)
+    e = describe([t], [], 960, 520)[0]
+    assert e["posture"] == "upper body in view"
+    assert "lying down" not in e["text"] and "bending" not in e["text"]
+    assert e["partial"] is True
+    pv = e["pose_visibility"]
+    assert pv["head"]["state"] == "OBSERVED" and pv["head"]["xy"] is not None
+    assert pv["ankles"]["state"] == "OUT_OF_FRAME" and pv["ankles"]["xy"] is None
+    assert pv["knees"]["state"] == "OUT_OF_FRAME" and pv["knees"]["xy"] is None
+

@@ -336,3 +336,38 @@ def test_handoff_observe_mode_logs_and_changes_nothing(monkeypatch):
     cc = CrossCam(None, "k", FLOOR)
     run(cc, [t], lab, lambda now: seen(now, (7, None, "USER1", ALI)), HANDOFF_PASSES + 3)
     assert t.label is None and not cc.seen
+
+
+def test_ur5e_zone_two_confirmed_people_never_cross_pair_or_conflict():
+    """2026-11-17 UR5e table fix: when USER6 (Nour) and USER1 (Ali) are both confirmed in the views,
+    even if Nour's seated box on Cam 1 projects 0.31 m from Ali's standing spot on Cam 2 while Nour on
+    Cam 2 is 0.95 m away (> GATE_M) or at the bottom edge (floor=None), CrossCam must never pair USER6
+    with USER1, never log CROSSCAM_CONFLICT, never pollute links, and must pair USER6 with USER6 within
+    GATE_WIDE_M."""
+    cc, lab = CrossCam(None, "k", FLOOR), Labeler()
+    nour = person(1, box_at(3.0, 4.0), NOUR, label="USER6")
+    nour.source = "face"
+    ali = person(2, box_at(3.8, 4.0), ALI, label="USER1")
+    ali.source = "door"
+    # Case 1: Cam 2 sees Ali at (3.31, 4.0) [0.31 m from Nour on Cam 1!] and Nour at (3.95, 4.0) [0.95 m > GATE_M]
+    pf = lambda now: seen(now, (8, [3.31, 4.0], "USER1", ALI, "door", "CONFIRMED", False),
+                               (9, [3.95, 4.0], "USER6", NOUR, "face", "CONFIRMED", False))
+    notes = []
+    for k in range(STABLE_PASSES + 2):
+        now = 1000.0 + k * 0.2
+        cc.peer = pf(now)
+        notes += cc.share([nour, ali], W, H, now, lab)
+    assert not any(n["kind"] == "CROSSCAM_CONFLICT" for n in notes)
+    assert cc.links.get(nour.id, {}).get("id") == 9
+    assert cc.links.get(ali.id, {}).get("id") == 8
+    # Case 2: Nour on Cam 2 is at the bottom edge (floor=None), only Ali has floor=[3.31, 4.0]
+    pf_edge = lambda now: seen(now, (8, [3.31, 4.0], "USER1", ALI, "door", "CONFIRMED", False),
+                                    (9, None, "USER6", NOUR, "face", "CONFIRMED", False))
+    notes_edge = []
+    for k in range(STABLE_PASSES + 2):
+        now = 2000.0 + k * 0.2
+        cc.peer = pf_edge(now)
+        notes_edge += cc.share([nour], W, H, now, lab)
+    assert not any(n["kind"] == "CROSSCAM_CONFLICT" for n in notes_edge)
+    assert nour.id not in cc.links
+

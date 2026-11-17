@@ -34,6 +34,7 @@ void WiFiManager::update() {
     LOG("WIFI", "Retrying...");
     WiFi.disconnect();
     WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.setSleep(false);
   }
 }
 

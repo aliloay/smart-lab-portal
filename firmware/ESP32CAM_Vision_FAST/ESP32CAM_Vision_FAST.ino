@@ -583,10 +583,10 @@ void setup() {
   Serial.println();
 
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WIFI][FAIL] Not connected.");
-    return;
+    Serial.println("[WIFI][WARN] Not connected yet - will keep retrying in loop().");
   }
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
 
   Serial.print("[WIFI] Camera IP: ");
   Serial.println(WiFi.localIP());
@@ -613,6 +613,14 @@ void setup() {
 
 // ===========================================================================
 void loop() {
-  // All work happens in the analyze tasks and the HTTP server.
+  // All work happens in the analyze tasks and the HTTP server; ensure Wi-Fi recovers if the router restarts.
+  static uint32_t lastWifiTryMs = 0;
+  if (WiFi.status() != WL_CONNECTED && millis() - lastWifiTryMs >= 10000) {
+    lastWifiTryMs = millis();
+    Serial.println("[WIFI] Reconnecting...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.setSleep(false);
+  }
   vTaskDelay(pdMS_TO_TICKS(1000));
 }

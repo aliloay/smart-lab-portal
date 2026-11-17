@@ -67,8 +67,11 @@ if exist "%~dp0tools\security_vision\camera.env" (
 rem ---- Security camera 2 (optional): its own window and process once
 rem tools\security_vision\camera2.env exists (the start script refuses a second copy) ----
 if exist "%~dp0tools\security_vision\camera2.env" (
-  findstr /i /c:"camera2.env" "%RUN%" >nul || (
-    start "Smart Lab - Security camera 2" cmd /k call "%~dp0tools\security_vision\start_security_vision.bat" camera2.env
+  netstat -ano | findstr /r /c:":5101 .*LISTENING" >nul
+  if errorlevel 1 (
+    findstr /i /c:"camera2.env" "%RUN%" >nul || (
+      start "Smart Lab - Security camera 2" cmd /k call "%~dp0tools\security_vision\start_security_vision.bat" camera2.env
+    )
   )
 )
 

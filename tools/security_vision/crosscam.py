@@ -333,11 +333,30 @@ class CrossCam:
         alone = {d for d in set(my_desk) if d and my_desk.count(d) == 1 and their_desk.count(d) == 1}
         self.by_desk = set()
         clear = [[self._clear(ad, i, j) for j in range(len(theirs))] for i in range(len(mine))]
+        my_confirmed = {t.label for t in mine if t.label and t.source not in ("desk", "look")}
+        their_confirmed = {p.get("label") for p in peer.get("tracks", [])
+                           if p.get("label") and p.get("state") in SHARE_STATES and p.get("source") in SHARE_SOURCES}
         score = []
         for i in range(len(mine)):
             row = []
+            t_i = mine[i]
+            t_conf = bool(t_i.label and t_i.source not in ("desk", "look"))
             for j in range(len(theirs)):
+                p_j = theirs[j]
+                p_conf = bool(p_j.get("label") and p_j.get("state") in SHARE_STATES and p_j.get("source") in SHARE_SOURCES)
+                if t_conf and p_conf and t_i.label != p_j["label"] and (
+                        t_i.label in their_confirmed or p_j["label"] in my_confirmed):
+                    # Both identities are already present separately across the views: never cross-pair Person A
+                    # on this camera with Person B on the other camera (fixes UR5e table 3,069-conflict storm).
+                    row.append(None)
+                    continue
                 s = self._score(dist[i][j], ad[i], j, clear[i][j])
+                if t_conf and p_conf and t_i.label == p_j["label"] and dist[i][j] is not None \
+                        and dist[i][j] <= GATE_WIDE_M \
+                        and not (APPEARANCE == "on" and ad[i][j] is not None and ad[i][j] > APPEAR_VETO):
+                    # Same confirmed identity on both cameras within the wide floor gate (UR5e perspective gap 0.7-1.3m)
+                    same_s = 0.5 * (1.0 - dist[i][j] / GATE_WIDE_M)
+                    s = same_s if s is None else max(s, same_s)
                 if (my_desk[i] in alone and their_desk[j] == my_desk[i]
                         and not (dist[i][j] is not None and dist[i][j] > DESK_VETO_M)
                         and not (APPEARANCE == "on" and ad[i][j] is not None and ad[i][j] > APPEAR_VETO)
@@ -349,10 +368,13 @@ class CrossCam:
         pairs = assign_max(score)
         keep = {(mine[i].id, theirs[j]["id"]) for i, j in pairs}
         self.streak = {k: self.streak.get(k, 0) + 1 for k in keep}
-        # 2026-11-17: every stable pairing (named or not) - labmap.py gives both sides one lab number
+        # 2026-11-17: every stable pairing (named or not) - labmap.py gives both sides one lab number,
+        # except when the two tracks carry conflicting confirmed identities.
         self.links = {mine[i].id: {**theirs[j], "_passes": self.streak[(mine[i].id, theirs[j]["id"])],
                                    "_look": ad[i][j], "_crowded": bool(mine[i].crowded or theirs[j].get("crowded"))}
-                      for i, j in pairs if self.streak[(mine[i].id, theirs[j]["id"])] >= STABLE_PASSES}
+                      for i, j in pairs if self.streak[(mine[i].id, theirs[j]["id"])] >= STABLE_PASSES
+                      and not (mine[i].label and theirs[j].get("label") and mine[i].label != theirs[j]["label"]
+                               and mine[i].source not in ("desk", "look"))}
         held = {t.label for t in mine if t.label}
         for i, j in pairs:
             t, p = mine[i], theirs[j]

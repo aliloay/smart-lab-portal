@@ -1,0 +1,21 @@
+category,metric,value
+crosscam_17nov_replay.SECCAM_LAB01,snapshots_analyzed,12349
+crosscam_17nov_replay.SECCAM_LAB01,before_obs_conflicts,20
+crosscam_17nov_replay.SECCAM_LAB01,after_obs_conflicts_throttled,8
+crosscam_17nov_replay.SECCAM_LAB01,before_false_links,20
+crosscam_17nov_replay.SECCAM_LAB01,after_false_links,0
+crosscam_17nov_replay.SECCAM_LAB01,before_same_person_paired,663
+crosscam_17nov_replay.SECCAM_LAB01,after_same_person_paired,799
+crosscam_17nov_replay.SECCAM_LAB02,snapshots_analyzed,12150
+crosscam_17nov_replay.SECCAM_LAB02,before_obs_conflicts,15
+crosscam_17nov_replay.SECCAM_LAB02,after_obs_conflicts_throttled,6
+crosscam_17nov_replay.SECCAM_LAB02,before_false_links,15
+crosscam_17nov_replay.SECCAM_LAB02,after_false_links,0
+crosscam_17nov_replay.SECCAM_LAB02,before_same_person_paired,732
+crosscam_17nov_replay.SECCAM_LAB02,after_same_person_paired,873
+labmap_io_bench,before_ms_per_write,11.794
+labmap_io_bench,after_ms_per_write,8.562
+labmap_io_bench,reduction_pct,27.4
+activity_pose_bench,tracks_per_frame,4
+activity_pose_bench,us_per_frame,102.18
+ollama_bench,error,timed out

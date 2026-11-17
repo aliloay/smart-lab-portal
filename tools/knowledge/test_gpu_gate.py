@@ -84,6 +84,12 @@ def test_live_camera_metrics_parse(monkeypatch):
     monkeypatch.setattr(gpu_gate.urllib.request, "urlopen", lambda *a, **k: R(_json.dumps(body).encode()))
     c = gpu_gate.camera_state(5100, "k")
     assert c["state"] == "live" and c["fps"] == 6.9 and c["gpu_free_mb"] == 2996.0
+    # security_vision.py Camera.status() reports state="STREAMING" (not "LIVE"); even when fps is 0.0 at startup,
+    # STREAMING must be recognised as live so the GPU stays reserved for the camera.
+    body_streaming = {"analysis": {"fps": 0.0}, "stream": {"state": "STREAMING"}, "gpu": {"mem_total_mb": 4096.0, "mem_used_mb": 900.0}}
+    monkeypatch.setattr(gpu_gate.urllib.request, "urlopen", lambda *a, **k: R(_json.dumps(body_streaming).encode()))
+    c2 = gpu_gate.camera_state(5100, "k")
+    assert c2["state"] == "live" and c2["gpu_free_mb"] == 3196.0
 
 
 def test_default_policy_is_unchanged():

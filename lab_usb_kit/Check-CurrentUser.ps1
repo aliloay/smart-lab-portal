@@ -12,7 +12,16 @@ $src = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 if ($Full -and (Test-Path (Join-Path $src 'MANIFEST.json'))) {
     $m = Get-Content -Raw (Join-Path $src 'MANIFEST.json') | ConvertFrom-Json
     $bad = @($m.files.PSObject.Properties | Where-Object {
-        $f = Join-Path $src $_.Name; -not (Test-Path $f) -or (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -ne $_.Value })
+        $f = Join-Path $src $_.Name
+        if (-not (Test-Path $f)) { return $true }
+        if ((Get-FileHash $f -Algorithm SHA256).Hash.ToLower() -eq $_.Value) { return $false }
+        if ($f -match '\.(ps1|md|json|py|txt)$') {
+            $lf = [byte[]]([IO.File]::ReadAllBytes($f) | Where-Object { $_ -ne 13 })
+            $h = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($lf)).Replace('-', '').ToLower()
+            if ($h -eq $_.Value) { return $false }
+        }
+        return $true
+    })
     Line ($bad.Count -eq 0) "kit: $(@($m.files.PSObject.Properties).Count) files checked, $($bad.Count) wrong"
 }
 $cfgFile = Join-Path $InstallRoot 'smartlab.json'

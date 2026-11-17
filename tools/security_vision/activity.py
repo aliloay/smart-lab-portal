@@ -23,6 +23,60 @@ HUE_NAMES = ["red", "orange", "yellow", "yellow-green", "green", "green", "teal"
 VAL_NAMES = ["black", "dark grey", "grey", "white"]
 HUE_BINS, VAL_BINS = 12, 4
 NEAR_MAX = 0.12                           # a mapped box this close (share of the frame width) counts as "near"
+EDGE_PX = 3                               # box touching the frame edge within 3 px is clipped by the camera view
+FULL_BODY_RATIO = 2.6                     # canonical standing height / width ratio in these cameras
+
+# Canonical anatomical vertical spans (fraction of full standing body height from top of head = 0.0 to ankles = 1.0).
+# Used to classify whether body parts are OBSERVED, OCCLUDED, or OUT_OF_FRAME without inventing hidden coordinates.
+BODY_KEYPOINTS = (
+    ("head", 0.00, 0.18),
+    ("shoulders", 0.15, 0.28),
+    ("torso", 0.22, 0.52),
+    ("elbows", 0.30, 0.48),
+    ("wrists", 0.42, 0.58),
+    ("hips", 0.48, 0.60),
+    ("knees", 0.68, 0.82),
+    ("ankles", 0.88, 1.00),
+)
+
+
+def is_bottom_clipped(box, fh: int = 0, partial: bool = False) -> bool:
+    """True when the person box is cut off by the bottom of the camera frame (legs/feet out of view)."""
+    if partial:
+        return True
+    x, y, w, h = box
+    return fh > 0 and y + h >= fh - EDGE_PX and h < 2.2 * max(w, 1e-6)
+
+
+def pose_visibility(box, fw: int = 0, fh: int = 0, crowded: bool = False, partial: bool = False) -> dict[str, dict]:
+    """Explicitly classify visibility of anatomical body parts: OBSERVED, OCCLUDED, PREDICTED, or OUT_OF_FRAME.
+    Never invents coordinates for joints that are out of frame or occluded."""
+    x, y, w, h = box
+    w_safe = max(float(w), 1e-6)
+    full_h = max(float(h), FULL_BODY_RATIO * w_safe)
+    bottom_cut = is_bottom_clipped(box, fh=fh, partial=partial)
+    top_cut = fh > 0 and y <= EDGE_PX and h < FULL_BODY_RATIO * w_safe
+    side_cut = fw > 0 and (x <= EDGE_PX or x + w >= fw - EDGE_PX)
+    vis_bottom = (h / full_h) if bottom_cut else 1.0
+    vis_top = (1.0 - h / full_h) if (top_cut and not bottom_cut) else 0.0
+    out: dict[str, dict] = {}
+    for name, y0, y1 in BODY_KEYPOINTS:
+        if bottom_cut and y0 >= vis_bottom:
+            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None}
+        elif top_cut and y1 <= vis_top:
+            out[name] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None}
+        elif (bottom_cut and y1 > vis_bottom) or (top_cut and y0 < vis_top):
+            out[name] = {"state": "OCCLUDED", "confidence": 0.35, "xy": None}
+        elif side_cut and name in ("elbows", "wrists"):
+            out[name] = {"state": "OCCLUDED", "confidence": 0.40, "xy": None}
+        elif crowded and name in ("elbows", "wrists", "hips", "knees", "ankles"):
+            out[name] = {"state": "OCCLUDED", "confidence": 0.45, "xy": None}
+        else:
+            rel_y = ((y0 + y1) * 0.5) / max(vis_bottom, 1e-6) if bottom_cut else (y0 + y1) * 0.5
+            cy = round(float(y + min(1.0, max(0.0, rel_y)) * h), 1)
+            cx = round(float(x + 0.5 * w), 1)
+            out[name] = {"state": "OBSERVED", "confidence": 0.85, "xy": [cx, cy]}
+    return out
 
 
 def top_colour(color: Optional[np.ndarray]) -> Optional[str]:
@@ -49,11 +103,16 @@ def top_colour(color: Optional[np.ndarray]) -> Optional[str]:
     return VAL_NAMES[int(np.argmax(val))]
 
 
-def posture(box, vel=(0.0, 0.0)) -> str:
-    """From the box shape (height / width), as tools/security_vision already reads postures."""
+def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False) -> str:
+    """From the box shape (height / width), as tools/security_vision already reads postures.
+    When the box is cut off at the bottom of the frame (legs out of view), reports 'upper body in view'
+    rather than mistaking the cropped aspect ratio for 'bending or crouching' or 'lying down'."""
     w, h = max(box[2], 1e-6), box[3]
     r = h / w
-    if r >= 2.2:
+    clipped = is_bottom_clipped(box, fh=fh, partial=partial)
+    if clipped:
+        p = "upper body in view"
+    elif r >= 2.2:
         p = "standing"
     elif r >= 1.4:
         p = "seated or leaning"
@@ -62,7 +121,7 @@ def posture(box, vel=(0.0, 0.0)) -> str:
     else:
         p = "lying down"
     speed = math.hypot(*vel) / max(h, 1e-6)            # box heights per second
-    if speed > 0.35 and r >= 1.4:
+    if speed > 0.35 and (r >= 1.4 or clipped):
         p = "walking" if p == "standing" else p + ", moving"
     return p
 
@@ -102,14 +161,18 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
             who = f"Person {t.lab_no}"             # the LAB number, the same on both cameras (labmap.py)
         else:
             who = "New person"                     # numbered within ~1.5 s, once the look is measured
-        colour = top_colour(t.look.color if getattr(t, "look", None) is not None else None)
-        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)))
+        look_obj = getattr(t, "look", None)
+        colour = top_colour(look_obj.color if look_obj is not None else None)
+        is_part = bool(getattr(look_obj, "partial", False)) or is_bottom_clipped(t.box, fh=fh)
+        crowded = bool(getattr(t, "crowded", False))
+        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part)
+        pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded, partial=is_part)
         nz = nearest_zone(t.box, zones, fw, fh)
         parts = [who + (f" ({colour} top)" if colour else "")]
         parts.append(pose)
         if nz:
             parts.append(("most likely at " if nz[1] else "near ") + nz[0])
-        if getattr(t, "crowded", False):
+        if crowded:
             parts.append("next to someone")
         out.append({"track_id": t.id, "label": t.label, "who": who, "colour": colour, "posture": pose,
                     "near": nz[0] if nz else None, "named": bool(t.label), "text": " - ".join(parts),
@@ -117,6 +180,8 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
                     # number) and keeps the closer camera's description (bigger box = nearer, more reliable)
                     "lab_no": getattr(t, "lab_no", None), "at": bool(nz and nz[1]),
                     "hint": getattr(t, "hint", None),      # desk guess ("Eng. Hemaly?") - preselected by Confirm
-                    "size": round(t.box[3] / fh, 3) if fh else 0.0})
+                    "size": round(t.box[3] / fh, 3) if fh else 0.0,
+                    "partial": is_part,
+                    "pose_visibility": pv})
     out.sort(key=lambda e: (not e["named"], e["track_id"]))
     return out[:max_lines]

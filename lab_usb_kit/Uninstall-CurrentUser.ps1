@@ -6,7 +6,12 @@ foreach ($pattern in 'agent_boot\.py', 'pc_agent\.py|relay\.py') {
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 Start-Sleep -Seconds 1
-Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $RunName -ErrorAction SilentlyContinue
+try { Unregister-ScheduledTask -TaskName 'SmartLab watchdog' -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+foreach ($n in $RunName, 'SmartLab relay', 'SmartLab agent') {
+    Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name $n -ErrorAction SilentlyContinue
+}
+$deskUrl = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Smart Lab Portal.url'
+if (Test-Path $deskUrl) { Remove-Item $deskUrl -Force -ErrorAction SilentlyContinue }
 Remove-Item (Join-Path $env:TEMP 'smartlab_status.txt') -Force -ErrorAction SilentlyContinue
 if (Test-Path $InstallRoot) {
     foreach ($item in 'python', 'pc_agent', 'relay', 'device.key', 'enroll.key', 'smartlab.json', 'MANIFEST.json') {      # only the kit's own contents

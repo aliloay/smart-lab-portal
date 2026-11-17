@@ -100,6 +100,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
+        if self.path == "/health":
+            return self._json(200, {"ok": True, "service": "knowledge"})
         if not self._auth():
             return
         if self.path == "/gpu-gate":       # the one camera-first GPU decision both assistants follow

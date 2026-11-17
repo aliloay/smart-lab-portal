@@ -33,7 +33,10 @@ OBSOLETE = ["INSTALL_SMARTLAB.ps1", "CHECK_INSTALLATION.ps1", "UNINSTALL_SMARTLA
 
 
 def env_value(name: str) -> str:
-    with open(os.path.join(REPO, ".env"), encoding="utf-8") as f:
+    env_p = os.path.join(REPO, ".env")
+    if not os.path.isfile(env_p):
+        return ""
+    with open(env_p, encoding="utf-8") as f:
         for line in f:
             if line.startswith(name + "="):
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
@@ -100,14 +103,26 @@ def sha256(path: str) -> str:
 
 
 def write_manifest(state: dict) -> dict:
+    manifest_p = os.path.join(KIT, "MANIFEST.json")
     files = {}
+    old_m = {}
+    if os.path.isfile(manifest_p):
+        try:
+            old_m = json.load(open(manifest_p, encoding="utf-8"))
+            for rel, h in (old_m.get("files") or {}).items():
+                if not os.path.isfile(os.path.join(KIT, rel)):
+                    files[rel] = h
+        except Exception:
+            pass
     for path in all_files(KIT):
         rel = os.path.relpath(path, KIT).replace(os.sep, "/")
         if rel != "MANIFEST.json":
             files[rel] = sha256(path)
-    m = {"version": VERSION, "bundle_seq": state.get("seq"), "bundle_id": state.get("id"),
+    seq = state.get("seq") if state.get("seq") is not None else old_m.get("bundle_seq")
+    bid = state.get("id") if state.get("id") is not None else old_m.get("bundle_id")
+    m = {"version": VERSION, "bundle_seq": seq, "bundle_id": bid,
          "built": time.strftime("%Y-%m-%d %H:%M"), "files": dict(sorted(files.items()))}
-    with open(os.path.join(KIT, "MANIFEST.json"), "w", encoding="utf-8") as f:
+    with open(manifest_p, "w", encoding="utf-8") as f:
         json.dump(m, f, indent=0)
     return m
 
@@ -131,17 +146,22 @@ def main() -> None:
     ap.add_argument("--no-bundle", action="store_true", help="keep the current signed bundle")
     args = ap.parse_args()
     device_key, secret_key = env_value("DEVICE_API_KEY"), env_value("SECRET_KEY")
-    if not device_key:
+    enroll_p = os.path.join(KIT, "enroll.key")
+    if not device_key and not args.no_bundle:
         raise SystemExit(".env has no DEVICE_API_KEY")
     tidy()
     if not args.no_bundle:
         make_bundle.main()
+    os.makedirs(os.path.join(KIT, "relay"), exist_ok=True)
     shutil.copy2(os.path.join(REPO, "tools", "relay", "relay.py"), os.path.join(KIT, "relay", "relay.py"))
-    with open(os.path.join(KIT, "enroll.key"), "w", encoding="utf-8") as f:
-        f.write(enroll_code(device_key))
-    signing = make_bundle.load_key()
-    hits = secret_scan(KIT, {"DEVICE_API_KEY": device_key, "SECRET_KEY": secret_key, "signing key": signing["d"],
-                             "DB password": env_value("POSTGRES_PASSWORD"), "n8n key": env_value("N8N_ENCRYPTION_KEY")})
+    if device_key:
+        with open(enroll_p, "w", encoding="utf-8") as f:
+            f.write(enroll_code(device_key))
+    secrets_map = {"DEVICE_API_KEY": device_key, "SECRET_KEY": secret_key,
+                   "DB password": env_value("POSTGRES_PASSWORD"), "n8n key": env_value("N8N_ENCRYPTION_KEY")}
+    if os.path.isfile(make_bundle.KEY_FILE):
+        secrets_map["signing key"] = make_bundle.load_key()["d"]
+    hits = secret_scan(KIT, secrets_map)
     if hits:
         raise SystemExit("SECRET FOUND IN THE KIT, stopping:\n  " + "\n  ".join(hits))
     forbidden = [p for p in all_files(KIT) if os.path.basename(p).lower() in (".env", "camera.env", "robot.env", "device.key", "agent_sign_key.json")]

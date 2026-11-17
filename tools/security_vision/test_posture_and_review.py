@@ -119,3 +119,25 @@ def test_ledger_treats_other_camera_names_as_reacquired():
     t.label, t.source, t.named_by = "U1", "peer", "other camera"
     ev = led.update([t], 1.0)
     assert ev[0].kind == "PERSON_TRACK_REACQUIRED" and t.identity_confidence <= led.cfg.reacquire_strength
+
+
+def test_desk_named_face_occupant_is_not_wiped_every_pass():
+    """2026-11-17 fix: when a face-recognised person (in face_named, not in door occupants) sits at their
+    home desk, Labeler.assign() must not wipe t.source == 'desk' on every frame and trigger NAMED_BY_DESK 6x/s."""
+    lab = Labeler()
+    who = {"auth_subject": "USER5", "name": "Eng. Hemaly", "role": "STAFF"}
+    lab.face_named["USER5"] = (who, 100.0)
+    lab.label_anchor = {"USER5": 100.0}
+    t = Track(5, (100, 200, 120, 160), 100.0, 100.0)          # seated at PC-04
+    zones_px = {"PC-04": (80, 180, 160, 200)}
+    notes = []
+    for k in range(15):
+        now = 101.0 + k * 0.2
+        t.last_seen = now
+        lab.assign([t], [], None, now=now, known=[who])
+        lab.home_desk([t], {"USER5": ["PC-04"]}, zones_px, [], {"USER5": who}, now=now)
+        notes.extend(getattr(lab, "notes", []))
+        lab.notes = []
+    assert t.label == "USER5" and t.source == "desk"
+    assert [n["kind"] for n in notes].count("NAMED_BY_DESK") == 1
+
