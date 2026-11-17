@@ -37,9 +37,24 @@ ROUGH = {
     "cam2_2026-10-21": [("ur5e_robot", .165, .255, .215, .425), ("fanuc_robot", .848, .330, .888, .445),
                         ("lab_door", .642, .125, .685, .405)],
 }
-if DAY:                   # starting points for the new day's views: the last known positions (the owner corrects them)
-    ROUGH[f"cam1_{DAY}"] = ROUGH["cam1_2026-10-21"]
-    ROUGH[f"cam2_{DAY}"] = ROUGH["cam2_2026-10-21"]
+# Starting boxes for the new day's views: the owner's own "Equipment & door boxes" of that day (exported from the
+# portal to D:\SmartLabData\lab_<day>\camera_zones.json, fractions of the picture) - robots, door and every PC; the
+# 21 Oct rough boxes only when that file is missing. The owner still checks the reference frame before training.
+ZONE_CLASS = {"Fanuc": "fanuc_robot", "UR5e": "ur5e_robot", "Door": "lab_door"}
+DAY_ZONES = False
+if DAY:
+    zf = os.path.join(r"D:\SmartLabData", f"lab_{DAY}", "camera_zones.json")
+    if os.path.exists(zf):
+        DAY_ZONES = True
+        for cam in ("1", "2"):
+            ROUGH[f"cam{cam}_{DAY}"] = [
+                (ZONE_CLASS.get(z["name"], "lab_pc" if z["name"].upper().startswith("PC-") else None),
+                 z["x"], z["y"], z["x"] + z["w"], z["y"] + z["h"])
+                for z in json.load(open(zf, encoding="utf-8")) if z["cam"] == f"SECCAM_LAB0{cam}"]
+            ROUGH[f"cam{cam}_{DAY}"] = [r for r in ROUGH[f"cam{cam}_{DAY}"] if r[0]]
+    else:
+        ROUGH[f"cam1_{DAY}"] = ROUGH["cam1_2026-10-21"]
+        ROUGH[f"cam2_{DAY}"] = ROUGH["cam2_2026-10-21"]
 
 _person = None
 
@@ -118,7 +133,8 @@ def extract():
         boxes = []
         for h in bd._infer_multi(rt, spec, im):
             b = h["box"]
-            if h["class"] not in ("fanuc_robot", "ur5e_robot", "lab_door"):
+            fixed = ("fanuc_robot", "ur5e_robot", "lab_door") + (("lab_pc",) if DAY_ZONES else ())
+            if h["class"] not in fixed:             # PCs too come from the owner's boxes when the day has them
                 boxes.append((NAMES.index(h["class"]), (b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"])))
         boxes += [(NAMES.index(c), (a, b, cc, d)) for c, a, b, cc, d in ROUGH.get(view, [])]
         shutil.copy2(os.path.join(OUT, "all", "images", name + ".jpg"), os.path.join(OUT, "reference", "images"))
