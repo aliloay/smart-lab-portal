@@ -100,7 +100,9 @@ def list_incidents(state_: Optional[str] = Query(None, alias="state", pattern="^
                    q: Optional[str] = Query(None, max_length=80), days: int = Query(30, ge=1, le=365),
                    db: Session = Depends(get_db), _: User = Depends(require_staff)):
     now = datetime.now(timezone.utc)
-    stmt = select(Alert).where(Alert.created_at >= now - timedelta(days=days)).order_by(desc(Alert.created_at)).limit(500)
+    # 2026-11-17: the lab/state filters below run in Python, so the 500-row cap is applied AFTER them (it was applied
+    # before: a filtered view silently missed older matches). SQL still bounds the scan with a generous safety cap.
+    stmt = select(Alert).where(Alert.created_at >= now - timedelta(days=days)).order_by(desc(Alert.created_at)).limit(5000)
     if severity:
         stmt = stmt.where(Alert.severity == severity)
     if q:
@@ -114,8 +116,8 @@ def list_incidents(state_: Optional[str] = Query(None, alias="state", pattern="^
     elif state_:
         rows = [r for r in rows if r["state"] == state_]
     counts = {s: sum(1 for r in rows if r["state"] == s) for s in STATES}
-    return {"incidents": rows, "counts": counts, "escalations": sum(1 for r in rows if r["escalate"]),
-            "reports": sum(r["occurrences"] for r in rows)}
+    return {"incidents": rows[:500], "counts": counts, "escalations": sum(1 for r in rows if r["escalate"]),
+            "reports": sum(r["occurrences"] for r in rows), "total": len(rows), "truncated": len(rows) > 500}
 
 
 @router.get("/quality")
