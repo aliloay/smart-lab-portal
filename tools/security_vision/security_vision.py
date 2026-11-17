@@ -376,6 +376,10 @@ class Service:
         import deskmap
         self.crosscam.desk_link, why = deskmap.link_for(os.path.join(HERE, "anchors"), args.device)
         self.frame_wh = (0, 0)
+        # 2026-11-17: one lab number per unnamed person on BOTH cameras (labmap.py) - shared register file per lab
+        from labmap import LabNumbers
+        self.labnums = LabNumbers(os.path.join(os.path.abspath(args.recordings), f"lab_people_{args.lab}.json"),
+                                  args.device)
         print(f"[crosscam] other camera {peer or 'none'}; floor map {'loaded' if floor else 'not calibrated - nothing shared'}"
               f"; same desk: {why}")
         self.door_watch = DoorWatcher()      # open / closed from the red door leaf in the door box
@@ -639,6 +643,13 @@ class Service:
                         self.labeler.desk_hints(tracks, hints, zpx)
                     self.crosscam.desks = self.linked_desks()
                     notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
+                    try:
+                        pv = self.crosscam.peer
+                        fresh = pv and -1.0 <= t0 - float(pv.get("t", 0)) <= 1.0
+                        notes_cc = notes_cc + self.labnums.assign(tracks, self.crosscam.links, t0,
+                                                                  pv.get("tracks") if fresh else None)
+                    except Exception as e:             # a register problem never stops tracking
+                        print(f"[labmap] skipped: {e.__class__.__name__}: {e}")
                     self.frame_wh = (w, h)
                     id_events = list(self.labeler.events)
                     notes, self.labeler.notes = getattr(self.labeler, "notes", []) + notes_cc, []

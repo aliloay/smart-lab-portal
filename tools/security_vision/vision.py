@@ -635,6 +635,7 @@ class Track:
     identity_state: str = "UNKNOWN"    # set by identity.IdentityLedger
     identity_confidence: float = 0.0
     posture_changed_at: float = -1e9   # last joined across a posture change (Tracker._posture_pairs)
+    lab_no: Optional[int] = None       # one number per unnamed person in the LAB, shared by both cameras (labmap.py)
 
     def center(self):
         return (self.box[0] + self.box[2] / 2, self.box[1] + self.box[3] / 2)

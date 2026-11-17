@@ -32,18 +32,30 @@ const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Recor
 /** The live bar under a lab's cameras (2026-11-11): what each camera sees now, one short line per person, from the
  *  camera service's own data (activity.py) - who, top colour, posture, the mapped box they are near. Scrolls like a
  *  news ticker when it is longer than the bar; a hover pauses it. Updates with the cameras' state (every ~2 s). */
-function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: SecurityCamera) => string }) {
-  // 2026-11-11 (owner: "the two cameras must work together"): a NAMED person seen by both cameras is one line
-  // ("Cam 1 + Cam 2"), not two. Unnamed people are not merged - two cameras' "Person 3" may be different people.
-  const all = cams.flatMap(c => (c.online ? c.activity ?? [] : []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
+/** 2026-11-17 (owner: "not each camera on its own - they work together"): one entry per PERSON in the lab. Both
+ *  camera services share one lab number per unnamed person (labmap.py: same floor spot / desk on both cameras, or the
+ *  same look coming back), so a name or a lab number seen on both cameras is ONE person: one line, labelled
+ *  "Camera 1 + Camera 2", described by the camera that sees them bigger (nearer, more reliable posture and PC).
+ *  The count is these distinct people, never a sum of the cameras (and at least the larger camera count, in case a
+ *  camera sends fewer lines than people). */
+function mergeLab(cams: SecurityCamera[], label: (c: SecurityCamera) => string) {
+  const live = cams.filter(c => c.online === true && c.source_ok !== false)
+  const all = live.flatMap(c => (c.activity ?? []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` })))
+  const ident = (a: (typeof all)[number]) => a.named && a.label ? `name:${a.label}` : a.lab_no ? `lab:${a.lab_no}` : null
   const items: typeof all = []
   for (const a of all) {
-    const same = a.named && a.label ? items.find(b => b.named && b.label === a.label) : undefined
-    if (same) same.cam = `${same.cam} + ${a.cam}`
-    else items.push({ ...a })
+    const id = ident(a)
+    const i = id ? items.findIndex(b => ident(b) === id) : -1
+    if (i < 0) { items.push({ ...a }); continue }
+    const b = items[i], cam = `${b.cam} + ${a.cam}`
+    items[i] = (a.size ?? 0) > (b.size ?? 0) ? { ...a, cam } : { ...b, cam }   // keep the nearer camera's description
   }
-  // The views overlap, so the room count is the larger camera count (adding them would count people twice).
-  const inView = Math.max(0, ...cams.filter(c => c.online).map(c => c.people ?? 0))
+  const count = Math.max(items.length, ...live.map(c => c.people ?? 0), 0)
+  return { items, count }
+}
+
+function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: SecurityCamera) => string }) {
+  const { items, count: inView } = mergeLab(cams, label)
   // 2026-11-17 (lab, owner: "bolder and much clearer"): one line per person, wrapped (no scrolling ticker), larger text.
   return (
     <div className="mt-2 rounded-xl border-2 border-rose-400/40 bg-ink-900/95 px-3.5 py-2.5"
@@ -257,13 +269,11 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
 }) {
   const [split, setSplit] = useState(true)
   const live = cam.online === true && cam.source_ok !== false
-  // 2026-11-17 (lab, owner: "camera 2 sees 3 but it says 2"): the room count is the lab's, not the selected camera's.
-  // The views overlap, so it is the LARGER count of the lab's live cameras (adding them would count people twice);
-  // the camera that sees the most is named. A floor-map union of both views is the next step (post-lab).
+  // 2026-11-17 (lab, owner): the room count is the LAB's - distinct people over both cameras (mergeLab: one name or
+  // lab number = one person), not the selected camera's and never the two cameras added up.
   const labCams = (siblings.length ? siblings : [cam]).filter(c => c.online === true && c.source_ok !== false)
-  const labPeople = Math.max(0, ...labCams.map(c => c.people ?? 0))
-  const most = labCams.length > 1 ? labCams.find(c => (c.people ?? 0) === labPeople) : undefined
-  const mostLabel = most ? `Camera ${(siblings.length ? siblings : [cam]).indexOf(most) + 1}` : ''
+  const labPeople = mergeLab(siblings.length ? siblings : [cam], () => '').count
+  const mostLabel = labCams.length > 1 ? 'both cameras together' : ''
   const extra = live && labPeople > cam.inside
   // 2026-11-17 (lab, owner): double-click a camera picture to enlarge it; double-click again, Esc or X closes.
   const [big, setBig] = useState<number | null>(null)
@@ -341,7 +351,7 @@ function Live({ cam, onChange, siblings = [], onSelect }: {
           <div className="label mb-2 flex items-center gap-1.5"><Users size={13} /> People</div>
           <div className="flex items-baseline gap-4">
             <div><span className="text-3xl font-extrabold text-white tnum">{live ? labPeople : '–'}</span>
-              <span className="ml-1.5 text-slate-400 text-[12.5px]">seen{live && mostLabel ? ` in the lab (most by ${mostLabel})` : ''}</span></div>
+              <span className="ml-1.5 text-slate-400 text-[12.5px]">seen{live && mostLabel ? ` in the lab (${mostLabel})` : ''}</span></div>
             <div><span className="text-3xl font-extrabold text-slate-200 tnum">{cam.inside}</span>
               <span className="ml-1.5 text-slate-400 text-[12.5px]">entered at the door</span></div>
           </div>

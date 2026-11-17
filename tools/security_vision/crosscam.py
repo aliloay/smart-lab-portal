@@ -183,7 +183,7 @@ def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float, des
         d = deep_of(t)
         out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h), "desk": desk_of(t.box, w, h, desks),
                     "label": t.label, "name": t.name, "role": t.role, "source": t.source,
-                    "state": t.identity_state, "crowded": bool(t.crowded),
+                    "state": t.identity_state, "crowded": bool(t.crowded), "lab_no": getattr(t, "lab_no", None),
                     "deep": [round(float(v), 4) for v in d] if d is not None else None})
     return {"t": now, "calibrated": floor is not None, "tracks": out}
 
@@ -208,6 +208,7 @@ class CrossCam:
         self.seen: dict[str, dict] = {}           # other camera's confirmed people, by name (handoff memory)
         self.hstreak: dict[tuple[int, str], int] = {}   # (my track, name) -> passes in a row the look was clear
         self.hsaid: set[tuple[int, str]] = set()  # handoffs already logged in observe mode
+        self.links: dict[int, dict] = {}          # my track id -> the other camera's track, paired STABLE_PASSES+ (labmap.py)
 
     # ------------------------------------------------------------ polling ---
     def start(self, period_s: float = 0.25):
@@ -304,6 +305,7 @@ class CrossCam:
         """Live pairing: the other camera sees the person now, on the same floor spot or at the same desk."""
         from vision import assign_max
         self.notes = []
+        self.links = {}
         peer = self.peer
         floor_ok = self.floor is not None and bool(peer and peer.get("calibrated"))
         desk_ok = bool(self.desk_link and self.desks)
@@ -346,6 +348,10 @@ class CrossCam:
         pairs = assign_max(score)
         keep = {(mine[i].id, theirs[j]["id"]) for i, j in pairs}
         self.streak = {k: self.streak.get(k, 0) + 1 for k in keep}
+        # 2026-11-17: every stable pairing (named or not) - labmap.py gives both sides one lab number
+        self.links = {mine[i].id: {**theirs[j], "_passes": self.streak[(mine[i].id, theirs[j]["id"])],
+                                   "_look": ad[i][j], "_crowded": bool(mine[i].crowded or theirs[j].get("crowded"))}
+                      for i, j in pairs if self.streak[(mine[i].id, theirs[j]["id"])] >= STABLE_PASSES}
         held = {t.label for t in mine if t.label}
         for i, j in pairs:
             t, p = mine[i], theirs[j]

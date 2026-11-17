@@ -3,7 +3,7 @@ Live activity lines for the Security page (2026-11-11, owner: "a live bar under 
 in the green shirt is most likely at the UR5e, the one in blue is bending").
 
 Built ONLY from what the camera service already has for every tracked person - no new model, no extra GPU work:
-  * who      - the name when the person is named (a look guess keeps its "?"), else "Person <track id>";
+  * who      - the name when the person is named (a look guess keeps its "?"), else "Person <lab number>" (labmap.py, one number per person on both cameras);
   * colour   - the most common colour of the upper-body band of the box (vision.color_signature);
   * posture  - from the box shape and its recent change: standing / seated / bending or crouching / lying,
                plus "moving" when the box travels;
@@ -98,8 +98,10 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
     for t in tracks:
         if t.label:
             who = (t.name or t.label) + (" ?" if t.source in ("look", "desk") else "")
+        elif getattr(t, "lab_no", None):
+            who = f"Person {t.lab_no}"             # the LAB number, the same on both cameras (labmap.py)
         else:
-            who = f"Person {t.id}"
+            who = "New person"                     # numbered within ~1.5 s, once the look is measured
         colour = top_colour(t.look.color if getattr(t, "look", None) is not None else None)
         pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)))
         nz = nearest_zone(t.box, zones, fw, fh)
@@ -110,6 +112,10 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
         if getattr(t, "crowded", False):
             parts.append("next to someone")
         out.append({"track_id": t.id, "label": t.label, "who": who, "colour": colour, "posture": pose,
-                    "near": nz[0] if nz else None, "named": bool(t.label), "text": " - ".join(parts)})
+                    "near": nz[0] if nz else None, "named": bool(t.label), "text": " - ".join(parts),
+                    # 2026-11-17: the portal merges the two cameras' lines of one person (same name or lab
+                    # number) and keeps the closer camera's description (bigger box = nearer, more reliable)
+                    "lab_no": getattr(t, "lab_no", None), "at": bool(nz and nz[1]),
+                    "size": round(t.box[3] / fh, 3) if fh else 0.0})
     out.sort(key=lambda e: (not e["named"], e["track_id"]))
     return out[:max_lines]

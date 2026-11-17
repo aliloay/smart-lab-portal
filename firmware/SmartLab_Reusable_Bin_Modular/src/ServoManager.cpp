@@ -47,9 +47,16 @@ bool ServoManager::open() {
   if (_locked) { LOG("SERVO", "Refused: LOCKED OUT after a fault (servo clear to unlock)"); return false; }
   if (!calibrated()) { LOG("SERVO", "Refused: angles not set"); return false; }
   if (_state != ServoState::SAFE_IDLE) { LOG("SERVO", "Refused: busy (%s)", servoStateName(_state)); return false; }
-  if (!moveTo(_open)) return false;
+  // Open with a sweep (1 degree every SERVO_OPEN_STEP_MS, update() does the steps), like closing: one full-speed
+  // jump made the servo stutter under the pedal load (owner, lab 2026-11-17).
+  int from = _target >= 0 ? _target : (_idle >= 0 ? _idle : _open);
+  if (!moveTo(from)) return false;
+  _sweepAt = from;
+  _sweepTo = _open;
+  _lastStepMs = millis();
   _state = ServoState::MOVING_TO_OPEN;
-  LOG("SERVO", "Pressing the pedal -> %d deg", _open);
+  LOG("SERVO", "Pressing the pedal -> %d deg (sweep, ~%lu ms)", _open,
+      (unsigned long)(abs(_open - from) * SERVO_OPEN_STEP_MS));
   return true;
 }
 
@@ -88,6 +95,14 @@ void ServoManager::update() {
   uint32_t el = millis() - _since;
   switch (_state) {
     case ServoState::MOVING_TO_OPEN:
+      if (_sweepAt != _sweepTo) {                     // still sweeping towards the open angle
+        if (millis() - _lastStepMs >= SERVO_OPEN_STEP_MS) {
+          _lastStepMs = millis();
+          _sweepAt += _sweepTo > _sweepAt ? 1 : -1;
+          moveTo(_sweepAt);                             // also restarts _since
+        }
+        break;
+      }
       if (el >= SERVO_MOVE_MS) { _state = ServoState::HOLDING_OPEN; _since = millis(); }
       break;
     case ServoState::HOLDING_OPEN:

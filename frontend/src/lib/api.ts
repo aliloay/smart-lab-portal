@@ -105,7 +105,9 @@ export interface SecurityCameraTile {
   open_events: number
   /** 2026-11-11: one line per tracked person for the live bar (who, top colour, posture, nearest mapped box). */
   activity?: { track_id: number; label: string | null; who: string; colour: string | null; posture: string
-               near: string | null; named: boolean; text: string }[]
+               near: string | null; named: boolean; text: string
+               /** 2026-11-17: one number per unnamed person on BOTH cameras; at = seated at that box; size = box height 0-1 */
+               lab_no?: number | null; at?: boolean; size?: number }[]
 }
 export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null

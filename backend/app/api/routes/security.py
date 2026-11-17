@@ -279,7 +279,8 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
                          "activity": [{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
-                                       if k in ("track_id", "label", "who", "colour", "posture", "near", "named", "text")}
+                                       if k in ("track_id", "label", "who", "colour", "posture", "near", "named", "text",
+                                                "lab_no", "at", "size")}   # 2026-11-17: lab number (both cameras)
                                       for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},

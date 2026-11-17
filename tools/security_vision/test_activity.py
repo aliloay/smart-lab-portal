@@ -47,7 +47,7 @@ def test_sentences_named_first_and_guesses_keep_their_question_mark():
     zones = [{"name": "UR5e", "x": 0.5, "y": 0.2, "w": 0.2, "h": 0.5}]
     look = lambda c: types.SimpleNamespace(color=c)
     a = types.SimpleNamespace(id=9, label=None, name=None, source=None, box=(520, 250, 140, 140), vel=(0, 0),
-                              crowded=False, look=look(bands(top_hue=7)))
+                              crowded=False, look=look(bands(top_hue=7)), lab_no=9)   # the LAB number (labmap.py)
     b = types.SimpleNamespace(id=3, label="USER1", name="Ali", source="look", box=(100, 100, 100, 260), vel=(0, 0),
                               crowded=False, look=look(bands(top_hue=4)))
     out = describe([a, b], zones, 1000, 1000)
@@ -81,3 +81,13 @@ def test_mixed_colours_fall_back_to_brightness():
     c[N + 12 + 3] = 0.35                                  # white
     assert top_colour(c) == "white"
 
+
+
+def test_unnumbered_person_is_new_and_lines_carry_lab_number_and_size():
+    t = types.SimpleNamespace(id=4, label=None, name=None, source=None, box=(100, 100, 100, 500), vel=(0, 0),
+                              crowded=False, look=None, lab_no=None)
+    e = describe([t], [], 1000, 1000)[0]
+    assert e["who"] == "New person" and e["lab_no"] is None and e["size"] == 0.5
+    t.lab_no = 12
+    e = describe([t], [], 1000, 1000)[0]
+    assert e["who"] == "Person 12" and e["lab_no"] == 12
