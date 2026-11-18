@@ -47,8 +47,22 @@ review found eight further defects, all fixed and verified.
 - **n8n:** 26 workflows, read-only audit. The 373 errors since 10 Nov are explained (knowledge service off; deploy windows).
 - **Obsidian:** a real, project-generated vault; health shows 27 broken links (P3, mirrored README images).
 
+## Second round, 18 Nov (owner: install the core, fix n8n / Obsidian, get ready for uni)
+- **Main checkout:** fast-forwarded to the release branch, so launch.bat at the lab runs the integrated code. The untracked Argon report copies (identical) were backed up to D:\SmartLabData\main_untracked_backup_20261118 first.
+- **n8n:**
+  - Backup in D:\SmartLabData\n8n_backup_20261118.
+  - 18 scheduled read nodes and 4 knowledge job nodes retry 5x / 5 s.
+  - Notify / alert POSTs and the webhook workflows (incl. emergency) untouched.
+  - 26/26 active after publish + restart.
+  - Knowledge service started and reachable from n8n; its jobs return 200.
+- **Obsidian:** 27 -> 0 broken links. Root cause: kb.py's fnmatch took the generated vault copies in as sources.
+- **Legacy reusable sketch:** guarded with `#error` (same REUSE_BIN_1 id, LAB_ID BENCH).
+- **esp32 core 3.2.1:** installed in an isolated data dir (D:\SmartLabData\arduino_core321) for the ESP32-CAM image. See ESP_FIRMWARE_AUDIT_EACH_NODE.md for the build result.
+- **Uni checklist:** LAB_DAY_UNI_CHECKLIST_2026-11-18.md. The 4 ESP nodes stay home; the door is offline today, by plan.
+- **Passwords:** kept by owner decision until the lab verification is finished.
+
 ## Owner actions (in BLOCKERS_AND_NEXT_PHYSICAL_LAB_ACTIONS.md)
-1. **P0: change the published default passwords** of admin@giu-uni.de and ramy@giu-uni.de (`set_password.py`). Verified still in use.
+1. **P0, after the lab verification (owner decision): change the published default passwords** of admin@giu-uni.de and ramy@giu-uni.de (`set_password.py`).
 2. **GIU IT:** open the relay ports on S2PC136 for the lab subnet.
 3. **Next lab visit:**
    - Flash BIN_NODE_1, REUSE_BIN_1 and the ESP32-CAM (the CAM needs core 3.2.1 — approve the install or use the known-good image).

@@ -6,8 +6,12 @@ Worktree C:\Projects\smart-lab-release, branch release/smart-lab-final-optimizat
 with --no-ff (0 overlapping files), then: pose PREDICTED not OBSERVED, labmap delete-pending lock fix, build stamp from
 build args (/api/health + /version.json), incidents SQL filters + summary + keyset cursor, assistant instant answers for
 stock / door state / node capabilities. Read reports/final-integration-release-2026-11-17/FINAL_EXECUTIVE_SUMMARY.md.
-OWNER P0: admin@ and ramy@ still use the PUBLISHED default passwords (set_password.py). Firmware compiled 7/7, NOT flashed
-(ESP32-CAM needs core 3.2.1, not installed). Tests from this worktree: $env:COMPOSE_ENV_FILES='C:\Projects\smart-lab-portal\.env'.
+Owner keeps admin@ / ramy@ default passwords until lab verification (decision 18 Nov). Firmware compiled 7/7, NOT flashed.
+Tests from the release worktree: $env:COMPOSE_ENV_FILES='C:\Projects\smart-lab-portal\.env'.
+Later 18 Nov: main checkout fast-forwarded to the release branch (launch.bat runs the integrated code); n8n retries on
+22 read/job nodes (backup D:\SmartLabData\n8n_backup_20261118), knowledge service started, Obsidian 27 -> 0 broken links,
+esp32 core 3.2.1 in D:\SmartLabData\arduino_core321 for the ESP32-CAM. Uni today:
+reports/final-integration-release-2026-11-17/LAB_DAY_UNI_CHECKLIST_2026-11-18.md (ESP nodes stay home).
 
 ## UPDATE 2026-11-16 (home, before the lab day) - local commits, NOT pushed; LOCAL portal DEPLOYED (backend cce108cddfb4, frontend 0ad323b9a5a9; later same evening)
 HEAD 510e081 on qa/browser-and-camera-docs. 92f21dd Welcome SpotlightCard; c73263a UR5e mirror test follows mountYaw=180 (owner 19 Oct);
