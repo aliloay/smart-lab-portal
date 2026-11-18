@@ -1,0 +1,16 @@
+service,path,runtime,port,health,status_2026_11_18,owner
+postgres,docker-compose db,container postgres:16-alpine,127.0.0.1:5433,pg_isready,up,portal
+backend,backend/,container uvicorn,8000 via nginx,/api/health,up release df3407f (efd3e6c374cd),portal
+frontend+nginx,frontend/,container nginx,80/443/8080/8443,/version.json,up release df3407f (86c0df1dc030),portal
+n8n,docker-compose n8n,container n8nio/n8n:2.40.7,127.0.0.1:5678,/healthz,up 26 active workflows,automation
+backup,backup/,container,-,healthcheck,up,portal
+security_camera_1,tools/security_vision,Python 3.14 DirectML,5100,/health,down (off-site),vision
+security_camera_2,tools/security_vision,Python 3.14 DirectML,5101,/health,down (off-site),vision
+face_server,firmware/face_server,Python Flask,5000,/status,down (off-site),door
+knowledge,tools/knowledge/serve.py,Python,5199,/health,down,ai
+voice,tools/voice,Python,5320,/health,down,ai
+ollama,system,native,127.0.0.1:11434,/api/version,up qwen2.5:1.5b + nomic-embed-text,ai
+opcua,tools/opcua,Python 3.12 asyncua,127.0.0.1:4840,-,down,robots
+ur5e_collector,tools/robot_monitor,Python 3.12 ur_rtde,outbound,-,not running (robot unreachable),robots
+pc_agent_relay,tools/pc_agent + tools/relay + lab_usb_kit,Python,relay ports on S2PC136,heartbeat,BLOCKED GIU firewall,pcs
+watchdog,tools/ops/watchdog.py,Python monitor-only,-,-,on demand,ops

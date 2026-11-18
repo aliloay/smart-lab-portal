@@ -1,5 +1,7 @@
 # Final integration release candidate - status and handoff (2026-11-18, ~01:00)
 
+> **SUPERSEDED (2026-11-18 ~10:30): every NOT-DONE item below was completed or classified. Read FINAL_EXECUTIVE_SUMMARY.md.**
+
 Session stopped at the usage limit. Everything below is verified; anything not listed is NOT done.
 
 ## Where it is

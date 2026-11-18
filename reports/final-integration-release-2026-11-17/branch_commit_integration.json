@@ -1,0 +1,22 @@
+{
+ "release_branch": "release/smart-lab-final-optimization-2026-11-17",
+ "worktree": "C:/Projects/smart-lab-release",
+ "base": {"branch": "fix/pre-lab-hardening", "commit": "4e58b52"},
+ "safety_branch": {"name": "backup/before-final-integration-2026-11-18", "commit": "4e58b52"},
+ "sources": [
+  {"name": "claude", "branch": "opt/claude-app-performance-2026-11-17", "base": "4e58b52", "commits": ["d085b73", "5314195"], "integrated_by": "e70db0e", "method": "merge --no-ff"},
+  {"name": "argon", "branch": "opt/argon-systems-vision-2026-11-17", "base": "c68adb0", "commits": ["fe126b7"], "integrated_by": "c49fa07", "method": "merge --no-ff"}
+ ],
+ "file_overlap": {"claude_vs_argon": 0, "4e58b52_vs_argon": 0},
+ "integration_commits": [
+  {"sha": "35f8cb4", "what": "pose PREDICTED; labmap delete-pending lock; face-server test fixture"},
+  {"sha": "bdc41aa", "what": "build stamp from build args; deploy.py real build; build_images.ps1; /version.json"},
+  {"sha": "b685a43", "what": "incidents SQL filters, summary rows, keyset cursor; camera contract test"},
+  {"sha": "df3407f", "what": "status/handoff; deployed frontend build"},
+  {"sha": "89ba1be", "what": "assistant: stock and door-state instant answers"},
+  {"sha": "279c625", "what": "assistant: node capabilities instant answer; deployed backend build"}
+ ],
+ "deployed": {"backend_image": "7e3ed3b46b8e", "backend_stamp": "279c625-20261118101511", "frontend_image": "86c0df1dc030", "frontend_stamp": "df3407f-20261118094636"},
+ "rollback_tags": {"smart-lab-portal-backend:pre-rc-20261118": "bd9625614072", "smart-lab-portal-frontend:pre-rc-20261118": "ed4c16b9d8d5", "smart-lab-portal-backend:pre-assist-20261118": "efd3e6c374cd"},
+ "pushed": false
+}

@@ -1,0 +1,198 @@
+{
+ "method": "20 GETs per endpoint inside the backend container, first discarded; LIVE LOCAL SOFTWARE",
+ "before": {
+  "when": "2026-11-18T00:15+02:00",
+  "images": "backend bd9625614072 / frontend ed4c16b9d8d5",
+  "note": "backend test suite running concurrently",
+  "endpoints": {
+   "/api/incidents?state=ACTIVE": {
+    "p50_ms": 32.4,
+    "p95_ms": 42.4,
+    "p99_ms": 43.9,
+    "bytes": 134813,
+    "rows": 195
+   },
+   "/api/incidents": {
+    "p50_ms": 56.3,
+    "p95_ms": 77.8,
+    "p99_ms": 2540.7,
+    "bytes": 268670,
+    "rows": 380
+   },
+   "/api/alerts?limit=50": {
+    "p50_ms": 15.5,
+    "p95_ms": 18.3,
+    "p99_ms": 20.6,
+    "bytes": 63878
+   },
+   "/api/devices": {
+    "p50_ms": 22.8,
+    "p95_ms": 28.1,
+    "p99_ms": 32.8,
+    "bytes": 23710
+   },
+   "/api/bookings": {
+    "p50_ms": 19.9,
+    "p95_ms": 24.8,
+    "p99_ms": 25.1,
+    "bytes": 14153
+   },
+   "/api/summary": {
+    "p50_ms": 5.1,
+    "p95_ms": 5.3,
+    "p99_ms": 5.3,
+    "bytes": 455
+   },
+   "/api/security/cameras": {
+    "p50_ms": 5.2,
+    "p95_ms": 5.7,
+    "p99_ms": 5.8,
+    "bytes": 679
+   },
+   "/api/system/services": {
+    "p50_ms": 8.8,
+    "p95_ms": 10.1,
+    "p99_ms": 11.5,
+    "bytes": 10494
+   },
+   "/api/health": {
+    "p50_ms": 4.6,
+    "p95_ms": 5.5,
+    "p99_ms": 5.7,
+    "bytes": 179
+   }
+  }
+ },
+ "after": {
+  "when": "2026-11-18T09:55+02:00",
+  "images": "backend efd3e6c374cd / frontend 86c0df1dc030 (df3407f)",
+  "endpoints": {
+   "/api/incidents?state=ACTIVE&view=summary": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 20.0,
+    "p95_ms": 20.7,
+    "p99_ms": 20.9,
+    "max_ms": 20.9,
+    "bytes": 81353,
+    "rows": 194,
+    "total": 194,
+    "truncated": false
+   },
+   "/api/incidents?state=ACTIVE": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 23.4,
+    "p95_ms": 26.7,
+    "p99_ms": 36.5,
+    "max_ms": 36.5,
+    "bytes": 134418,
+    "rows": 194,
+    "total": 194,
+    "truncated": false
+   },
+   "/api/incidents": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 36.4,
+    "p95_ms": 38.2,
+    "p99_ms": 38.8,
+    "max_ms": 38.8,
+    "bytes": 263740,
+    "rows": 373,
+    "total": 373,
+    "truncated": false
+   },
+   "/api/alerts?limit=50": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 10.4,
+    "p95_ms": 11.4,
+    "p99_ms": 11.9,
+    "max_ms": 11.9,
+    "bytes": 63878
+   },
+   "/api/devices": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 16.0,
+    "p95_ms": 20.3,
+    "p99_ms": 21.2,
+    "max_ms": 21.2,
+    "bytes": 23710
+   },
+   "/api/bookings": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 11.0,
+    "p95_ms": 22.0,
+    "p99_ms": 88.7,
+    "max_ms": 88.7,
+    "bytes": 14153
+   },
+   "/api/summary": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 5.6,
+    "p95_ms": 6.7,
+    "p99_ms": 6.9,
+    "max_ms": 6.9,
+    "bytes": 452
+   },
+   "/api/security/cameras": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 4.0,
+    "p95_ms": 4.2,
+    "p99_ms": 4.2,
+    "max_ms": 4.2,
+    "bytes": 679
+   },
+   "/api/system/services": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 11.7,
+    "p95_ms": 14.9,
+    "p99_ms": 15.8,
+    "max_ms": 15.8,
+    "bytes": 10488
+   },
+   "/api/health": {
+    "code": 200,
+    "n": 20,
+    "p50_ms": 3.4,
+    "p95_ms": 5.7,
+    "p99_ms": 6.1,
+    "max_ms": 6.1,
+    "bytes": 218
+   }
+  }
+ },
+ "wire_gzip_bytes_after": {
+  "/api/incidents?state=ACTIVE": 11685,
+  "/api/incidents?state=ACTIVE&view=summary": 6961
+ },
+ "realtime_push_to_paint_ms": {
+  "single_viewer": {
+   "n": 30,
+   "median": 26,
+   "p95": 35,
+   "max": 47
+  },
+  "load_10_clients_113rps": {
+   "n": 30,
+   "median": 261,
+   "p95": 359,
+   "max": 383,
+   "load_p50_ms": 85.0,
+   "load_p95_ms": 138.7,
+   "errors": 0
+  }
+ },
+ "db_explain_ms": {
+  "incidents_30d": 1.46,
+  "incidents_active": 1.34,
+  "newest_reading_silent_metric": 1.98,
+  "sensor_evaluation_full_scan": 83.87
+ }
+}

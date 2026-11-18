@@ -1,0 +1,14 @@
+id,priority,blocker,owner,status,next_action
+1,P0,admin and ramy accounts use published default passwords,owner,open (verified 2026-11-18),set_password.py per account
+2,P1,S2PC136 firewall blocks relay ports for PC_01..PC_16,GIU IT,blocked,allow inbound from lab subnet then Test-NetConnection from PC_01
+3,P2,GPO/SmartScreen prompt for unsigned kit scripts,GIU IT,blocked,Run with PowerShell or whitelist
+4,P1,firmware fixes not flashed (BIN_NODE_1 REUSE_BIN_1 ESP32-CAM),owner on site,not run,backup image then flash then boot log check
+5,P1,ESP32-CAM needs core 3.2.1 (not installed),owner,blocked,approve core install or flash the known-good image
+6,P2,Camera 1 floor anchor residual 0.50 m,owner on site,not run,add point near x=1.4 y=3.2 and re-calibrate
+7,P1,live two-camera tracking not measured,owner on site,blocked,labelled run with both cameras
+8,P2,door tablet TFT hardware checks,owner on site,blocked,checklist in TABLET_DOOR_TFT_AND_ENCLOSURE_AUDIT.md
+9,P2,UR5e FANUC live telemetry,owner on site,blocked,read-only collector on campus
+10,P3,legacy SmartLab_Reusable_Bin sketch has LAB_ID BENCH,owner,open,never flash; mark legacy
+11,P3,n8n HTTP nodes without retry,owner,open,retryOnFail 2x15s
+12,P3,sensor_evaluation full scan 84 ms per 10 min,developer,open,index (lab_id metric id) if data grows
+13,-,push release branch,owner,open,owner decision

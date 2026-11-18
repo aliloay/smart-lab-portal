@@ -1,0 +1,854 @@
+path,bytes,last_write,git_state,class,title
+.agents/skills/deploy-to-vercel/SKILL.md,12082,2026-09-26,untracked,agent-report,Deploy to Vercel
+.agents/skills/design-md/README.md,1307,2026-10-15,untracked,agent-report,Stitch Design System Documentation Skill
+.agents/skills/design-md/SKILL.md,7826,2026-10-15,untracked,agent-report,Stitch DESIGN.md Skill
+.agents/skills/design-md/examples/DESIGN.md,10998,2026-10-15,untracked,agent-report,Design System: Furniture Collections List
+.agents/skills/enhance-prompt/README.md,1222,2026-10-15,untracked,agent-report,Stitch Enhance Prompt Skill
+.agents/skills/enhance-prompt/SKILL.md,6844,2026-10-15,untracked,agent-report,Enhance Prompt for Stitch
+.agents/skills/enhance-prompt/references/KEYWORDS.md,2799,2026-10-15,untracked,agent-report,UI/UX Keywords Reference
+.agents/skills/react-vite-dashboard/README.md,648,2026-10-15,untracked,agent-report,React + Vite Dashboard Skill
+.agents/skills/react-vite-dashboard/SKILL.md,3789,2026-10-15,untracked,agent-report,Stitch to React + Vite Dashboard
+.agents/skills/remotion/README.md,3605,2026-10-15,untracked,agent-report,Stitch-Remotion Video Walkthrough Skill
+.agents/skills/remotion/SKILL.md,13335,2026-10-15,untracked,agent-report,Stitch to Remotion Walkthrough Videos
+.agents/skills/remotion/resources/composition-checklist.md,3872,2026-10-15,untracked,agent-report,Remotion Composition Checklist
+.agents/skills/shadcn-ui/README.md,7084,2026-10-15,untracked,agent-report,shadcn/ui Integration Skill
+.agents/skills/shadcn-ui/SKILL.md,9533,2026-10-15,untracked,agent-report,shadcn/ui Component Integration
+.agents/skills/shadcn-ui/resources/component-catalog.md,12735,2026-10-15,untracked,agent-report,shadcn/ui Component Catalog
+.agents/skills/shadcn-ui/resources/customization-guide.md,12616,2026-10-15,untracked,agent-report,shadcn/ui Customization Guide
+.agents/skills/shadcn-ui/resources/migration-guide.md,11408,2026-10-15,untracked,agent-report,Migration Guide to shadcn/ui
+.agents/skills/shadcn-ui/resources/setup-guide.md,10278,2026-10-15,untracked,agent-report,shadcn/ui Setup Guide
+.agents/skills/site-md/SKILL.md,3202,2026-10-15,untracked,agent-report,Stitch SITE.md Skill
+.agents/skills/stitch-code-to-design/SKILL.md,3726,2026-10-15,untracked,agent-report,Code to Design
+.agents/skills/stitch-extract-design-md/SKILL.md,14443,2026-10-15,untracked,agent-report,---
+.agents/skills/stitch-extract-design-md/examples/DESIGN.md,7169,2026-10-15,untracked,agent-report,---
+.agents/skills/stitch-extract-design-md/references/angular.md,5359,2026-10-15,untracked,agent-report,Angular Extraction Patterns
+.agents/skills/stitch-extract-design-md/references/plain-css.md,4152,2026-10-15,untracked,agent-report,Plain CSS / SASS / Less Extraction Patterns
+.agents/skills/stitch-extract-design-md/references/react-tailwind.md,4740,2026-10-15,untracked,agent-report,React / Next.js / Tailwind Extraction Patterns
+.agents/skills/stitch-extract-design-md/references/svelte.md,2815,2026-10-15,untracked,agent-report,Svelte / SvelteKit Extraction Patterns
+.agents/skills/stitch-extract-design-md/references/vue.md,3184,2026-10-15,untracked,agent-report,Vue / Nuxt Extraction Patterns
+.agents/skills/stitch-extract-static-html/SKILL.md,11018,2026-10-15,untracked,agent-report,Extract Static HTML
+.agents/skills/stitch-generate-design/SKILL.md,11335,2026-10-15,untracked,agent-report,---
+.agents/skills/stitch-generate-design/examples/enhanced-prompt.md,1745,2026-10-15,untracked,agent-report,Example: Prompt Enhancement
+.agents/skills/stitch-generate-design/references/design-mappings.md,2376,2026-10-15,untracked,agent-report,Design Mappings & Descriptors
+.agents/skills/stitch-generate-design/references/prompt-keywords.md,2929,2026-10-15,untracked,agent-report,UI/UX Keywords Reference
+.agents/skills/stitch-loop/README.md,1519,2026-10-15,untracked,agent-report,Stitch Build Loop Skill
+.agents/skills/stitch-loop/SKILL.md,10591,2026-10-15,untracked,agent-report,Stitch Build Loop
+.agents/skills/stitch-loop/examples/SITE.md,3328,2026-10-15,untracked,agent-report,Project Vision & Constitution
+.agents/skills/stitch-loop/examples/next-prompt.md,1261,2026-10-15,untracked,agent-report,---
+.agents/skills/stitch-loop/resources/baton-schema.md,1724,2026-10-15,untracked,agent-report,Baton File Schema
+.agents/skills/stitch-loop/resources/site-template.md,3073,2026-10-15,untracked,agent-report,Site Template
+.agents/skills/stitch-manage-design-system/SKILL.md,5795,2026-10-15,untracked,agent-report,Design-System
+.agents/skills/stitch-manage-design-system/reference/tool-schema.md,6791,2026-10-15,untracked,agent-report,Design System Tool Schemas
+.agents/skills/stitch-react-components/README.md,1405,2026-10-15,untracked,agent-report,Stitch to React Components Skill
+.agents/skills/stitch-react-components/SKILL.md,8878,2026-10-15,untracked,agent-report,Stitch to React Components
+.agents/skills/stitch-react-components/resources/architecture-checklist.md,627,2026-10-15,untracked,agent-report,Architecture Quality Gate
+.agents/skills/stitch-react-components/resources/stitch-api-reference.md,1239,2026-10-15,untracked,agent-report,Stitch API reference
+.agents/skills/stitch-react-native/README.md,1459,2026-10-15,untracked,agent-report,Stitch to React Native Components Skill
+.agents/skills/stitch-react-native/SKILL.md,12599,2026-10-15,untracked,agent-report,Stitch to React Native Components
+.agents/skills/stitch-react-native/resources/architecture-checklist.md,2097,2026-10-15,untracked,agent-report,Architecture Quality Gate
+.agents/skills/stitch-upload-to-stitch/SKILL.md,4300,2026-10-15,untracked,agent-report,---
+.agents/skills/taste-design/SKILL.md,12759,2026-10-15,untracked,agent-report,Stitch Design Taste — Semantic Design System Skill
+.agents/skills/taste-design/resources/DESIGN.md,12771,2026-10-15,untracked,agent-report,Design System: Taste Standard
+.agents/skills/vercel-cli-with-tokens/SKILL.md,10829,2026-09-26,untracked,agent-report,Vercel CLI with Tokens
+.agents/skills/vercel-composition-patterns/AGENTS.md,23573,2026-09-26,untracked,agent-report,React Composition Patterns
+.agents/skills/vercel-composition-patterns/README.md,2200,2026-09-26,untracked,agent-report,React Composition Patterns
+.agents/skills/vercel-composition-patterns/SKILL.md,2975,2026-09-26,untracked,agent-report,React Composition Patterns
+.agents/skills/vercel-composition-patterns/rules/_sections.md,858,2026-09-26,untracked,agent-report,Sections
+.agents/skills/vercel-composition-patterns/rules/_template.md,353,2026-09-26,untracked,agent-report,Rule Title Here
+.agents/skills/vercel-composition-patterns/rules/architecture-avoid-boolean-props.md,2367,2026-09-26,untracked,agent-report,Avoid Boolean Prop Proliferation
+.agents/skills/vercel-composition-patterns/rules/architecture-compound-components.md,2712,2026-09-26,untracked,agent-report,Use Compound Components
+.agents/skills/vercel-composition-patterns/rules/patterns-children-over-render-props.md,1973,2026-09-26,untracked,agent-report,Prefer Children Over Render Props
+.agents/skills/vercel-composition-patterns/rules/patterns-explicit-variants.md,2495,2026-09-26,untracked,agent-report,Create Explicit Component Variants
+.agents/skills/vercel-composition-patterns/rules/react19-no-forwardref.md,995,2026-09-26,untracked,agent-report,React 19 API Changes
+.agents/skills/vercel-composition-patterns/rules/state-context-interface.md,5165,2026-09-26,untracked,agent-report,Define Generic Context Interfaces for Dependency Injection
+.agents/skills/vercel-composition-patterns/rules/state-decouple-implementation.md,2812,2026-09-26,untracked,agent-report,Decouple State Management from UI
+.agents/skills/vercel-composition-patterns/rules/state-lift-state.md,3349,2026-09-26,untracked,agent-report,Lift State into Provider Components
+.agents/skills/vercel-optimize/AGENTS.md,2012,2026-09-26,untracked,agent-report,vercel-optimize
+.agents/skills/vercel-optimize/CONTRIBUTING.md,2265,2026-09-26,untracked,agent-report,Contributing to `vercel-optimize`
+.agents/skills/vercel-optimize/README.md,4562,2026-09-26,untracked,agent-report,vercel-optimize
+.agents/skills/vercel-optimize/SKILL.md,17633,2026-09-26,untracked,agent-report,Vercel Optimize
+.agents/skills/vercel-optimize/references/candidates.md,8686,2026-09-26,untracked,agent-report,Candidate gates
+.agents/skills/vercel-optimize/references/data-collection.md,21143,2026-09-26,untracked,agent-report,Data collection
+.agents/skills/vercel-optimize/references/doctrine.md,9617,2026-09-26,untracked,agent-report,Doctrine
+.agents/skills/vercel-optimize/references/observability-plus.md,5437,2026-09-26,untracked,agent-report,Observability Plus Stop-And-Ask
+.agents/skills/vercel-optimize/references/playbooks/README.md,2865,2026-09-26,untracked,agent-report,Playbooks
+.agents/skills/vercel-optimize/references/playbooks/ai-application.md,3965,2026-09-26,untracked,agent-report,AI application
+.agents/skills/vercel-optimize/references/playbooks/api-service.md,2515,2026-09-26,untracked,agent-report,API service
+.agents/skills/vercel-optimize/references/playbooks/content-site.md,2532,2026-09-26,untracked,agent-report,Content site
+.agents/skills/vercel-optimize/references/playbooks/ecommerce.md,2767,2026-09-26,untracked,agent-report,E-commerce
+.agents/skills/vercel-optimize/references/playbooks/marketing.md,2705,2026-09-26,untracked,agent-report,Marketing site
+.agents/skills/vercel-optimize/references/playbooks/saas.md,2927,2026-09-26,untracked,agent-report,SaaS
+.agents/skills/vercel-optimize/references/playbooks/sveltekit.md,4094,2026-09-26,untracked,agent-report,SvelteKit
+.agents/skills/vercel-optimize/references/recommendations.md,10991,2026-09-26,untracked,agent-report,Recommendations
+.agents/skills/vercel-optimize/references/scanner-patterns.md,13922,2026-09-26,untracked,agent-report,Scanner patterns
+.agents/skills/vercel-optimize/references/scoring.md,12710,2026-09-26,untracked,agent-report,Step 4 — Score and report
+.agents/skills/vercel-optimize/references/support-topics/README.md,1831,2026-09-26,untracked,agent-report,Support Topics
+.agents/skills/vercel-optimize/references/support-topics/astro-edge-middleware-scope.md,1034,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/astro-output-mode-and-isr.md,1157,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/auth-preserving-parallelization.md,1225,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/bot-protection-product-guardrails.md,1141,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/build-minutes-monorepo-fanout.md,1292,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/cache-components-static-shell-boundaries.md,1184,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/cache-components-suspense-dedupe-pitfall.md,1403,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/cdn-cache-auth-safety.md,1090,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/cold-start-initialization-bundle.md,1181,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/core-web-vitals-client-bottlenecks.md,1059,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/database-egress-pooling-region.md,1037,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/dynamic-rendering-traps.md,1161,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/external-api-critical-path-platform.md,1167,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/external-api-critical-path.md,1000,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/fast-data-transfer-payloads.md,1072,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/fluid-compute-caveats.md,1147,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/function-duration-io-and-after.md,1049,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/function-invocation-reduction.md,1203,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/function-region-misconfiguration-ttfb.md,1277,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/image-optimization-cost-control.md,1093,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/isr-revalidation-static-generation.md,1441,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/middleware-proxy-edge-cost.md,1013,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-fetch-revalidate-floor.md,1081,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-font-cls-self-hosting.md,929,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-heavy-ui-lazy-load-boundaries.md,1071,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-image-lcp-preload-sizes.md,1085,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-route-handler-get-cache-defaults.md,1094,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/next-script-third-party-strategy.md,1074,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/nextjs-version-cache-semantics.md,1018,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/not-found-catchall-request-waste.md,1296,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/nuxt-route-rules-cache-isr.md,1210,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/observability-events-cost-attribution.md,1177,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/post-response-work-waituntil.md,1031,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/route-error-durable-offload.md,1320,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/route-error-runtime-limits.md,1010,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/runtime-cache-reusable-data.md,1202,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/sveltekit-isr-prerender-safety.md,1189,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/sveltekit-split-cold-start-tradeoff.md,1062,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/usage-spike-triage.md,1040,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/use-cache-date-stamp-isr-write-amplifier.md,1212,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/use-cache-remote-shared-origin-data.md,1111,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/support-topics/workflow-resumable-stream-routes.md,1297,2026-09-26,untracked,agent-report,Investigation Brief
+.agents/skills/vercel-optimize/references/verification.md,9102,2026-09-26,untracked,agent-report,Verification
+.agents/skills/vercel-optimize/references/voice.md,3807,2026-09-26,untracked,agent-report,Voice
+.agents/skills/vercel-react-best-practices/AGENTS.md,112071,2026-09-26,untracked,agent-report,React Best Practices
+.agents/skills/vercel-react-best-practices/README.md,3483,2026-09-26,untracked,agent-report,React Best Practices
+.agents/skills/vercel-react-best-practices/SKILL.md,7400,2026-09-26,untracked,agent-report,Vercel React Best Practices
+.agents/skills/vercel-react-best-practices/rules/_sections.md,1600,2026-09-26,untracked,agent-report,Sections
+.agents/skills/vercel-react-best-practices/rules/_template.md,659,2026-09-26,untracked,agent-report,Rule Title Here
+.agents/skills/vercel-react-best-practices/rules/advanced-effect-event-deps.md,1858,2026-09-26,untracked,agent-report,Do Not Put Effect Events in Dependency Arrays
+.agents/skills/vercel-react-best-practices/rules/advanced-event-handler-refs.md,1538,2026-09-26,untracked,agent-report,Store Event Handlers in Refs
+.agents/skills/vercel-react-best-practices/rules/advanced-init-once.md,1000,2026-09-26,untracked,agent-report,"Initialize App Once, Not Per Mount"
+.agents/skills/vercel-react-best-practices/rules/advanced-use-latest.md,1111,2026-09-26,untracked,agent-report,useEffectEvent for Stable Callback Refs
+.agents/skills/vercel-react-best-practices/rules/async-api-routes.md,1163,2026-09-26,untracked,agent-report,Prevent Waterfall Chains in API Routes
+.agents/skills/vercel-react-best-practices/rules/async-cheap-condition-before-await.md,1257,2026-09-26,untracked,agent-report,Check Cheap Conditions Before Async Flags
+.agents/skills/vercel-react-best-practices/rules/async-defer-await.md,2290,2026-09-26,untracked,agent-report,Defer Await Until Needed
+.agents/skills/vercel-react-best-practices/rules/async-dependencies.md,1344,2026-09-26,untracked,agent-report,Dependency-Based Parallelization
+.agents/skills/vercel-react-best-practices/rules/async-parallel.md,682,2026-09-26,untracked,agent-report,Promise.all() for Independent Operations
+.agents/skills/vercel-react-best-practices/rules/async-suspense-boundaries.md,2609,2026-09-26,untracked,agent-report,Strategic Suspense Boundaries
+.agents/skills/vercel-react-best-practices/rules/bundle-analyzable-paths.md,2445,2026-09-26,untracked,agent-report,Prefer Statically Analyzable Paths
+.agents/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md,2855,2026-09-26,untracked,agent-report,Avoid Barrel File Imports
+.agents/skills/vercel-react-best-practices/rules/bundle-conditional.md,980,2026-09-26,untracked,agent-report,Conditional Module Loading
+.agents/skills/vercel-react-best-practices/rules/bundle-defer-third-party.md,969,2026-09-26,untracked,agent-report,Defer Non-Critical Third-Party Libraries
+.agents/skills/vercel-react-best-practices/rules/bundle-dynamic-imports.md,826,2026-09-26,untracked,agent-report,Dynamic Imports for Heavy Components
+.agents/skills/vercel-react-best-practices/rules/bundle-preload.md,1199,2026-09-26,untracked,agent-report,Preload Based on User Intent
+.agents/skills/vercel-react-best-practices/rules/client-event-listeners.md,2043,2026-09-26,untracked,agent-report,Deduplicate Global Event Listeners
+.agents/skills/vercel-react-best-practices/rules/client-localstorage-schema.md,2021,2026-09-26,untracked,agent-report,Version and Minimize localStorage Data
+.agents/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md,1692,2026-09-26,untracked,agent-report,Use Passive Event Listeners for Scrolling Performance
+.agents/skills/vercel-react-best-practices/rules/client-swr-dedup.md,1215,2026-09-26,untracked,agent-report,Use SWR for Automatic Deduplication
+.agents/skills/vercel-react-best-practices/rules/js-batch-dom-css.md,3373,2026-09-26,untracked,agent-report,Avoid Layout Thrashing
+.agents/skills/vercel-react-best-practices/rules/js-cache-function-results.md,2029,2026-09-26,untracked,agent-report,Cache Repeated Function Calls
+.agents/skills/vercel-react-best-practices/rules/js-cache-property-access.md,560,2026-09-26,untracked,agent-report,Cache Property Access in Loops
+.agents/skills/vercel-react-best-practices/rules/js-cache-storage.md,1721,2026-09-26,untracked,agent-report,Cache Storage API Calls
+.agents/skills/vercel-react-best-practices/rules/js-combine-iterations.md,785,2026-09-26,untracked,agent-report,Combine Multiple Array Iterations
+.agents/skills/vercel-react-best-practices/rules/js-early-exit.md,1183,2026-09-26,untracked,agent-report,Early Return from Functions
+.agents/skills/vercel-react-best-practices/rules/js-flatmap-filter.md,1471,2026-09-26,untracked,agent-report,Use flatMap to Map and Filter in One Pass
+.agents/skills/vercel-react-best-practices/rules/js-hoist-regexp.md,1073,2026-09-26,untracked,agent-report,Hoist RegExp Creation
+.agents/skills/vercel-react-best-practices/rules/js-index-maps.md,874,2026-09-26,untracked,agent-report,Build Index Maps for Repeated Lookups
+.agents/skills/vercel-react-best-practices/rules/js-length-check-first.md,1796,2026-09-26,untracked,agent-report,Early Length Check for Array Comparisons
+.agents/skills/vercel-react-best-practices/rules/js-min-max-loop.md,2372,2026-09-26,untracked,agent-report,Use Loop for Min/Max Instead of Sort
+.agents/skills/vercel-react-best-practices/rules/js-request-idle-callback.md,2752,2026-09-26,untracked,agent-report,Defer Non-Critical Work with requestIdleCallback
+.agents/skills/vercel-react-best-practices/rules/js-set-map-lookups.md,556,2026-09-26,untracked,agent-report,Use Set/Map for O(1) Lookups
+.agents/skills/vercel-react-best-practices/rules/js-tosorted-immutable.md,1839,2026-09-26,untracked,agent-report,Use toSorted() Instead of sort() for Immutability
+.agents/skills/vercel-react-best-practices/rules/rendering-activity.md,590,2026-09-26,untracked,agent-report,Use Activity Component for Show/Hide
+.agents/skills/vercel-react-best-practices/rules/rendering-animate-svg-wrapper.md,1232,2026-09-26,untracked,agent-report,Animate SVG Wrapper Instead of SVG Element
+.agents/skills/vercel-react-best-practices/rules/rendering-conditional-render.md,1020,2026-09-26,untracked,agent-report,Use Explicit Conditional Rendering
+.agents/skills/vercel-react-best-practices/rules/rendering-content-visibility.md,853,2026-09-26,untracked,agent-report,CSS content-visibility for Long Lists
+.agents/skills/vercel-react-best-practices/rules/rendering-hoist-jsx.md,1085,2026-09-26,untracked,agent-report,Hoist Static JSX Elements
+.agents/skills/vercel-react-best-practices/rules/rendering-hydration-no-flicker.md,2390,2026-09-26,untracked,agent-report,Prevent Hydration Mismatch Without Flickering
+.agents/skills/vercel-react-best-practices/rules/rendering-hydration-suppress-warning.md,902,2026-09-26,untracked,agent-report,Suppress Expected Hydration Mismatches
+.agents/skills/vercel-react-best-practices/rules/rendering-resource-hints.md,2634,2026-09-26,untracked,agent-report,Use React DOM Resource Hints
+.agents/skills/vercel-react-best-practices/rules/rendering-script-defer-async.md,1936,2026-09-26,untracked,agent-report,Use defer or async on Script Tags
+.agents/skills/vercel-react-best-practices/rules/rendering-svg-precision.md,616,2026-09-26,untracked,agent-report,Optimize SVG Precision
+.agents/skills/vercel-react-best-practices/rules/rendering-usetransition-loading.md,2149,2026-09-26,untracked,agent-report,Use useTransition Over Manual Loading States
+.agents/skills/vercel-react-best-practices/rules/rerender-defer-reads.md,1012,2026-09-26,untracked,agent-report,Defer State Reads to Usage Point
+.agents/skills/vercel-react-best-practices/rules/rerender-dependencies.md,869,2026-09-26,untracked,agent-report,Narrow Effect Dependencies
+.agents/skills/vercel-react-best-practices/rules/rerender-derived-state-no-effect.md,1241,2026-09-26,untracked,agent-report,Calculate Derived State During Rendering
+.agents/skills/vercel-react-best-practices/rules/rerender-derived-state.md,757,2026-09-26,untracked,agent-report,Subscribe to Derived State
+.agents/skills/vercel-react-best-practices/rules/rerender-functional-setstate.md,3042,2026-09-26,untracked,agent-report,Use Functional setState Updates
+.agents/skills/vercel-react-best-practices/rules/rerender-lazy-state-init.md,2074,2026-09-26,untracked,agent-report,Use Lazy State Initialization
+.agents/skills/vercel-react-best-practices/rules/rerender-memo-with-default-value.md,1211,2026-09-26,untracked,agent-report,Extract Default Non-primitive Parameter Value from Memoized Component to Constant
+.agents/skills/vercel-react-best-practices/rules/rerender-memo.md,1192,2026-09-26,untracked,agent-report,Extract to Memoized Components
+.agents/skills/vercel-react-best-practices/rules/rerender-move-effect-to-event.md,1313,2026-09-26,untracked,agent-report,Put Interaction Logic in Event Handlers
+.agents/skills/vercel-react-best-practices/rules/rerender-no-inline-components.md,2217,2026-09-26,untracked,agent-report,Don't Define Components Inside Components
+.agents/skills/vercel-react-best-practices/rules/rerender-simple-expression-in-memo.md,1053,2026-09-26,untracked,agent-report,Do not wrap a simple expression with a primitive result type in useMemo
+.agents/skills/vercel-react-best-practices/rules/rerender-split-combined-hooks.md,1908,2026-09-26,untracked,agent-report,Split Combined Hook Computations
+.agents/skills/vercel-react-best-practices/rules/rerender-transitions.md,1095,2026-09-26,untracked,agent-report,Use Transitions for Non-Urgent Updates
+.agents/skills/vercel-react-best-practices/rules/rerender-use-deferred-value.md,1905,2026-09-26,untracked,agent-report,Use useDeferredValue for Expensive Derived Renders
+.agents/skills/vercel-react-best-practices/rules/rerender-use-ref-transient-values.md,1815,2026-09-26,untracked,agent-report,Use useRef for Transient Values
+.agents/skills/vercel-react-best-practices/rules/server-after-nonblocking.md,2085,2026-09-26,untracked,agent-report,Use after() for Non-Blocking Operations
+.agents/skills/vercel-react-best-practices/rules/server-auth-actions.md,2745,2026-09-26,untracked,agent-report,Authenticate Server Actions Like API Routes
+.agents/skills/vercel-react-best-practices/rules/server-cache-lru.md,1394,2026-09-26,untracked,agent-report,Cross-Request LRU Caching
+.agents/skills/vercel-react-best-practices/rules/server-cache-react.md,2304,2026-09-26,untracked,agent-report,Per-Request Deduplication with React.cache()
+.agents/skills/vercel-react-best-practices/rules/server-dedup-props.md,2125,2026-09-26,untracked,agent-report,Avoid Duplicate Serialization in RSC Props
+.agents/skills/vercel-react-best-practices/rules/server-hoist-static-io.md,4572,2026-09-26,untracked,agent-report,Hoist Static I/O to Module Level
+.agents/skills/vercel-react-best-practices/rules/server-no-shared-module-state.md,1816,2026-09-26,untracked,agent-report,Avoid Shared Module State for Request Data
+.agents/skills/vercel-react-best-practices/rules/server-parallel-fetching.md,1637,2026-09-26,untracked,agent-report,Parallel Data Fetching with Component Composition
+.agents/skills/vercel-react-best-practices/rules/server-parallel-nested-fetching.md,1026,2026-09-26,untracked,agent-report,Parallel Nested Data Fetching
+.agents/skills/vercel-react-best-practices/rules/server-serialization.md,1034,2026-09-26,untracked,agent-report,Minimize Serialization at RSC Boundaries
+.agents/skills/vercel-react-native-skills/AGENTS.md,76668,2026-09-26,untracked,agent-report,React Native Skills
+.agents/skills/vercel-react-native-skills/README.md,5229,2026-09-26,untracked,agent-report,React Native Guidelines
+.agents/skills/vercel-react-native-skills/SKILL.md,4560,2026-09-26,untracked,agent-report,React Native Skills
+.agents/skills/vercel-react-native-skills/rules/_sections.md,2314,2026-09-26,untracked,agent-report,Sections
+.agents/skills/vercel-react-native-skills/rules/_template.md,659,2026-09-26,untracked,agent-report,Rule Title Here
+.agents/skills/vercel-react-native-skills/rules/animation-derived-value.md,1426,2026-09-26,untracked,agent-report,Prefer useDerivedValue Over useAnimatedReaction
+.agents/skills/vercel-react-native-skills/rules/animation-gesture-detector-press.md,2654,2026-09-26,untracked,agent-report,Use GestureDetector for Animated Press States
+.agents/skills/vercel-react-native-skills/rules/animation-gpu-properties.md,2124,2026-09-26,untracked,agent-report,Animate Transform and Opacity Instead of Layout Properties
+.agents/skills/vercel-react-native-skills/rules/design-system-compound-components.md,1691,2026-09-26,untracked,agent-report,Use Compound Components Over Polymorphic Children
+.agents/skills/vercel-react-native-skills/rules/fonts-config-plugin.md,1464,2026-09-26,untracked,agent-report,Use Expo Config Plugin for Font Loading
+.agents/skills/vercel-react-native-skills/rules/imports-design-system-folder.md,1486,2026-09-26,untracked,agent-report,Import from Design System Folder
+.agents/skills/vercel-react-native-skills/rules/js-hoist-intl.md,1706,2026-09-26,untracked,agent-report,Hoist Intl Formatter Creation
+.agents/skills/vercel-react-native-skills/rules/list-performance-callbacks.md,1103,2026-09-26,untracked,agent-report,List performance callbacks
+.agents/skills/vercel-react-native-skills/rules/list-performance-function-references.md,4265,2026-09-26,untracked,agent-report,Optimize List Performance with Stable Object References
+.agents/skills/vercel-react-native-skills/rules/list-performance-images.md,1470,2026-09-26,untracked,agent-report,Use Compressed Images in Lists
+.agents/skills/vercel-react-native-skills/rules/list-performance-inline-objects.md,2405,2026-09-26,untracked,agent-report,Avoid Inline Objects in renderItem
+.agents/skills/vercel-react-native-skills/rules/list-performance-item-expensive.md,2560,2026-09-26,untracked,agent-report,Keep List Items Lightweight
+.agents/skills/vercel-react-native-skills/rules/list-performance-item-memo.md,2332,2026-09-26,untracked,agent-report,Pass Primitives to List Items for Memoization
+.agents/skills/vercel-react-native-skills/rules/list-performance-item-types.md,2853,2026-09-26,untracked,agent-report,Use Item Types for Heterogeneous Lists
+.agents/skills/vercel-react-native-skills/rules/list-performance-virtualize.md,1809,2026-09-26,untracked,agent-report,Use a List Virtualizer for Any List
+.agents/skills/vercel-react-native-skills/rules/monorepo-native-deps-in-app.md,1137,2026-09-26,untracked,agent-report,Install Native Dependencies in App Directory
+.agents/skills/vercel-react-native-skills/rules/monorepo-single-dependency-versions.md,1414,2026-09-26,untracked,agent-report,Use Single Dependency Versions Across Monorepo
+.agents/skills/vercel-react-native-skills/rules/navigation-native-navigators.md,5129,2026-09-26,untracked,agent-report,Use Native Navigators for Navigation
+.agents/skills/vercel-react-native-skills/rules/react-compiler-destructure-functions.md,1324,2026-09-26,untracked,agent-report,Destructure Functions Early in Render
+.agents/skills/vercel-react-native-skills/rules/react-compiler-reanimated-shared-values.md,1316,2026-09-26,untracked,agent-report,Use .get() and .set() for Shared Values with React Compiler
+.agents/skills/vercel-react-native-skills/rules/react-state-dispatcher.md,2346,2026-09-26,untracked,agent-report,Use Dispatch Updaters for State That Depends on Current Value
+.agents/skills/vercel-react-native-skills/rules/react-state-fallback.md,1791,2026-09-26,untracked,agent-report,Use fallback state instead of initialState
+.agents/skills/vercel-react-native-skills/rules/react-state-minimize.md,1805,2026-09-26,untracked,agent-report,Minimize State Variables and Derive Values
+.agents/skills/vercel-react-native-skills/rules/rendering-no-falsy-and.md,1886,2026-09-26,untracked,agent-report,Never Use && with Potentially Falsy Values
+.agents/skills/vercel-react-native-skills/rules/rendering-text-in-text-component.md,733,2026-09-26,untracked,agent-report,Wrap Strings in Text Components
+.agents/skills/vercel-react-native-skills/rules/scroll-position-no-state.md,2018,2026-09-26,untracked,agent-report,Never Track Scroll Position in useState
+.agents/skills/vercel-react-native-skills/rules/state-ground-truth.md,2252,2026-09-26,untracked,agent-report,State Must Represent Ground Truth
+.agents/skills/vercel-react-native-skills/rules/ui-expo-image.md,1714,2026-09-26,untracked,agent-report,Use expo-image for Optimized Images
+.agents/skills/vercel-react-native-skills/rules/ui-image-gallery.md,2650,2026-09-26,untracked,agent-report,Use Galeria for Image Galleries and Lightbox
+.agents/skills/vercel-react-native-skills/rules/ui-measure-views.md,2310,2026-09-26,untracked,agent-report,Measuring View Dimensions
+.agents/skills/vercel-react-native-skills/rules/ui-menus.md,4772,2026-09-26,untracked,agent-report,Use Native Menus for Dropdowns and Context Menus
+.agents/skills/vercel-react-native-skills/rules/ui-native-modals.md,1936,2026-09-26,untracked,agent-report,Use Native Modals Over JS-Based Bottom Sheets
+.agents/skills/vercel-react-native-skills/rules/ui-pressable.md,1595,2026-09-26,untracked,agent-report,Use Pressable Instead of Touchable Components
+.agents/skills/vercel-react-native-skills/rules/ui-safe-area-scroll.md,1644,2026-09-26,untracked,agent-report,Use contentInsetAdjustmentBehavior for Safe Areas
+.agents/skills/vercel-react-native-skills/rules/ui-scrollview-content-inset.md,1362,2026-09-26,untracked,agent-report,Use contentInset for Dynamic ScrollView Spacing
+.agents/skills/vercel-react-native-skills/rules/ui-styling.md,2299,2026-09-26,untracked,agent-report,Modern React Native Styling Patterns
+.agents/skills/vercel-react-view-transitions/AGENTS.md,60373,2026-09-26,untracked,agent-report,React View Transitions
+.agents/skills/vercel-react-view-transitions/README.md,2275,2026-09-26,untracked,agent-report,React View Transitions Skill
+.agents/skills/vercel-react-view-transitions/SKILL.md,14739,2026-09-26,untracked,agent-report,React View Transitions
+.agents/skills/vercel-react-view-transitions/references/css-recipes.md,8649,2026-09-26,untracked,agent-report,CSS Animation Recipes
+.agents/skills/vercel-react-view-transitions/references/implementation.md,9450,2026-09-26,untracked,agent-report,Implementation Workflow
+.agents/skills/vercel-react-view-transitions/references/nextjs.md,10933,2026-09-26,untracked,agent-report,View Transitions in Next.js
+.agents/skills/vercel-react-view-transitions/references/patterns.md,12215,2026-09-26,untracked,agent-report,Patterns and Guidelines
+.agents/skills/vercel-react-view-transitions/references/troubleshooting.md,4987,2026-09-26,untracked,agent-report,Troubleshooting
+.agents/skills/web-design-guidelines/SKILL.md,1270,2026-09-26,untracked,agent-report,Web Interface Guidelines
+.agents/skills/writing-guidelines/SKILL.md,1272,2026-09-26,untracked,agent-report,Writing Guidelines
+.claude/agents/smartlab-haiku-intake.md,3242,2026-11-14,untracked,agent-report,What you receive
+.claude/agents/smartlab-haiku-worker.md,2189,2026-11-14,untracked,agent-report,Allowed
+.perf-dist-after/brand/README.md,1117,2026-09-25,untracked,historical-report,Institution logo
+.perf-dist-after/lab/README.md,1630,2026-10-14,untracked,historical-report,Lab photographs (served by the portal)
+.perf-dist-after/models/README.md,1172,2026-10-08,untracked,historical-report,Robot 3D models (used by the robot twins)
+.perf-dist-before/brand/README.md,1117,2026-09-25,untracked,historical-report,Institution logo
+.perf-dist-before/lab/README.md,1630,2026-10-14,untracked,historical-report,Lab photographs (served by the portal)
+.perf-dist-before/models/README.md,1172,2026-10-08,untracked,historical-report,Robot 3D models (used by the robot twins)
+.perf-dist-exp/brand/README.md,1117,2026-09-25,untracked,historical-report,Institution logo
+.perf-dist-exp/lab/README.md,1630,2026-10-14,untracked,historical-report,Lab photographs (served by the portal)
+.perf-dist-exp/models/README.md,1172,2026-10-08,untracked,historical-report,Robot 3D models (used by the robot twins)
+.pytest_cache/README.md,310,2026-10-12,untracked,historical-report,pytest cache directory #
+AGENTS.md,2076,2026-11-09,tracked,current-runbook/spec,"Smart Lab - instructions for every AI agent (Claude Code, Gemini CLI / Antigravity, others)"
+ARCHITECTURE_DECISIONS.md,2790,2026-11-10,tracked,current-runbook/spec,Architecture decisions
+CLAUDE.local.md,1339,2026-11-14,untracked,current-runbook/spec,"Smart Lab Haiku → Opus workflow (owner rule, 2026-11-14)"
+CLAUDE.md,4239,2026-11-11,tracked,current-runbook/spec,Smart Lab portal - working rules for Claude Code
+CONTRIBUTING.md,812,2026-11-10,tracked,current-runbook/spec,Contributing
+GEMINI.md,225,2026-11-09,tracked,current-runbook/spec,Gemini - Smart Lab
+GITHUB_FINAL_RELEASE_REPORT.md,3744,2026-11-10,tracked,historical-report,GitHub final release report (10 November 2026)
+INTEGRATION_MATRIX.md,1956,2026-11-10,tracked,current-runbook/spec,Integration matrix
+KNOWN_ISSUES.md,2366,2026-11-10,tracked,current-runbook/spec,Known issues and open items
+PROJECT_OVERVIEW.md,2325,2026-11-10,tracked,current-runbook/spec,Project overview
+PROJECT_STATUS.md,1365,2026-11-10,tracked,current-runbook/spec,Project status (10 November 2026)
+README.md,20652,2026-11-11,tracked,current-runbook/spec,Locally Operated AIoT Facility Intelligence Platform
+SECURITY.md,1448,2026-11-10,tracked,current-runbook/spec,Security policy
+SYSTEM_FEATURE_MATRIX.md,3208,2026-11-10,tracked,current-runbook/spec,System feature matrix
+automation/n8n/README.md,814,2026-10-03,tracked,current-runbook/spec,n8n workflows
+automation/n8n/staggered/README.md,1302,2026-11-12,tracked,current-runbook/spec,Staggered 5-minute workflows (2026-11-12) - LIVE since 17:20 (owner asked; imported + published via n8n CLI)
+backend/.pytest_cache/README.md,310,2026-09-24,untracked,historical-report,pytest cache directory #
+backend/data/asset_refs/README.md,950,2026-11-09,tracked,hardware/firmware,Enclosure reference photos (owner)
+backups/PROGRESS_CHECKPOINT_before_20261107.md,50476,2026-11-07,untracked,historical-report,Progress checkpoint - Smart Lab master completion mission
+backups/ROBOT_CONTROL.before-master.md,2925,2026-10-17,untracked,historical-report,Robot control (Home / approved routines / software stop)
+backups/firmware_before_relay_boot_20261108/DOOR_MASTER_WIRING_before.md,7058,2026-11-08,untracked,historical-report,Door node (MASTER_LAB01) - complete wiring as recorded
+backups/kit_old_20261104/SMART_LAB_PC_DEPLOYMENT_GUIDE.md,3416,2026-11-03,untracked,historical-report,Smart Lab - Engineer PC and lab PC deployment (2026-11-03)
+backups/kit_scripts_before_20261107/README_USB_INSTALLATION.md,2773,2026-11-07,untracked,historical-report,Smart Lab PC kit - flash drive
+deploy/tls/README.md,155,2026-11-09,tracked,current-runbook/spec,Certificates for HTTPS
+docs/ACCESS_FLOW.md,6928,2026-09-25,tracked,stale/contradictory,Access flow
+docs/AGENT_SPEED_REPORT_2026-10-27.md,6910,2026-11-09,tracked,agent-report,"Smart Lab - AI agent, speed and markers report (2026-10-27, evening)"
+docs/AI_ASSISTANT.md,11591,2026-11-16,tracked,current-runbook/spec,"AI assistant, priorities and trends"
+docs/ARCHITECTURE.md,8985,2026-09-27,tracked,stale/contradictory,Architecture
+docs/AUDIT_2026-10-06.md,8296,2026-11-09,tracked,stale/contradictory,Smart Lab audit — 6 Oct 2026
+docs/AUTOMATION.md,16075,2026-10-03,tracked,stale/contradictory,"Automation (n8n), events and analytics"
+docs/BACKLOG.md,3588,2026-11-09,tracked,current-runbook/spec,"Improvement backlog (from findings, 2026-10-18)"
+docs/BRINGUP_LOG.md,15736,2026-11-09,tracked,hardware/firmware,Hardware bring-up and validation log
+docs/CODEX_PROMPT.md,4656,2026-11-09,tracked,agent-report,Prompt for Codex (or any coding assistant)
+docs/CV_BENCHMARK_2026-10-26.md,7539,2026-11-09,tracked,historical-report,Camera detector + tracker benchmark (2026-10-25/26)
+docs/DATABASE.md,6660,2026-09-25,tracked,stale/contradictory,Database
+docs/DEMO.md,7173,2026-10-27,tracked,stale/contradictory,Demonstration guide
+docs/DOOR_SYSTEM.md,17380,2026-10-03,tracked,hardware/firmware,Smart Lab Access Control — How to Run
+docs/FANUC_LIVE_TWIN.md,3588,2026-11-10,tracked,hardware/firmware,FANUC ER-4iA live digital twin - read-only
+docs/FINAL_IMPLEMENTATION_AUDIT_2026-10-26.md,18068,2026-11-09,tracked,historical-report,"Smart Lab: final implementation audit, 2026-10-26"
+docs/HANDOFF_2026-10-09.md,12249,2026-11-09,tracked,stale/contradictory,"Handoff — state on 9 October 2026, 20:12"
+docs/HANDOFF_2026-11-11_evening.md,6330,2026-11-11,untracked,current-runbook/spec,HANDOFF - 11 Nov 2026 evening (for the next local Claude Code session in VS Code)
+docs/How_To_Run_System.md,1591,2026-10-27,tracked,stale/contradictory,"Terminal 1:""Backend""   [ http://localhost:8000/api/docs#/ ]"
+docs/INCIDENT_REVIEW_2026-10-17.md,2940,2026-11-09,tracked,historical-report,"Incident review (read-only evidence, 2026-10-17 evening)"
+docs/LAB_DAY_2026-11-04.md,5958,2026-11-09,tracked,stale/contradictory,"Lab day 2026-11-04 - Robotics Lab, GIU (test + debug only, nothing to build)"
+docs/LAB_GO_NOGO_2026-10-18.md,19353,2026-11-09,tracked,stale/contradictory,Lab day 2026-10-18 - go / no-go checklist
+docs/LAB_READINESS_2026-10-18.md,7033,2026-11-09,tracked,stale/contradictory,Lab readiness - physical steps (prepared 2026-10-17)
+docs/LAB_TEST_2026-10-14.md,7370,2026-11-09,tracked,stale/contradictory,Lab test checklist - Wednesday 2026-10-14
+docs/LAB_TEST_2026-10-15.md,17278,2026-11-09,tracked,stale/contradictory,Lab test 2026-10-15 - UR5e live twin + security camera
+docs/LATENCY.md,2482,2026-11-09,tracked,stale/contradictory,"Camera latency: what is measured, how, and the results so far"
+docs/MAINTENANCE.md,5678,2026-09-25,tracked,stale/contradictory,Maintenance and equipment
+docs/MONDAY_LAB_2026-10-12.md,4676,2026-11-09,tracked,stale/contradictory,"Lab checklist, Monday 2026-10-12: camera, robots, network"
+docs/MORNING_REPORT_2026-11-04.md,2070,2026-11-09,tracked,historical-report,"Morning report 2026-11-04 (written 02:50, before power-off)"
+docs/N8N_RECOVERY_2026-10-14.md,2294,2026-11-09,tracked,stale/contradictory,n8n workflows 01 / 03 / 05 / 07 - recovery and repo-vs-live decision (2026-10-14)
+docs/OFFLINE_TEST_2026-10-27.md,2069,2026-11-09,tracked,historical-report,Offline acceptance test (P8) - how to run it
+docs/OPERATIONS.md,8278,2026-11-09,tracked,current-runbook/spec,Smart Lab - operations guide
+docs/PLAN_2026-10-08_VISION_ROBOTS_SECURITY_UI.md,10716,2026-11-09,tracked,stale/contradictory,"Audit and plan, 2026-10-08: vision, robots, security, Command Center"
+docs/PORTAL_GUIDE.md,39203,2026-11-10,tracked,current-runbook/spec,"Portal guide (detailed reference, formerly the README)"
+docs/PROGRESS_CHECKPOINT.md,59891,2026-11-17,tracked,current-runbook/spec,Progress checkpoint - Smart Lab master completion mission
+docs/ROBOTICS_LAB_ARCHITECTURE.md,26958,2026-11-09,tracked,hardware/firmware,Smart Robotics Laboratory — architecture audit and design
+docs/ROBOTS.md,4008,2026-11-10,tracked,hardware/firmware,Robot monitoring (read-only)
+docs/ROBOT_CONTROL.md,25193,2026-11-09,tracked,hardware/firmware,Robot control (Home / approved routines / software stop)
+docs/SCAN_THE_LAB.md,3180,2026-11-09,tracked,current-runbook/spec,Scan the lab - the phone camera in the AI assistant (2026-10-26)
+docs/SECURITY.md,4842,2026-11-09,tracked,stale/contradictory,Security (state on 2026-10-08)
+docs/SECURITY_FINDINGS_2026-10-18.md,5295,2026-11-09,tracked,stale/contradictory,Security findings - 2026-10-18
+docs/SMART_LAB_COMPLETE_STATUS_REPORT_2026-10-27.md,24450,2026-11-09,tracked,historical-report,"Smart Lab: complete project status report (2026-10-27, ~01:00 Cairo)"
+docs/SMART_LAB_FINAL_LAUNCH_GUIDE.md,1977,2026-11-09,tracked,stale/contradictory,Smart Lab - final launch guide (lab day 2026-11-04)
+docs/SMART_LAB_LAB_DAY_TEST_CHECKLIST.md,2799,2026-11-09,tracked,stale/contradictory,Smart Lab - lab day test checklist (2026-11-04)
+docs/SMART_LAB_NETWORK_CONFIGURATION.md,3566,2026-11-09,tracked,stale/contradictory,Smart Lab - network configuration (2026-11-03)
+docs/SMART_LAB_PC_DEPLOYMENT_GUIDE.md,3464,2026-11-09,tracked,stale/contradictory,Smart Lab - Engineer PC and lab PC deployment (2026-11-03)
+docs/SMART_LAB_RESOURCE_BUDGET.md,2400,2026-11-09,tracked,stale/contradictory,"Smart Lab - resource budget (Dell G3 3590, measured 2026-11-03)"
+docs/SMART_LAB_TROUBLESHOOTING.md,2643,2026-11-09,tracked,stale/contradictory,Smart Lab - troubleshooting (2026-11-03)
+docs/STATUS_OVERVIEW_2026-10-06.md,6132,2026-11-09,tracked,stale/contradictory,Smart Lab System Overview
+docs/STATUS_REPORT_2026-10-28.md,4547,2026-11-09,tracked,historical-report,"Smart Lab - status report (2026-10-28, night)"
+docs/SYSTEM_OVERVIEW.md,17154,2026-10-06,tracked,stale/contradictory,Smart Lab Management System — how it all fits together
+docs/VISUAL_AI_PLAN.md,4400,2026-11-09,tracked,stale/contradictory,"Smart Lab Visual AI - working plan (owner's revised plan, 2026-10-28)"
+docs/VISUAL_FOUNDATION.md,3211,2026-11-09,tracked,stale/contradictory,Smart Lab visual foundation (2026-10-14)
+docs/ai/agent-architecture.md,1541,2026-11-10,tracked,current-runbook/spec,Agent architecture
+docs/ai/assistant-overview.md,1865,2026-11-10,tracked,current-runbook/spec,AI assistants: overview
+docs/ai/knowledge-and-context.md,786,2026-11-10,tracked,current-runbook/spec,Knowledge and context
+docs/ai/model-configuration.md,1348,2026-11-10,tracked,stale/contradictory,Model configuration
+docs/ai/security-and-limitations.md,1136,2026-11-10,tracked,current-runbook/spec,AI security and limitations
+docs/ai/tool-integrations.md,968,2026-11-10,tracked,current-runbook/spec,Tool integrations
+docs/architecture/master-system-architecture.md,5492,2026-11-10,tracked,current-runbook/spec,Master system architecture
+docs/augmented-reality/device-compatibility.md,851,2026-11-10,tracked,current-runbook/spec,Device compatibility
+docs/augmented-reality/mobile-camera.md,1180,2026-11-10,tracked,current-runbook/spec,Mobile camera
+docs/augmented-reality/overlay-and-data-integration.md,1325,2026-11-10,tracked,current-runbook/spec,Overlay and data integration
+docs/augmented-reality/overview.md,1616,2026-11-10,tracked,current-runbook/spec,"Mobile camera and augmented reality (""Scan the lab"")"
+docs/augmented-reality/troubleshooting.md,985,2026-11-10,tracked,current-runbook/spec,AR troubleshooting
+docs/automation/credentials-and-security.md,815,2026-11-10,tracked,local-only/sensitive,(local-only: title withheld)
+docs/automation/n8n-overview.md,1537,2026-11-10,tracked,current-runbook/spec,n8n: workflow orchestration
+docs/automation/workflow-deployment.md,1207,2026-11-10,tracked,current-runbook/spec,Workflow deployment
+docs/automation/workflow-inventory.md,13657,2026-11-10,tracked,current-runbook/spec,n8n workflow inventory
+docs/automation/workflow-troubleshooting.md,939,2026-11-10,tracked,current-runbook/spec,Workflow troubleshooting
+docs/benchmarks/REID_GPU_AUDIT_2026-10-13.md,6426,2026-11-09,tracked,thesis/research,Person re-identification on the GPU — audit 2026-10-13
+docs/benchmarks/SECURITYCAM_ENGINE_AUDIT_2026-10-13.md,7258,2026-11-09,tracked,thesis/research,SecurityCam detector engine audit — 2026-10-13
+docs/camera-identity/OVERHAUL_2026-10-14.md,3265,2026-11-09,tracked,thesis/research,Detection / identity / portal-performance overhaul - 2026-10-14 evening
+docs/camera-identity/TWO_CAMERAS.md,13080,2026-11-11,tracked,thesis/research,Two security cameras - MC210 (camera 1) + MC200 1080p (camera 2)
+docs/computer-vision/access-camera-integration.md,1824,2026-11-10,tracked,current-runbook/spec,Access and camera integration
+docs/computer-vision/limitations-and-validation.md,1294,2026-11-10,tracked,current-runbook/spec,Limitations and validation
+docs/computer-vision/tracking-and-presence.md,1936,2026-11-10,tracked,current-runbook/spec,Tracking and presence
+docs/computer-vision/vision-system.md,2624,2026-11-10,tracked,current-runbook/spec,Vision system
+docs/computer-vision/yolo-models.md,1669,2026-11-10,tracked,current-runbook/spec,YOLO and detection models
+docs/defense/DEFENSE_BRIEF.md,9312,2026-11-10,tracked,thesis/research,Defense brief: what the project claims and what supports each claim
+docs/defense/OPTIMIZATION_AND_REMAINING_WORK.md,5731,2026-11-10,tracked,thesis/research,Optimisation phase: what remains (10 November 2026)
+docs/deployment/local-network-and-offline.md,3313,2026-11-10,tracked,current-runbook/spec,Local network and offline operation
+docs/digital-twin/architecture.md,1494,2026-11-10,tracked,current-runbook/spec,Digital twin: architecture
+docs/digital-twin/limitations.md,948,2026-11-10,tracked,current-runbook/spec,Digital twin: limitations
+docs/digital-twin/models-and-assets.md,852,2026-11-10,tracked,current-runbook/spec,Digital twin: models and assets
+docs/digital-twin/overview.md,1772,2026-11-10,tracked,current-runbook/spec,Digital twin: overview
+docs/digital-twin/physical-state-mapping.md,1155,2026-11-10,tracked,current-runbook/spec,Digital twin: physical state mapping
+docs/hardware/DEVICE_KEY_MIGRATION.md,3456,2026-11-16,tracked,hardware/firmware,Device keys: from the shared key to one key per node (post-lab plan)
+docs/hardware/DOOR_ENCLOSURE.md,8520,2026-11-09,tracked,hardware/firmware,Door node (MASTER_LAB01) enclosure - fit-test release 2026-10-20
+docs/hardware/DOOR_MASTER_WIRING.md,8500,2026-11-09,tracked,hardware/firmware,Door node (MASTER_LAB01) - complete wiring as recorded
+docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md,13107,2026-11-16,tracked,hardware/firmware,"Node LCD, unit and payload mapping (2026-11-16)"
+docs/hardware/consumables-node.md,1809,2026-11-10,tracked,hardware/firmware,Consumables Node (weighing bin)
+docs/hardware/door-access-system.md,1504,2026-11-10,tracked,hardware/firmware,Door access system
+docs/hardware/environment-node.md,2155,2026-11-10,tracked,hardware/firmware,Physical Environment Node
+docs/hardware/hardware-validation.md,1553,2026-11-10,tracked,hardware/firmware,Hardware validation status
+docs/hardware/master-node.md,3745,2026-11-10,tracked,hardware/firmware,Master Node (door access)
+docs/hardware/power-distribution.md,2196,2026-11-10,tracked,hardware/firmware,Power distribution
+docs/hardware/reusables-node.md,1803,2026-11-10,tracked,hardware/firmware,Reusables Node (NFC check-out bin with servo lid)
+docs/hardware/wiring-and-pinouts.md,2142,2026-11-10,tracked,hardware/firmware,Wiring and pinouts
+docs/images/SMART_LAB_ARCHITECTURE_ASSETS.md,3073,2026-11-10,tracked,current-runbook/spec,Smart Lab architecture image: sources
+docs/knowledge-platform/AGENT.md,6980,2026-11-09,tracked,stale/contradictory,Smart Lab local agent (`tools/knowledge/agent.py`) — 2026-10-14
+docs/knowledge-platform/CLAUDE_CODE_TOOLKIT_AUDIT.md,6088,2026-11-09,tracked,thesis/research,"Claude Code toolkit audit - 2026-10-14 (assessment only, nothing installed)"
+docs/knowledge-platform/EVALUATION.md,2717,2026-11-09,tracked,thesis/research,Knowledge platform — tests and evaluation (2026-10-13)
+docs/knowledge-platform/GRAPHIFY_ASSESSMENT.md,6451,2026-11-09,tracked,thesis/research,Graphify assessment for Smart Lab Knowledge - 2026-10-14
+docs/knowledge-platform/NEXT_PHASE_2026-10-13.md,7479,2026-11-09,tracked,stale/contradictory,"Knowledge platform — next phase review (2026-10-13, evening)"
+docs/knowledge-platform/README.md,3938,2026-11-09,tracked,stale/contradictory,Smart Lab knowledge platform
+docs/knowledge-platform/RESEARCH.md,3598,2026-11-09,tracked,thesis/research,Research and architecture decision — 2026-10-13
+docs/knowledge-platform/RUNBOOK.md,3182,2026-11-09,tracked,stale/contradictory,Knowledge platform runbook
+docs/knowledge/ai-context-integration.md,1811,2026-11-10,tracked,current-runbook/spec,AI context integration
+docs/knowledge/knowledge-retrieval.md,1220,2026-11-10,tracked,current-runbook/spec,Knowledge retrieval
+docs/knowledge/obsidian-overview.md,1549,2026-11-10,tracked,current-runbook/spec,Obsidian: knowledge management
+docs/knowledge/obsidian/README.md,2020,2026-11-10,tracked,current-runbook/spec,Obsidian knowledge base
+docs/knowledge/obsidian/vault/00 - Home/Home.md,4683,2026-11-10,tracked,current-runbook/spec,Smart Lab knowledge base
+docs/knowledge/obsidian/vault/00 - Home/Missing-History-and-Knowledge-Gaps.md,1068,2026-11-10,tracked,current-runbook/spec,Missing history and knowledge gaps
+docs/knowledge/obsidian/vault/00 - Home/Project-Timeline.md,54214,2026-11-10,tracked,current-runbook/spec,Project timeline
+docs/knowledge/obsidian/vault/01 - Project/Current-Truth.md,2392,2026-11-10,tracked,current-runbook/spec,Current truth (as of 2026-10-13 evening)
+docs/knowledge/obsidian/vault/01 - Project/Known-Bugs-and-Risks.md,1248,2026-11-10,tracked,current-runbook/spec,Known bugs and risks
+docs/knowledge/obsidian/vault/01 - Project/Master-System-Map.md,1948,2026-11-10,tracked,current-runbook/spec,Master system map
+docs/knowledge/obsidian/vault/01 - Project/Pending-Approvals.md,2186,2026-11-10,tracked,current-runbook/spec,Pending approvals
+docs/knowledge/obsidian/vault/01 - Project/Smart-Lab-From-Day-One.md,6028,2026-11-10,tracked,current-runbook/spec,Smart Lab — from day one
+docs/knowledge/obsidian/vault/02 - Systems/Backend and data.md,767,2026-11-10,tracked,current-runbook/spec,Backend and data
+docs/knowledge/obsidian/vault/02 - Systems/Bookings and labs.md,1151,2026-11-10,tracked,current-runbook/spec,Bookings and labs
+docs/knowledge/obsidian/vault/02 - Systems/Consumables bin.md,955,2026-11-10,tracked,current-runbook/spec,Consumables bin
+docs/knowledge/obsidian/vault/02 - Systems/Door and access.md,1320,2026-11-10,tracked,current-runbook/spec,Door and access
+docs/knowledge/obsidian/vault/02 - Systems/Environment monitoring.md,1009,2026-11-10,tracked,current-runbook/spec,Environment monitoring
+docs/knowledge/obsidian/vault/02 - Systems/Reusables bin.md,859,2026-11-10,tracked,current-runbook/spec,Reusables bin
+docs/knowledge/obsidian/vault/02 - Systems/Robots (read-only).md,2409,2026-11-10,tracked,current-runbook/spec,Robots (read-only)
+docs/knowledge/obsidian/vault/02 - Systems/SecurityCam (vision).md,5178,2026-11-10,tracked,current-runbook/spec,SecurityCam (vision)
+docs/knowledge/obsidian/vault/02 - Systems/n8n automation.md,3930,2026-11-10,tracked,current-runbook/spec,n8n automation
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 01 - Booking confirmation briefing.md,2115,2026-11-10,tracked,current-runbook/spec,Smart Lab 01 - Booking confirmation briefing
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 02 - Upcoming booking reminders.md,2131,2026-11-10,tracked,current-runbook/spec,Smart Lab 02 - Upcoming booking reminders
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 03 - Access denial intelligence.md,2251,2026-11-10,tracked,current-runbook/spec,Smart Lab 03 - Access denial intelligence
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 04 - Device offline alert with escalation.md,2275,2026-11-10,tracked,current-runbook/spec,Smart Lab 04 - Device offline alert with escalation
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 05 - Maintenance automation.md,2528,2026-11-10,tracked,current-runbook/spec,Smart Lab 05 - Maintenance automation
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 06 - Daily lab report.md,1943,2026-11-10,tracked,current-runbook/spec,Smart Lab 06 - Daily lab report
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 07 - Weekly lab report.md,1951,2026-11-10,tracked,current-runbook/spec,Smart Lab 07 - Weekly lab report
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 08 - Sensor threshold alerts.md,2242,2026-11-10,tracked,current-runbook/spec,Smart Lab 08 - Sensor threshold alerts
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 09 - Pre-booking lab readiness check.md,2173,2026-11-10,tracked,current-runbook/spec,Smart Lab 09 - Pre-booking lab readiness check
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 10 - Post-session follow-up.md,1956,2026-11-10,tracked,current-runbook/spec,Smart Lab 10 - Post-session follow-up
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 11 - Daily data quality check.md,1971,2026-11-10,tracked,current-runbook/spec,Smart Lab 11 - Daily data quality check
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 12 - Rule-based anomaly detection.md,2087,2026-11-10,tracked,current-runbook/spec,Smart Lab 12 - Rule-based anomaly detection
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 13 - Environment hazard escalation.md,2067,2026-11-10,tracked,current-runbook/spec,Smart Lab 13 - Environment hazard escalation
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 14 - Environment _ bin node offline.md,1938,2026-11-10,tracked,current-runbook/spec,Smart Lab 14 - Environment / bin node offline
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 15 - Consumable below reorder level.md,1906,2026-11-10,tracked,current-runbook/spec,Smart Lab 15 - Consumable below reorder level
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 16 - Stock change with nobody inside.md,1947,2026-11-10,tracked,current-runbook/spec,Smart Lab 16 - Stock change with nobody inside
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 17 - Reusable item overdue.md,1856,2026-11-10,tracked,current-runbook/spec,Smart Lab 17 - Reusable item overdue
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 18 - Robot offline or fault.md,1934,2026-11-10,tracked,current-runbook/spec,Smart Lab 18 - Robot offline or fault
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 19 - Robot running without a booking.md,1957,2026-11-10,tracked,current-runbook/spec,Smart Lab 19 - Robot running without a booking
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 20 - Lab PC offline.md,1799,2026-11-10,tracked,current-runbook/spec,Smart Lab 20 - Lab PC offline
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 21 - Exam-mode reports.md,1887,2026-11-10,tracked,current-runbook/spec,Smart Lab 21 - Exam-mode reports
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 22 - Robotics Lab daily summary.md,1912,2026-11-10,tracked,current-runbook/spec,Smart Lab 22 - Robotics Lab daily summary
+"docs/knowledge/obsidian/vault/05 - n8n Workflows/Smart Lab 23 - Emergency_ warn people inside, check the door.md",2597,2026-11-10,tracked,current-runbook/spec,"Smart Lab 23 - Emergency: warn people inside, check the door"
+docs/knowledge/obsidian/vault/05 - n8n Workflows/Workflow catalogue.md,3591,2026-11-10,tracked,current-runbook/spec,Workflow catalogue
+docs/knowledge/obsidian/vault/06 - Database/Database-Data-Dictionary.md,21868,2026-11-10,tracked,current-runbook/spec,Database data dictionary
+docs/knowledge/obsidian/vault/12 - Generated Reports/Documentation health.md,208,2026-11-10,tracked,historical-report,Documentation health
+docs/knowledge/obsidian/vault/12 - Generated Reports/Index status.md,1943,2026-11-10,tracked,historical-report,Index status
+docs/knowledge/obsidian/vault/12 - Generated Reports/Weekly digest 2026-10-14.md,8462,2026-11-10,tracked,historical-report,Weekly digest 2026-10-14
+docs/knowledge/obsidian/vault/12 - Generated Reports/Workflow drift.md,258,2026-11-10,tracked,historical-report,Workflow drift
+docs/knowledge/obsidian/vault/14 - Sources/README.md.md,36676,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/automation_n8n_README.md.md,1248,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes___init__.py.md,395,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_access.py.md,15363,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_admin.py.md,45508,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_ai.py.md,14609,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_analytics.py.md,5704,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_auth.py.md,13027,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_automation.py.md,14506,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_bookings.py.md,16210,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_commands.py.md,15612,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_emergency.py.md,18527,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_enrollment.py.md,14443,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_equipment.py.md,58048,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_experiments.py.md,7808,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_face_submissions.py.md,23011,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_incidents.py.md,12739,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_inventory.py.md,9514,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_issues.py.md,11329,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_knowledge.py.md,3607,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_labs.py.md,18148,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_monitor.py.md,11643,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_notifications.py.md,4774,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_opcua.py.md,4035,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_reliability.py.md,12611,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_reports_center.py.md,4548,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_reusable.py.md,33412,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_robots.py.md,33430,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_scan.py.md,20623,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_search.py.md,9042,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_security.py.md,44469,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_system.py.md,12133,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_uiperf.py.md,2812,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_voice.py.md,5567,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_api_routes_workcell.py.md,3278,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_core_config.py.md,16107,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_models___init__.py.md,2722,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_models_enums.py.md,6652,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_models_tables.py.md,66142,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services___init__.py.md,391,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_aas.py.md,5037,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_access.py.md,16515,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_agent.py.md,66880,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_agent_actions.py.md,10120,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_agent_history.py.md,14069,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_ai.py.md,47030,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_ai_guide.py.md,4253,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_alert_grouping.py.md,9392,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_analytics.py.md,30990,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_anomalies.py.md,11998,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_appearance.py.md,12490,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_automation.py.md,40482,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_backups.py.md,4337,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_bin_detector.py.md,11452,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_booking.py.md,10844,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_booking_equipment.py.md,6360,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_briefing.py.md,7410,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_commands.py.md,4215,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_dependency_graph.py.md,12443,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_devices.py.md,20222,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_drift.py.md,11462,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_emergency.py.md,7600,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_enrolment.py.md,5091,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_environment.py.md,20473,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_events.py.md,4779,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_health_monitor.py.md,6294,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_health_score.py.md,6152,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_identity.py.md,2563,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_integration.py.md,11057,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_inventory.py.md,14108,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_investigate.py.md,10945,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_issues.py.md,32710,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_lab_at.py.md,7448,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_lan_presence.py.md,3075,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_live_target.py.md,26475,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_marker_art.py.md,20999,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_marker_pack.py.md,17296,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_marker_shapes.py.md,22469,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_notifications.py.md,7933,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_pc_control.py.md,9826,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_perfmon.py.md,7332,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_policy.py.md,5168,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_proactive.py.md,8566,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_provenance.py.md,3942,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_qr.py.md,3308,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_reports_center.py.md,16024,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_robot_control.py.md,31722,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_robot_fusion.py.md,5199,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_robotics_watch.py.md,9863,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_safety_triage.py.md,7171,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_scan.py.md,13612,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_sessions.py.md,7010,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_stop_relay.py.md,5180,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_storage.py.md,6701,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_system_analytics.py.md,10664,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_tool_gateway.py.md,6208,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_trace.py.md,4713,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_ur_agent.py.md,2055,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_ur_dashboard.py.md,2388,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_ur_script.py.md,2118,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/backend_app_services_xlsx.py.md,6772,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docker-compose.yml.md,11130,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_ACCESS_FLOW.md.md,7463,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_AGENT_SPEED_REPORT_2026-10-27.md.md,7370,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_AI_ASSISTANT.md.md,12324,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_ARCHITECTURE.md.md,9574,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_AUDIT_2026-10-06.md.md,8661,2026-11-10,tracked,historical-report,Smart Lab audit — 6 Oct 2026
+docs/knowledge/obsidian/vault/14 - Sources/docs_AUTOMATION.md.md,16756,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_BACKLOG.md.md,4004,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_BRINGUP_LOG.md.md,16323,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_CODEX_PROMPT.md.md,5650,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_CV_BENCHMARK_2026-10-26.md.md,8350,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_DATABASE.md.md,7280,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_DEMO.md.md,7862,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_DOOR_SYSTEM.md.md,17966,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_FANUC_LIVE_TWIN.md.md,3768,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_FINAL_IMPLEMENTATION_AUDIT_2026-10-26.md.md,19158,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_HANDOFF_2026-10-09.md.md,13223,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_How_To_Run_System.md.md,2245,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_INCIDENT_REVIEW_2026-10-17.md.md,3454,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LAB_DAY_2026-11-04.md.md,6425,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LAB_GO_NOGO_2026-10-18.md.md,20388,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LAB_READINESS_2026-10-18.md.md,7664,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LAB_TEST_2026-10-14.md.md,8003,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LAB_TEST_2026-10-15.md.md,17958,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_LATENCY.md.md,3212,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_MAINTENANCE.md.md,6084,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_MONDAY_LAB_2026-10-12.md.md,5152,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_N8N_RECOVERY_2026-10-14.md.md,2742,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_OFFLINE_TEST_2026-10-27.md.md,2570,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_OPERATIONS.md.md,8973,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_PLAN_2026-10-08_VISION_ROBOTS_SECURITY_UI.md.md,11415,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_PROGRESS_CHECKPOINT.md.md,51321,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_ROBOTICS_LAB_ARCHITECTURE.md.md,27680,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_ROBOTS.md.md,4736,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_ROBOT_CONTROL.md.md,26119,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SCAN_THE_LAB.md.md,3723,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SECURITY.md.md,5458,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SECURITY_FINDINGS_2026-10-18.md.md,5904,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_COMPLETE_STATUS_REPORT_2026-10-27.md.md,25235,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_FINAL_LAUNCH_GUIDE.md.md,2513,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_LAB_DAY_TEST_CHECKLIST.md.md,3339,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_NETWORK_CONFIGURATION.md.md,3961,2026-11-10,tracked,historical-report,Smart Lab - network configuration (2026-11-03)
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_PC_DEPLOYMENT_GUIDE.md.md,4001,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_RESOURCE_BUDGET.md.md,2783,2026-11-10,tracked,historical-report,"Smart Lab - resource budget (Dell G3 3590, measured 2026-11-03)"
+docs/knowledge/obsidian/vault/14 - Sources/docs_SMART_LAB_TROUBLESHOOTING.md.md,3026,2026-11-10,tracked,historical-report,Smart Lab - troubleshooting (2026-11-03)
+docs/knowledge/obsidian/vault/14 - Sources/docs_STATUS_OVERVIEW_2026-10-06.md.md,6517,2026-11-10,tracked,historical-report,Smart Lab System Overview
+docs/knowledge/obsidian/vault/14 - Sources/docs_STATUS_REPORT_2026-10-28.md.md,4992,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_SYSTEM_OVERVIEW.md.md,17816,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_VISUAL_AI_PLAN.md.md,4835,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_VISUAL_FOUNDATION.md.md,3578,2026-11-10,tracked,historical-report,Smart Lab visual foundation (2026-10-14)
+docs/knowledge/obsidian/vault/14 - Sources/docs_benchmarks_REID_GPU_AUDIT_2026-10-13.md.md,7163,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_benchmarks_SECURITYCAM_ENGINE_AUDIT_2026-10-13.md.md,7918,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_camera-identity_OVERHAUL_2026-10-14.md.md,3749,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_camera-identity_TWO_CAMERAS.md.md,13721,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_hardware_DOOR_ENCLOSURE.md.md,8968,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_hardware_DOOR_MASTER_WIRING.md.md,7782,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_AGENT.md.md,7555,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_CLAUDE_CODE_TOOLKIT_AUDIT.md.md,6578,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_EVALUATION.md.md,3108,2026-11-10,tracked,historical-report,Knowledge platform — tests and evaluation (2026-10-13)
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_GRAPHIFY_ASSESSMENT.md.md,6935,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_NEXT_PHASE_2026-10-13.md.md,7999,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_README.md.md,4484,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_RESEARCH.md.md,3985,2026-11-10,tracked,historical-report,Research and architecture decision — 2026-10-13
+docs/knowledge/obsidian/vault/14 - Sources/docs_knowledge-platform_RUNBOOK.md.md,3567,2026-11-10,tracked,historical-report,Knowledge platform runbook
+docs/knowledge/obsidian/vault/14 - Sources/docs_perf_LOAD_TEST.md.md,3277,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_evidence_20261017_124648.md.md,9414,2026-11-10,tracked,historical-report,Smart Lab evidence run 2026-10-17T12:46:48+00:00
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_evidence_20261017_135713.md.md,9565,2026-11-10,tracked,historical-report,Smart Lab evidence run 2026-10-17T13:57:13+00:00
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_evidence_20261017_194939.md.md,9565,2026-11-10,tracked,historical-report,Smart Lab evidence run 2026-10-17T19:49:39+00:00
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_evidence_20261018_112123.md.md,12955,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_evidence_20261018_112213.md.md,12985,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_reports_speed_and_fixes_2026-10-18_evening.md.md,13608,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/docs_reviews_README.md.md,583,2026-11-10,tracked,historical-report,Reviews by the Gemini review agent
+docs/knowledge/obsidian/vault/14 - Sources/firmware_ESP32CAM_Vision_FAST_ESP32CAM_Vision_FAST.ino.md,25838,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Consumable_Bin_README.md.md,2570,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Consumable_Bin_SmartLab_Consumable_Bin.ino.md,26653,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Environment_Node_README.md.md,4805,2026-11-10,tracked,historical-report,"Environment node (Robotics Lab, System 2) — ENVIRONMENT_NODE 0.1.0"
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Environment_Node_SmartLab_Environment_Node.ino.md,3532,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Master_Portal_SmartLab_Master_Portal.ino.md,130408,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Reusable_Bin_Modular_README.md.md,17348,2026-11-10,tracked,historical-report,Smart Reusable Equipment Bin — modular firmware
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Reusable_Bin_Modular_SmartLab_Reusable_Bin_Modular.ino.md,4197,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Reusable_Bin_Modular_src_config.h.md,10696,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Reusable_Bin_README.md.md,3029,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Reusable_Bin_SmartLab_Reusable_Bin.ino.md,18572,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Robot_Stop_README.md.md,4600,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_SmartLab_Robot_Stop_SmartLab_Robot_Stop.ino.md,6642,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/firmware_face_server_.pytest_cache_README.md.md,730,2026-11-10,tracked,historical-report,pytest cache directory #
+docs/knowledge/obsidian/vault/14 - Sources/firmware_face_server_models_README.md.md,1671,2026-11-10,tracked,historical-report,Face models (not in git — 39 MB)
+docs/knowledge/obsidian/vault/14 - Sources/firmware_tools_door_audio_test_door_audio_test.ino.md,5866,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/launch.bat.md,13345,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/tools_benchmarks_ai_cpu_gpu_ab.py.md,2965,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/tools_benchmarks_audit_engines.py.md,13631,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_benchmarks_benchmark_vision_engines.py.md,12175,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_benchmarks_reid_audit.py.md,12689,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_bringup_README.md.md,3725,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_knowledge_.pytest_cache_README.md.md,705,2026-11-10,tracked,historical-report,pytest cache directory #
+docs/knowledge/obsidian/vault/14 - Sources/tools_opcua_README.md.md,2568,2026-11-10,tracked,historical-report,"Smart Lab OPC UA server (read-only), 2026-10-26"
+docs/knowledge/obsidian/vault/14 - Sources/tools_pc_agent_README.md.md,6512,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_.pytest_cache_README.md.md,731,2026-11-10,tracked,historical-report,pytest cache directory #
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_control_source.py.md,7391,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_fanuc_joints.py.md,1585,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_fanuc_probe.py.md,3251,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_fanuc_summary.py.md,6808,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_robot_collector.py.md,20775,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_robot_state.py.md,10233,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_rtde_check.py.md,2005,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_collector.py.md,5477,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_control_source.py.md,3434,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_fanuc_joints.py.md,1048,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_fanuc_source.py.md,6015,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_fanuc_summary.py.md,3687,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_robot_monitor_test_robot_state.py.md,4520,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_.pytest_cache_README.md.md,737,2026-11-10,tracked,historical-report,pytest cache directory #
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_README.md.md,6034,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_bench_tracking.py.md,5176,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_cam_clock.py.md,4709,2026-11-10,tracked,historical-report,---
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_crosscam.py.md,25172,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_dataset.py.md,4235,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_deskmap.py.md,4648,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_equipwatch.py.md,6753,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_floor_refit.py.md,3923,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_floorcal.py.md,4541,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_identity.py.md,12165,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_latency.py.md,9794,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_models_README.md.md,2928,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_pair_capture.py.md,2636,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_pair_check.py.md,2571,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_realign.py.md,9270,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_recorder.py.md,13475,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_robotvision.py.md,6449,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_scenario_bench.py.md,20197,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_seat_capture.py.md,4807,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_security_vision.py.md,87140,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_analysis_health.py.md,1192,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_camera_reconnect.py.md,3912,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_crosscam.py.md,8088,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_crosscam_2026_10_19.py.md,7065,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_crosscam_desk.py.md,5092,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_crosscam_look_leads.py.md,3049,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_crosscam_tiebreak.py.md,4041,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_desk_evidence_2026_10_19.py.md,4827,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_desk_hints.py.md,2416,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_deskmap.py.md,2179,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_detector_wakeup.py.md,2461,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_door_entry.py.md,6091,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_engines.py.md,2872,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_equipwatch.py.md,3294,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_face_overrides_carried_name.py.md,2974,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_home_desk.py.md,6201,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_identity.py.md,4353,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_identity_lock.py.md,5416,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_load_sampler.py.md,1781,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_masking.py.md,1102,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_pc_in_use.py.md,1662,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_pc_occupancy.py.md,2978,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_phone_detect.py.md,3313,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_posture_and_review.py.md,6196,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_realign.py.md,4972,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_recorder.py.md,6519,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_reid.py.md,11143,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_robotvision.py.md,2600,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_scenario_bench.py.md,1615,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_tags.py.md,1664,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_tracking_2026_10_26.py.md,3890,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_two_cameras.py.md,2997,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_view_startup.py.md,2287,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_vision.py.md,41702,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_walk_handback.py.md,2323,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_zone_tags.py.md,4617,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_test_zoom.py.md,2822,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_security_vision_vision.py.md,123163,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/14 - Sources/tools_ur5e_collector_README.md.md,1648,2026-11-10,tracked,historical-report,"UR5e collector — read-only (Robotics Lab, Phase 5)"
+docs/knowledge/obsidian/vault/14 - Sources/tools_voice_README.md.md,3384,2026-11-10,tracked,historical-report,Related
+docs/knowledge/obsidian/vault/99 - Templates/Decision.md,203,2026-11-10,tracked,current-runbook/spec,Decision:
+docs/knowledge/obsidian/vault/99 - Templates/Incident.md,195,2026-11-10,tracked,current-runbook/spec,Incident:
+docs/knowledge/obsidian/vault/99 - Templates/Runbook.md,130,2026-11-10,tracked,current-runbook/spec,Runbook:
+docs/knowledge/vault-structure.md,1442,2026-11-10,tracked,current-runbook/spec,Vault structure
+docs/media/README.md,3101,2026-11-10,tracked,current-runbook/spec,Media inventory
+docs/perf/LOAD_TEST.md,2790,2026-10-14,tracked,thesis/research,"Full-system load test (simulated, isolated)"
+docs/project/MASTER_PROJECT_INVENTORY.md,2903,2026-11-10,tracked,historical-report,Master project inventory (10 November 2026)
+docs/release/CODE_OPTIMIZATION_REPORT.md,3439,2026-11-10,tracked,historical-report,Code optimization and maintenance report (release of 9 November 2026)
+docs/release/GITHUB_RELEASE_REPORT.md,4327,2026-11-10,tracked,historical-report,GitHub release report (9 November 2026)
+docs/release/PROJECT_COMPONENT_INVENTORY.md,4687,2026-11-10,tracked,historical-report,Project component inventory (9 November 2026)
+docs/release/REPOSITORY_PRE_UPDATE_AUDIT.md,3743,2026-11-09,tracked,historical-report,Repository pre-update audit (9 November 2026)
+docs/reports/SMART_LAB_CLOSURE_AND_PERFORMANCE_REPORT_2026-11-11.md,11822,2026-11-11,tracked,historical-report,Smart Lab - closure mission and performance report (2026-11-11)
+docs/reports/SMART_LAB_FABLE_5_2_FINAL_EXECUTION_REPORT_2026-11-10.md,18353,2026-11-11,tracked,historical-report,Smart Lab - final execution report (closure and optimisation mission)
+docs/reports/SMART_LAB_FABLE_5_2_FINAL_TEST_RESULTS.md,2881,2026-11-11,tracked,historical-report,Smart Lab - final test results (11 November 2026)
+docs/reports/SMART_LAB_FINAL_PHYSICAL_ACCEPTANCE_CHECKLIST.md,5041,2026-11-11,tracked,historical-report,Smart Lab - physical acceptance checklist (after the 2026-11-11 closure work)
+docs/reports/closure-2026-11-11-evening/CLOSURE_REPORT_2026-11-11_evening.md,9747,2026-11-11,untracked,agent-report,"Smart Lab - closure session, 11 Nov 2026 (evening)"
+docs/reports/evidence_20261017_124648.md,9017,2026-10-17,tracked,historical-report,Smart Lab evidence run 2026-10-17T12:46:48+00:00
+docs/reports/evidence_20261017_135713.md,9168,2026-10-17,tracked,historical-report,Smart Lab evidence run 2026-10-17T13:57:13+00:00
+docs/reports/evidence_20261017_194939.md,9168,2026-10-17,tracked,historical-report,Smart Lab evidence run 2026-10-17T19:49:39+00:00
+docs/reports/evidence_20261018_112123.md,12370,2026-10-18,tracked,historical-report,Smart Lab evidence run 2026-10-18T11:21:23+00:00
+docs/reports/evidence_20261018_112213.md,12345,2026-10-18,tracked,historical-report,Smart Lab evidence run 2026-10-18T11:22:13+00:00
+docs/reports/final-closure/COMPLETED_WORK.md,1748,2026-11-11,untracked,agent-report,"Completed work - 11 Nov 2026 (all local, nothing pushed)"
+docs/reports/final-closure/FINAL_HANDOFF.md,1305,2026-11-11,untracked,agent-report,"Final handoff - 11 Nov 2026, night"
+docs/reports/final-closure/GEMINI_FINDINGS_RECONCILIATION.md,2109,2026-11-11,untracked,agent-report,"Gemini G1/G2/G3 - checked against the local repository and machine (11 Nov 2026, ~22:00)"
+docs/reports/final-closure/LAB_ONSITE_ACCEPTANCE_CHECKLIST.md,2111,2026-11-11,untracked,agent-report,On-site acceptance checklist (lab network)
+docs/reports/final-closure/MASTER_TASK_LEDGER.md,6310,2026-11-11,untracked,agent-report,"Master task ledger - 11 Nov 2026, 22:xx (+02:00)"
+docs/reports/final-closure/OPEN_BLOCKERS_AND_APPROVALS.md,2176,2026-11-11,untracked,agent-report,Open blockers and owner decisions
+docs/reports/final-closure/TEST_AND_BENCHMARK_RESULTS.md,2760,2026-11-11,untracked,agent-report,"Tests and benchmarks - 11 Nov 2026 (this laptop, off-lab)"
+docs/reports/local-only-2026-11-16/CLAUDE_HARDENING_BRANCH_REVIEW.md,8854,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/FINAL_CLOSURE_AND_LAB_READINESS_2026-11-16.md,13535,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/FINAL_RECONCILIATION_2026-11-16.md,2791,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/IMMEDIATE_CLOSURE_2026-11-16.md,5567,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/LAB_DAY_CHECKLIST_2026-11-17.md,9980,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/PRE_LAB_HARDENING_BASELINE.md,1805,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/PRE_LAB_HARDENING_RESULTS.md,8971,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/SMART_LAB_AI_RUNTIME_BASELINE.md,4686,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/SMOLMAXXING_ADOPTION_DECISION.md,3777,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/SMOLMAXXING_TECHNICAL_ASSESSMENT.md,7046,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-16/SMOLMAXXING_X86_BENCHMARK_RESULTS.md,7264,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/CAMERA_AND_IDENTITY_TEST_RESULTS.md,2343,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/CAMERA_AND_VISION_LIVE_RESULTS.md,6614,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/DEFERRED_HARDWARE_AND_CAMERA_OPTIMIZATION.md,5320,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/FULL_CONCURRENT_SYSTEM_TEST.md,1854,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/FULL_SYSTEM_LAB_INTEGRATION_TEST_PLAN.md,10164,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/FULL_SYSTEM_TEST_RESULTS_2026-11-17.md,2928,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/HOME_FINAL_READINESS_AND_PACKING_CHECKLIST.md,4142,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/HOME_FINAL_READINESS_REPORT.md,8879,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/LAB_RESOURCE_AND_PERFORMANCE_BASELINE.md,2936,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/LAB_SESSION_FINAL_REPORT.md,7201,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/LAB_START_CARD.md,5328,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/NODE_AND_PORTAL_INTEGRATION_RESULTS.md,2513,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/POST_LAB_ACTION_BACKLOG.md,2580,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-2026-11-17/PRE_LAB_SECURITY_AND_STARTUP_CHECKLIST.md,3994,2026-11-16,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-final-2026-11-12/SMART_LAB_CONTINUATION_REPORT_2026-11-12.md,7142,2026-11-12,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-final-2026-11-12/SMART_LAB_FINAL_REPORT_2026-11-12.md,9757,2026-11-12,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-final-optimization-2026-11-17/CLAUDE_OPTIMIZATION_REPORT.md,3781,2026-11-17,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-ui-tooling-2026-11-14/FINAL_HANDOFF.md,8442,2026-11-14,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/local-only-ui-tooling-2026-11-14/NEW_SESSION_HANDOFF.md,6374,2026-11-14,untracked,local-only/sensitive,(local-only: title withheld)
+docs/reports/max-performance-security-closure/AI_AND_KNOWLEDGE_PERFORMANCE.md,950,2026-11-11,untracked,agent-report,"AI, knowledge, n8n"
+docs/reports/max-performance-security-closure/AR_MULTI_OBJECT_PERFORMANCE.md,1062,2026-11-11,untracked,agent-report,AR (phone /scan) - multi-object and speed
+docs/reports/max-performance-security-closure/CAMERA_IDENTITY_AND_TRACKING.md,2451,2026-11-11,untracked,agent-report,"Camera identity and tracking (security cameras, not AR)"
+docs/reports/max-performance-security-closure/COMPLETED_WORK.md,1873,2026-11-11,untracked,agent-report,"Completed work - 11 Nov 2026 (local commits, nothing pushed)"
+docs/reports/max-performance-security-closure/FINAL_HANDOFF.md,716,2026-11-11,untracked,agent-report,"Final handoff - 11 Nov 2026, 23:55"
+docs/reports/max-performance-security-closure/LAB_ACCEPTANCE_CHECKLIST.md,2111,2026-11-11,untracked,agent-report,On-site acceptance checklist (lab network)
+docs/reports/max-performance-security-closure/MASTER_TASK_LEDGER.md,6310,2026-11-11,untracked,agent-report,"Master task ledger - 11 Nov 2026, 22:xx (+02:00)"
+docs/reports/max-performance-security-closure/MASTER_TASK_LEDGER_UPDATE.md,1043,2026-11-11,untracked,agent-report,"Ledger update (11 Nov, 23:55) - on top of MASTER_TASK_LEDGER.md (copied from final-closure)"
+docs/reports/max-performance-security-closure/OPEN_BLOCKERS_AND_OWNER_DECISIONS.md,867,2026-11-11,untracked,agent-report,Owner decisions / blockers
+docs/reports/max-performance-security-closure/SECURITY_AUDIT_AND_REMEDIATION.md,1833,2026-11-11,untracked,agent-report,Security audit and remediation (11 Nov 2026)
+docs/reports/max-performance-security-closure/STORAGE_AND_PERFORMANCE.md,984,2026-11-11,untracked,agent-report,Storage and performance
+docs/reports/max-performance-security-closure/TEST_AND_BENCHMARK_RESULTS.md,834,2026-11-11,untracked,agent-report,Tests and benchmarks (latest runs)
+docs/reports/speed_and_fixes_2026-10-18_evening.md,12908,2026-10-19,tracked,historical-report,Speed and fixes - 2026-10-18 (afternoon / evening)
+docs/reviews/2026-11-03-210000-gemini-verification-of-claude-firewall-and-addendum.md,5612,2026-11-03,tracked,agent-report,Gemini -> Claude: Verification of Commit `0985cd4` & Addendum 21:00
+docs/reviews/2026-11-04-121500-gemini-morning-report-and-code-audit.md,10068,2026-11-04,tracked,agent-report,Gemini -> Claude: Code Review of Morning Report & Full Uncommitted Changeset
+docs/reviews/2026-11-04-135500-gemini-lab-pc-and-engineer-pc-audit.md,7165,2026-11-04,tracked,agent-report,"Gemini -> Claude: Deep Technical Audit of Lab PCs, Engineer PC & Subnet Relay Defect"
+docs/reviews/2026-11-04-173000-gemini-full-optimization-audit-handoff.md,5795,2026-11-04,tracked,agent-report,Gemini -> Claude: Full-System Optimization Audit & Action Plan
+docs/reviews/2026-11-04-211500-gemini-claude-audit-review-and-approval.md,9324,2026-11-04,tracked,agent-report,Gemini Review & Approval: Claude's Independent Audit and Implementation Report
+docs/reviews/GEMINI_FULL_SMART_LAB_OPTIMIZATION_AUDIT.md,39240,2026-11-04,tracked,agent-report,"SMART LAB — ULTIMATE FULL-SYSTEM AUDIT, OPTIMIZATION & ENGINEERING DEVELOPMENT MANUAL"
+docs/reviews/GEMINI_FULL_SYSTEM_ENGINEERING_AUDIT.md,58228,2026-11-03,tracked,agent-report,SMART LAB — FULL SYSTEM DEEP ENGINEERING AUDIT & ARCHITECTURAL SOLUTION MANUAL
+docs/reviews/HANDOFFS.md,5283,2026-11-04,tracked,agent-report,Handoff log (Claude-owned; Gemini reads only)
+docs/reviews/README.md,218,2026-11-02,tracked,agent-report,Reviews by the Gemini review agent
+docs/software/api-reference.md,31150,2026-11-10,tracked,current-runbook/spec,API reference
+docs/software/authentication.md,1308,2026-11-10,tracked,current-runbook/spec,Authentication and authorisation
+docs/software/backend.md,1869,2026-11-10,tracked,current-runbook/spec,Backend
+docs/software/database-schema.md,21896,2026-11-10,tracked,current-runbook/spec,Database schema
+docs/software/frontend.md,1705,2026-11-10,tracked,current-runbook/spec,Frontend (portal)
+docs/testing/test-results.md,1667,2026-11-10,tracked,current-runbook/spec,Test results
+firmware/SmartLab_Consumable_Bin/README.md,2032,2026-10-03,tracked,hardware/firmware,"Consumable bin node (Robotics Lab, System 3) — bring-up and calibration"
+firmware/SmartLab_Environment_Node/README.md,4310,2026-10-05,tracked,hardware/firmware,"Environment node (Robotics Lab, System 2) — ENVIRONMENT_NODE 0.1.0"
+firmware/SmartLab_Reusable_Bin/README.md,2492,2026-10-03,tracked,hardware/firmware,"Reusable bin node (Robotics Lab, System 4) — bring-up"
+firmware/SmartLab_Reusable_Bin_Modular/README.md,16672,2026-10-07,tracked,hardware/firmware,Smart Reusable Equipment Bin — modular firmware
+firmware/SmartLab_Robot_Stop/README.md,4071,2026-10-26,tracked,hardware/firmware,UR5e stop relay (ESP32) - portal STOP that works in LOCAL mode
+firmware/face_server/.pytest_cache/README.md,302,2026-10-12,untracked,historical-report,pytest cache directory #
+firmware/face_server/models/README.md,1244,2026-10-02,tracked,hardware/firmware,Face models (not in git — 39 MB)
+floorplan/.cache/worksheets/api.tests.md,2496,2026-11-16,untracked,historical-report,Worksheet api.tests: Server tests
+floorplan/.cache/worksheets/ops.md,2026,2026-11-16,untracked,historical-report,Worksheet ops: Operations and training tools
+frontend/public/brand/README.md,1117,2026-09-25,tracked,current-runbook/spec,Institution logo
+frontend/public/lab/README.md,1630,2026-10-14,tracked,current-runbook/spec,Lab photographs (served by the portal)
+frontend/public/models/README.md,2031,2026-10-19,tracked,current-runbook/spec,Robot 3D models (used by the robot twins)
+frontend/src/components/reactbits/LICENSE-react-bits.md,2060,2026-11-14,tracked,historical-report,Commons Clause Restriction
+lab_usb_kit/README_USB_INSTALLATION.md,1020,2026-11-10,tracked,stale/contradictory,Smart Lab PC kit
+lab_usb_kit/SMART_LAB_POWERSHELL_PC_DEPLOYMENT_GUIDE.md,6895,2026-11-10,tracked,current-runbook/spec,Smart Lab PC agent: PowerShell deployment guide
+lab_usb_kit/python/Lib/email/architecture.rst,9561,2026-09-21,untracked,historical-report,:mod:`email` Package Architecture
+reports/Door enclosure component dimensions.md,20623,2026-10-20,tracked,hardware/firmware,Measure five parts before printing the door box
+reports/final-optimization-2026-11-17/ARGON_BASELINE.md,4809,2026-11-17,untracked,agent-report,ARGON_BASELINE.md
+reports/final-optimization-2026-11-17/ARGON_BEFORE_AFTER_BENCHMARKS.md,4553,2026-11-17,untracked,agent-report,ARGON_BEFORE_AFTER_BENCHMARKS.md
+reports/final-optimization-2026-11-17/ARGON_CAMERA_AND_DEVICE_RESULTS.md,6696,2026-11-17,untracked,agent-report,ARGON_CAMERA_AND_DEVICE_RESULTS.md
+reports/final-optimization-2026-11-17/ARGON_CHANGED_FILES_AND_ROLLBACK.md,5844,2026-11-17,untracked,agent-report,ARGON_CHANGED_FILES_AND_ROLLBACK.md
+reports/final-optimization-2026-11-17/ARGON_COORDINATION_MANIFEST.md,4532,2026-11-17,untracked,agent-report,ARGON_COORDINATION_MANIFEST.md
+reports/final-optimization-2026-11-17/ARGON_EXECUTIVE_SUMMARY.md,6669,2026-11-17,untracked,agent-report,ARGON_EXECUTIVE_SUMMARY.md
+reports/final-optimization-2026-11-17/ARGON_FINDINGS_ROOT_CAUSES.md,12718,2026-11-17,untracked,agent-report,ARGON_FINDINGS_ROOT_CAUSES.md
+reports/final-optimization-2026-11-17/ARGON_FIXES_IMPLEMENTED.md,5608,2026-11-17,untracked,agent-report,ARGON_FIXES_IMPLEMENTED.md
+reports/final-optimization-2026-11-17/ARGON_REMAINING_GAPS.md,3045,2026-11-17,untracked,agent-report,ARGON_REMAINING_GAPS.md
+reports/final-optimization-2026-11-17/ARGON_RUNTIME_AND_TERMINAL_GUIDE.md,5600,2026-11-17,untracked,agent-report,ARGON_RUNTIME_AND_TERMINAL_GUIDE.md
+reports/final-optimization-2026-11-17/ARGON_SYSTEM_INVENTORY.md,7545,2026-11-17,untracked,agent-report,ARGON_SYSTEM_INVENTORY.md
+reports/final-optimization-2026-11-17/ARGON_TEST_RESULTS.md,4708,2026-11-17,untracked,agent-report,ARGON_TEST_RESULTS.md
+research_notes/Door enclosure component dimensions/fasteners_glands_printing.md,19066,2026-10-20,tracked,hardware/firmware,"Fasteners, cable glands and FDM printing tolerances for the 3D-printed door enclosure (170 x 210 x 90 mm, PLA/PETG, 3 mm wall)"
+research_notes/Door enclosure component dimensions/front_panel_parts.md,20153,2026-10-20,tracked,hardware/firmware,Front-panel component dimensions for the door-access controller (Most Electronics parts)
+research_notes/Door enclosure component dimensions/internal_modules.md,19103,2026-10-20,tracked,hardware/firmware,Door-controller internal modules: dimensions of the Most Electronics variants (mostelectronic.com)
+research_notes/Door enclosure component dimensions/pn532_breadboard.md,12943,2026-10-20,tracked,hardware/firmware,Door enclosure component dimensions: PN532 NFC V3 (Ekostra) and 170-tie-point mini breadboard (Most Electronics)
+tools/benchmarks/smolmaxxing_x86/README.md,2384,2026-11-16,tracked,current-runbook/spec,"Local-AI benchmark (speed and answer quality) - isolated, read-only"
+tools/bringup/README.md,3218,2026-10-05,tracked,hardware/firmware,"Bring-up tools (physical validation, thesis Chapter 4)"
+tools/cad/door_enclosure/DoorEnclosure_FitTestRelease_2026-10-20/DOOR_ENCLOSURE.md,7454,2026-11-10,tracked,hardware/firmware,Door node (MASTER_LAB01) enclosure - fit-test release 2026-10-20
+tools/cad/door_enclosure/DoorEnclosure_FitTestRelease_2026-10-20/DOOR_MASTER_WIRING.md,7146,2026-11-10,tracked,hardware/firmware,Door node (MASTER_LAB01) - complete wiring as recorded
+tools/cad/door_enclosure/DoorEnclosure_FitTestRelease_2026-10-20/Door enclosure component dimensions.md,20730,2026-11-10,tracked,hardware/firmware,Measure five parts before printing the door box
+tools/knowledge/.pytest_cache/README.md,302,2026-10-13,untracked,historical-report,pytest cache directory #
+tools/opcua/README.md,2170,2026-10-26,tracked,hardware/firmware,"Smart Lab OPC UA server (read-only), 2026-10-26"
+tools/pc_agent/README.md,6002,2026-10-17,tracked,current-runbook/spec,"Lab PC agent (Robotics Lab, System 1)"
+tools/robot_monitor/.pytest_cache/README.md,302,2026-10-12,untracked,historical-report,pytest cache directory #
+tools/security_vision/.pytest_cache/README.md,302,2026-10-05,ignored,historical-report,pytest cache directory #
+tools/security_vision/README.md,5394,2026-10-06,tracked,current-runbook/spec,Security camera service (`security_vision.py`)
+tools/security_vision/models/README.md,2417,2026-10-26,tracked,current-runbook/spec,Person detector and re-identification (not in git)
+tools/ur5e_collector/README.md,1245,2026-10-03,tracked,hardware/firmware,"UR5e collector — read-only (Robotics Lab, Phase 5)"
+tools/voice/README.md,2780,2026-10-26,tracked,current-runbook/spec,"Voice for the AI assistant (local, 2026-10-26)"

@@ -1,5 +1,14 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-18 - final integration release candidate (local, NOT pushed); LOCAL portal DEPLOYED
+Worktree C:\Projects\smart-lab-release, branch release/smart-lab-final-optimization-2026-11-17 (base fix/pre-lab-hardening
+4e58b52; safety branch backup/before-final-integration-2026-11-18). Claude (d085b73, 5314195) + Argon (fe126b7) merged
+with --no-ff (0 overlapping files), then: pose PREDICTED not OBSERVED, labmap delete-pending lock fix, build stamp from
+build args (/api/health + /version.json), incidents SQL filters + summary + keyset cursor, assistant instant answers for
+stock / door state / node capabilities. Read reports/final-integration-release-2026-11-17/FINAL_EXECUTIVE_SUMMARY.md.
+OWNER P0: admin@ and ramy@ still use the PUBLISHED default passwords (set_password.py). Firmware compiled 7/7, NOT flashed
+(ESP32-CAM needs core 3.2.1, not installed). Tests from this worktree: $env:COMPOSE_ENV_FILES='C:\Projects\smart-lab-portal\.env'.
+
 ## UPDATE 2026-11-16 (home, before the lab day) - local commits, NOT pushed; LOCAL portal DEPLOYED (backend cce108cddfb4, frontend 0ad323b9a5a9; later same evening)
 HEAD 510e081 on qa/browser-and-camera-docs. 92f21dd Welcome SpotlightCard; c73263a UR5e mirror test follows mountYaw=180 (owner 19 Oct);
 7ce3307 removed dead WelcomeArms/DragTwin; eeaa0dd e2e scripts no fallback password (S1); 510e081 `reusable_update` live hint
