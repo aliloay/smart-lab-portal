@@ -52,8 +52,8 @@ def test_sentences_named_first_and_guesses_keep_their_question_mark():
                               crowded=False, look=look(bands(top_hue=4)))
     out = describe([a, b], zones, 1000, 1000)
     assert [e["who"] for e in out] == ["Ali ?", "Person 9"]
-    assert out[0]["text"] == "Ali ? (green top) - standing"
-    assert out[1]["text"] == "Person 9 (blue top) - bending or crouching - most likely at UR5e"
+    assert out[0]["text"] == "Ali ? (green top, dark grey trousers) - standing"
+    assert out[1]["text"] == "Person 9 (blue top, dark grey trousers) - bending or crouching - most likely at UR5e"
 
 
 def test_skin_or_wood_red_does_not_become_a_red_top():
@@ -119,3 +119,16 @@ def test_pose_visibility_never_claims_observed_for_a_full_standing_box():
     assert {v["state"] for v in pv.values()} == {"PREDICTED"}
     assert all(v["confidence"] <= 0.5 for v in pv.values())
 
+
+
+def test_trousers_only_when_the_legs_are_in_view():
+    # 2026-11-18 (owner): grey sweatpants vs light-blue jeans tell two people apart; a box cut by the bottom of the
+    # picture has no legs in it, so no trouser colour is named
+    look = lambda c: types.SimpleNamespace(color=c, partial=False)
+    whole = types.SimpleNamespace(id=1, label=None, name=None, source=None, box=(100, 100, 100, 260), vel=(0, 0),
+                                  crowded=False, look=look(bands(top_hue=4)), lab_no=1)
+    cut = types.SimpleNamespace(id=2, label=None, name=None, source=None, box=(400, 800, 100, 200), vel=(0, 0),
+                                crowded=False, look=look(bands(top_hue=4)), lab_no=2)
+    out = {e["track_id"]: e for e in describe([whole, cut], [], 1000, 1000)}
+    assert out[1]["legs"] and "trousers" in out[1]["text"]
+    assert out[2]["legs"] is None and "trousers" not in out[2]["text"]

@@ -1466,6 +1466,11 @@ def make_app(svc: Service) -> Flask:
             return jsonify({"ok": False, "error": "track_id required"}), 400
         label = str(body.get("label") or "")[:64]
         k = next((x for x in (svc.cfg.get("known") or []) if x.get("auth_subject") == label), None)
+        if k is None and label and body.get("name"):
+            # 2026-11-18: a person just added in the portal ("Other..."): known here at once, before the next
+            # config refresh brings them anyway.
+            k = {"auth_subject": label, "name": str(body["name"])[:120], "role": str(body.get("role") or "")[:32] or None}
+            svc.cfg.setdefault("known", []).append(k)
         if k is None:
             return jsonify({"ok": False, "error": "unknown person"}), 404
         with svc.label_lock:

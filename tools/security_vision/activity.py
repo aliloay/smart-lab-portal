@@ -86,12 +86,22 @@ def pose_visibility(box, fw: int = 0, fh: int = 0, crowded: bool = False, partia
 
 def top_colour(color: Optional[np.ndarray]) -> Optional[str]:
     """Colour name of the upper-body band (second of the three BODY_PARTS bands)."""
+    return band_colour(color, 1)
+
+
+def legs_colour(color: Optional[np.ndarray]) -> Optional[str]:
+    """2026-11-18 (owner: grey sweatpants vs light-blue jeans): colour name of the legs band (third band)."""
+    return band_colour(color, 2)
+
+
+def band_colour(color: Optional[np.ndarray], i: int) -> Optional[str]:
+    """Colour name of BODY_PARTS band i (0 head, 1 upper body, 2 legs)."""
     if color is None:
         return None
     n = HUE_BINS + VAL_BINS
-    if len(color) < 2 * n:
+    if len(color) < (i + 1) * n:
         return None
-    band = np.asarray(color[n:2 * n], dtype=np.float32)
+    band = np.asarray(color[i * n:(i + 1) * n], dtype=np.float32)
     hue, val = band[:HUE_BINS], band[HUE_BINS:]
     # 2026-11-17 (lab: "red top" on a person in black): the box middle also holds skin, the orange-brown chairs and
     # wooden desks, all moderately saturated red/orange. A colour is named only when it clearly dominates the band;
@@ -173,13 +183,16 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
         pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part)
         pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded, partial=is_part)
         nz = nearest_zone(t.box, zones, fw, fh)
-        parts = [who + (f" ({colour} top)" if colour else "")]
+        # trousers only when the legs are in view (a cut-off box's lowest band is still the shirt)
+        legs = None if is_part else legs_colour(look_obj.color if look_obj is not None else None)
+        clothes = ", ".join(x for x in (f"{colour} top" if colour else "", f"{legs} trousers" if legs else "") if x)
+        parts = [who + (f" ({clothes})" if clothes else "")]
         parts.append(pose)
         if nz:
             parts.append(("most likely at " if nz[1] else "near ") + nz[0])
         if crowded:
             parts.append("next to someone")
-        out.append({"track_id": t.id, "label": t.label, "who": who, "colour": colour, "posture": pose,
+        out.append({"track_id": t.id, "label": t.label, "who": who, "colour": colour, "legs": legs, "posture": pose,
                     "near": nz[0] if nz else None, "named": bool(t.label), "text": " - ".join(parts),
                     # 2026-11-17: the portal merges the two cameras' lines of one person (same name or lab
                     # number) and keeps the closer camera's description (bigger box = nearer, more reliable)

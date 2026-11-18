@@ -130,7 +130,22 @@ def test_forgotten_after_the_gallery_time(path):
     cam.assign([], {}, now=101.0)
     back = T(2, near(vec(5), 0.05))
     cam.assign([back], {}, now=101.0 + labmap.GALLERY_S + 10)
-    assert back.lab_no != me.lab_no
+    # 2026-11-18: numbers are reused (lowest free), so the old number may come again - but as a NEW person:
+    # the register entry starts now, it is not "came back"
+    entry = labmap.Register(path).read()["people"][str(back.lab_no)]
+    assert entry["first"] == 101.0 + labmap.GALLERY_S + 10
+
+
+def test_new_numbers_are_the_lowest_free_not_a_climbing_counter(path):
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    a, b, c = T(1, vec(1)), T(2, vec(2)), T(3, vec(3))
+    cam.assign([a, b, c], {}, now=100.0)
+    assert sorted(t.lab_no for t in (a, b, c)) == [1, 2, 3]
+    cam.assign([a, c], {}, now=101.0)
+    cam.assign([a, c], {}, now=102.0 + labmap.GALLERY_S)          # b forgotten: number 2 is free again
+    d = T(4, vec(4))
+    cam.assign([a, c, d], {}, now=103.0 + labmap.GALLERY_S)
+    assert d.lab_no == 2
 
 
 def test_register_survives_a_broken_file_and_a_stale_lock(path):

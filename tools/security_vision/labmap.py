@@ -14,7 +14,7 @@ written), and every unnamed person gets a LAB number that both cameras use:
      MATCH_MAX (same person median 0.31, different people 5 % = 0.67) and every other remembered person at least
      MATCH_MARGIN further. Otherwise a new number. Clothes colour or skin tone are NOT used: the embedding already
      carries body shape and clothing, and skin tone is not a trait this system tracks.
-  3. OTHERWISE a new number (the register's counter, so the two cameras never hand out the same one).
+  3. OTHERWISE a new number: the lowest one free in the shared register (so the two cameras never hand out the same one).
 
 A name (door / face / confirmed hand-over) always wins over a number; named people keep their name.
 The look is averaged over the person's time in view (EMA) so one bad frame does not move them.
@@ -252,8 +252,13 @@ class LabNumbers:
                     self._note("LAB_NUMBER_BACK", t, f"came back: same look as Person {no} "
                                                      f"(left {now - people[str(no)]['seen']:.0f} s ago)")
                 else:
-                    no = int(d.get("next", 1))
-                    d["next"] = no + 1
+                    # 2026-11-18 (lab: "Person 724"): the lowest number nobody holds - not in the register (people
+                    # stay there GALLERY_S after leaving, so a number is never reused while it may come back) and
+                    # not in view - instead of a counter that climbs across restarts.
+                    no = 1
+                    while str(no) in people or no in busy:
+                        no += 1
+                    d["next"] = max(int(d.get("next", 1)), no + 1)
                 t.lab_no = no
                 busy.add(no)
             for t in tracks:                                 # refresh everyone with a number: look, last seen
