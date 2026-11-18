@@ -1676,8 +1676,8 @@ export const api = {
     post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
   cameraKnown: (deviceId: number) =>
     request<{ label: string; name: string; role: string | null }[]>(`/security/cameras/${deviceId}/known`),
-  confirmPerson: (deviceId: number, track_id: number, label: string) =>
-    post<{ ok: boolean; name: string }>(`/security/cameras/${deviceId}/confirm`, { track_id, label }),
+  confirmPerson: (deviceId: number, track_id: number, label: string, new_name = '') =>
+    post<{ ok: boolean; name: string }>(`/security/cameras/${deviceId}/confirm`, { track_id, label, new_name }),
   recordBinCount: (id: number, actual_count: number, note = '', recalibrate = false) =>
     post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null;
            recalibrated: boolean; tare_g: number | null }>(

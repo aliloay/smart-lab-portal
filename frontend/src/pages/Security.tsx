@@ -101,7 +101,9 @@ function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamer
   const [open, setOpen] = useState(false)
   const [known, setKnown] = useState<{ label: string; name: string }[] | null>(null)
   const [pick, setPick] = useState('')
+  const [newName, setNewName] = useState('')
   const [msg, setMsg] = useState('')
+  const other = pick === '__other__'
   const sure = a.named && !a.who.endsWith('?')
   async function start() {
     setOpen(true); setMsg('')
@@ -113,7 +115,11 @@ function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamer
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Could not load people') }
   }
   async function save() {
-    try { const r = await api.confirmPerson(c.device_id, a.track_id, pick); setMsg(`Confirmed: ${r.name}`); setOpen(false) }
+    try {
+      const r = other ? await api.confirmPerson(c.device_id, a.track_id, '', newName.trim())
+                      : await api.confirmPerson(c.device_id, a.track_id, pick)
+      setMsg(`Confirmed: ${r.name}${other ? ' (added as a new person)' : ''}`); setOpen(false); setNewName('')
+    }
     catch (e) { setMsg(e instanceof Error ? e.message : 'Could not confirm') }
   }
   return (
@@ -125,8 +131,13 @@ function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamer
         <select className="input !py-0.5 !text-[12.5px]" value={pick} onChange={e => setPick(e.target.value)}>
           <option value="">Who is this?</option>
           {(known ?? []).map(p => <option key={p.label} value={p.label}>{p.name}</option>)}
+          <option value="__other__">Other... (type a new name)</option>
         </select>
-        <button type="button" className="btn-primary btn-sm !py-0.5" disabled={!pick} onClick={save}>Confirm</button>
+        {other && <input className="input !py-0.5 !text-[12.5px] w-40" autoFocus placeholder="Full name" maxLength={120}
+                         value={newName} onChange={e => setNewName(e.target.value)}
+                         onKeyDown={e => { if (e.key === 'Enter' && newName.trim().length >= 2) save() }} />}
+        <button type="button" className="btn-primary btn-sm !py-0.5"
+                disabled={!pick || (other && newName.trim().length < 2)} onClick={save}>Confirm</button>
         <button type="button" className="btn-ghost btn-sm !py-0.5" onClick={() => setOpen(false)}>Cancel</button>
       </span>}
       {msg && <span className="w-full text-[12px] text-ok-soft">{msg}</span>}
