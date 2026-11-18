@@ -13,7 +13,7 @@ from app.models import (AccessEvent, AccessSession, Asset, Booking,
                         Lab, Role, SensorReading, User)
 from app.schemas import (BookingSlot, EventOut, LabCreate, LabIssueBrief,
                          LabOut, LabOverview, LabStatus, SensorReadingOut)
-from app.services.devices import device_out, is_fresh, refresh_liveness
+from app.services.devices import device_out, is_fresh, is_retired, refresh_liveness
 from app.services.issues import ACTIVE
 from app.services.sessions import close_expired
 
@@ -241,7 +241,7 @@ def lab_detail(lab_id: int, db: Session = Depends(get_db),
         next_booking_at=next_b.start_time if next_b else None,
         current_booking=_slot(db, current, user) if current else None,
         upcoming=[_slot(db, b, user) for b in upcoming],
-        devices=[device_out(d, lab.code, now) for d in devices],
+        devices=[device_out(d, lab.code, now) for d in devices if not is_retired(d)],
         open_issues=len(issues),
         high_priority_issues=sum(1 for i in issues if i.severity in _HIGH),
         recent_issues=[_brief(db, i, user) for i in issues[:5]],

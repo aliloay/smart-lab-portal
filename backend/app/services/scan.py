@@ -72,6 +72,8 @@ def registry(db: Session) -> list[dict]:
     for d in db.scalars(select(Device).order_by(Device.lab_id, Device.device_type, Device.name)).all():
         if d.device_uid.upper().endswith("_SIM") or (d.component_state or {}).get("source") == "SIMULATION":
             continue                                        # simulators never get a physical marker
+        if (d.name or "").startswith("TEST -"):
+            continue                                        # retired duplicate cards (history kept, no marker)
         out.append({"code": marker("D", d.device_uid), "kind": "device", "key": d.device_uid, "name": d.name,
                     "type": node_label(d, bin_nodes), "lab_code": labs.get(d.lab_id)})
     for b in db.scalars(select(InventoryBin).where(InventoryBin.is_active.is_(True)).order_by(InventoryBin.code)).all():

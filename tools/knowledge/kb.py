@@ -868,7 +868,11 @@ def health(cfg: dict, reg: dict) -> dict:
     for rel, s in reg["sources"].items():
         if s.get("status") != "present" or not rel.endswith(".md"):
             continue
-        text = open(os.path.join(cfg["repo"], rel), encoding="utf-8").read()
+        src = os.path.join(cfg["repo"], rel)
+        if not os.path.isfile(src):      # deleted since the last scan: report it, do not crash (B-19)
+            stale.append(rel)
+            continue
+        text = open(src, encoding="utf-8").read()
         for target in re.findall(r"\]\(([^)#\s]+)(?:#[^)]*)?\)", text):
             if re.match(r"(https?:|mailto:)", target):
                 continue

@@ -46,7 +46,10 @@
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
     },
     {
       "id": "b3735fd3-45ed-5699-a7b9-fb451c502d6c",
@@ -190,7 +193,10 @@
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
     },
     {
       "id": "1f8d8836-a5aa-5668-acb6-b6f5d4131dc7",

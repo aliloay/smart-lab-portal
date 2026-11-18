@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Alert, AlertSeverity, Device, DeviceType, Issue, Lab
-from app.services.devices import is_fresh
+from app.services.devices import is_fresh, is_retired
 
 WEIGHTS = {"devices": 30, "alerts": 25, "environment": 20, "issues": 15, "hazards": 10}
 ALERT_COST = {AlertSeverity.CRITICAL: 0.5, AlertSeverity.WARNING: 0.15, AlertSeverity.INFO: 0.05}
@@ -50,7 +50,7 @@ def score_labs(db: Session, now: Optional[datetime] = None) -> list[dict]:
     for lab in labs:
         parts: dict[str, dict] = {}
         devs = [d for d in devices if d.lab_id == lab.id and (d.component_state or {}).get("source") != "SIMULATION"
-                and d.device_type != DeviceType.OTHER]
+                and d.device_type != DeviceType.OTHER and not is_retired(d)]
         fresh = [is_fresh(d, now) for d in devs]
         known = [f for f in fresh if f is not None]
         parts["devices"] = {"value": (sum(1 for f in known if f) / len(known)) if known else None,

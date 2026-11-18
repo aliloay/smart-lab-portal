@@ -8,7 +8,7 @@ Scale: **READY** (works and verified) · **READY WITH NOTES** (works; a known li
 | 2 | Build stamp / deploy traceability | **READY** | `/api/health` and `/version.json` = `ecbb167-20261118231702`; rollback tags `pre-merge-20261119` | — |
 | 3 | Login capacity | **READY** | 25 simultaneous logins 25/25 (max 2.0 s); 50 parallel dashboards 200/200 (max 4.3 s) under full CPU load | — |
 | 4 | Security cameras (identity, numbering, seats) | **READY WITH NOTES** | 396 tests; live at GIU 18 Nov | Names drawn by the camera can still swap in rare crossings (guarded, documented) |
-| 5 | Lab PCs (agent, relay, wall, share, message, maintenance) | **READY WITH NOTES** | live at GIU 18 Nov on 11 PCs; 40 + 6 tests | PC-11 sticker to confirm; PC-13 agent 0.9 |
+| 5 | Lab PCs (agent, relay, wall, share, message, maintenance) | **READY WITH NOTES** | live at GIU 18 Nov on 11 PCs; 40 + 6 tests | PC-11 sticker to confirm; PC-10 (GIULAB20-PC13) agent 0.9 |
 | 6 | Hemaly's engineer PC / network | **BLOCKED** (router) | owner report: DHCP .100–.103 collides with robot IPs | OA-2: DHCP pool / reservation / static .210 |
 | 7 | Robots + digital twins | **READY WITH NOTES** | twins + liveness live 18 Nov (controllers off → OFFLINE shown honestly); 44 tests | Power-on check (read-only) |
 | 8 | 4 ESP32 nodes + ESP32-CAM | **BLOCKED** (hardware at home) | firmware in repo; last heartbeat 17 Nov | Owner connects boards → step-by-step flash/test |

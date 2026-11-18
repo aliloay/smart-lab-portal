@@ -49,6 +49,17 @@ def is_fresh(d: Device, now: Optional[datetime] = None) -> Optional[bool]:
     return (now - _utc(d.last_seen_at)) < stale_after()
 
 
+def is_retired(d: Device) -> bool:
+    """Cards renamed "TEST - ..." are retired duplicates: their history stays in the database,
+    but they are not shown, counted, scored or alerted on (Gemini B-07/B-08, 2026-11-19)."""
+    return (d.name or "").startswith("TEST -")
+
+
+def is_simulated(d: Device) -> bool:
+    """Simulator rows (UR5E_SIM / FANUC_SIM): never a physical device, never 'offline' news."""
+    return (d.device_uid or "").upper().endswith("_SIM") or (d.component_state or {}).get("source") == "SIMULATION"
+
+
 _last_refresh = {"at": 0.0}
 
 

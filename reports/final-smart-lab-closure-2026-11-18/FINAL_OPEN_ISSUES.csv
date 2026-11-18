@@ -6,7 +6,7 @@ OI-04,Robots,UR5e/FANUC live telemetry not re-verified (controllers off on 18 No
 OI-05,AI,Lab latency with both cameras live not re-measured after the 19 Nov fixes,P2,NOT TESTED,Claude at next lab session,AI_PERFORMANCE_BEFORE_AFTER.md,Run aibench + 15 hard questions with cameras live
 OI-06,AI,"Weak answer to 'How does the door open?' (retrieval ranks the held-open alert text)",P3,TESTED - FAILED,code/docs,AI_QUALITY_VALIDATION.md,Add a door-entry flow note ranked first or use GPU model; demo phrasing documented
 OI-07,Lab PCs,PC-11 name inferred from hostname pattern (GIULAB20-PC14),P3,OPERATOR ACTION REQUIRED,owner,DB devices id 24 renamed 19 Nov,Check sticker; rename via card if different
-OI-08,Lab PCs,PC-13 agent on 0.9 (others 1.0),P3,OPERATOR ACTION REQUIRED,owner,Gemini BLK-03,Re-run INSTALL_SMARTLAB.bat on GIULAB20-PC17
+OI-08,Lab PCs,PC-10 (GIULAB20-PC13) agent on 0.9 (others 1.0),P3,OPERATOR ACTION REQUIRED,owner,live DB 19 Nov (Gemini B-13),Re-run INSTALL_SMARTLAB.bat on GIULAB20-PC13
 OI-09,Video,Camera software name labels (owner / Hemaly) visible in camera views of the showcase film; faces blurred,P3,NOT REQUIRED (owner choice),owner,VIDEO_EDITING_AND_CLIP_SELECTION_LOG.md,Say if labels should be blurred too; re-render is one setting
 OI-10,Git,Nothing pushed to GitHub since 11 Nov (rule); GitHub is behind the laptop,P3,OPERATOR ACTION REQUIRED,owner,git status / git log,Owner reviews and pushes fix/pre-lab-hardening if wanted
 OI-11,Thesis evidence,No measurement yet for door end-to-end latency / cold start / power-cut recovery / load-cell accuracy / cost list / node power draw,P2,NOT TESTED,owner + hardware,Earlier thesis-numbers table,Measure when nodes and lab are available
