@@ -1928,13 +1928,16 @@ class ZoneWatcher:
             False off, None unknown): if the body covers PCs that are on and PCs that are off, it is at the ones
             that are on; if every covered PC is off and exactly one PC that is on sits right beside the person
             (at_desk), it is at that one. Unknown power changes nothing."""
-        pcs = [z for z in zones if z.get("alert_on_motion", True) is not False]
-        occ = {z["id"]: False for z in pcs}
+        occ = {z["id"]: False for z in zones if z.get("alert_on_motion", True) is not False}
+        pcs = [z for z in zones if z.get("alert_on_motion", True) is not False and not z.get("defer")]
         seated = [p for p in person_rects_norm if not self._standing(p, fw, fh)]
         seat_of = {z["id"]: tuple(z["seat"]) for z in pcs if z.get("seat")}
-        for z in pcs:
-            if z["id"] in seat_of:
-                occ[z["id"]] = any(self.in_seat(seat_of[z["id"]], p) for p in seated)
+        # 2026-11-18 lab: camera 1 sees PC-13/14/15 far away, their recorded seats overlap - one person made all
+        # three "in use". Each seated person is at ONE recorded seat: the one that fits best.
+        for p in seated:
+            fits = [(iou(s, p), zid) for zid, s in seat_of.items() if self.in_seat(s, p)]
+            if fits:
+                occ[max(fits)[1]] = True
         free = [z for z in pcs if z["id"] not in seat_of]
         px = lambda r: (r[0] * fw, r[1] * fh, r[2] * fw, r[3] * fh)
         for p in seated:

@@ -884,6 +884,8 @@ class Service:
             self._seats_mtime = m
         return realign.move_seats(getattr(self, "view_Hn", None), self._seats)
 
+    DEFER_RATIO = 1.5                  # the other camera's recorded seat this much taller: that camera judges the PC
+
     def zones_with_seats(self, zones: list[dict]) -> list[dict]:
         seats = self.seats()
         if not seats:
@@ -891,11 +893,27 @@ class Service:
         spots: dict = {}                                     # seat_capture.py saves names in capitals (UR5E);
         for k, v in sorted(seats.items()):                   # "UR5E@STAND" = another spot of the same place
             spots.setdefault(k.split("@")[0].upper(), []).append(v)
+        # 2026-11-18 lab: camera 1 sees PC-06..13 far away (seats 0.05-0.15 of the picture) while camera 2 sees
+        # them close up. While the other camera is live, a PC whose seat it sees much bigger is judged there only
+        # ("in use" here could only add a wrong neighbour).
+        peer_big = {}
+        if time.time() - getattr(self.crosscam, "peer_at", 0.0) < 3.0:
+            other = {"SECCAM_LAB01": "SECCAM_LAB02", "SECCAM_LAB02": "SECCAM_LAB01"}.get(self.args.device)
+            try:
+                if other:
+                    d = json.load(open(os.path.join(HERE, "anchors", f"{other}_seats.json"), encoding="utf-8"))
+                    peer_big = {k.upper(): v["box"][3] for k, v in d.get("seats", {}).items() if "@" not in k}
+            except (OSError, ValueError, KeyError, TypeError, IndexError):
+                peer_big = {}
         out = []
         for z in zones:
             sp = spots.get(z["name"].upper())
             first = seats.get(z["name"].upper()) or seats.get(z["name"]) or (sp[0] if sp else None)
-            out.append({**z, "seat": first, "spots": sp} if sp else z)
+            zz = {**z, "seat": first, "spots": sp} if sp else dict(z)
+            ph = peer_big.get(z["name"].upper())
+            if ph and (not first or ph >= self.DEFER_RATIO * first[3]):     # no seat here at all: the other judges
+                zz["defer"] = True
+            out.append(zz)
         return out
 
     def view_settling(self, now: float) -> bool:

@@ -317,3 +317,22 @@ def test_lock_retries_when_windows_reports_the_lock_file_as_delete_pending(path,
     assert reg._lock() is True and calls["n"] == 2
     reg._unlock()
     assert not os.path.exists(path + ".lock")
+
+
+def test_an_unnamed_person_with_a_number_gets_a_confirmed_name_back_later(path):
+    # 2026-11-18 lab: Nour walked away, got a new track (and a new number) while her look was not judged yet, and
+    # only came back as "nour ramy" ~95 s later when that track broke again. Now the numbered track is re-checked.
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    nour = T(1, vec(5)); nour.label, nour.name, nour.role, nour.source = "USER6", "nour ramy", "STUDENT", "face"
+    cam.assign([nour], {}, now=100.0)
+    cam.assign([], {}, now=102.0)
+    back = T(2, None)                                  # no look yet: numbered after LOOK_WAIT_S
+    cam.assign([back], {}, now=103.0)
+    cam.assign([back], {}, now=103.0 + labmap.LOOK_WAIT_S + 0.1)
+    assert back.lab_no is not None and back.lab_no != nour.lab_no
+    back.look = Look(near(vec(5), 0.05))
+    got = []
+    for i in range(labmap.LATE_PASSES + 1):
+        cam.assign([back], {}, now=106.0 + 1.1 * i)
+        got += [w["auth_subject"] for t, w in cam.restore if t is back]
+    assert "USER6" in got and back.lab_no == nour.lab_no

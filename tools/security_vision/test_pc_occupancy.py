@@ -48,3 +48,14 @@ def test_seat_capture_picks_the_seated_person_nearest_the_monitor():
     box, why = pick(state, "PC-07")
     assert why == "" and [round(v, 3) for v in box] == [0.455, 0.38, 0.06, 0.08]
     assert pick(state, "PC-99")[0] is None
+
+
+def test_one_seated_person_is_at_one_seat_even_when_far_seats_overlap():
+    # 2026-11-18 lab: camera 1, PC-13/14/15 seats recorded far away overlap; one person showed all three in use
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    zones = [{"id": i, "name": n, "x": 0.3, "y": 0.45, "w": 0.02, "h": 0.03, "seat": s}
+             for i, n, s in ((13, "PC-13", (0.341, 0.508, 0.050, 0.128)), (14, "PC-14", (0.316, 0.499, 0.047, 0.149)),
+                             (15, "PC-15", (0.299, 0.487, 0.051, 0.151)))]
+    occ = zw.pc_occupancy(zones, [(0.300, 0.490, 0.052, 0.150)], 960, 540)
+    assert occ == {13: False, 14: False, 15: True}

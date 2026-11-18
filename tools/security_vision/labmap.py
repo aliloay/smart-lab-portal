@@ -49,6 +49,7 @@ KEEP_NAME_SOURCES = {"door", "face", "operator", "peer"}
 # is at most NAME_BACK_MAX (between the measured medians 0.31 same / 0.79 different) gets that name back.
 NAME_BACK_S = 120.0
 NAME_BACK_MAX = 0.55         # looks agree (crosscam APPEAR_NAME_MAX, between the measured medians 0.31 / 0.79)
+LATE_PASSES = 2              # an already-numbered unnamed person: this many register checks (~1 s apart) in a row
 
 
 def _dist(a, b) -> Optional[float]:
@@ -134,6 +135,7 @@ class LabNumbers:
         self.looks: dict[int, np.ndarray] = {}               # track id -> averaged look (this camera)
         self.born: dict[int, float] = {}                     # track id -> first time without a number
         self.notes: list[dict] = []
+        self.late: dict[int, tuple] = {}                     # unnamed numbered track -> (number it looks like, checks)
         self.lstreak: dict[tuple[int, int], int] = {}        # (my track, their lab number) -> passes the look was clear
 
     def _look(self, t) -> Optional[np.ndarray]:
@@ -228,6 +230,32 @@ class LabNumbers:
                 del people[k]                                # forgotten after GALLERY_S
             # numbers in view right now on either camera: never handed to a new unnamed person
             busy = {int(k) for k, v in people.items() if now - v.get("seen", 0) <= PRESENT_S} | mine_now
+            # 2026-11-18 lab (Nour walked to Hemaly's desk and back: "Unknown" ~95 s): a name came back only to a NEW
+            # track. An unnamed person who already has a number is re-checked too - same strict rule as a new one
+            # (exactly one confirmed person missing, look within NAME_BACK_MAX), held LATE_PASSES checks in a row.
+            held_labels = {o.label for o in tracks if o.label}
+            late = {}
+            for t in tracks:
+                lk = looks.get(t.id)
+                if t.label or t.lab_no is None or lk is None or getattr(t, "crowded", False):
+                    continue
+                if (people.get(str(t.lab_no)) or {}).get("who"):
+                    continue                                 # its own number carries a name: handled below
+                k = self._confirmed_back(people, busy - {t.lab_no}, lk, now, held_labels)
+                if k is None:
+                    continue
+                late[t.id] = (k, self.late.get(t.id, (None, 0))[1] + 1 if self.late.get(t.id, (None,))[0] == k else 1)
+                if late[t.id][1] >= LATE_PASSES and int(k) not in mine_now:
+                    w = people[str(k)]["who"]
+                    self._note("LAB_NUMBER_BACK", t, f"Person {t.lab_no} is Person {k} again (same look, "
+                                                     f"{LATE_PASSES}+ checks) - confirmed name given back")
+                    self.restore.append((t, w))
+                    t.lab_no = int(k)
+                    busy.add(int(k))
+                    mine_now.add(int(k))
+                    held_labels.add(w["auth_subject"])
+                    late.pop(t.id, None)
+            self.late = late
             for t in need:
                 lk = looks[t.id]
                 # If this track already has a confirmed identity stored in the register, reuse its lab number first
