@@ -1,13 +1,13 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-## UPDATE 2026-11-19 late (home) - Gemini Argon findings reconciled; worktree C:\Projects\smart-lab-claude-final (NOT committed/deployed)
+## UPDATE 2026-11-19 late (home) - Gemini Argon findings reconciled; merged c4848e2, backend DEPLOYED c4848e2-20261119000402 (NOT pushed; rollback tag pre-retired-20261119; dump D:\SmartLabData\db_dumps\predeploy_retired_2026-11-19.dump)
 Branch claude/final-closure-2026-11-19 (from 6e09864): retired "TEST -" cards + _SIM robots left out of watch alerts (B-07),
 summary KPI, device list (?include_retired=true shows them), lab page, health score, markers, OPC UA (B-08); daily robot hours
 robots only (B-06); OPC UA online = portal state (B-23); scan.py dead code (B-21); kb health missing file (B-19); n8n repo
 copies: retries 04/05 (B-16), 3 knowledge workflows (B-17). Backend 846 passed / 3 skipped, knowledge 64. B-22 rejected (art QR).
 Live: backup container restarted (B-14). Film v2: lab Windows account names + a third person's name were still readable in v1
 (48-60 s, 168-180 s) - now blurred; v1 kept in D:\SmartLabData\showcase_2026-11-19\build. Read
-reports/final-smart-lab-closure-2026-11-18/GEMINI_RECONCILIATION_AND_FIXES_2026-11-19.md. Running portal still ecbb167.
+reports/final-smart-lab-closure-2026-11-18/GEMINI_RECONCILIATION_AND_FIXES_2026-11-19.md. Frontend unchanged (still ecbb167 image).
 
 ## UPDATE 2026-11-19 (home) - final closure; LOCAL portal DEPLOYED ecbb167 (NOT pushed)
 Branch fix/pre-lab-hardening: fc18c99 merges opt/claude-app-performance-2026-11-17 (Confirm Other, Rename, robot liveness,
