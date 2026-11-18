@@ -21,7 +21,7 @@ from app.schemas import (AdminSummary, AlertOut, AssetCreate, AssetDetail,
                          DeviceOut, EventOut, LabOut, LifecycleEntry,
                          SessionOut, SessionTrace, UserBrief, UserOut,
                          UserUpdate)
-from app.services.devices import device_out, is_fresh, refresh_liveness
+from app.services.devices import device_out, is_fresh, is_retired, is_simulated, refresh_liveness
 from app.services.events import log_event
 from app.services.issues import ACTIVE as ISSUE_ACTIVE, is_overdue
 from app.services.sessions import close_expired, duration_minutes
@@ -229,6 +229,7 @@ def summary(db: Session = Depends(get_db), _: User = Depends(require_staff)):
 def _summary_now(db: Session) -> AdminSummary:
     close_expired(db)
     devices = refresh_liveness(db)
+    counted = [d for d in devices if not is_retired(d) and not is_simulated(d)]
     now = datetime.now(timezone.utc)
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     tomorrow = midnight + timedelta(days=1)
@@ -268,8 +269,8 @@ def _summary_now(db: Session) -> AdminSummary:
         total_labs=len(labs), occupied_labs=len(occupied_lab_ids),
         active_bookings=len(active), upcoming_bookings=len(upcoming),
         granted_today=granted, denied_today=denied,
-        devices_online=sum(1 for d in devices if is_fresh(d, now)),
-        devices_total=len(devices),
+        devices_online=sum(1 for d in counted if is_fresh(d, now)),
+        devices_total=len(counted),
         open_alerts=open_alerts,
         labs_with_hardware=sum(1 for l in labs if l.has_controller),
         active_users=db.scalar(select(func.count()).select_from(User).where(
@@ -429,8 +430,8 @@ def add_rfid(user_id: int, uid_hex: str, label: str = "",
 
 # --------------------------------------------------------------- devices ---
 @router.get("/devices", response_model=list[DeviceOut])
-def list_devices(lab_id: Optional[int] = None, db: Session = Depends(get_db),
-                 _: User = Depends(require_staff)):
+def list_devices(lab_id: Optional[int] = None, include_retired: bool = False,
+                 db: Session = Depends(get_db), _: User = Depends(require_staff)):
     """
     Liveness is recomputed on read: a device that stops sending heartbeats
     never gets a chance to mark itself offline. Staff only - the list
@@ -440,7 +441,7 @@ def list_devices(lab_id: Optional[int] = None, db: Session = Depends(get_db),
     labs = {l.id: l.code for l in db.scalars(select(Lab)).all()}
     return [device_out(d, labs.get(d.lab_id), now)
             for d in refresh_liveness(db)
-            if lab_id is None or d.lab_id == lab_id]
+            if (lab_id is None or d.lab_id == lab_id) and (include_retired or not is_retired(d))]
 
 
 @router.post("/devices", response_model=DeviceOut,

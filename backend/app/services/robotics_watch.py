@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.models import (Alert, Asset, AssetStatus, Device, DeviceType, EquipmentSession,
                         InventoryBin, InventoryTransaction, Lab, PolicyViolation)
 from app.services import inventory as inv
-from app.services.devices import is_fresh
+from app.services.devices import is_fresh, is_retired, is_simulated
 
 ASSET_LOAN_HOURS = 24
 
@@ -62,6 +62,8 @@ def hazards(db: Session, now: datetime) -> list[dict]:
 def _offline(db: Session, now: datetime, types, label, link) -> list[dict]:
     out = []
     for d in db.scalars(select(Device).where(Device.device_type.in_(types))).all():
+        if is_retired(d) or is_simulated(d):
+            continue                         # retired duplicates / simulators: no daily false alarms
         if is_fresh(d, now) is False:
             day = now.strftime("%Y-%m-%d")
             out.append(_item(f"{label} offline: {d.name} ({_code(db, d.lab_id)})",
@@ -157,8 +159,11 @@ def exam_violations(db: Session, now: datetime) -> list[dict]:
 def daily(db: Session, now: datetime) -> list[dict]:
     since = now - timedelta(days=1)
     run_s = 0.0
-    for s in db.scalars(select(EquipmentSession).where(
-            EquipmentSession.state == "RUNNING", EquipmentSession.started_at >= since)).all():
+    robot_ids = [d.id for d in db.scalars(select(Device).where(Device.device_type == DeviceType.ROBOT)).all()
+                 if not is_simulated(d) and not is_retired(d)]
+    for s in db.scalars(select(EquipmentSession).where(       # robots only: lab PCs have sessions too
+            EquipmentSession.state == "RUNNING", EquipmentSession.started_at >= since,
+            EquipmentSession.device_id.in_(robot_ids))).all():
         run_s += ((_utc(s.ended_at) if s.ended_at else now) - _utc(s.started_at)).total_seconds()
     withdrawals = db.scalar(select(func.count()).select_from(InventoryTransaction).where(
         InventoryTransaction.kind == "WITHDRAWAL", InventoryTransaction.recorded_at >= since)) or 0

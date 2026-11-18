@@ -45,7 +45,10 @@
           "name": "Smart Lab automation key"
         }
       },
-      "executeOnce": true
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
     },
     {
       "id": "8d325a64-f757-5d68-a83b-c71439e0bc0e",

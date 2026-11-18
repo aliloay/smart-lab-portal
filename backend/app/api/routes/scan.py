@@ -257,15 +257,6 @@ def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_
     out["live"] = card.get("live") if card else None
     out["ms"] = round((time.perf_counter() - t0) * 1000, 1)
     return out
-    inside = db.scalar(select(AccessSession).where(AccessSession.user_id == person.id,
-                                                   AccessSession.ended_at.is_(None))) is not None
-    db.add(AuditLog(actor_user_id=user.id, action="PHONE_FACE_IDENTIFIED", entity_type="user",
-                    entity_id=str(person.id), detail={"score": score, "second": second}))
-    db.commit()
-    out.update(known=True, person={"name": person.full_name, "auth_subject": person.auth_subject,
-                                   "role": person.role.value, "department": person.department,
-                                   "student_id": person.student_id, "inside_by_door": inside})
-    return out
 
 
 # ------------------------------------------------------------------ enclosure appearance (hint only) - 2026-10-27 ---

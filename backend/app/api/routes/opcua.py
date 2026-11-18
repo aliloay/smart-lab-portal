@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models import Device, DeviceType, Lab
-from app.services.devices import is_fresh
+from app.services.devices import device_out, is_retired
 
 router = APIRouter(prefix="/opcua", tags=["integration"])
 KEY = os.environ.get("OPCUA_KEY", "")
@@ -51,7 +51,7 @@ def snapshot(x_opcua_key: str = Header(""), db: Session = Depends(get_db)):
     out = []
     for lab in labs:
         items = []
-        for d in (x for x in devs if x.lab_id == lab.id):
+        for d in (x for x in devs if x.lab_id == lab.id and not is_retired(x)):
             cs = d.component_state or {}
             keys = (ROBOT_KEYS if d.device_type == DeviceType.ROBOT else PC_KEYS if d.device_type == DeviceType.PC
                     else CAM_KEYS if d.device_type == DeviceType.SECURITY_CAMERA else ())
@@ -61,8 +61,11 @@ def snapshot(x_opcua_key: str = Header(""), db: Session = Depends(get_db)):
                 vals.update({f"J{i + 1}_deg": round(float(v) * 57.29578, 3) for i, v in enumerate(q)})
             if d.device_type == DeviceType.MASTER_CONTROLLER and d.door_closed is not None:
                 vals["door_closed"] = bool(d.door_closed)
+            # Same state as the portal card (face server / entry camera are probed, a collector
+            # without joint data is DEGRADED); None only while a device has never reported.
+            o = device_out(d, now=now)
             items.append({"uid": d.device_uid, "name": d.name, "type": d.device_type.value,
-                          "online": is_fresh(d, now), "last_seen": _iso(d.last_seen_at), "values": vals})
+                          "online": None if o.state == "NO_DATA" else o.is_online, "last_seen": _iso(d.last_seen_at), "values": vals})
         e = env.get(lab.id) or {}
         metrics = {m: {"value": v.get("value"), "unit": v.get("unit"), "quality": v.get("quality"), "at": _iso(v.get("at"))}
                    for m, v in (e.get("metrics") or {}).items()}

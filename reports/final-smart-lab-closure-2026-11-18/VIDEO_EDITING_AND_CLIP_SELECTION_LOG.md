@@ -64,7 +64,23 @@ See VIDEO_SOURCE_INVENTORY.md: v1 tour (superseded), twin screen recording (brow
 - [x] No readable face: the people in the camera tiles and photos are pixelated, and the AR face is outside the cut.
 - [x] No phone number: the AR notification area is cropped away.
 - [x] No credentials: the sign-in is cut, and the password was never shown.
-- [x] No Windows user names: the screen wall labels are blurred.
-- [x] No "who is in the lab" answer with names and clothing.
+- [x] No Windows user names. **Corrected 19 Nov (second check):** v1 of the film blurred only the screen-wall labels; lab
+  Windows account names were still readable at 48–54 s (exam-mode reports, "(user)" column), 54–60 s ("Signed in:" line
+  on the PC cards) and 168–175 s (the "Which lab PCs are online?" answer). These regions are now blurred (film v2).
+- [x] No "who is in the lab" answer with names and clothing. **Corrected 19 Nov:** the question was cut, but its answer
+  stayed on screen above the robot answer at 175–180 s ("nour ramy ... at the UR5e", "Person 12 ... Hemaly's desk").
+  That block is now blurred (film v2).
 - [ ] Names drawn by the camera software on its own boxes (e.g. the owner's name, "Masters/Eng. Hemaly?") stay visible in the camera views, because they are the feature being shown.
   - Faces are blurred. If the owner prefers, the label boxes can be blurred too and the film re-rendered (one setting).
+
+## Film v2 - 19 Nov second privacy pass (Claude, final-closure worktree)
+- Found by frame-by-frame checking of the exported v1 (contact sheets every 3–12 s, full-resolution crops).
+- Fix: ffmpeg box blur over four fixed screen regions in the exported film (no re-render of the montage, no GPU):
+  `x895 y160 125×600` at 47.9–54.0 s, `x380 y695 1220×60` at 53.6–60.2 s, `x1040 y250 820×600` at 167.8–175.6 s,
+  `x1040 y250 820×175` at 175.0–180.6 s. Audio copied unchanged, so subtitles and narration timing are unchanged.
+- v1 kept unchanged: `D:\SmartLabData\showcase_2026-11-19\build\SHOWCASE_v1_before_name_blur_20261119.mp4`.
+  v2 also at `D:\SmartLabData\showcase_2026-11-19\build\SHOWCASE_v2_names_blurred.mp4`.
+- Checks on v2: 1920×1080 h264 + AAC, 186.7 s, full decode with no errors; no black frames ≥0.5 s, no freezes ≥2 s, no silences
+  ≥2 s (checked on v1, same picture timing and the same audio); loudness −12.9 LUFS integrated, true peak −0.4 dBFS (no clipping);
+  blurred regions checked on frames at 49, 52.5, 57, 170, 173 and 177 s.
+- Still visible on purpose (owner decision, B-26): the names the camera software draws on its own boxes in the camera views.
