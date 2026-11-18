@@ -1,0 +1,44 @@
+{
+  "crosscam_conflicts_17nov_vs_18nov_live": {
+    "cam1_17nov": 1545,
+    "cam1_18nov_live": 5,
+    "cam2_17nov": 1524,
+    "cam2_18nov_live": 7,
+    "total_reduction_pct": 99.61
+  },
+  "named_by_desk_flood_17nov_vs_18nov_live": {
+    "cam1_17nov": 1191,
+    "cam1_18nov_live": 0,
+    "reduction_pct": 100.0
+  },
+  "floor_calibration_17nov_vs_18nov_live": {
+    "cam1_loo_max_m_before": 0.5,
+    "cam1_loo_max_m_after": 0.419,
+    "cam1_loo_median_m_after": 0.197,
+    "cam2_loo_median_m_after": 0.214,
+    "cam2_loo_max_m_after": 0.625
+  },
+  "ai_ollama_cpu_gated_live": {
+    "embed_cpu_cold_ms": 3952.4,
+    "embed_cpu_warm_ms": 116.1,
+    "qwen_1_5b_cpu_cold_first_token_ms": 6963.2,
+    "qwen_1_5b_cpu_cold_total_ms": 10030.9,
+    "qwen_1_5b_cpu_warm_first_token_ms": 390.1,
+    "qwen_1_5b_cpu_warm_total_ms": 3620.2,
+    "qwen_1_5b_cpu_tokens_per_s": 6.82,
+    "kb_lookup_nodes_ms": 95.1,
+    "kb_lookup_cameras_ms": 6.1
+  },
+  "voice_live": {
+    "piper_tts_ms": 685.9,
+    "piper_wav_bytes": 111148,
+    "whisper_tiny_en_stt_ms": 3535.1
+  },
+  "database_query_plan_live": {
+    "alerts_top100_exec_ms": 0.327,
+    "alerts_rows": 777,
+    "robot_events_rows": 25982,
+    "security_events_rows": 2958,
+    "access_events_rows": 2158
+  }
+}

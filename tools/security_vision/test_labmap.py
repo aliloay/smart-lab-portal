@@ -336,3 +336,48 @@ def test_an_unnamed_person_with_a_number_gets_a_confirmed_name_back_later(path):
         cam.assign([back], {}, now=106.0 + 1.1 * i)
         got += [w["auth_subject"] for t, w in cam.restore if t is back]
     assert "USER6" in got and back.lab_no == nour.lab_no
+
+
+def test_single_owner_invariant_prevents_one_name_on_multiple_numbers(path):
+    """2026-11-18 live lab fix: previously, 8 entries in lab_people_LAB_01.json ('3', '4', '5', '9'...) all carried
+    who={'auth_subject': 'USER6'}, so Camera 1 restored USER6 onto Person 3 (at UR5e) while Camera 2 restored USER6
+    onto Person 4 (at PC-09) simultaneously, and _confirmed_back saw len(gone) > 1 and refused to restore."""
+    c1, c2 = LabNumbers(path, "SECCAM_LAB01"), LabNumbers(path, "SECCAM_LAB02")
+    p3 = T(13, vec(10)); p3.lab_no = 3
+    p4 = T(21, vec(20)); p4.lab_no = 4
+    # Simulate contaminated register where both '3' and '4' and ghost '9' claim USER6
+    c1.reg.update(lambda d: d["people"].update({
+        "3": {"first": 90.0, "seen": 95.0, "cam": "SECCAM_LAB01", "who": {"auth_subject": "USER6", "name": "Nour", "role": "STUDENT", "source": "face"}},
+        "4": {"first": 91.0, "seen": 99.5, "cam": "SECCAM_LAB02", "who": {"auth_subject": "USER6", "name": "Nour", "role": "STUDENT", "source": "face"}},
+        "9": {"first": 80.0, "seen": 85.0, "cam": "SECCAM_LAB01", "who": {"auth_subject": "USER6", "name": "Nour", "role": "STUDENT", "source": "face"}},
+    }))
+    # Camera 2 currently sees USER6 on lab_no 4; Camera 1 sees unnamed p3 (lab_no 3) and p4_c1 (lab_no 4)
+    p4_c1 = T(28, vec(20)); p4_c1.lab_no = 4
+    c1.assign([p3, p4_c1], {}, now=100.0, peer_tracks=[{"id": 21, "lab_no": 4, "label": "USER6"}])
+    restored_tracks = [t.id for t, w in c1.restore if w["auth_subject"] == "USER6"]
+    assert restored_tracks == [28]                  # restored ONLY onto lab_no 4, never onto lab_no 3!
+    d = c1.reg.read()
+    subj_holders = [k for k, v in d["people"].items() if (v.get("who") or {}).get("auth_subject") == "USER6"]
+    assert subj_holders == ["4"] and "9" not in d["people"]
+
+
+def test_merged_number_is_removed_and_restore_does_not_loop_on_same_track(path):
+    """2026-11-18 live lab fix: when Person 2 merges into Person 1, '2' is removed from the register so it never
+    resurrects as a ghost, and if a restored label is later vetoed/cleared on the same track id, LabNumbers does
+    not force it back onto that same track id every pass."""
+    c1, c2 = LabNumbers(path, "SECCAM_LAB01"), LabNumbers(path, "SECCAM_LAB02")
+    t1 = T(1, vec(5), label="USER6"); t1.name, t1.role, t1.source = "Nour", "STUDENT", "face"
+    t2 = T(2, near(vec(5), 0.03))
+    c1.assign([t1], {}, now=100.0)
+    c2.assign([t2], {}, now=100.1)
+    old_t2_no = t2.lab_no
+    assert old_t2_no != t1.lab_no
+    c2.assign([t2], {t2.id: {"lab_no": t1.lab_no, "_passes": 20, "_look": 0.1}}, now=101.5)
+    assert t2.lab_no == t1.lab_no
+    assert str(old_t2_no) not in c2.reg.read()["people"]
+    assert len(c2.restore) == 1
+    # If the caller/veto drops t2.label on the same track 2, c2 must not re-queue USER6 for track 2 again
+    t2.label = None
+    c2.assign([t2], {}, now=103.0)
+    assert c2.restore == []
+

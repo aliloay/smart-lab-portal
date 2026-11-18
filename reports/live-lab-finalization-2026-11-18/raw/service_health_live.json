@@ -1,0 +1,155 @@
+[
+  {
+    "service": "portal_web_nginx",
+    "port": 80,
+    "https_port": 443,
+    "state": "LIVE",
+    "probe_ms": 10,
+    "evidence": "LIVE_SERVICE",
+    "notes": "Docker smart-lab-portal-frontend-1 healthy"
+  },
+  {
+    "service": "portal_api_fastapi",
+    "port": 8000,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 15,
+    "evidence": "LIVE_SERVICE",
+    "notes": "Docker smart-lab-portal-backend-1 healthy; version unstamped due to launch.bat plain docker build (fixed)"
+  },
+  {
+    "service": "postgres_db",
+    "port": 5433,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 1,
+    "evidence": "LIVE_SERVICE",
+    "notes": "Docker smart-lab-portal-db-1 healthy; 26 devices"
+  },
+  {
+    "service": "postgres_backup",
+    "port": null,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 0,
+    "evidence": "LIVE_SERVICE",
+    "notes": "Docker smart-lab-portal-backup-1 healthy"
+  },
+  {
+    "service": "n8n_automation",
+    "port": 5678,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 8,
+    "evidence": "LIVE_SERVICE",
+    "notes": "Docker smart-lab-portal-n8n-1 v2.40.7 healthy; 26 workflows active"
+  },
+  {
+    "service": "face_server",
+    "port": 5000,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 2,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 30468, 87.9 MB WS"
+  },
+  {
+    "service": "security_camera_1",
+    "port": 5100,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 5,
+    "evidence": "LIVE_PHYSICAL",
+    "notes": "PID 27156, 595.5 MB WS, RTSP 192.168.1.155 STREAMING"
+  },
+  {
+    "service": "security_camera_2",
+    "port": 5101,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 3,
+    "evidence": "LIVE_PHYSICAL",
+    "notes": "PID 19724, 592.6 MB WS, RTSP 192.168.1.156 STREAMING"
+  },
+  {
+    "service": "knowledge_service",
+    "port": 5199,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 6,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 37300, /health 200 OK, /gpu-gate returns cpu"
+  },
+  {
+    "service": "voice_service",
+    "port": 5320,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 25,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 37148, 99.5 MB WS, TTS 685.9 ms, STT 3535.1 ms"
+  },
+  {
+    "service": "ollama_llm",
+    "port": 11434,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 2,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 11812, qwen2.5:1.5b + nomic-embed-text:latest"
+  },
+  {
+    "service": "opcua_server",
+    "port": 4840,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": 1,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 36396, 25.9 MB WS, mirroring /api/opcua/snapshot"
+  },
+  {
+    "service": "ur5e_monitor",
+    "port": null,
+    "https_port": null,
+    "state": "STALE",
+    "probe_ms": null,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 34364, retrying 192.168.1.102:30003"
+  },
+  {
+    "service": "fanuc_monitor",
+    "port": null,
+    "https_port": null,
+    "state": "STALE",
+    "probe_ms": null,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 35576, retrying 192.168.1.100:80"
+  },
+  {
+    "service": "pc_agent_local",
+    "port": null,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": null,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 38448, reporting PC_ADMIN_LAPTOP"
+  },
+  {
+    "service": "lan_presence",
+    "port": null,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": null,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 35924, ARP/ICMP presence from 192.168.1.200"
+  },
+  {
+    "service": "mdns_announce",
+    "port": 5353,
+    "https_port": null,
+    "state": "LIVE",
+    "probe_ms": null,
+    "evidence": "LIVE_SERVICE",
+    "notes": "PID 35936, smartlab.local on 192.168.1.200"
+  }
+]

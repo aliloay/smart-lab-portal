@@ -1,0 +1,222 @@
+[
+  {
+    "uid": "SECCAM_LAB01",
+    "type": "SECURITY_CAMERA",
+    "ip": "192.168.1.155",
+    "port": 5100,
+    "firmware": "Tapo_C200 / security_vision",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 0.2,
+    "notes": "Streaming 14.18 fps, analyzing 6.0 fps on DirectML GPU1"
+  },
+  {
+    "uid": "SECCAM_LAB02",
+    "type": "SECURITY_CAMERA",
+    "ip": "192.168.1.156",
+    "port": 5101,
+    "firmware": "Tapo_C200 / security_vision",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 0.2,
+    "notes": "Streaming 14.96 fps, analyzing 6.0 fps on DirectML GPU1"
+  },
+  {
+    "uid": "PC_ADMIN_LAPTOP",
+    "type": "PC",
+    "ip": "192.168.1.200",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 4.2,
+    "notes": "Host laptop (ali), dual-homed 192.168.1.200 + 172.20.10.2"
+  },
+  {
+    "uid": "PC_ENG",
+    "type": "PC",
+    "ip": "192.168.1.100 / 10.30.11.136",
+    "port": 8000,
+    "firmware": "pc-agent-1.0 + relay",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 1.5,
+    "notes": "Engineer PC S2PC136 (ahmed.el-hemaly); dual-NIC relay active and forwarding student PCs"
+  },
+  {
+    "uid": "PC_GIULAB20-PC4",
+    "type": "PC",
+    "ip": "10.40.20.4",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 8.0,
+    "notes": "Student Lab PC (PC-02) reporting live via S2PC136 relay"
+  },
+  {
+    "uid": "PC_GIULAB20-PC13",
+    "type": "PC",
+    "ip": "10.40.20.13",
+    "port": null,
+    "firmware": "pc-agent-0.9",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 4.0,
+    "notes": "Student Lab PC reporting live via S2PC136 relay (v0.9 agent)"
+  },
+  {
+    "uid": "PC_GIULAB20-PC14",
+    "type": "PC",
+    "ip": "10.40.20.14",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 13.0,
+    "notes": "Student Lab PC reporting live via S2PC136 relay"
+  },
+  {
+    "uid": "PC_GIULAB20-PC17",
+    "type": "PC",
+    "ip": "10.40.20.17",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 12.2,
+    "notes": "Student Lab PC reporting live via S2PC136 relay"
+  },
+  {
+    "uid": "PC_GIULAB20-PC18",
+    "type": "PC",
+    "ip": "10.40.20.18",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 11.8,
+    "notes": "Student Lab PC reporting live via S2PC136 relay (AtmelStudio.exe)"
+  },
+  {
+    "uid": "PC_GIULAB20-PC19",
+    "type": "PC",
+    "ip": "10.40.20.19",
+    "port": null,
+    "firmware": "pc-agent-1.0",
+    "state": "LIVE",
+    "evidence": "LIVE_PHYSICAL",
+    "last_seen_age_s": 11.9,
+    "notes": "Student Lab PC reporting live via S2PC136 relay (vlc.exe)"
+  },
+  {
+    "uid": "PC_GIULAB20-PC8",
+    "type": "PC",
+    "ip": "10.40.20.8",
+    "port": null,
+    "firmware": "pc-agent-0.9",
+    "state": "DOWN",
+    "evidence": "LIVE_SERVICE",
+    "last_seen_age_s": 1205850,
+    "notes": "Powered off or logged out during session"
+  },
+  {
+    "uid": "PC_GIULAB20-PC11",
+    "type": "PC",
+    "ip": "10.40.20.11",
+    "port": null,
+    "firmware": "pc-agent-0.9",
+    "state": "DOWN",
+    "evidence": "LIVE_SERVICE",
+    "last_seen_age_s": 1205860,
+    "notes": "Powered off or logged out during session"
+  },
+  {
+    "uid": "PC_GIULAB20-PC12",
+    "type": "PC",
+    "ip": "10.40.20.12",
+    "port": null,
+    "firmware": "pc-agent-0.9",
+    "state": "DOWN",
+    "evidence": "LIVE_SERVICE",
+    "last_seen_age_s": 1205856,
+    "notes": "Powered off or logged out during session"
+  },
+  {
+    "uid": "UR5E_01",
+    "type": "ROBOT",
+    "ip": "192.168.1.102",
+    "port": 30003,
+    "firmware": "robot-collector-0.2 (ur)",
+    "state": "STALE",
+    "evidence": "LIVE_SERVICE",
+    "last_seen_age_s": 1.1,
+    "notes": "Physical controller powered off / TCP 30003 timeout; collector falsely posted UNKNOWN as online (fixed in branch)"
+  },
+  {
+    "uid": "FANUC_01",
+    "type": "ROBOT",
+    "ip": "192.168.1.100",
+    "port": 80,
+    "firmware": "robot-collector-0.2 (fanuc)",
+    "state": "STALE",
+    "evidence": "LIVE_SERVICE",
+    "last_seen_age_s": 2.5,
+    "notes": "192.168.1.100 is currently PC_ENG USB-NIC (no HTTP 80 /MD/CURPOS.DG); collector falsely posted UNKNOWN as online (fixed in branch)"
+  },
+  {
+    "uid": "MASTER_LAB01",
+    "type": "MASTER_CONTROLLER",
+    "ip": "192.168.1.151",
+    "port": null,
+    "firmware": "portal-1.0",
+    "state": "NOT_PRESENT",
+    "evidence": "STATIC_INSPECTION",
+    "last_seen_age_s": 77682,
+    "notes": "Left at home per 18 Nov uni checklist; compiled 7/7"
+  },
+  {
+    "uid": "ENV_LAB01",
+    "type": "SENSOR_NODE",
+    "ip": "192.168.1.152",
+    "port": null,
+    "firmware": "env-0.1.1",
+    "state": "NOT_PRESENT",
+    "evidence": "STATIC_INSPECTION",
+    "last_seen_age_s": 77939,
+    "notes": "Left at home per 18 Nov uni checklist; compiled 7/7"
+  },
+  {
+    "uid": "BIN_NODE_1",
+    "type": "SENSOR_NODE",
+    "ip": "192.168.1.153",
+    "port": null,
+    "firmware": "bin-0.5",
+    "state": "NOT_PRESENT",
+    "evidence": "STATIC_INSPECTION",
+    "last_seen_age_s": 77661,
+    "notes": "Left at home per 18 Nov uni checklist; 5s HTTP retry backoff compiled"
+  },
+  {
+    "uid": "REUSE_BIN_1",
+    "type": "SENSOR_NODE",
+    "ip": "192.168.1.154",
+    "port": null,
+    "firmware": "reuse-mod-0.5",
+    "state": "NOT_PRESENT",
+    "evidence": "STATIC_INSPECTION",
+    "last_seen_age_s": 77963,
+    "notes": "Left at home per 18 Nov uni checklist; WiFi.setSleep(false) reconnect compiled"
+  },
+  {
+    "uid": "CAM_LAB01",
+    "type": "CAMERA",
+    "ip": "192.168.1.150",
+    "port": 80,
+    "firmware": "ESP32CAM_Vision_FAST",
+    "state": "NOT_PRESENT",
+    "evidence": "STATIC_INSPECTION",
+    "last_seen_age_s": null,
+    "notes": "Left at home per 18 Nov uni checklist; compiled with esp32 core 3.2.1"
+  }
+]

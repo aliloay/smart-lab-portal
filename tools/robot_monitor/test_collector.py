@@ -133,3 +133,18 @@ def test_link_loss_reconnects_and_never_posts_old_pose_as_fresh(monkeypatch):
 def test_controller_timestamp_kept_for_diagnosis(monkeypatch):
     c, tele = run_collector([(0.02, s(123.456))], monkeypatch)
     assert tele[-1]["extra"]["controller_t"] == 123.456
+
+
+def test_unreachable_robot_at_startup_is_not_reported_online_or_idle(monkeypatch):
+    """2026-11-18 live lab fix: when a robot controller is powered off / unreachable from the start (state=UNKNOWN),
+    the collector must not post /robots/telemetry or /equipment/state IDLE, and after going stale once it must stop
+    posting telemetry so the portal's last_seen_at ages out to offline."""
+    script = [(0.02, ConnectionError("unreachable"))] * 3
+    c, tele = run_collector(script, monkeypatch)
+    assert tele == []
+    # Now connect for 2 samples, then go stale for 10 ticks: TELEMETRY_STALE is posted only once
+    script2 = [(0.02, s(100.0)), (0.02, s(100.02))] + [(0.2, s(100.02))] * 10
+    c2, tele2 = run_collector(script2, monkeypatch, stale_s=0.3)
+    stale_posts = [b for b in tele2 if b["state"] == "TELEMETRY_STALE"]
+    assert len(stale_posts) == 1
+
