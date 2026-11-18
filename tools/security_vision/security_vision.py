@@ -327,7 +327,13 @@ class Service:
     # 2026-11-18 lab: camera 1 named a man at the far desks (box 0.09 of the picture height, face a few pixels)
     # "Ali" by face four times in a minute - the owner was at the next desk. No face check on a person this small;
     # the other camera sees that end of the room close up.
-    FACE_MIN_BOX_H = float(os.environ.get("SV_FACE_MIN_BOX_H", "0.14"))
+    # Owner then sat at PC-02 (box 0.08) and stayed "Unknown": a small face is still checked, but must match far
+    # better (wrong people 0.41-0.53, the right one 0.59-0.66 on 2026-10-12) and lead the next person clearly;
+    # only a tiny one (a head behind the monitors) is skipped.
+    FACE_MIN_BOX_H = float(os.environ.get("SV_FACE_MIN_BOX_H", "0.06"))
+    FACE_SMALL_BOX_H = 0.14
+    FACE_MIN_SMALL = 0.60
+    FACE_MARGIN_SMALL = 0.12
 
     def __init__(self, args):
         self.args = args
@@ -1249,6 +1255,7 @@ class Service:
                     continue                         # not in that frame, or touching someone: the crop may hold them
                 if box[3] < self.FACE_MIN_BOX_H * frame.shape[0]:
                     continue                         # too far away: the face is too small to tell people apart
+                small = box[3] < self.FACE_SMALL_BOX_H * frame.shape[0]
                 crop = face_crop(frame, frame_full, box)
                 if crop is None:
                     continue
@@ -1264,8 +1271,9 @@ class Service:
                     alive = any(x.id == t.id for x in self.tracks)
                 if not alive:
                     continue                         # the track ended while asking: result dropped
-                if name and score is not None and score >= self.FACE_MIN and \
-                        (second is None or score - second >= self.FACE_MARGIN):
+                need, margin = (self.FACE_MIN_SMALL, self.FACE_MARGIN_SMALL) if small else (self.FACE_MIN, self.FACE_MARGIN)
+                if name and score is not None and score >= need and \
+                        (second is None or score - second >= margin):
                     with self.label_lock:
                         self.labeler.face_vote(t.id, name, time.time(), score)
 

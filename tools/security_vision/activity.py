@@ -190,6 +190,10 @@ def place_of(box, zones: list, fw: int, fh: int) -> Optional[tuple[str, bool]]:
                 continue
             for s in (z.get("spots") or ([z["seat"]] if z.get("seat") else [])):    # several spots per place
                 o = _iou(p, s)
+                ix = max(0.0, min(s[0] + s[2], p[0] + p[2]) - max(s[0], p[0]))
+                iy = max(0.0, min(s[1] + s[3], p[1] + p[3]) - max(s[1], p[1]))
+                if s[2] * s[3] > 0 and p[2] * p[3] > 0 and ix * iy / (s[2] * s[3]) >= 0.6                         and ix * iy / (p[2] * p[3]) >= 0.15:
+                    o = max(o, SPOT_MATCH)           # a small recorded spot (head above monitors) inside the person
                 d = math.hypot(p[0] + p[2] / 2 - (s[0] + s[2] / 2), p[1] + p[3] - (s[1] + s[3]))   # feet to feet
                 key = (-o, d)
                 if (o >= SPOT_MATCH or d <= SPOT_NEAR) and (best is None or key < best[0]):

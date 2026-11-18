@@ -1906,6 +1906,17 @@ class ZoneWatcher:
         return float(np.clip(1 - (a * b).sum() / den, 0, 1))
 
     SEAT_MATCH = 0.3                   # person box vs a PC's recorded seat box (IoU): sitting in that seat
+    SEAT_COVER = 0.6                   # ...or most of a small recorded seat inside the person box (2026-11-18:
+    SEAT_SHARE = 0.15                  # far desks were recorded as a head above the monitors, 0.02 x 0.03)
+
+    @classmethod
+    def in_seat(cls, seat, p) -> bool:
+        if iou(seat, p) >= cls.SEAT_MATCH:
+            return True
+        ix = max(0.0, min(seat[0] + seat[2], p[0] + p[2]) - max(seat[0], p[0]))
+        iy = max(0.0, min(seat[1] + seat[3], p[1] + p[3]) - max(seat[1], p[1]))
+        inter, sa, pa = ix * iy, seat[2] * seat[3], p[2] * p[3]
+        return sa > 0 and pa > 0 and inter / sa >= cls.SEAT_COVER and inter / pa >= cls.SEAT_SHARE
 
     def pc_occupancy(self, zones: list[dict], person_rects_norm: list[tuple], fw: int, fh: int) -> dict:
         """Which PC boxes a SEATED person is at (zone id -> bool). Standing in front of a PC (talking, passing,
@@ -1923,11 +1934,11 @@ class ZoneWatcher:
         seat_of = {z["id"]: tuple(z["seat"]) for z in pcs if z.get("seat")}
         for z in pcs:
             if z["id"] in seat_of:
-                occ[z["id"]] = any(iou(seat_of[z["id"]], p) >= self.SEAT_MATCH for p in seated)
+                occ[z["id"]] = any(self.in_seat(seat_of[z["id"]], p) for p in seated)
         free = [z for z in pcs if z["id"] not in seat_of]
         px = lambda r: (r[0] * fw, r[1] * fh, r[2] * fw, r[3] * fh)
         for p in seated:
-            if any(iou(s, p) >= self.SEAT_MATCH for s in seat_of.values()):
+            if any(self.in_seat(s, p) for s in seat_of.values()):
                 continue                                    # in a recorded seat: decided above
             cands = [z for z in free if iou((z["x"], z["y"], z["w"], z["h"]), p) > 0.02]
             if not cands:
