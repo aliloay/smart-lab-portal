@@ -77,3 +77,14 @@ def test_a_robot_with_recorded_spots_is_in_use_only_by_someone_at_a_spot():
     for t in range(0, 12):
         st = zw2.update([z], gray, [(0.31, 0.40, 0.057, 0.23)], 100.0 + t)
     assert st[0].status == "IN_USE"
+
+
+def test_a_person_at_a_deferred_pc_is_not_moved_to_the_neighbour():
+    # 2026-11-18 lab: PC-13 is judged by camera 2; camera 1 put the person at PC-14 instead
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    zones = [{"id": 13, "name": "PC-13", "x": 0.3, "y": 0.45, "w": 0.02, "h": 0.03, "seat": (0.341, 0.508, 0.050, 0.128),
+              "defer": True},
+             {"id": 14, "name": "PC-14", "x": 0.3, "y": 0.45, "w": 0.02, "h": 0.03, "seat": (0.316, 0.499, 0.047, 0.149)}]
+    occ = zw.pc_occupancy(zones, [(0.337, 0.517, 0.056, 0.106)], 960, 540)
+    assert occ == {13: False, 14: False}

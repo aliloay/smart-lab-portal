@@ -1933,16 +1933,19 @@ class ZoneWatcher:
         pcs = [z for z in zones if z.get("alert_on_motion", True) is not False and not z.get("defer")]
         seated = [p for p in person_rects_norm if not self._standing(p, fw, fh)]
         seat_of = {z["id"]: tuple(z["seat"]) for z in pcs if z.get("seat")}
+        # deferred PCs (judged by the other camera) still take part in "which seat fits best" - else a person at
+        # PC-13 (deferred) was put at the neighbour PC-14 on camera 1 (lab 2026-11-18)
+        deferred = {z["id"]: tuple(z["seat"]) for z in zones if z.get("defer") and z.get("seat")}
         # 2026-11-18 lab: camera 1 sees PC-13/14/15 far away, their recorded seats overlap - one person made all
         # three "in use". Each seated person is at ONE recorded seat: the one that fits best.
         for p in seated:
-            fits = [(iou(s, p), zid) for zid, s in seat_of.items() if self.in_seat(s, p)]
-            if fits:
+            fits = [(iou(s, p), zid) for zid, s in {**seat_of, **deferred}.items() if self.in_seat(s, p)]
+            if fits and max(fits)[1] in seat_of:
                 occ[max(fits)[1]] = True
         free = [z for z in pcs if z["id"] not in seat_of]
         px = lambda r: (r[0] * fw, r[1] * fh, r[2] * fw, r[3] * fh)
         for p in seated:
-            if any(self.in_seat(s, p) for s in seat_of.values()):
+            if any(self.in_seat(s, p) for s in [*seat_of.values(), *deferred.values()]):
                 continue                                    # in a recorded seat: decided above
             cands = [z for z in free if iou((z["x"], z["y"], z["w"], z["h"]), p) > 0.02]
             if not cands:

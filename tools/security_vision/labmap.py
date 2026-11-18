@@ -295,6 +295,13 @@ class LabNumbers:
                 e = people.setdefault(str(t.lab_no), {"first": now})
                 if t.label and getattr(t, "source", None) in KEEP_NAME_SOURCES:
                     e["who"] = {"auth_subject": t.label, "name": t.name, "role": t.role, "source": t.source}
+                who = (e.get("who") or {}).get("auth_subject")
+                if who and t.label != who:
+                    # 2026-11-18 lab: the owner sat at Hemaly's desk and was shown as Hemaly (desk guess); his track
+                    # kept Hemaly's number, so the number's stored look slowly became HIS look and Hemaly's
+                    # confirmed name later "came back" to him at PC-13. A number that carries a confirmed name learns
+                    # its look (and stays "seen") only from that same named person.
+                    continue
                 lk = looks[t.id]
                 if lk is not None:
                     old = e.get("deep")

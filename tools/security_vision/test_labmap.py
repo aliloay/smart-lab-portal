@@ -336,3 +336,17 @@ def test_an_unnamed_person_with_a_number_gets_a_confirmed_name_back_later(path):
         cam.assign([back], {}, now=106.0 + 1.1 * i)
         got += [w["auth_subject"] for t, w in cam.restore if t is back]
     assert "USER6" in got and back.lab_no == nour.lab_no
+
+
+def test_a_named_number_does_not_learn_the_look_of_someone_else_wearing_it(path):
+    # 2026-11-18 lab: the owner, shown as Hemaly by the desk, kept Hemaly's number; its look became his
+    cam = LabNumbers(path, "SECCAM_LAB01")
+    hemaly = T(1, vec(5)); hemaly.label, hemaly.name, hemaly.role, hemaly.source = "USER5", "Hemaly", "LAB_STAFF", "face"
+    cam.assign([hemaly], {}, now=100.0)
+    before = list(labmap.Register(path).read()["people"][str(hemaly.lab_no)]["deep"])
+    ali = T(2, vec(9)); ali.lab_no = hemaly.lab_no; ali.label, ali.source = "USER5", "desk"
+    ali.label = None
+    for i in range(5):
+        cam.assign([ali], {}, now=102.0 + 1.1 * i)
+    after = labmap.Register(path).read()["people"][str(hemaly.lab_no)]["deep"]
+    assert after == before
