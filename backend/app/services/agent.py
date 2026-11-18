@@ -525,6 +525,10 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     ("inside", r"\b(who|how many)\b.*\b(inside|in the labs?|present|in lab)\b|\boccupancy\b", True),
     # 2026-10-18: "What is the temperature?" got the data-source overview, and "How many resistors are in
     # the bin?" went to the language model (213 s), which then said it could not answer.
+    # 2026-11-18 benchmark: the model said "The bin measured the capacitance." although its snapshot said it cannot.
+    # What each node can measure is a fixed, documented fact - before environment_now ("gas ... ppm").
+    ("node_capabilities", r"\b(measur\w*|sens\w*|detect\w*|read\w*|count\w*)\b.*\b(capacitance|capacitors?|resistance|"
+                          r"resistors? value|ohms?|farads?|ppm|concentration|voltage|current)\b", False),
     ("environment_now", r"\b(temperature|humidity|smoke|gas|flame|fire|motion|warm|hot|cold)\b", True),
     # 2026-11-18 live check: "what is the stock of resistors?" missed (nothing after "resistors") and the model said
     # it had no access to stock - "stock / inventory / count of ..." and "how much ... stock" are stock questions too.
@@ -848,6 +852,17 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
             lines.append(f"{o['item_name']} ({o['code']}): {qty}{q}, last reading {when}{low}")
         return _answer("**Consumables** (estimated from each bin's scale):\n" + _bullets(lines), intent,
                        {"label": "Open Consumables", "to": "/admin/equipment?tab=consumables"})
+
+    if intent == "node_capabilities":
+        return _answer(
+            "What the Smart Lab nodes actually measure (docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md):\n"
+            "- **Bins** weigh with a load cell (HX711), in **grams**. They do not measure capacitance, resistance, "
+            "voltage or current - a value such as 100 nF or 220 ohm is the item's **label**.\n"
+            "- The consumables **count is an estimate** derived by the portal: measured mass / unit mass.\n"
+            "- The reusable bin identifies items by their NFC tag (PN532); its scale checks the weight change.\n"
+            "- The environment node: temperature (C) and humidity (%RH) from a DHT22; the MQ-2 gas input is an "
+            "on/off alarm state, **not ppm**; flame and motion are on/off too.",
+            intent, {"label": "Open Consumables", "to": "/admin/equipment?tab=consumables"})
 
     if intent == "door_status":
         doors = [d for d in refresh_liveness(db) if d.device_type == DeviceType.MASTER_CONTROLLER]

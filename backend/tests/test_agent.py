@@ -326,3 +326,20 @@ def test_stock_and_door_questions_are_answered_from_records(client, db, staff, a
     db.commit()
     r = ask("is the door open?")
     assert "**OPEN**" not in r["answer"] and "too old" in r["answer"]
+
+
+def test_what_the_nodes_measure_is_answered_from_documented_capabilities(client, db, alice, staff, lab, monkeypatch):
+    """Integration 2026-11-18 benchmark: qwen2.5:1.5b answered "The bin measured the capacitance." although its
+    snapshot said the node cannot. What a node measures is a fixed fact (docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md):
+    answered instantly, for students too, never by the model."""
+    _no_ai(monkeypatch)
+    for q in ("Did the bin measure the capacitance or count the capacitors?", "does the bin measure resistance",
+              "does the gas sensor measure ppm?", "can the bins measure the voltage of a part"):
+        assert agent.detect(q, staff=False) == "node_capabilities", q
+    assert agent.detect("what is the temperature", staff=True) == "environment_now"     # readings stay readings
+    r = client.post("/api/ai/student/ask", headers=auth_headers(client, alice.email),
+                    json={"question": "Did the bin measure the capacitance or count the capacitors?"}).json()
+    a = r["answer"]
+    assert r["instant"] and r["tools_used"] == ["instant:node_capabilities"]
+    assert "grams" in a and "estimate" in a and "label" in a and "not ppm" in a
+    assert "measured the capacitance" not in a and "measures the capacitance" not in a
