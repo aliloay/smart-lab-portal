@@ -1,0 +1,14 @@
+id,test,why_not_run,label,what_is_needed,expected_result
+UT-01,ESP32 Master door node: scan -> unlock -> event in portal,boards at owner's home,EXTERNAL BLOCKER,owner connects board; flash per FIRMWARE_HOME_FOLLOWUP.md,access event within ~1 s; door only from Master
+UT-02,ENV_LAB01 temperature/humidity/gas/flame/motion heartbeat,boards at home,EXTERNAL BLOCKER,owner connects board,readings every few seconds; offline after silence
+UT-03,BIN_NODE_1 load cell accuracy (known weights),boards at home,EXTERNAL BLOCKER,calibration weights,error within the thesis tolerance; count = mass / unit mass
+UT-04,REUSE_BIN_1 NFC checkout/return,boards at home,EXTERNAL BLOCKER,tagged items,checkout + return events; weight change confirms
+UT-05,ESP32-CAM entry camera,boards at home,EXTERNAL BLOCKER,build with core 3.2.1,camera init ok; stream reachable
+UT-06,UR5e live telemetry after power-on,controllers off,OPERATOR ACTION REQUIRED,power on UR5e at lab,Robots page ONLINE with joint values (read-only)
+UT-07,FANUC live telemetry after power-on,controllers off,OPERATOR ACTION REQUIRED,power on FANUC at lab,Robots page ONLINE (read-only)
+UT-08,AI answer time with both cameras live,cameras at GIU,NOT TESTED,next lab session,first word ~10-20 s on new questions; repeats instant
+UT-09,Door end-to-end latency (20 entries),hardware,NOT TESTED,Master node + portal timestamps,thesis number
+UT-10,Cold start (power-on to portal ready),not measured,NOT TESTED,stopwatch launch.bat -> /api/health 200,thesis number
+UT-11,Power-cut recovery (node + router),not measured,NOT TESTED,lab session,reconnect time per device
+UT-12,Node power draw idle/active,needs meter,NOT TESTED,USB/bench meter,thesis number
+UT-13,n8n workflows end-to-end,production workflows not started at home (rule),NOT REQUIRED for closure,lab day with launch.bat,alerts arrive as configured

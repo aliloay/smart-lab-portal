@@ -1,0 +1,96 @@
+1
+00:00:00,600 --> 00:00:05,000
+SMART RESEARCH LAB - German International University, Robotics Lab
+
+2
+00:00:05,299 --> 00:00:11,240
+Welcome to the Smart Lab at the German International University: one portal for the whole robotics lab.
+
+3
+00:00:12,699 --> 00:00:21,609
+Two AI security cameras work as one system. They follow each person, give them one lab number on both cameras, and know who sits at which computer.
+
+4
+00:00:21,509 --> 00:00:28,409
+Camera one, enlarged. Names come from the face, the door entry or a staff confirmation, never from a guess.
+
+5
+00:00:28,809 --> 00:00:35,399
+Camera two sees the other half of the room. A computer is marked in use only when someone is actually sitting at it.
+
+6
+00:00:35,409 --> 00:00:42,039
+Every lab computer reports through the engineer's relay PC. The portal shows who is signed in and what is running.
+
+7
+00:00:42,209 --> 00:00:48,439
+Staff can view all lab screens at once, view only. Each computer shows a notice while it is being viewed.
+
+8
+00:00:48,339 --> 00:00:53,659
+Staff can also present their own screen. Here it goes live to one chosen lab computer.
+
+9
+00:00:53,739 --> 00:00:59,289
+Staff can send a message to every lab computer at once. It appears on top of each screen.
+
+10
+00:00:59,739 --> 00:01:05,840
+On the real lab computers, the message and the shutdown countdown appear on every screen at the same time.
+
+11
+00:01:05,939 --> 00:01:13,600
+A computer can be put into maintenance mode. Its screen shows out of order, and mouse and keyboard stop working until staff switch it back.
+
+12
+00:01:14,040 --> 00:01:24,160
+The UR5e and FANUC robots have read-only digital twins. Right now both controllers are switched off, and the portal shows them as offline instead of pretending they are idle.
+
+13
+00:01:24,239 --> 00:01:33,060
+At the lab, the real UR5e moves, and its digital twin on the laptop follows the same joint angles, read only, from the robot's own data.
+
+14
+00:01:34,689 --> 00:01:43,219
+On a phone, augmented reality recognises the equipment. It says how sure it is, and scanning the marker opens the robot's live data.
+
+15
+00:01:46,532 --> 00:01:51,352
+It recognises the FANUC, the door controller and the smart bins in the same way.
+
+16
+00:02:09,032 --> 00:02:19,902
+Four ESP32 sensor nodes in 3D printed enclosures: the door controller with fingerprint and card reader, the consumables scale, the environment node and the reusable bin.
+
+17
+00:02:19,802 --> 00:02:22,842
+The command center is the wall view of the whole lab.
+
+18
+00:02:24,402 --> 00:02:29,922
+The smart bins count consumables by weight and track reusable items by NFC tag.
+
+19
+00:02:30,102 --> 00:02:37,502
+Every device shows its last heartbeat and firmware. A silent device is shown as offline, never assumed healthy.
+
+20
+00:02:37,502 --> 00:02:42,442
+Door entries, staff confirmations and changes are kept in the audit log.
+
+21
+00:02:42,502 --> 00:02:48,642
+The AI assistant runs locally on this laptop. It answers from the lab's own records, with sources.
+
+22
+00:02:48,502 --> 00:02:54,502
+Ask the lab: "Which lab PCs are online right now?"
+
+23
+00:02:54,502 --> 00:03:00,602
+Ask the lab: "What is the state of the robots?"
+
+24
+00:03:01,202 --> 00:03:05,902
+Smart Lab: compact, local, low cost and fully integrated.
+

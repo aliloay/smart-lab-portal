@@ -1,5 +1,16 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-19 (home) - final closure; LOCAL portal DEPLOYED ecbb167 (NOT pushed)
+Branch fix/pre-lab-hardening: fc18c99 merges opt/claude-app-performance-2026-11-17 (Confirm Other, Rename, robot liveness,
+pose_visibility, PC broadcast auto-close, PC power agent-wins) into the release-RC line; 7619717 + b2f89e8 assistant speed /
+grounding / guard (worst 41 s -> 22 s cold at home, repeats instant, adversarial 6/6 refused or corrected); ecbb167 test contract.
+Backend 841 passed (+1 contract test fixed), cameras 396, robots 44, knowledge 64, pc_agent 40, tsc/vite ok.
+Deployed stamped images (build_images.ps1): /api/health + /version.json = ecbb167-20261118231702; rollback tags pre-merge-20261119;
+dump D:\SmartLabData\db_dumps\predeploy_2026-11-19.dump. DB: device 24 GIULAB20-PC14 renamed PC-11 (sticker to confirm).
+Knowledge index re-chunked (13,153 chunks) + lab-PC relay/agent code; knowledge service restarted. 25 concurrent logins OK.
+Showcase film + all FINAL_* reports: reports/final-smart-lab-closure-2026-11-18/ (read FINAL_SMART_LAB_EXECUTIVE_READINESS_REPORT.md).
+Open (owner): admin password, router DHCP vs robot IPs (Hemaly PC .100-.103), ESP32 nodes at home, robots power-on, lab AI re-measure.
+
 ## UPDATE 2026-11-18 - final integration release candidate (local, NOT pushed); LOCAL portal DEPLOYED
 Worktree C:\Projects\smart-lab-release, branch release/smart-lab-final-optimization-2026-11-17 (base fix/pre-lab-hardening
 4e58b52; safety branch backup/before-final-integration-2026-11-18). Claude (d085b73, 5314195) + Argon (fe126b7) merged

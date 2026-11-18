@@ -1,0 +1,13 @@
+id,area,issue,severity,status,owner,evidence,next_step
+OI-01,Security,Admin password exposed in an 18 Nov screenshot / typed in recordings,P1,OPERATOR ACTION REQUIRED,owner,FINAL_OPERATOR_ACTIONS.md OA-1,Change password before exhibition; update E2E_PASSWORD user variable
+OI-02,Network/robots,Hemaly's PC (S2PC136) takes DHCP .100-.103 on Smart_Lab and collides with FANUC .100 / UR5e .102,P1,OPERATOR ACTION REQUIRED,owner / GIU IT,Owner report 19 Nov; FINAL_OPERATOR_ACTIONS.md OA-2,Router: DHCP pool above .110 or reservations; or static .210 on Hemaly's Smart_Lab NIC
+OI-03,ESP32 nodes,4 nodes (MASTER_LAB01 ENV_LAB01 BIN_NODE_1 REUSE_BIN_1) untested on hardware since firmware changes,P1,EXTERNAL BLOCKER,owner (hardware at home),FIRMWARE_HOME_FOLLOWUP.md,Owner connects boards; Claude builds/flashes one step at a time (ESP32-CAM core 3.2.1)
+OI-04,Robots,UR5e/FANUC live telemetry not re-verified (controllers off on 18 Nov),P2,OPERATOR ACTION REQUIRED,owner,Robots page shows OFFLINE correctly,Power on at next lab visit; check joints update (read-only)
+OI-05,AI,Lab latency with both cameras live not re-measured after the 19 Nov fixes,P2,NOT TESTED,Claude at next lab session,AI_PERFORMANCE_BEFORE_AFTER.md,Run aibench + 15 hard questions with cameras live
+OI-06,AI,"Weak answer to 'How does the door open?' (retrieval ranks the held-open alert text)",P3,TESTED - FAILED,code/docs,AI_QUALITY_VALIDATION.md,Add a door-entry flow note ranked first or use GPU model; demo phrasing documented
+OI-07,Lab PCs,PC-11 name inferred from hostname pattern (GIULAB20-PC14),P3,OPERATOR ACTION REQUIRED,owner,DB devices id 24 renamed 19 Nov,Check sticker; rename via card if different
+OI-08,Lab PCs,PC-13 agent on 0.9 (others 1.0),P3,OPERATOR ACTION REQUIRED,owner,Gemini BLK-03,Re-run INSTALL_SMARTLAB.bat on GIULAB20-PC17
+OI-09,Video,Camera software name labels (owner / Hemaly) visible in camera views of the showcase film; faces blurred,P3,NOT REQUIRED (owner choice),owner,VIDEO_EDITING_AND_CLIP_SELECTION_LOG.md,Say if labels should be blurred too; re-render is one setting
+OI-10,Git,Nothing pushed to GitHub since 11 Nov (rule); GitHub is behind the laptop,P3,OPERATOR ACTION REQUIRED,owner,git status / git log,Owner reviews and pushes fix/pre-lab-hardening if wanted
+OI-11,Thesis evidence,No measurement yet for door end-to-end latency / cold start / power-cut recovery / load-cell accuracy / cost list / node power draw,P2,NOT TESTED,owner + hardware,Earlier thesis-numbers table,Measure when nodes and lab are available
+OI-12,Ops,n8n container not started at home (deliberately; production workflows),P3,NOT REQUIRED,—,docker compose ps,launch.bat starts it on the lab day

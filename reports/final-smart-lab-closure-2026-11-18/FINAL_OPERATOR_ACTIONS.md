@@ -1,0 +1,15 @@
+# Final operator actions (owner / GIU IT), 19 Nov 2026
+
+Only a person can do these: they need the hardware, the router, a password, or a decision.
+They are ordered by when they matter. Nothing here was done by Claude.
+
+| # | Action | Why | How | When | Status |
+|---|---|---|---|---|---|
+| OA-1 | **Change the admin password** | The admin account name appeared in an 18 Nov screenshot, and the password was typed during recordings | Portal → profile → change password (or ask Claude for the CLI reset). Then update the `E2E_PASSWORD` Windows user variable used by the tour scripts | Before the exhibition (owner said "later, before exhibition") | OPERATOR ACTION REQUIRED |
+| OA-2 | **Stop Hemaly's PC taking a robot IP on Smart_Lab** | FANUC (.100) and UR5e (.102) have fixed IPs, but Hemaly's PC (S2PC136) gets a DHCP address on the Smart_Lab router and was seen on .100, .102 and .103. A duplicate IP makes a robot drop off the network | Best: on the Smart_Lab router, move the DHCP pool above the robots (e.g. .110–.199) **or** reserve .100/.102 for the robots' MACs. Alternative: give Hemaly's Smart_Lab network card a static IP such as .210 (no gateway). The robots need no change | Before the next robot power-on | OPERATOR ACTION REQUIRED (router admin) |
+| OA-3 | **Flash and test the 4 ESP32 nodes at home** (MASTER_LAB01, ENV_LAB01, BIN_NODE_1, REUSE_BIN_1) | Nodes were at home during the 18 Nov GIU session, and the firmware changes are untested on hardware | Follow `reports/gemini-final-giu-capacity-optimization-2026-11-18/FIRMWARE_HOME_FOLLOWUP.md`; the ESP32-CAM must be built with **core 3.2.1**. Tell Claude when the boards are connected and it will build and check them one step at a time | When the owner connects them | OPERATOR ACTION REQUIRED / EXTERNAL BLOCKER (hardware at home) |
+| OA-4 | Robot power-on check | Both controllers were off on 18 Nov; the portal correctly shows them offline | Power on UR5e and FANUC, then check that Robots shows ONLINE with joint values. Collectors are read-only; no commands are sent | Next lab visit | OPERATOR ACTION REQUIRED |
+| OA-5 | PC-13 agent 0.9 → 1.0 | The agent works (ONLINE, RUNNING), but it is the only PC still on 0.9 | Re-run `INSTALL_SMARTLAB.bat` on PC-13 (GIULAB20-PC17) | Optional, next lab visit | OPERATOR ACTION REQUIRED (cosmetic) |
+| OA-6 | Confirm the sticker for PC-11 | The GIULAB20-PC14 card was renamed **PC-11** from the hostname pattern (11/12/13 → 8/9/10, 17/18/19 → 13/14/15) | Check the sticker on the PC whose hostname is GIULAB20-PC14; if it differs, rename it on its card (Rename button) | Next lab visit | OPERATOR ACTION REQUIRED (check) |
+| OA-7 | Free RAM before the live defense | 16 GB laptop: earlier measurement ~1.2 GB free with several AI apps open | Close Claude Desktop / extra IDE windows / Antigravity before the demo; run `launch.bat` | Defense day | OPERATOR ACTION REQUIRED |
+| OA-8 | Push to GitHub (if wanted) | Nothing was pushed (rule) | Owner reviews `git log` on `fix/pre-lab-hardening` and pushes | Owner's decision | NOT REQUIRED for the local demo |
