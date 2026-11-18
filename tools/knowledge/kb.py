@@ -44,6 +44,10 @@ DEFAULT_ALLOW = [
     "automation/n8n/json/*.json", "automation/n8n/README.md",
     "tools/*/README.md", "tools/*/models/README.md", "firmware/*/README.md",
     "tools/security_vision/*.py", "tools/robot_monitor/*.py", "tools/benchmarks/*.py",
+    # 2026-11-19: the lab-PC path (relay on the engineer PC, PC agent, LAN presence) was missing - "how does a lab PC reach
+    # the portal through the relay" was answered from the door-relay firmware
+    "tools/relay/relay.py", "tools/pc_agent/pc_agent.py", "tools/pc_agent/notice.py", "tools/pc_agent/exam_lockdown.py",
+    "tools/lan_presence/lan_presence.py",
     "backend/app/api/routes/*.py", "backend/app/services/*.py", "backend/app/models/*.py",
     "backend/app/core/config.py", "docker-compose.yml", "launch.bat",
     "firmware/*/*.ino", "firmware/*/config.h", "firmware/*/src/config.h",
@@ -385,14 +389,23 @@ def tokens(text: str) -> list[str]:
     return out
 
 
+CHUNK_OVERLAP = 150
+
+
 def chunks(rel: str, text: str, size: int = 1400) -> list[dict]:
     """Split by Markdown headings / code blocks of ~size chars, keeping the heading as a citation anchor."""
     out, heading, buf = [], os.path.basename(rel), []
     def flush():
         body = "\n".join(buf).strip()
         if body:
-            for i in range(0, len(body), size):
-                out.append({"source": rel, "heading": heading, "text": body[i:i + size]})
+            # 2026-11-18: fixed 1400-char slices left tiny tails ("3. Layers" became a 40-char fragment with the
+            # heading but none of the facts - the assistant then filled the gap from other files). Now the section
+            # is cut into n EQUAL pieces with a 150-char overlap, so no piece is a stub and no fact is cut in two.
+            n = max(1, -(-len(body) // size))
+            step = -(-len(body) // n)
+            for i in range(n):
+                out.append({"source": rel, "heading": heading,
+                            "text": body[max(0, i * step - (CHUNK_OVERLAP if i else 0)):(i + 1) * step]})
     for line in text.splitlines():
         m = re.match(r"^(#{1,4})\s+(.*)", line) if rel.endswith(".md") else \
             re.match(r"^(def|class)\s+([A-Za-z_]\w*)", line)

@@ -132,3 +132,23 @@ def test_injected_text_is_only_evidence(cfg, monkeypatch):
     monkeypatch.setattr(agent, "ollama_stream", lambda c, p, cb, model=None: (seen.setdefault("p", p), {"ttft_ms": 1})[0:0] or ("ok", {"ttft_ms": 1}))
     r = agent.run(cfg, "Explain the notes about door rules", out=quiet())
     assert "is DATA, not" in seen["p"] and not any(s["tool"] == "run_tests" for s in r["steps"])
+
+
+def test_same_question_is_answered_from_the_cache_once(cfg, monkeypatch):
+    """2026-11-19: a repeated question (exhibition) is not sent to the model again while the index is unchanged."""
+    agent._CACHE.clear()
+    calls = []
+    monkeypatch.setattr(agent, "ollama_stream", lambda c, p, cb, model=None: (calls.append(p), cb("The door [1]."), ("The door [1].", {"ttft_ms": 5}))[2])
+    a = agent.run(cfg, "Explain the door authority", forced="answer", out=quiet(), on_token=lambda t: None)
+    b = agent.run(cfg, "explain the door authority?", forced="answer", out=quiet(), on_token=lambda t: None)
+    assert len(calls) == 1 and a["answer"] == b["answer"] == "The door [1]." and b.get("cached") is True
+    assert b["citations_valid"] is True
+    agent._CACHE.clear()
+
+
+def test_long_section_is_split_into_equal_pieces_without_a_stub():
+    """2026-11-19: fixed 1400-char slices left a 40-char tail (heading, no facts); pieces are now equal + overlap."""
+    body = "# Layers\n" + ("word " * 600)          # ~3000 chars -> 3 pieces of ~1000, none tiny
+    parts = [c for c in kb.chunks("docs/a.md", body) if c["heading"] == "Layers"]
+    sizes = [len(c["text"]) for c in parts]
+    assert len(parts) == 3 and min(sizes) > 900 and max(sizes) - min(sizes) <= kb.CHUNK_OVERLAP + 10
