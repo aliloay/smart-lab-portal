@@ -166,7 +166,54 @@ def nearest_zone(box, zones: list, fw: int, fh: int) -> Optional[tuple[str, bool
     return best[1], best[2]
 
 
-def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list[dict]:
+SPOT_MATCH = 0.3       # person box vs a recorded spot (seat_capture.py), IoU: this person is AT that place
+SPOT_NEAR = 0.08       # ...or its centre this close (0-1 of the picture) to a spot: NEAR that place
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    i = ix * iy
+    u = a[2] * a[3] + b[2] * b[3] - i
+    return i / u if u > 0 else 0.0
+
+
+def place_of(box, zones: list, fw: int, fh: int) -> Optional[tuple[str, bool]]:
+    """2026-11-18 (owner: "Nour is clearly near the UR5e, I am near Hemaly's desk"): where the person is, from the
+    spots recorded with seat_capture.py (z["seat"]: where a person at that PC / robot appears in this picture) -
+    (name, at) - else the old box-to-box guess (nearest_zone)."""
+    if fw > 0 and fh > 0:
+        p = (box[0] / fw, box[1] / fh, box[2] / fw, box[3] / fh)
+        best = None
+        for z in zones:
+            if not z.get("name"):
+                continue
+            for s in (z.get("spots") or ([z["seat"]] if z.get("seat") else [])):    # several spots per place
+                o = _iou(p, s)
+                d = math.hypot(p[0] + p[2] / 2 - (s[0] + s[2] / 2), p[1] + p[3] - (s[1] + s[3]))   # feet to feet
+                key = (-o, d)
+                if (o >= SPOT_MATCH or d <= SPOT_NEAR) and (best is None or key < best[0]):
+                    best = (key, z["name"], o >= SPOT_MATCH)
+        if best:
+            return best[1], best[2]
+    return nearest_zone(box, zones, fw, fh)
+
+
+def place_words(name: str, at: bool, zones: list, owners: Optional[dict] = None) -> str:
+    """"at the UR5e" / "near PC-04 (Eng. Hemaly's desk)" / "most likely at PC-07"."""
+    z = next((z for z in zones if z.get("name") == name), {})
+    robot = z.get("alert_on_motion", True) is False
+    seat = bool(z.get("seat"))
+    what = f"the {name}" if robot else name
+    if owners and owners.get(name.upper()):
+        what += f" ({owners[name.upper()]}'s desk)"
+    if at:
+        return ("at " if seat or robot else "most likely at ") + what
+    return "near " + what
+
+
+def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12,
+             owners: Optional[dict] = None) -> list[dict]:
     """One entry per tracked person, named people first. `text` is the sentence the portal shows."""
     out = []
     for t in tracks:
@@ -182,14 +229,14 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12) -> list
         crowded = bool(getattr(t, "crowded", False))
         pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part)
         pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded, partial=is_part)
-        nz = nearest_zone(t.box, zones, fw, fh)
+        nz = place_of(t.box, zones, fw, fh)
         # trousers only when the legs are in view (a cut-off box's lowest band is still the shirt)
         legs = None if is_part else legs_colour(look_obj.color if look_obj is not None else None)
         clothes = ", ".join(x for x in (f"{colour} top" if colour else "", f"{legs} trousers" if legs else "") if x)
         parts = [who + (f" ({clothes})" if clothes else "")]
         parts.append(pose)
         if nz:
-            parts.append(("most likely at " if nz[1] else "near ") + nz[0])
+            parts.append(place_words(nz[0], nz[1], zones, owners))
         if crowded:
             parts.append("next to someone")
         out.append({"track_id": t.id, "label": t.label, "who": who, "colour": colour, "legs": legs, "posture": pose,

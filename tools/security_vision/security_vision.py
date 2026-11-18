@@ -324,6 +324,10 @@ class Service:
     SNAPSHOT_MAX_AGE_S = 0.3
     IDLE_RENDER_FPS = float(os.environ.get("SV_IDLE_RENDER_FPS", "1"))
     FACE_RECHECK_S = 15.0              # a verified person's face is re-checked this often (swaps)
+    # 2026-11-18 lab: camera 1 named a man at the far desks (box 0.09 of the picture height, face a few pixels)
+    # "Ali" by face four times in a minute - the owner was at the next desk. No face check on a person this small;
+    # the other camera sees that end of the room close up.
+    FACE_MIN_BOX_H = float(os.environ.get("SV_FACE_MIN_BOX_H", "0.14"))
 
     def __init__(self, args):
         self.args = args
@@ -496,7 +500,10 @@ class Service:
             try:                                   # live activity lines for the Security page (activity.py)
                 from activity import describe
                 fw, fh = self.frame_wh
-                activity = describe(tracks, self.cfg.get("zones", []), fw, fh)
+                known = {k["auth_subject"]: k.get("name") or k["auth_subject"] for k in (self.cfg.get("known") or [])
+                         if k.get("auth_subject")}
+                owners = {pc.upper(): known[u] for u, pcs in HOME_DESKS.items() if u in known for pc in pcs}
+                activity = describe(tracks, self.zones_with_seats(self.cfg.get("zones", [])), fw, fh, owners=owners)
             except Exception as e:                 # never let a sentence stop the state report
                 print(f"[activity] skipped: {e.__class__.__name__}")
                 activity = []
@@ -873,7 +880,17 @@ class Service:
 
     def zones_with_seats(self, zones: list[dict]) -> list[dict]:
         seats = self.seats()
-        return [{**z, "seat": seats[z["name"]]} if z["name"] in seats else z for z in zones] if seats else zones
+        if not seats:
+            return zones
+        spots: dict = {}                                     # seat_capture.py saves names in capitals (UR5E);
+        for k, v in sorted(seats.items()):                   # "UR5E@STAND" = another spot of the same place
+            spots.setdefault(k.split("@")[0].upper(), []).append(v)
+        out = []
+        for z in zones:
+            sp = spots.get(z["name"].upper())
+            first = seats.get(z["name"].upper()) or seats.get(z["name"]) or (sp[0] if sp else None)
+            out.append({**z, "seat": first, "spots": sp} if sp else z)
+        return out
 
     def view_settling(self, now: float) -> bool:
         """True while the camera is not streaming or has only just (re)connected."""
@@ -1230,6 +1247,8 @@ class Service:
                 box = det_boxes.get(t.id)
                 if box is None or t.id in crowded:
                     continue                         # not in that frame, or touching someone: the crop may hold them
+                if box[3] < self.FACE_MIN_BOX_H * frame.shape[0]:
+                    continue                         # too far away: the face is too small to tell people apart
                 crop = face_crop(frame, frame_full, box)
                 if crop is None:
                     continue

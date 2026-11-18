@@ -39,18 +39,24 @@ def load(dev):
                          "seat_capture.py; used for 'in use' and the two-camera PC link.", "seats": {}}
 
 
+ROBOTS = ("UR5E", "FANUC")     # 2026-11-18: a robot's operator works standing - any posture is recorded there
+
+
 def pick(state, name):
     """The seated person nearest the named PC box in one /state answer, as a 0-1 box; None if none fits."""
     w, h = state.get("frame") or [0, 0]
-    z = next((z for z in state["zones"] if z["name"].upper() == name and z.get("box")), None)
+    base = name.split("@")[0]               # "UR5E@STAND": a second spot of the same place (2026-11-18)
+    z = next((z for z in state["zones"] if z["name"].upper() == base and z.get("box")), None)
     if not z or not w:
         return None, "no such PC box on this camera"
     zx, zy, zw, zh = z["box"]
     zc = (zx + zw / 2, zy + zh / 2)
     best = None
+    if WHO:                                   # 2026-11-18: only the named person doing the recording (others sit nearby)
+        state = {**state, "tracks": [t for t in state["tracks"] if (t.get("name") or "").lower() == WHO.lower()]}
     for t in state["tracks"]:
         x, y, bw, bh = t["box"]
-        if bw <= 0 or bh / bw > STANDING_RATIO:
+        if bw <= 0 or (bh / bw > STANDING_RATIO and base not in ROBOTS and not ANY_POSTURE):
             continue                                  # standing: not sitting at it
         p = (x / w, y / h, bw / w, bh / h)
         d = np.hypot(p[0] + p[2] / 2 - zc[0], p[1] + p[3] / 2 - zc[1])
@@ -59,8 +65,12 @@ def pick(state, name):
     return (best[1], "") if best else (None, "nobody seated near that monitor")
 
 
+ANY_POSTURE = "--any" in sys.argv
+WHO = sys.argv[sys.argv.index("--who") + 1] if "--who" in sys.argv[:-1] else ""
+
+
 def main():
-    a = sys.argv[1:]
+    a = [x for i, x in enumerate(sys.argv[1:], 1) if x not in ("--any", "--who") and sys.argv[i - 1] != "--who"]
     if not a or a[0] == "--list":
         for dev in CAMERAS.values():
             print(dev, sorted(load(dev)["seats"]))

@@ -132,3 +132,20 @@ def test_trousers_only_when_the_legs_are_in_view():
     out = {e["track_id"]: e for e in describe([whole, cut], [], 1000, 1000)}
     assert out[1]["legs"] and "trousers" in out[1]["text"]
     assert out[2]["legs"] is None and "trousers" not in out[2]["text"]
+
+
+def test_recorded_spots_give_clear_places_and_desk_owners():
+    # 2026-11-18 (owner): "Nour is clearly near the UR5e, I am near Hemaly's desk"
+    from activity import place_of, place_words
+    zones = [{"name": "UR5e", "x": 0.8, "y": 0.1, "w": 0.1, "h": 0.4, "alert_on_motion": False,
+              "seat": (0.75, 0.55, 0.1, 0.3)},
+             {"name": "PC-04", "x": 0.4, "y": 0.4, "w": 0.05, "h": 0.05, "seat": (0.35, 0.40, 0.1, 0.2)},
+             {"name": "PC-07", "x": 0.1, "y": 0.4, "w": 0.05, "h": 0.05}]
+    owners = {"PC-04": "Eng. Hemaly"}
+    at_robot = place_of((760, 560, 100, 290), zones, 1000, 1000)
+    assert at_robot == ("UR5e", True) and place_words(*at_robot, zones, owners) == "at the UR5e"
+    at_desk = place_of((355, 405, 95, 195), zones, 1000, 1000)
+    assert place_words(*at_desk, zones, owners) == "at PC-04 (Eng. Hemaly's desk)"
+    # no spot recorded for PC-07: the old box guess, worded as a guess
+    guess = place_of((100, 380, 60, 120), zones, 1000, 1000)
+    assert place_words(*guess, zones, owners) == "most likely at PC-07"
