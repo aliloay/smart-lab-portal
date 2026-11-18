@@ -165,6 +165,9 @@ def update_fusion(db: Session, d: Device, now: datetime) -> dict:
 
 
 # ------------------------------------------------------------- device side ---
+FRESH_STATES = ("MOVING", "STATIONARY")                    # a real sample from the controller
+
+
 class Telemetry(BaseModel):
     device_uid: str = Field(max_length=64)
     lab_id: str = Field(max_length=32)
@@ -199,13 +202,30 @@ def telemetry(req: Telemetry, db: Session = Depends(get_db), identity: str = Dep
         db.add(d)
         db.flush()
     prev = d.component_state or {}
+    # 2026-11-18 (Gemini live audit, P1): a powered-off robot stayed "online / IDLE" because every report - also
+    # UNKNOWN (never reached) and TELEMETRY_STALE - refreshed last_seen and set online. Only a fresh sample with
+    # joint values is liveness. Stale/unknown marks the robot offline, keeps the last real pose and its time for
+    # diagnosis, and an older report (collector clock) never overrides a newer one.
+    if req.sent_at is not None and isinstance(prev.get("sent_at"), (int, float)) and req.sent_at < prev["sent_at"]:
+        return {"ok": True, "ignored": "older than the last report"}
+    if req.state not in FRESH_STATES or req.q is None:
+        changed = prev.get("state") != req.state or d.is_online
+        d.is_online = False
+        d.component_state = {**prev, "state": req.state, "received_at": now.isoformat(), "sent_at": req.sent_at,
+                             "stale_since": prev.get("stale_since") or now.isoformat()}
+        update_fusion(db, d, now)
+        db.commit()
+        if changed:
+            _publish({"type": "robot_status", "device_id": d.id, "lab_id": d.lab_id, "state": req.state,
+                      "home": prev.get("home"), "source": req.source})
+        return {"ok": True, "online": False}
     cal = _home(db, d.id)
     h = home_state(req.q, cal)
     extra = {k: v for k, v in list(req.extra.items())[:12] if isinstance(v, (int, float, str, bool, type(None)))}
     d.last_seen_at, d.is_online = now, True
     d.component_state = {"model": req.model, "source": req.source, "state": req.state, "q": req.q, "qd": req.qd,
                          "tcp": req.tcp, "joints_moving": req.joints_moving, "telemetry_age_ms": req.telemetry_age_ms,
-                         "rate_hz": req.rate_hz, "extra": extra, **h, "received_at": now.isoformat(),
+                         "rate_hz": req.rate_hz, "extra": extra, **h, "received_at": now.isoformat(), "sent_at": req.sent_at,
                          "transport_ms": round((time.time() - req.sent_at) * 1000, 1) if req.sent_at else None}
     # Home left / returned: the portal's own events (it holds the calibration).
     was, is_ = prev.get("home"), h["home"]

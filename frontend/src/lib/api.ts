@@ -107,7 +107,9 @@ export interface SecurityCameraTile {
   activity?: { track_id: number; label: string | null; who: string; colour: string | null; posture: string
                near: string | null; named: boolean; text: string
                /** 2026-11-17: one number per unnamed person on BOTH cameras; at = seated at that box; size = box height 0-1 */
-               lab_no?: number | null; at?: boolean; size?: number; hint?: string | null }[]
+               lab_no?: number | null; at?: boolean; size?: number; hint?: string | null; partial?: boolean;
+               pose_visibility?: Record<string, { state: 'OBSERVED' | 'OCCLUDED' | 'PREDICTED' | 'OUT_OF_FRAME';
+                                                  confidence: number; xy?: [number, number] }> }[]
 }
 export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null
@@ -1679,8 +1681,8 @@ export const api = {
     post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
   cameraKnown: (deviceId: number) =>
     request<{ label: string; name: string; role: string | null }[]>(`/security/cameras/${deviceId}/known`),
-  confirmPerson: (deviceId: number, track_id: number, label: string) =>
-    post<{ ok: boolean; name: string }>(`/security/cameras/${deviceId}/confirm`, { track_id, label }),
+  confirmPerson: (deviceId: number, track_id: number, label: string, new_name = '') =>
+    post<{ ok: boolean; name: string }>(`/security/cameras/${deviceId}/confirm`, { track_id, label, new_name }),
   recordBinCount: (id: number, actual_count: number, note = '', recalibrate = false) =>
     post<{ estimate: number | null; actual_count: number; error: number | null; mass_g: number | null;
            recalibrated: boolean; tare_g: number | null }>(
@@ -1737,6 +1739,8 @@ export const api = {
   updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),
+  renameDevice: (id: number, name: string) =>
+    request<Device>(`/devices/${id}/name`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   issueDeviceKey: (id: number) =>
     post<{ device_uid: string; device_key: string; note: string }>(`/devices/${id}/key`),
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;

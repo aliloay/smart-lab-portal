@@ -119,7 +119,9 @@ def pc_power(db: Session, lab_id: int, now: datetime) -> dict:
         if not key:
             continue
         lan = lan_presence.get(p.device_uid, now)
-        on = lan["present"] if lan else (True if is_fresh(p, now) else None)
+        # 2026-11-18 lab: the GIU-subnet PCs report through the relay but never answer the Smart_Lab LAN ping, so the
+        # LAN said "off" for PCs in use - and the cameras then never showed them in use. A fresh agent report = on.
+        on = True if is_fresh(p, now) else (lan["present"] if lan else None)
         if key not in out or on is True:
             out[key] = on
     return out
@@ -278,9 +280,10 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
-                         "activity": [{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
-                                       if k in ("track_id", "label", "who", "colour", "posture", "near", "named", "text",
-                                                "lab_no", "at", "size", "hint")}   # 2026-11-17: lab number (both cameras)
+                         "activity": [{**{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
+                                          if k in ("track_id", "label", "who", "colour", "legs", "posture", "near", "named",
+                                                   "text", "lab_no", "at", "size", "hint")},   # 2026-11-17: lab number
+                                       **_visibility(a)}
                                       for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
@@ -738,9 +741,75 @@ def recording_switch(device_id: int, action: Literal["start", "stop"], db: Sessi
     return body
 
 
+POSE_JOINTS = ("head", "shoulders", "torso", "elbows", "wrists", "hips", "knees", "ankles")
+POSE_STATES = ("OBSERVED", "OCCLUDED", "PREDICTED", "OUT_OF_FRAME")
+
+
+def _visibility(a: dict) -> dict:
+    """2026-11-18 (Gemini handoff): the camera says which body parts it actually sees - `partial` (box cut by the
+    picture / a desk) and `pose_visibility` {joint: {state, confidence, xy?}}. Kept only when well formed: known
+    joints and states, finite confidence 0-1, finite xy pairs; anything else is dropped, never guessed. Old camera
+    services that do not send them are unaffected."""
+    import math
+    out: dict = {}
+    if isinstance(a.get("partial"), bool):
+        out["partial"] = a["partial"]
+    pv = a.get("pose_visibility")
+    if isinstance(pv, dict):
+        good = {}
+        for j in POSE_JOINTS:
+            e = pv.get(j)
+            if not isinstance(e, dict) or e.get("state") not in POSE_STATES:
+                continue
+            c = e.get("confidence")
+            if not isinstance(c, (int, float)) or isinstance(c, bool) or not math.isfinite(c) or not 0 <= c <= 1:
+                continue
+            item = {"state": e["state"], "confidence": round(float(c), 3)}
+            xy = e.get("xy")
+            if isinstance(xy, (list, tuple)) and len(xy) == 2 and all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and abs(v) < 1e5
+                    for v in xy):
+                item["xy"] = [round(float(xy[0]), 1), round(float(xy[1]), 1)]
+            good[j] = item
+        if good:
+            out["pose_visibility"] = good
+    return out
+
+
 class ConfirmRequest(BaseModel):
     track_id: int = Field(ge=0)
-    label: str = Field(min_length=1, max_length=64)
+    label: str = Field(default="", max_length=64)
+    # 2026-11-18 (owner): "Other..." in the picker - a person not registered yet. They are added to the portal as a
+    # person the cameras can name (no login: random password, placeholder email), then confirmed like anyone else.
+    new_name: str = Field(default="", max_length=120)
+
+
+def _person_from_camera(db: Session, name: str, admin: User) -> User:
+    """The registered person called `name` (same name, any case), else a new one added from the camera page."""
+    import secrets
+    from app.core.security import hash_password
+    from app.models import Role
+    from app.services.identity import next_auth_subject
+    clean = " ".join(name.split())
+    if len(clean) < 2:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Type the person's name.")
+    same = next((u for u in db.scalars(select(User).where(User.is_active.is_(True),
+                                                          User.auth_subject.is_not(None))).all()
+                 if u.full_name.strip().lower() == clean.lower()), None)
+    if same is not None:
+        return same
+    subject = next_auth_subject(db)
+    if subject is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Every person number is in use.")
+    user = User(email=f"{subject.lower()}@camera.smartlab.local", full_name=clean,
+                hashed_password=hash_password(secrets.token_urlsafe(24)), role=Role.STUDENT,
+                auth_subject=subject, department="Added from the security camera")
+    db.add(user)
+    db.flush()
+    db.add(AuditLog(actor_user_id=admin.id, action="USER_CREATED", entity_type="user", entity_id=str(user.id),
+                    detail={"email": user.email, "role": user.role.value, "auth_subject": subject,
+                            "source": "security camera confirm (no login)"}))
+    return user
 
 
 @router.get("/cameras/{device_id}/known")
@@ -758,15 +827,22 @@ def confirm_person(device_id: int, req: ConfirmRequest, db: Session = Depends(ge
     """2026-11-17 (owner): staff confirm who a tracked person is - the name then stays on that person, counts as
     confirmed and is shared with the other camera. Admin only; every confirmation is in the audit log."""
     d = _camera(db, device_id)
-    r = _service(d, "POST", "/confirm", json={"track_id": req.track_id, "label": req.label, "by": admin.full_name})
+    payload: dict[str, Any] = {"track_id": req.track_id, "label": req.label, "by": admin.full_name}
+    if req.new_name.strip():
+        person = _person_from_camera(db, req.new_name, admin)
+        payload.update(label=person.auth_subject, name=person.full_name, role=person.role.value)
+    elif not req.label:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose who this is.")
+    r = _service(d, "POST", "/confirm", json=payload)
     body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
     if r.status_code == 404 and not body:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "The camera service cannot confirm people (update it).")
     if not body.get("ok"):
+        db.rollback()                       # a person added for this confirm is not kept when the camera refused
         raise HTTPException(status.HTTP_409_CONFLICT, body.get("error") or "Could not confirm.")
     db.add(AuditLog(actor_user_id=admin.id, action="SECURITY_IDENTITY_CONFIRMED", entity_type="device",
                     entity_id=str(d.id), detail={"device_uid": d.device_uid, "track_id": req.track_id,
-                                                 "label": req.label}))
+                                                 "label": payload["label"], "new": bool(req.new_name.strip())}))
     db.commit()
     return body
 

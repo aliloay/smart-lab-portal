@@ -132,7 +132,9 @@ export default function Devices() {
                   <div className="mt-4 flex items-center justify-between">
                     <Link to={`/issues/new?lab=${d.lab_id}&device=${d.id}`} className="text-xs link inline-flex items-center gap-1">
                       <Wrench size={12} />Report a problem</Link>
-                    {isAdmin(user) && <DeviceKey id={d.id} own={!!d.has_own_key} />}
+                    {isAdmin(user) && <span className="flex items-center gap-3">
+                      <RenameDevice id={d.id} name={d.name} onDone={load} />
+                      <DeviceKey id={d.id} own={!!d.has_own_key} /></span>}
                   </div>
                 </div>
               ))}
@@ -215,6 +217,18 @@ function AddDevice({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => voi
       </form>
     </Modal>
   )
+}
+
+/** 2026-11-18: rename a card (a lab PC gets its sticker / camera-box name, e.g. PC-08). Admin only, audited. */
+function RenameDevice({ id, name, onDone }: { id: number; name: string; onDone: () => void }) {
+  const [err, setErr] = useState('')
+  async function rename() {
+    const next = window.prompt('New name for this device (for a lab PC: its sticker, e.g. PC-08)', name)
+    if (next === null || next.trim() === '' || next.trim() === name) return
+    try { await api.renameDevice(id, next.trim()); onDone() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed') }
+  }
+  return <button className="text-xs link" onClick={rename} title={err || 'Rename this card'}>Rename</button>
 }
 
 /** Give one device its own key. Shown once; only its hash is stored. */
