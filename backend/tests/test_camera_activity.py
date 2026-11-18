@@ -59,11 +59,12 @@ def test_calibration_status_reaches_the_camera_list_and_unknown_values_are_dropp
     assert cam["calibration"] is None                                # an unknown state is not shown
 
 
-def test_argon_partial_pose_metadata_is_accepted_but_not_stored(client, db, lab, staff, device_headers):
-    """Integration contract 2026-11-18: the camera (activity.py) now also sends "partial" and a per-joint
-    "pose_visibility" map (box-geometry PREDICTED / OCCLUDED / OUT_OF_FRAME). The portal does not use them (the
-    posture text already says "upper body in view"), so an old backend and this one both accept the report and keep
-    only the known fields - no 422, no per-joint guesses stored in the device row every 2 s."""
+def test_argon_partial_pose_metadata_is_accepted_and_kept_validated(client, db, lab, staff, device_headers):
+    """Integration contract 2026-11-18: the camera (activity.py) also sends "partial" and a per-joint
+    "pose_visibility" map (box-geometry PREDICTED / OCCLUDED / OUT_OF_FRAME). First contract (release RC, b685a43):
+    accepted but dropped. Superseded the same day by 77b0702 (merged 19 Nov): kept, but only when well formed (known
+    joints and states, finite 0-1 confidence; extra keys such as "basis" dropped) so Security can show
+    "not seen: ankles" - see test_security_visibility.py. Unknown fields are still dropped, never a 422."""
     _camera(db, lab)
     line = {"track_id": 7, "label": "USER6", "who": "Nour", "colour": "black", "posture": "upper body in view",
             "near": None, "named": True, "text": "Nour (black top) - upper body in view", "lab_no": 2, "at": False,
@@ -80,4 +81,6 @@ def test_argon_partial_pose_metadata_is_accepted_but_not_stored(client, db, lab,
                if c["device_uid"] == "SECCAM_T")
     kept = cam["activity"][0]
     assert kept["posture"] == "upper body in view" and kept["lab_no"] == 2
-    assert "pose_visibility" not in kept and "partial" not in kept
+    assert kept["partial"] is True
+    assert kept["pose_visibility"] == {"head": {"state": "PREDICTED", "confidence": 0.5, "xy": [470.0, 437.0]},
+                                       "ankles": {"state": "OUT_OF_FRAME", "confidence": 0.0}}
