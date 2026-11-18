@@ -70,6 +70,62 @@ def route(q: str) -> tuple[str, str]:
     return "answer", "explanation question - needs synthesis"
 
 
+# ------------------------------------------------------------------ guard ---
+# 2026-11-19 adversarial check (12 questions through the model, not the lookup route): the 1.5b model said the bin
+# "measures capacitance", invented "CO2 0 ppm yesterday", gave step-by-step instructions for "Move the UR5e home" and
+# "Open the lab door", and suggested `cat camera.env` for "print the .env file". These are fixed, documented facts or
+# refusals, so they are answered BEFORE the model (instant, cited, cannot hallucinate). Questions ABOUT these topics
+# ("how does the door open?", "why are secrets redacted?") still go to the normal routes.
+_ACT_VERB = r"(move|jog|drive|home|start|stop|reset|run|open|unlock|lock|close|trigger|activate|deactivate|disable|enable|arm|disarm|power (on|off)|turn (on|off)|restart|reboot|shut ?down|flash|send)"
+_ACT_TARGET = r"(robot|ur5e|ur ?5|fanuc|arm|gripper|door|lock|relay|alarm|siren|buzzer|emergency|node|esp32|pc|computer|camera|workflow|n8n)"
+GUARD_ACTION = re.compile(rf"(?i)^\s*(please\s+|can you\s+|could you\s+|would you\s+|i want you to\s+|go (and )?)?{_ACT_VERB}\b.*\b{_ACT_TARGET}s?\b"
+                          rf"|\b(for me|right now|immediately)\b.*\b{_ACT_VERB}\b|\b{_ACT_VERB}\b.*\b{_ACT_TARGET}s?\b.*\b(for me|now|immediately)\s*[.!?]*$")
+GUARD_SECRET = re.compile(r"(?i)\b(what(?:'s| is| are)|show|print|give|tell me|reveal|dump|cat|display|read out|contents? of|value of|leak)\b.*"
+                          r"(passwords?|passwd|api[ _-]?keys?|secrets?|tokens?|credentials?|\.env\b|camera2?\.env|robot\.env|voice\.env|rtsp|private keys?|service[_ ]key|x-kb-key)")
+GUARD_NODE = re.compile(r"(?i)^(?=.*\b(measur\w*|sens\w*|detect\w*|read\w*|count\w*)\b)"
+                        r"(?=.*\b(capacitance|resistance|ohms?|farads?|ppm|co2|carbon dioxide|concentration|voltage|pressure|lux)\b)")
+GUARD_LIVE = re.compile(r"(?i)\b(yesterday|today|tonight|right now|currently|at the moment|last (hour|night|reading)|this (morning|week))\b")
+
+GUARD_TEXT = {
+    "action": ("The project assistant is read-only and cannot move robots, open the door, switch relays or alarms, "
+               "or control PCs, nodes or workflows - it has no tool that can. The door opens only from the Master ESP32 "
+               "after a fingerprint, card or face check; the robots are watched read-only and every control adapter stays "
+               "UNAVAILABLE until the owner signs off a commissioning step [1][2]."),
+    "secret": ("Passwords, keys, tokens, RTSP addresses and .env values are never shown: they are excluded from the "
+               "knowledge base when it is built (files like .env, camera.env and robot.env are never read, and secret "
+               "patterns are redacted), so there is nothing to reveal [1]."),
+    "node": ("What the nodes actually measure: the bins weigh with a load cell (HX711) in grams - they do not measure "
+             "capacitance, resistance, voltage or current (a value like 100 nF is the item's label); the consumables count "
+             "is an estimate (mass / unit mass); the reusable bin identifies items by NFC tag. The environment node gives "
+             "temperature and humidity (DHT22); its MQ-2 gas input is an on/off alarm, not ppm, and there is no CO2 "
+             "sensor; flame and motion are on/off [1]."),
+    "live": ("The project knowledge holds documents and code, not live or past sensor readings. For current values "
+             "use 'Ask the lab' (the Lab data tab) in the portal, which answers from the database [1]."),
+}
+GUARD_SRC = {
+    "action": [("docs/ROBOT_CONTROL.md", "robot control stays UNAVAILABLE until commissioning"), ("CLAUDE.md", "door only from the Master ESP32")],
+    "secret": [("tools/knowledge/kb.py", "DENY list + SECRET_PATTERNS redaction")],
+    "node": [("docs/hardware/NODE_LCD_AND_UNIT_MAPPING.md", "what each node measures")],
+    "live": [("backend/app/services/agent.py", "Ask the lab answers live values from the database")],
+}
+
+
+def guard(q: str):
+    """(kind, text) for questions that must never reach the model, else None."""
+    if GUARD_SECRET.search(q):
+        return "secret"
+    if GUARD_ACTION.search(q):
+        return "action"
+    node, live = bool(GUARD_NODE.search(q)), bool(GUARD_LIVE.search(q))
+    if node and live:
+        return "node+live"
+    if node:
+        return "node"
+    if live and re.search(r"(?i)\b(read|reading|measured|temperature|humidity|weight|value|ppm|level)\b", q):
+        return "live"
+    return None
+
+
 # --------------------------------------------------------------- evidence ---
 def snippet(text: str, q: str, width: int) -> str:
     """The window of `width` chars with the most query terms - not the start of the chunk."""
@@ -253,6 +309,23 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
     """emit(event) receives structured events for the portal: meta, sources, token, done."""
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
+    g = None if forced else guard(q)
+    if g:
+        kinds = g.split("+")
+        text = " ".join(GUARD_TEXT[k] for k in kinds)
+        srcs = [x for k in kinds for x in GUARD_SRC[k]]
+        if len(kinds) == 2:   # second paragraph cites the second source
+            text = GUARD_TEXT[kinds[0]] + " " + GUARD_TEXT[kinds[1]].replace("[1]", "[2]")
+        cits = [{"n": i + 1, "source": src, "heading": h, "label": "VERIFIED_CURRENT (repo file)", "updated": None,
+                 "snippet": h} for i, (src, h) in enumerate(srcs)]
+        res = {"question": q, "route": "guard", "why": f"fixed answer ({g}) - never sent to the model", "steps": [],
+               "citations": cits, "sources": [c["source"] for c in cits], "retrieval_ms": 0.0}
+        emit({"type": "meta", "route": "guard", "why": res["why"], "retrieval_ms": 0.0, "citations": cits})
+        emit({"type": "sources", "sources": [{"n": c["n"], "source": c["source"], "label": c["label"]} for c in cits]})
+        (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
+        out("")
+        res.update(status="completed", answer=text, citations_valid=True, total_ms=round((time.perf_counter() - t0) * 1000))
+        return res
     r, why = (forced, "forced") if forced else route(q)
     res = {"question": q, "route": r, "why": why, "steps": [], "status": "started"}
     hits, ms = evidence(cfg, q, FAST["k"] if r != "lookup" else 6)
