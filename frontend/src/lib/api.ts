@@ -1734,6 +1734,8 @@ export const api = {
   updateUser: (id: number, u: Partial<User> & { fingerprint_enrolled?: boolean; face_enrolled?: boolean }) =>
     request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(u) }),
   devices: (labId?: number) => request<Device[]>(`/devices${qs({ lab_id: labId })}`),
+  renameDevice: (id: number, name: string) =>
+    request<Device>(`/devices/${id}/name`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   issueDeviceKey: (id: number) =>
     post<{ device_uid: string; device_key: string; note: string }>(`/devices/${id}/key`),
   createDevice: (d: { device_uid: string; name: string; device_type: string; lab_id: number;

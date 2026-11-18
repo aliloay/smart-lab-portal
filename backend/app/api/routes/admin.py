@@ -458,6 +458,30 @@ def create_device(req: DeviceCreate, db: Session = Depends(get_db),
     return device_out(d)
 
 
+class DeviceRename(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+@router.patch("/devices/{device_id}/name", response_model=DeviceOut)
+def rename_device(device_id: int, req: DeviceRename, db: Session = Depends(get_db),
+                  admin: User = Depends(require_admin)):
+    """2026-11-18 (owner): give a lab PC card the name of its sticker / camera box ("PC-08") - the cameras link a
+    PC by this name (its power and "in use"). Only the name changes; the device id, key and history stay."""
+    d = db.get(Device, device_id)
+    if d is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    new = " ".join(req.name.split())
+    if not new:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Type a name.")
+    old = d.name
+    d.name = new
+    db.add(AuditLog(actor_user_id=admin.id, action="DEVICE_RENAMED", entity_type="device", entity_id=str(d.id),
+                    detail={"device_uid": d.device_uid, "from": old, "to": new}))
+    db.commit()
+    db.refresh(d)
+    return device_out(d)
+
+
 @router.post("/devices/{device_id}/key")
 def issue_device_key(device_id: int, db: Session = Depends(get_db),
                      admin: User = Depends(require_admin)):
