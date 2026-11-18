@@ -133,7 +133,9 @@ function LabPcs() {
             : st.tone === 'bad' ? 'text-bad-soft' : 'text-slate-300'
           // Camera and LAN together (owner 2026-10-21): a PC that is off on the LAN is not "in use" - someone
           // is only sitting there; on and nobody seated = free; off and nobody = off.
-          const off = !!d?.lan && !d.lan.present
+          // 2026-11-18 lab: GIU-subnet PCs report through the relay and never answer the Smart_Lab LAN ping - a PC
+          // whose agent reports right now is ON, whatever the ping says (it showed RUNNING + Off).
+          const off = !!d?.lan && !d.lan.present && !d.online
           const [w, cls] = z?.status === 'IN_USE' && off ? ['Seated · PC off', 'border-warn/50 bg-warn/15 text-warn-soft']
             : off && (!z || z.status === 'OK') ? ['Off', 'border-ink-600 text-slate-400']
             : z ? (word[z.status] ?? [z.status, 'border-ink-500 text-slate-300']) : ['No camera box', 'border-ink-600 text-slate-500']

@@ -119,7 +119,9 @@ def pc_power(db: Session, lab_id: int, now: datetime) -> dict:
         if not key:
             continue
         lan = lan_presence.get(p.device_uid, now)
-        on = lan["present"] if lan else (True if is_fresh(p, now) else None)
+        # 2026-11-18 lab: the GIU-subnet PCs report through the relay but never answer the Smart_Lab LAN ping, so the
+        # LAN said "off" for PCs in use - and the cameras then never showed them in use. A fresh agent report = on.
+        on = True if is_fresh(p, now) else (lan["present"] if lan else None)
         if key not in out or on is True:
             out[key] = on
     return out
