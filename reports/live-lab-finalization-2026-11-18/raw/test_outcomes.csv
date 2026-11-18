@@ -1,0 +1,12 @@
+suite,evidence,passed,skipped,failed,status,notes
+tools/security_vision (full pytest),UNIT_TEST,393,22,0,PASS,"Includes 3 new 18 Nov regression tests for single-owner register invariant, merge ghost cleanup, and PC desk posture"
+tools/security_vision/scenario_bench.py,SIMULATED,17,0,0,PASS,"0 false names, 0 name switches, 0 false merges across 17 scenarios"
+tools/robot_monitor (full pytest),UNIT_TEST,28,4,0,PASS,Includes new test_unreachable_robot_at_startup_is_not_reported_online_or_idle
+tools/knowledge (full pytest),UNIT_TEST,88,0,0,PASS,Includes STREAMING GPU gate + query_embed_timeout_s fallback
+tools/relay/test_relay.py,UNIT_TEST,6,0,0,PASS,Includes 0.0.0.0 fallback bind test
+tools/pc_agent (unit suites),UNIT_TEST,14,0,0,PASS,"Agent update, exam lockdown, and heartbeat"
+Live Two-Camera RTSP & CrossCam at GIU,LIVE_PHYSICAL,1,0,0,PASS,"SECCAM_LAB01 (.155) + SECCAM_LAB02 (.156) streaming 14-15 fps, 28 CROSSCAM_NAME handoffs, 162 LAB_NUMBER_MERGED"
+Live Student Lab PCs via S2PC136 Relay,LIVE_PHYSICAL,6,0,0,PASS,"PC4, PC13, PC14, PC17, PC18, PC19 (10.40.20.x) + PC_ENG (10.30.11.136 / 192.168.1.100) online"
+Live Ollama + Knowledge + GPU Gate + Voice,LIVE_SERVICE,4,0,0,PASS,GPU gate=cpu while cameras live; warm Qwen 390ms first token; TTS 686ms; STT 3535ms
+Live Physical ESP32 Nodes & Door Controller,NOT_RUN,0,5,0,NOT_RUN,ESP nodes intentionally left at home per 18 Nov uni checklist; firmware compiled 7/7
+Live Physical UR5e & FANUC Controllers,BLOCKED,0,2,0,BLOCKED,Controllers powered off / disconnected from 192.168.1.x switch during audit window; collector false-online bug fixed

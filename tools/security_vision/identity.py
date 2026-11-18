@@ -39,7 +39,7 @@ from typing import Optional
 # Names given back by look, place, a crossing re-deal or the other camera: weaker evidence than the
 # door or the face that named the person in the first place (2026-10-18: a crossing re-deal used to
 # start at the door's 0.90 - as if the door had just named them).
-REACQUIRE_HOW = ("look", "place", "crossing", "other camera")
+REACQUIRE_HOW = ("look", "place", "crossing", "other camera", "came back (same look)")
 
 STATES = ("UNKNOWN", "TENTATIVE", "FACE_CONFIRMED", "DOOR_CONFIRMED", "FUSED_CONFIRMED", "OPERATOR_CONFIRMED",
           "REID_CONFIRMED", "OCCLUDED", "IDENTITY_UNCERTAIN", "IDENTITY_CONFLICT")

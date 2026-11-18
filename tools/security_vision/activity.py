@@ -118,10 +118,12 @@ def band_colour(color: Optional[np.ndarray], i: int) -> Optional[str]:
     return VAL_NAMES[int(np.argmax(val))]
 
 
-def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False) -> str:
+def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False, at_pc: bool = False) -> str:
     """From the box shape (height / width), as tools/security_vision already reads postures.
     When the box is cut off at the bottom of the frame (legs out of view), reports 'upper body in view'
-    rather than mistaking the cropped aspect ratio for 'bending or crouching' or 'lying down'."""
+    rather than mistaking the cropped aspect ratio for 'bending or crouching' or 'lying down'.
+    When seated at a PC desk (at_pc=True) where the monitor/desk hides the lower body (r < 1.4), reports
+    'seated or leaning' rather than 'lying down' or 'bending or crouching'."""
     w, h = max(box[2], 1e-6), box[3]
     r = h / w
     clipped = is_bottom_clipped(box, fh=fh, partial=partial)
@@ -129,14 +131,14 @@ def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False) -> str:
         p = "upper body in view"
     elif r >= 2.2:
         p = "standing"
-    elif r >= 1.4:
+    elif r >= 1.4 or at_pc:
         p = "seated or leaning"
     elif r >= 0.8:
         p = "bending or crouching"
     else:
         p = "lying down"
     speed = math.hypot(*vel) / max(h, 1e-6)            # box heights per second
-    if speed > 0.35 and (r >= 1.4 or clipped):
+    if speed > 0.35 and (r >= 1.4 or clipped or at_pc):
         p = "walking" if p == "standing" else p + ", moving"
     return p
 
@@ -231,11 +233,13 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12,
         colour = top_colour(look_obj.color if look_obj is not None else None)
         is_part = bool(getattr(look_obj, "partial", False)) or is_bottom_clipped(t.box, fh=fh)
         crowded = bool(getattr(t, "crowded", False))
-        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part)
-        pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded, partial=is_part)
         nz = place_of(t.box, zones, fw, fh)
-        # trousers only when the legs are in view (a cut-off box's lowest band is still the shirt)
-        legs = None if is_part else legs_colour(look_obj.color if look_obj is not None else None)
+        at_pc = bool(nz and nz[1] and nz[0].upper().startswith("PC-"))
+        desk_occluded = at_pc and t.box[3] < 1.4 * max(t.box[2], 1e-6)
+        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part, at_pc=at_pc)
+        pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded or desk_occluded, partial=is_part)
+        # trousers only when the legs are in view (a cut-off or desk-occluded box's lowest band is still the shirt/chair)
+        legs = None if (is_part or desk_occluded) else legs_colour(look_obj.color if look_obj is not None else None)
         clothes = ", ".join(x for x in (f"{colour} top" if colour else "", f"{legs} trousers" if legs else "") if x)
         parts = [who + (f" ({clothes})" if clothes else "")]
         parts.append(pose)

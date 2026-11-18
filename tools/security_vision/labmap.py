@@ -157,7 +157,11 @@ class LabNumbers:
         alive = {t.id for t in tracks}
         self.looks = {k: v for k, v in self.looks.items() if k in alive}
         self.born = {k: v for k, v in self.born.items() if k in alive}
+        if not hasattr(self, "restored_once"):
+            self.restored_once: set[tuple[int, str]] = set()
+        self.restored_once = {(tid, s) for tid, s in self.restored_once if tid in alive}
         looks = {t.id: self._look(t) for t in tracks}
+        merged_away: dict[int, int] = {}
         # 0) one number per person in this view: a duplicate (never wanted) is cleared and renumbered below
         seen_no: dict[int, object] = {}
         for t in sorted(tracks, key=lambda x: x.id):
@@ -180,6 +184,7 @@ class LabNumbers:
             held = {o.lab_no for o in tracks if o is not t and o.lab_no is not None}
             if solid and theirs and theirs not in held and (t.lab_no is None or theirs < t.lab_no):
                 if t.lab_no is not None:
+                    merged_away[int(t.lab_no)] = int(theirs)
                     self._note("LAB_NUMBER_MERGED", t, f"Person {t.lab_no} is Person {theirs} on the other camera")
                 t.lab_no = theirs
         # 1b) same person by LOOK alone (seated: feet hidden, and a desk only one camera sees - lab 2026-11-17, the
@@ -211,6 +216,7 @@ class LabNumbers:
             held = {o.lab_no for o in tracks if o is not t and o.lab_no is not None}
             if keep[k] >= LINK_PASSES and best["lab_no"] not in held and (t.lab_no is None or best["lab_no"] < t.lab_no):
                 if t.lab_no is not None:
+                    merged_away[int(t.lab_no)] = int(best["lab_no"])
                     self._note("LAB_NUMBER_MERGED", t, f"Person {t.lab_no} is Person {best['lab_no']} on the other "
                                                        f"camera (clear look {a:.2f}, {LINK_PASSES}+ passes)")
                 t.lab_no = best["lab_no"]
@@ -218,18 +224,44 @@ class LabNumbers:
         # Named people get a number too (lab 2026-11-17: Nour named on camera 2, "Unknown" on camera 1 - the
         # number links the two boxes; the NAME is still what is shown). Only the look gallery skips named people.
         need = [t for t in tracks if t.lab_no is None]
-        if not need and now - self.last_write < WRITE_EVERY_S:
-            return self.notes
         for t in need:
             self.born.setdefault(t.id, now)
+        ready_need = [t for t in need if looks.get(t.id) is not None or now - self.born[t.id] >= LOOK_WAIT_S
+                      or (t.label and getattr(t, "source", None) in KEEP_NAME_SOURCES)]
+        if not ready_need and not merged_away and now - self.last_write < WRITE_EVERY_S:
+            return self.notes
         mine_now = {t.lab_no for t in tracks if t.lab_no is not None}
 
         def work(d):
             people = d["people"]
             for k in [k for k, v in people.items() if now - v.get("seen", 0) > GALLERY_S]:
                 del people[k]                                # forgotten after GALLERY_S
+            # Remove ghost entries that were merged into a lower number so they never compete with the real number
+            for old_no, new_no in merged_away.items():
+                if old_no not in mine_now and str(old_no) in people:
+                    old_e = people.pop(str(old_no))
+                    new_e = people.setdefault(str(new_no), {"first": old_e.get("first", now), "seen": now, "cam": self.device})
+                    if old_e.get("who") and not new_e.get("who"):
+                        new_e["who"] = old_e["who"]
             # numbers in view right now on either camera: never handed to a new unnamed person
             busy = {int(k) for k, v in people.items() if now - v.get("seen", 0) <= PRESENT_S} | mine_now
+            # Enforce single-owner invariant: one auth_subject may sit on at most ONE entry in people
+            by_subj: dict[str, list[str]] = {}
+            for k, v in people.items():
+                subj = (v.get("who") or {}).get("auth_subject")
+                if subj:
+                    by_subj.setdefault(subj, []).append(k)
+            for subj, ks in by_subj.items():
+                if len(ks) > 1:
+                    live_k = next((str(t.lab_no) for t in tracks if t.label == subj and t.lab_no is not None and str(t.lab_no) in ks), None)
+                    keep_k = live_k or max(ks, key=lambda x: (people[x].get("seen", 0), -int(x)))
+                    for k in ks:
+                        if k == keep_k:
+                            continue
+                        if int(k) not in busy:
+                            del people[k]
+                        else:
+                            people[k].pop("who", None)
             # 2026-11-18 lab (Nour walked to Hemaly's desk and back: "Unknown" ~95 s): a name came back only to a NEW
             # track. An unnamed person who already has a number is re-checked too - same strict rule as a new one
             # (exactly one confirmed person missing, look within NAME_BACK_MAX), held LATE_PASSES checks in a row.
@@ -247,10 +279,14 @@ class LabNumbers:
                 late[t.id] = (k, self.late.get(t.id, (None, 0))[1] + 1 if self.late.get(t.id, (None,))[0] == k else 1)
                 if late[t.id][1] >= LATE_PASSES and int(k) not in mine_now:
                     w = people[str(k)]["who"]
+                    old_no = int(t.lab_no)
                     self._note("LAB_NUMBER_BACK", t, f"Person {t.lab_no} is Person {k} again (same look, "
                                                      f"{LATE_PASSES}+ checks) - confirmed name given back")
                     self.restore.append((t, w))
+                    self.restored_once.add((t.id, w["auth_subject"]))
                     t.lab_no = int(k)
+                    mine_now.discard(old_no)
+                    people.pop(str(old_no), None)
                     busy.add(int(k))
                     mine_now.add(int(k))
                     held_labels.add(w["auth_subject"])
@@ -274,8 +310,9 @@ class LabNumbers:
                 if no is not None and not t.label and people[str(no)].get("who"):
                     w = people[str(no)]["who"]
                     held = {o.label for o in tracks if o.label}
-                    if w["auth_subject"] not in held:
+                    if w["auth_subject"] not in held and (t.id, w["auth_subject"]) not in self.restored_once:
                         self.restore.append((t, w))
+                        self.restored_once.add((t.id, w["auth_subject"]))
                 if no is not None:
                     self._note("LAB_NUMBER_BACK", t, f"came back: same look as Person {no} "
                                                      f"(left {now - people[str(no)]['seen']:.0f} s ago)")
@@ -289,12 +326,20 @@ class LabNumbers:
                     d["next"] = max(int(d.get("next", 1)), no + 1)
                 t.lab_no = no
                 busy.add(no)
+                mine_now.add(no)
             for t in tracks:                                 # refresh everyone with a number: look, last seen
                 if t.lab_no is None:
                     continue
                 e = people.setdefault(str(t.lab_no), {"first": now})
                 if t.label and getattr(t, "source", None) in KEEP_NAME_SOURCES:
                     e["who"] = {"auth_subject": t.label, "name": t.name, "role": t.role, "source": t.source}
+                    # Strip this auth_subject from any other entry in people so two lab numbers never share one name
+                    for ok, ov in list(people.items()):
+                        if ok != str(t.lab_no) and (ov.get("who") or {}).get("auth_subject") == t.label:
+                            if int(ok) not in busy:
+                                del people[ok]
+                            else:
+                                ov.pop("who", None)
                 who = (e.get("who") or {}).get("auth_subject")
                 if who and t.label != who:
                     # 2026-11-18 lab: the owner sat at Hemaly's desk and was shown as Hemaly (desk guess); his track
@@ -311,13 +356,21 @@ class LabNumbers:
             # a track whose number (from the other camera / a merge) already carries a confirmed name gets it
             held = {o.label for o in tracks if o.label}
             queued = {w["auth_subject"] for _, w in self.restore}
+            peer_held_no = {p["label"]: p.get("lab_no") for p in (peer_tracks or []) if p.get("label") and p.get("lab_no") is not None}
             for t in tracks:
                 if t.label or t.lab_no is None or any(t is x for x, _ in self.restore):
                     continue
                 w = (people.get(str(t.lab_no)) or {}).get("who")
-                if w and w["auth_subject"] not in held and w["auth_subject"] not in queued:
-                    self.restore.append((t, w))
-                    queued.add(w["auth_subject"])
+                if not w:
+                    continue
+                subj = w["auth_subject"]
+                if subj in held or subj in queued or (t.id, subj) in self.restored_once:
+                    continue
+                if subj in peer_held_no and peer_held_no[subj] != t.lab_no:
+                    continue                                 # other camera currently holds this name on a different number
+                self.restore.append((t, w))
+                self.restored_once.add((t.id, subj))
+                queued.add(subj)
             return None
 
         self.reg.update(work)
@@ -326,11 +379,17 @@ class LabNumbers:
 
     @staticmethod
     def _confirmed_back(people: dict, busy: set, look, now: float, held: set) -> Optional[int]:
-        gone = {int(k): v for k, v in people.items() if int(k) not in busy and v.get("who")
-                and v["who"]["auth_subject"] not in held and now - v.get("seen", 0) <= NAME_BACK_S}
-        if len(gone) != 1:
+        raw_gone = {int(k): v for k, v in people.items() if int(k) not in busy and v.get("who")
+                    and v["who"]["auth_subject"] not in held and now - v.get("seen", 0) <= NAME_BACK_S}
+        # Deduplicate by auth_subject (keep most recently seen entry per person)
+        by_subj: dict[str, tuple[int, dict]] = {}
+        for k, v in raw_gone.items():
+            s = v["who"]["auth_subject"]
+            if s not in by_subj or v.get("seen", 0) > by_subj[s][1].get("seen", 0):
+                by_subj[s] = (k, v)
+        if len(by_subj) != 1:
             return None                                      # none, or two confirmed people left: no guess
-        k, v = next(iter(gone.items()))
+        k, v = next(iter(by_subj.values()))
         d = _dist(look, v.get("deep"))
         return k if d is not None and d <= NAME_BACK_MAX else None
 

@@ -1619,6 +1619,10 @@ class Labeler:
         # (Lab 2026-10-14: face confirmed Nour on track 22, then the look-only re-deal moved
         # her name to the seated woman beside her - "by crossing", wrong.)
         anchored = {t.id for t in group if t.label and self._agreed(t) == t.label}
+        # 2026-11-18 lab: staff confirmed Ahmed on a track; 50 s later a look-only re-deal after a crossing moved
+        # Hemaly's name back onto him. A staff confirmation outranks the body look: that track keeps its name,
+        # and no name moves onto it.
+        anchored |= {t.id for t in group if t.label and getattr(t, "source", None) == "operator"}
         group = [t for t in group if t.id not in anchored]
         labels = [t.label for t in group if t.label and t.label in who
                   and t.label in self.identities

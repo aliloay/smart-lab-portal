@@ -505,7 +505,7 @@ def chunk_key(d: dict) -> str:
     return sha256((d["source"] + "\x1f" + d["heading"] + "\x1f" + d["text"]).encode())[:20]
 
 
-def embed(cfg: dict, texts: list, prefix: str, threads: int = 0):
+def embed(cfg: dict, texts: list, prefix: str, threads: int = 0, timeout: float = 0):
     import numpy as np
     url = cfg["ollama"].rstrip("/")
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", url):
@@ -516,7 +516,8 @@ def embed(cfg: dict, texts: list, prefix: str, threads: int = 0):
     body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
             "keep_alive": "30m", "options": opts}    # was 15m (2.5 s reload), then 2h; 30m since 2026-11-03 (RAM)
     req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=cfg.get("embed_timeout_s", 120)) as r:
+    wait_s = timeout if timeout > 0 else cfg.get("embed_timeout_s", 120)
+    with urllib.request.urlopen(req, timeout=wait_s) as r:
         v = np.asarray(json.loads(r.read())["embeddings"], dtype=np.float32)
     return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
 
@@ -581,8 +582,8 @@ def search(cfg: dict, query: str, k: int = 6, idx: dict | None = None, semantic:
         mat = load_embeddings(cfg, idx)
         if mat is not None:
             try:
-                sem = mat @ embed(cfg, [query], "search_query: ")[0]
-            except Exception:                            # Ollama down / model missing: keyword-only
+                sem = mat @ embed(cfg, [query], "search_query: ", timeout=float(cfg.get("query_embed_timeout_s", 4.0)))[0]
+            except Exception:                            # Ollama down / model missing / cold-load busy: keyword-only
                 sem = None
     bm = {}
     for i, d in enumerate(idx["docs"]):

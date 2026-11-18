@@ -278,6 +278,16 @@ class Collector:
             rate = (len(self.rate_t) - 1) / max(1e-6, self.rate_t[-1] - self.rate_t[0])
         snap = self.motion.snapshot(now)
         snap["q"] = self.twin_q(snap["q"])
+        # Never report a disconnected/uninitialised robot as online (UNKNOWN or repeated TELEMETRY_STALE):
+        # send TELEMETRY_STALE once on transition so the portal records the drop, then let last_seen_at expire.
+        if snap["state"] == "UNKNOWN":
+            return
+        if snap["state"] == "TELEMETRY_STALE":
+            if getattr(self, "_stale_reported", False):
+                return
+            self._stale_reported = True
+        else:
+            self._stale_reported = False
         self.post("/robots/telemetry", {
             "device_uid": a.device, "lab_id": a.lab, "model": a.model, "source": self.source.name if self.source else
             {"sim": "SIMULATION", "fanuc": FanucWebSource.name}.get(a.source, "RTDE"), "name": a.name or a.device,
@@ -287,7 +297,7 @@ class Collector:
             fault = isinstance(ex.get("safety_mode"), int) and ex["safety_mode"] not in SAFETY_OK
             st = "FAULT" if fault else ("RUNNING" if snap["state"] == "MOVING" or ex.get("runtime_state") == RUNTIME_PLAYING
                                         else "IDLE")
-            if snap["state"] != "TELEMETRY_STALE":
+            if snap["state"] in ("MOVING", "STATIONARY"):
                 self.post("/equipment/state", {"device_uid": a.device, "lab_id": a.lab, "kind": "ROBOT",
                                                "asset_tag": a.asset, "state": st,
                                                "firmware_version": f"robot-collector-0.2 ({a.source})",

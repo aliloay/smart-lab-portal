@@ -149,3 +149,18 @@ def test_recorded_spots_give_clear_places_and_desk_owners():
     # no spot recorded for PC-07: the old box guess, worded as a guess
     guess = place_of((100, 380, 60, 120), zones, 1000, 1000)
     assert place_words(*guess, zones, owners) == "most likely at PC-07"
+
+
+def test_person_seated_at_pc_desk_with_short_occluded_box_is_never_lying_down():
+    """2026-11-18 live lab fix (SECCAM_LAB02 track 21 at PC-09): when a person sits at a PC desk, the monitor/desk
+    occludes their legs in the middle of the frame so the visible box has r = h/w < 0.8. It must report
+    'seated or leaning' (never 'lying down') and omit trouser colour."""
+    zones = [{"name": "PC-09", "x": 0.36, "y": 0.49, "w": 0.11, "h": 0.25, "seat": (0.36, 0.49, 0.12, 0.26)}]
+    t = types.SimpleNamespace(id=21, label="USER6", name="nour ramy", source="peer",
+                              box=(360, 500, 150, 105), vel=(0, 0), crowded=False,
+                              look=types.SimpleNamespace(color=bands(top_val=0), partial=False), lab_no=4)
+    e = describe([t], zones, 1000, 1000)[0]
+    assert e["posture"] == "seated or leaning"
+    assert "lying down" not in e["text"]
+    assert e["legs"] is None
+

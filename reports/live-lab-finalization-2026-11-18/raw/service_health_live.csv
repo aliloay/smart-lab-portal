@@ -1,0 +1,18 @@
+service,port,https_port,state,probe_ms,evidence,notes
+portal_web_nginx,80,443,LIVE,10,LIVE_SERVICE,Docker smart-lab-portal-frontend-1 healthy
+portal_api_fastapi,8000,,LIVE,15,LIVE_SERVICE,Docker smart-lab-portal-backend-1 healthy; version unstamped due to launch.bat plain docker build (fixed)
+postgres_db,5433,,LIVE,1,LIVE_SERVICE,Docker smart-lab-portal-db-1 healthy; 26 devices
+postgres_backup,,,LIVE,0,LIVE_SERVICE,Docker smart-lab-portal-backup-1 healthy
+n8n_automation,5678,,LIVE,8,LIVE_SERVICE,Docker smart-lab-portal-n8n-1 v2.40.7 healthy; 26 workflows active
+face_server,5000,,LIVE,2,LIVE_SERVICE,"PID 30468, 87.9 MB WS"
+security_camera_1,5100,,LIVE,5,LIVE_PHYSICAL,"PID 27156, 595.5 MB WS, RTSP 192.168.1.155 STREAMING"
+security_camera_2,5101,,LIVE,3,LIVE_PHYSICAL,"PID 19724, 592.6 MB WS, RTSP 192.168.1.156 STREAMING"
+knowledge_service,5199,,LIVE,6,LIVE_SERVICE,"PID 37300, /health 200 OK, /gpu-gate returns cpu"
+voice_service,5320,,LIVE,25,LIVE_SERVICE,"PID 37148, 99.5 MB WS, TTS 685.9 ms, STT 3535.1 ms"
+ollama_llm,11434,,LIVE,2,LIVE_SERVICE,"PID 11812, qwen2.5:1.5b + nomic-embed-text:latest"
+opcua_server,4840,,LIVE,1,LIVE_SERVICE,"PID 36396, 25.9 MB WS, mirroring /api/opcua/snapshot"
+ur5e_monitor,,,STALE,,LIVE_SERVICE,"PID 34364, retrying 192.168.1.102:30003"
+fanuc_monitor,,,STALE,,LIVE_SERVICE,"PID 35576, retrying 192.168.1.100:80"
+pc_agent_local,,,LIVE,,LIVE_SERVICE,"PID 38448, reporting PC_ADMIN_LAPTOP"
+lan_presence,,,LIVE,,LIVE_SERVICE,"PID 35924, ARP/ICMP presence from 192.168.1.200"
+mdns_announce,5353,,LIVE,,LIVE_SERVICE,"PID 35936, smartlab.local on 192.168.1.200"
