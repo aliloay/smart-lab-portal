@@ -64,6 +64,10 @@ SECRET_PATTERNS = [
     (re.compile(r"\bsk-[A-Za-z0-9]{20,}"), "api-key"),
 ]
 GENERATED_DIRS = ["00 - Home", "02 - Systems", "05 - n8n Workflows", "12 - Generated Reports", "14 - Sources"]
+# 2026-11-18: the repo keeps a copy of the vault in docs/knowledge/obsidian/vault/. Its GENERATED folders are this
+# tool's own output: never sources (fnmatch's "*" also matches "/", so "docs/*.md" took them in and health
+# link-checked mirrors of mirrors - 27 false broken links). Hand-written vault notes stay sources.
+DENY += [f"docs/knowledge/obsidian/vault/{d}/*" for d in GENERATED_DIRS]
 
 # System hubs (navigation aid, generated): a note belongs to a system when its path or workflow
 # name matches one of these patterns. The hub lists the rule that matched - nothing is inferred.
@@ -289,7 +293,9 @@ def scan(cfg: dict) -> dict:
     for rel, v in old["sources"].items():
         if rel not in seen:
             v = dict(v)
-            if v.get("status") == "present":
+            if v.get("status") == "present" and denied(rel) and os.path.isfile(os.path.join(cfg["repo"], rel)):
+                v["status"] = "excluded"            # still in the repo, now outside the policy (never deleted)
+            elif v.get("status") == "present":
                 if not any(r["from"] == rel for r in report["renamed"]):
                     report["removed"].append(rel)
                 v["status"] = "removed"             # flagged, never deleted

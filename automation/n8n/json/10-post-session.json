@@ -42,7 +42,10 @@
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
     },
     {
       "id": "e3c37c32-6280-58d5-a120-5872d0c0f8d3",

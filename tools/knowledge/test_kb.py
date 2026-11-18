@@ -199,3 +199,27 @@ def test_corrupted_index_is_rebuilt(env):
         kb.search(cfg, "door")
     build(cfg)                                                      # rebuild from sources
     assert kb.search(cfg, "door")
+
+
+def test_generated_vault_copies_in_the_repo_are_not_sources_and_are_not_called_removed(env):
+    """2026-11-18: fnmatch's * also matches "/", so "docs/*.md" took every note under docs/ - including the repo's
+    copy of the GENERATED vault mirrors (docs/knowledge/obsidian/vault/14 - Sources/*.md). Health then link-checked
+    mirrors of mirrors: 27 'broken links' (README images resolved from the wrong folder, code read as links).
+    Generated vault folders are never sources; a file that still exists but is now excluded is 'excluded',
+    not 'removed from the repository'."""
+    cfg, repo = env
+    gen = repo / "docs/knowledge/obsidian/vault/14 - Sources"
+    gen.mkdir(parents=True)
+    (gen / "README.md.md").write_text("# mirror\n![x](docs/screenshots/login.png)\n", encoding="utf-8")
+    (repo / "docs/knowledge/obsidian/vault/01 - Project").mkdir(parents=True)
+    (repo / "docs/knowledge/obsidian/vault/01 - Project/Overview.md").write_text("# Hand-written\n", encoding="utf-8")
+    reg = kb.scan(cfg)
+    assert not any("14 - Sources" in r for r in reg["sources"])
+    assert "docs/knowledge/obsidian/vault/01 - Project/Overview.md" in reg["sources"]     # hand-written notes stay
+    # a registry made before the fix: the mirror was a source -> now excluded, not removed
+    reg["sources"]["docs/knowledge/obsidian/vault/14 - Sources/README.md.md"] = {"status": "present", "sha256": "x" * 64}
+    json.dump(reg, open(os.path.join(cfg["data"], "registry.json"), "w", encoding="utf-8"))
+    reg = kb.scan(cfg)
+    assert reg["sources"]["docs/knowledge/obsidian/vault/14 - Sources/README.md.md"]["status"] == "excluded"
+    h = kb.health(cfg, reg)
+    assert h["removed_sources"] == [] and not any("14 - Sources" in b for b in h["broken_links"])
