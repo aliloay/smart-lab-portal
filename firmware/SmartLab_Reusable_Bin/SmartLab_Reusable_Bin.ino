@@ -29,6 +29,12 @@
 // reed polarity and the load cell bands are VERIFY values: set them on the
 // actual bin.
 // ===========================================================================
+// LEGACY (2026-11-18): the bin runs firmware/SmartLab_Reusable_Bin_Modular (reuse-mod-0.5, LAB_01). This
+// sketch uses the SAME device id REUSE_BIN_1 with LAB_ID "BENCH" (a lab the portal does not have), so
+// flashing it by mistake would mis-file the bin. It no longer builds unless you mean it.
+#ifndef ALLOW_LEGACY_REUSABLE_BIN
+#error "Legacy sketch: flash firmware/SmartLab_Reusable_Bin_Modular instead (or define ALLOW_LEGACY_REUSABLE_BIN)."
+#endif
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Wire.h>

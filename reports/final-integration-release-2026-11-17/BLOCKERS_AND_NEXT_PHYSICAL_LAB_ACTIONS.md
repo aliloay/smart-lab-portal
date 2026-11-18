@@ -2,7 +2,7 @@
 
 Machine-readable list: `blockers.csv`.
 
-## P0: owner, before anyone else uses the portal
+## P0: owner, after the lab verification (owner decision 18 Nov: kept for testing until then)
 1. **Change the two published default passwords** (admin@giu-uni.de, ramy@giu-uni.de):
    `docker compose exec backend python set_password.py <email>`. Verified still in use on 18 Nov.
 

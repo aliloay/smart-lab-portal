@@ -1,5 +1,9 @@
 # Reusable bin node (Robotics Lab, System 4) — bring-up
 
+> **LEGACY - do not flash.** The bin runs `firmware/SmartLab_Reusable_Bin_Modular` (reuse-mod-0.5, LAB_01).
+> This sketch uses the same id `REUSE_BIN_1` with `LAB_ID "BENCH"`, so the sketch stops the build with `#error`
+> unless `ALLOW_LEGACY_REUSABLE_BIN` is defined (2026-11-18).
+
 Firmware `SmartLab_Reusable_Bin.ino` — compiled, **not yet run on hardware**.
 Design: `docs/ROBOTICS_LAB_ARCHITECTURE.md` §K–L.
 

@@ -36,3 +36,16 @@ There is a real, project-owned Obsidian vault.
 - Running the command refreshed the generated note "12 - Generated Reports/Documentation health.md", which is the same thing the n8n check does.
 
 **Model alignment:** every knowledge default is now qwen2.5:1.5b (kb.py, config.example.json, serve.py, agent.py).
+
+## Fixed on 2026-11-18 (owner: "anything failing, just fix it")
+**n8n**
+- **Backup first:** all 26 workflows exported (draft + published) to D:\SmartLabData\n8n_backup_20261118 (inside n8n: /home/node/.n8n/backup-20261118).
+- **Retries:** 18 scheduled Smart Lab workflows have their first GET node retry 5x, 5 s apart (covers a backend restart of about 15 s). The 4 Knowledge job calls retry the same way.
+- **Left alone on purpose:** notify / alert POSTs (a retry after a timeout could duplicate a message) and the webhook-triggered workflows (01, 03, 05, 23 emergency).
+- **Applied with** n8n CLI import + publish, then an n8n restart. Verified: 26/26 active, 22 nodes with retryOnFail in the published versions. The repo copies in automation/n8n/json carry the same change.
+- **Knowledge service** (root cause of the Knowledge 1/2 errors): started (127.0.0.1:5199, /health ok), reachable from the n8n container through host.docker.internal. The jobs n8n calls (POST /jobs/health, /jobs/drift) return 200. launch.bat starts it on every lab start.
+
+**Obsidian**
+- **Cause of the 27 broken links:** kb.py discovered sources with fnmatch, whose "*" also matches "/", so "docs/*.md" took in the repo's copy of the GENERATED vault folders. Health then link-checked mirrors of mirrors.
+- **Fix:** generated folders are now denied as sources; a file still in the repo but excluded is marked "excluded", not "removed". +1 test (knowledge 50/50).
+- **Live vault after scan + build + health:** broken_links 0, stale_mirrors 0, removed_sources 0. 440 notes, 23 workflows, 12,988 search chunks. The knowledge service was restarted with the fixed code.

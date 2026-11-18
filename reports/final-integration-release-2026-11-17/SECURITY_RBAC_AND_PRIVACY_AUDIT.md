@@ -1,6 +1,10 @@
 # Security, RBAC and privacy audit (release candidate, 2026-11-18)
 
-## P0: owner action (pre-existing, NOT fixed by agents; rotating credentials is not authorised)
+## P0: accepted by the owner for now (2026-11-18)
+Owner decision: keep these passwords until the whole system is verified at the lab (easier testing), then change
+them. Risk accepted knowingly: the portal is LAN-only, but anyone on the lab LAN could sign in as admin meanwhile.
+
+### Details (pre-existing; rotating credentials is the owner's step)
 **Two live accounts still use the PUBLISHED default passwords:** `admin@giu-uni.de` (ADMIN) and `ramy@giu-uni.de` (LAB_STAFF).
 - Checked LIVE LOCAL SOFTWARE with the backend's own `briefing.default_passwords_in_use()` (hash check only, nothing printed).
 - Those defaults are in public source (backend/app/services/briefing.py, PUBLISHED_DEFAULTS), so anyone on the lab LAN can sign in as admin.

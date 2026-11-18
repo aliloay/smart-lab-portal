@@ -41,7 +41,8 @@ Git state: 510 tracked, 342 untracked (the owner's local reports and agent skill
 | FULL_CONCURRENT_SYSTEM_TEST.md | docs/reports/local-only-2026-11-17/ (local-only, historical) |
 | ARGON_*.md (12 files) + raw/ | reports/final-optimization-2026-11-17/ (agent report, historical; committed via the Argon merge) |
 | CLAUDE_OPTIMIZATION_REPORT.md / (1).md | not in any worktree; supplied as chat attachments only |
-| Door enclosure component dimensions.md, LAB_SESSION_FINAL_REPORT.md, CAMERA_AND_VISION_LIVE_RESULTS.md, SMART_LAB_POWERSHELL_PC_DEPLOYMENT_GUIDE.md | not found under these names in the repo or worktrees; supplied as attachments |
+| SMART_LAB_POWERSHELL_PC_DEPLOYMENT_GUIDE.md | lab_usb_kit/ (current runbook) |
+| Door enclosure component dimensions.md, LAB_SESSION_FINAL_REPORT.md, CAMERA_AND_VISION_LIVE_RESULTS.md | not found under these names in the repo or worktrees; supplied as attachments |
 
 ## Rules applied
 Historical reports were NOT edited. This folder is the current source of truth for the release candidate. Older
