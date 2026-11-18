@@ -207,7 +207,9 @@ def broadcast_state() -> dict:
     with _lock:
         # A browser presenter whose tab closed / crashed / lost the network sends no more frames: the
         # share ends by itself instead of showing a frozen picture forever (2026-10-21).
-        if _broadcast["active"] and _broadcast["source"] == "browser":
+        # 2026-11-18 (Gemini handoff): the same for a lab PC presenting (master PC / approved student PC) that
+        # loses the network or is switched off without "stop" - viewers were left on an empty share.
+        if _broadcast["active"] and _broadcast["source"] in ("browser", "master_pc", "pc"):
             last = _bframe[1] or 0.0
             started = time.monotonic() - (time.time() - (_broadcast["since"] or time.time()))
             if time.monotonic() - max(last, started) > PRESENTER_GONE_S:

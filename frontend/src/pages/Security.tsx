@@ -124,7 +124,13 @@ function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamer
   }
   return (
     <div className="text-[13px] font-semibold text-slate-100 leading-snug flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5">
-      <span className="flex-1 min-w-0">{a.text}{a.hint && !a.named ? <span className="text-warn-soft"> - guess: {a.hint}</span> : null}</span>
+      <span className="flex-1 min-w-0">{a.text}{a.hint && !a.named ? <span className="text-warn-soft"> - guess: {a.hint}</span> : null}
+        {(() => {   // 2026-11-18: body parts the camera does NOT see (desk, picture edge) - never shown as seen
+          const hidden = Object.entries(a.pose_visibility ?? {}).filter(([, v]) => v.state === 'OCCLUDED' || v.state === 'OUT_OF_FRAME')
+                                                              .map(([k]) => k)
+          return hidden.length ? <span className="block text-[11.5px] font-normal text-slate-400">
+            {a.partial ? 'partly in view' : 'partly hidden'} - not seen: {hidden.join(', ')}</span> : null
+        })()}</span>
       {!open && <button type="button" className="btn-ghost btn-sm !py-0.5" onClick={start}
                         title="Confirm who this is - the name then stays on them on both cameras">{sure ? 'Change' : 'Confirm'}</button>}
       {open && <span className="flex items-center gap-1.5">

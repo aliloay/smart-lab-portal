@@ -107,7 +107,9 @@ export interface SecurityCameraTile {
   activity?: { track_id: number; label: string | null; who: string; colour: string | null; posture: string
                near: string | null; named: boolean; text: string
                /** 2026-11-17: one number per unnamed person on BOTH cameras; at = seated at that box; size = box height 0-1 */
-               lab_no?: number | null; at?: boolean; size?: number; hint?: string | null }[]
+               lab_no?: number | null; at?: boolean; size?: number; hint?: string | null; partial?: boolean;
+               pose_visibility?: Record<string, { state: 'OBSERVED' | 'OCCLUDED' | 'PREDICTED' | 'OUT_OF_FRAME';
+                                                  confidence: number; xy?: [number, number] }> }[]
 }
 export interface SecurityCamera extends SecurityCameraTile {
   device_uid: string; name: string; lab_id: number; lab_code: string | null

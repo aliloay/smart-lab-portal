@@ -278,9 +278,10 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     d.component_state = {"port": prev.get("port", 5100),
                          "fps": round(req.fps, 1), "people": req.people, "unknown": req.unknown,
                          "named": req.named[:50], "source_ok": req.source_ok, "door_open": req.door_open,
-                         "activity": [{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
-                                       if k in ("track_id", "label", "who", "colour", "legs", "posture", "near", "named", "text",
-                                                "lab_no", "at", "size", "hint")}   # 2026-11-17: lab number (both cameras)
+                         "activity": [{**{k: (str(v)[:160] if isinstance(v, str) else v) for k, v in a.items()
+                                          if k in ("track_id", "label", "who", "colour", "legs", "posture", "near", "named",
+                                                   "text", "lab_no", "at", "size", "hint")},   # 2026-11-17: lab number
+                                       **_visibility(a)}
                                       for a in req.activity[:20]],
                          "metrics": {k: v for k, v in list(req.metrics.items())[:30]
                                      if isinstance(v, (int, float, type(None)))},
@@ -736,6 +737,41 @@ def recording_switch(device_id: int, action: Literal["start", "stop"], db: Sessi
                     detail={"device_uid": d.device_uid, **{k: body.get(k) for k in ("file", "duration_s", "size_bytes")}}))
     db.commit()
     return body
+
+
+POSE_JOINTS = ("head", "shoulders", "torso", "elbows", "wrists", "hips", "knees", "ankles")
+POSE_STATES = ("OBSERVED", "OCCLUDED", "PREDICTED", "OUT_OF_FRAME")
+
+
+def _visibility(a: dict) -> dict:
+    """2026-11-18 (Gemini handoff): the camera says which body parts it actually sees - `partial` (box cut by the
+    picture / a desk) and `pose_visibility` {joint: {state, confidence, xy?}}. Kept only when well formed: known
+    joints and states, finite confidence 0-1, finite xy pairs; anything else is dropped, never guessed. Old camera
+    services that do not send them are unaffected."""
+    import math
+    out: dict = {}
+    if isinstance(a.get("partial"), bool):
+        out["partial"] = a["partial"]
+    pv = a.get("pose_visibility")
+    if isinstance(pv, dict):
+        good = {}
+        for j in POSE_JOINTS:
+            e = pv.get(j)
+            if not isinstance(e, dict) or e.get("state") not in POSE_STATES:
+                continue
+            c = e.get("confidence")
+            if not isinstance(c, (int, float)) or isinstance(c, bool) or not math.isfinite(c) or not 0 <= c <= 1:
+                continue
+            item = {"state": e["state"], "confidence": round(float(c), 3)}
+            xy = e.get("xy")
+            if isinstance(xy, (list, tuple)) and len(xy) == 2 and all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and abs(v) < 1e5
+                    for v in xy):
+                item["xy"] = [round(float(xy[0]), 1), round(float(xy[1]), 1)]
+            good[j] = item
+        if good:
+            out["pose_visibility"] = good
+    return out
 
 
 class ConfirmRequest(BaseModel):
