@@ -59,3 +59,21 @@ def test_one_seated_person_is_at_one_seat_even_when_far_seats_overlap():
                              (15, "PC-15", (0.299, 0.487, 0.051, 0.151)))]
     occ = zw.pc_occupancy(zones, [(0.300, 0.490, 0.052, 0.150)], 960, 540)
     assert occ == {13: False, 14: False, 15: True}
+
+
+def test_a_robot_with_recorded_spots_is_in_use_only_by_someone_at_a_spot():
+    # 2026-11-18 lab: a person right in front of camera 2 overlapped the UR5e area -> "UR5e in use"
+    import numpy as np
+    from vision import ZoneWatcher
+    zw = ZoneWatcher()
+    z = {"id": 1, "name": "UR5e", "x": 0.143, "y": 0.311, "w": 0.044, "h": 0.209, "alert_on_motion": False,
+         "seat": (0.308, 0.3955, 0.0568, 0.234), "spots": [(0.308, 0.3955, 0.0568, 0.234), (0.133, 0.3376, 0.0877, 0.3844)]}
+    gray = np.zeros((540, 960), np.uint8)
+    near_camera = (0.0, 0.58, 0.13, 0.42)
+    for t in range(0, 12):
+        st = zw.update([z], gray, [near_camera], 100.0 + t)
+    assert st[0].status != "IN_USE"
+    zw2 = ZoneWatcher()
+    for t in range(0, 12):
+        st = zw2.update([z], gray, [(0.31, 0.40, 0.057, 0.23)], 100.0 + t)
+    assert st[0].status == "IN_USE"

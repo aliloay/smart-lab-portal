@@ -1906,6 +1906,7 @@ class ZoneWatcher:
         return float(np.clip(1 - (a * b).sum() / den, 0, 1))
 
     SEAT_MATCH = 0.3                   # person box vs a PC's recorded seat box (IoU): sitting in that seat
+    ROBOT_SPOT_FEET = 0.08             # feet this close (0-1 of the picture) to a robot's recorded operator spot
     SEAT_COVER = 0.6                   # ...or most of a small recorded seat inside the person box (2026-11-18:
     SEAT_SHARE = 0.15                  # far desks were recorded as a head above the monitors, 0.02 x 0.03)
 
@@ -2011,7 +2012,16 @@ class ZoneWatcher:
             if z.get("alert_on_motion", True) is False:   # a robot: its working area around it
                 g = self.ROBOT_WORK_AREA
                 area = (rect[0] - g * rect[2], rect[1] - g * rect[3], rect[2] * (1 + 2 * g), rect[3] * (1 + 2 * g))
-                occupied = any(iou(area, p) > 0.02 for p in person_rects_norm)
+                spots = z.get("spots") or ([z["seat"]] if z.get("seat") else [])
+                if spots:
+                    # 2026-11-18 lab: a person right in front of camera 2 (laptop desk) overlapped the UR5e area in
+                    # the picture -> "UR5e in use". With recorded operator spots (seat_capture.py), only someone at
+                    # one of them (box fits, or feet within ROBOT_SPOT_FEET of the spot's feet) works the robot.
+                    occupied = any(self.in_seat(s, p) or math.hypot(p[0] + p[2] / 2 - (s[0] + s[2] / 2),
+                                                                     p[1] + p[3] - (s[1] + s[3])) <= self.ROBOT_SPOT_FEET
+                                   for s in spots for p in person_rects_norm)
+                else:
+                    occupied = any(iou(area, p) > 0.02 for p in person_rects_norm)
             else:
                 # A PC is used by someone SITTING at it - see pc_occupancy (seat areas, PC power).
                 occupied = pc_occ.get(zid, False)
