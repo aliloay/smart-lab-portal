@@ -297,3 +297,32 @@ def test_free_pcs_question_is_answered_from_the_device_records():
     for q in ("Which PCs are free?", "any free computers", "which PCs are busy", "is a PC available"):
         assert agent.detect(q, staff=True) == "pcs_status", q
     assert agent.detect("Which PCs are free?", staff=False) is None                   # staff only, as before
+
+
+def test_stock_and_door_questions_are_answered_from_records(client, db, staff, alice, lab, monkeypatch):
+    """Integration 2026-11-18 (live check): "what is the stock of resistors?" missed the bins_stock pattern and the
+    model said it had no access (25.8 s); "is the door open?" had no intent at all and the model answered with
+    fingerprint refusals. Both are now instant answers from the records; the door answer never presents an old
+    reading as the current state and says it is the door contact, not the lock."""
+    _no_ai(monkeypatch)
+    assert agent.detect("what is the stock of resistors?", staff=True) == "bins_stock"
+    assert agent.detect("how much stock is left in the bin", staff=True) == "bins_stock"
+    assert agent.detect("is the door open?", staff=True) == "door_status"
+    assert agent.detect("is the lab door closed right now", staff=True) == "door_status"
+    assert agent.detect("is the door open?", staff=False) is None                     # staff only
+    assert agent.detect("who opened the door today", staff=True) != "door_status"     # history, not state
+    h = auth_headers(client, staff.email)
+    ask = lambda q: client.post("/api/ai/ask", headers=h, json={"question": q}).json()
+    r = ask("is the door open?")
+    assert r["instant"] and r["tools_used"] == ["instant:door_status"] and "has not reported" in r["answer"]
+    now = datetime.now(timezone.utc)
+    m = Device(device_uid="MASTER_T", name="Door controller", device_type=DeviceType.MASTER_CONTROLLER, lab_id=lab.id,
+               last_seen_at=now, is_online=True, door_closed=True)
+    db.add(m)
+    db.commit()
+    r = ask("is the door open?")
+    assert "**CLOSED**" in r["answer"] and "MASTER_T" in r["answer"] and "not the lock" in r["answer"]
+    m.door_closed, m.last_seen_at = False, now - timedelta(hours=3)
+    db.commit()
+    r = ask("is the door open?")
+    assert "**OPEN**" not in r["answer"] and "too old" in r["answer"]

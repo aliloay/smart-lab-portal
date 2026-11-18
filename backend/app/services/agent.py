@@ -526,8 +526,15 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     # 2026-10-18: "What is the temperature?" got the data-source overview, and "How many resistors are in
     # the bin?" went to the language model (213 s), which then said it could not answer.
     ("environment_now", r"\b(temperature|humidity|smoke|gas|flame|fire|motion|warm|hot|cold)\b", True),
+    # 2026-11-18 live check: "what is the stock of resistors?" missed (nothing after "resistors") and the model said
+    # it had no access to stock - "stock / inventory / count of ..." and "how much ... stock" are stock questions too.
     ("bins_stock", r"\bhow many\b.*\b(resistors?|parts?|pieces?|items?|components?|left|in (the|a) bins?)\b|"
-                   r"\b(bins?|consumables?|stock|inventory|resistors?)\b.*\b(count|left|level|stock|how many|status)\b", True),
+                   r"\b(bins?|consumables?|stock|inventory|resistors?)\b.*\b(count|left|level|stock|how many|status)\b|"
+                   r"\b(stock|inventory|count)\s+(of|for|in)\b|\bhow much\b.*\b(stock|resistors?|parts?|left)\b", True),
+    # 2026-11-18 live check: "is the door open?" had no intent; the model answered with fingerprint refusals. The door
+    # contact state comes from the Master's own report (read only - nothing here can move the door).
+    ("door_status", r"\b(door|entrance)\b.*\b(open|closed|shut|state|status)\b(?!.*\b(who|log|history)\b)|"
+                    r"\b(is|was)\b.*\b(open|closed|shut)\b.*\bdoor\b", True),
     ("system", r"\b(system|data sources?|subsystems?|integrations?)\b.*\b(status|health|fresh\w*|overview|summary|working)\b|"
                r"\bhow is the (lab|system)\b", True),
     ("offline", r"\b(offline|disconnected|not (responding|connected))\b", True),
@@ -841,6 +848,25 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
             lines.append(f"{o['item_name']} ({o['code']}): {qty}{q}, last reading {when}{low}")
         return _answer("**Consumables** (estimated from each bin's scale):\n" + _bullets(lines), intent,
                        {"label": "Open Consumables", "to": "/admin/equipment?tab=consumables"})
+
+    if intent == "door_status":
+        doors = [d for d in refresh_liveness(db) if d.device_type == DeviceType.MASTER_CONTROLLER]
+        if not doors or all(d.door_closed is None for d in doors):
+            return _answer("The door controller has not reported a door state, so I cannot say whether the door is "
+                           "open.", intent, {"label": "Open Devices", "to": "/admin/devices"})
+        now = datetime.now(timezone.utc)
+        lines = []
+        for d in sorted(doors, key=lambda d: d.device_uid):
+            if d.door_closed is None:
+                lines.append(f"{d.name} ({d.device_uid}): no door state reported.")
+            elif is_fresh(d, now):
+                lines.append(f"{d.name} ({d.device_uid}): door contact **{'CLOSED' if d.door_closed else 'OPEN'}** - "
+                             f"last report {_when(d.last_seen_at)}.")
+            else:
+                lines.append(f"{d.name} ({d.device_uid}): last report {_when(d.last_seen_at)} said "
+                             f"{'closed' if d.door_closed else 'open'} - too old to say what the door is now.")
+        return _answer("\n".join(lines) + "\nThis is the door's contact sensor, not the lock.", intent,
+                       {"label": "Open Devices", "to": "/admin/devices"})
 
     if intent in ("robots_status", "cameras_status", "pcs_status"):
         kind = {"robots_status": DeviceType.ROBOT, "cameras_status": DeviceType.SECURITY_CAMERA,
