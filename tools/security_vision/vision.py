@@ -1648,7 +1648,19 @@ class Labeler:
         if current is None:
             return
         best, best_cost = None, current - self.SWAP_MARGIN
-        for chosen in itertools.permutations(group, len(labels)):
+        # 2026-11-18 lab (twice in an hour: Ahmed, then the owner at PC-02 got Hemaly's name): the re-deal may only
+        # SWAP names between people who both carried one - never hand a name to someone who had none (look only).
+        # A person WITHOUT a name joins only when big enough to judge and clearly alike one of the names (the tracker
+        # swapped two boxes while they passed - the look puts the name back), as REACQUIRE_MAX requires elsewhere.
+        def clear(t):
+            if t.label in labels:
+                return True
+            if t.box[3] < self.MIN_LOOK_H or not upright(t.box):
+                return False
+            ds = [look_distance(t.look, self.identities[l].look) for l in labels]
+            return any(d is not None and d <= self.REACQUIRE_MAX for d in ds)
+        holders = [t for t in group if clear(t)]
+        for chosen in itertools.permutations(holders, len(labels)):
             c = cost(list(zip(chosen, labels)))
             if c is not None and c < best_cost:
                 best, best_cost = chosen, c
