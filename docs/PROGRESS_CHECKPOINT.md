@@ -1,5 +1,10 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-19 afternoon - prepared for the ESP32 session (owner away)
+Firmware images (4 nodes) in D:\SmartLabDatairmware_builds_20261119 (compile only); ESP32-CAM core 3.2.1 install
+incomplete (needs download OK). Thesis paste file, assistant recheck, V2 film QA: see
+reports/final-smart-lab-closure-2026-11-18/FINAL_SMART_LAB_REMAINING_WORK.md (last section).
+
 ## UPDATE 2026-11-19 14:06 - DEPLOYED backend 1456d9e-20261119140546 (NOT pushed)
 Share frames bound to their share (session number), face server up only on /health 200 + status ok, backup waits by
 wall clock (a night of laptop suspend had skipped 14 h; backup recreated, dump 20261119_1406), test_backend_fast.ps1 uses

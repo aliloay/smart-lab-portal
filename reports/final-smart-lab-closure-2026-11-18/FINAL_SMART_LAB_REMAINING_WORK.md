@@ -26,3 +26,19 @@ FINAL_INTEGRATION_AND_DEPLOYMENT_NOTES.md). What remains needs the owner, the ha
 | Marker art for GIU PCs (B-22) | Rejected: the art pictures carry PC_01's QR; GIU PCs correctly use generated cards |
 | Large tracked files (STEP copies, retired ONNX, B-30) | Rewriting history / deleting is the owner's call after the defense |
 | Push to GitHub | Not authorised; check `reports/` privacy first |
+
+## Prepared while the owner was away (19 Nov afternoon)
+- **Firmware images built (compile only, nothing flashed)** with each node's real secrets file, core 3.3.12, in
+  `D:\SmartLabData\firmware_builds_20261119\<sketch>\`: Master_Portal OK (55 %), Environment_Node OK (73 %),
+  Consumable_Bin OK (74 %), Reusable_Bin_Modular OK (79 %). Build logs beside the folder.
+- **ESP32-CAM not built:** the core 3.2.1 folder `D:\SmartLabData\arduino_core321` is incomplete (the esp32 core package
+  itself and esptool are missing; only toolchain archives are staged). Completing it needs a download - owner OK needed.
+  Until then the known-good image `backups/esp32cam-20261018/esp32cam_core321_kept.merged.bin` can be restored.
+- **Thesis corrections ready:** `THESIS_CORRECTIONS_READY_TO_PASTE.md` (pin tables, relay row, test count, door text).
+- **Frontend:** `tsc --noEmit` clean, `vite build` OK.
+- **Assistant (live :5199, home, cameras off, CPU):** new questions median 12.0 s, worst 17.4 s, first word median 9.6 s;
+  repeats 0.0 s; 4/4 unsafe/secret requests refused. Quality: "Which engine runs the SecurityCam detector?" answered
+  "ONNX Runtime CPU" although the cited audit says DirectML first (small-model misreading). Knowledge service was not
+  running and was started.
+- **Film V2 (other session) independently checked:** account names blurred, decode OK, no black/silence; a third
+  person's name ("nour ramy") is visible in camera labels and the camera panel - in V1 too. **Owner decision.**
