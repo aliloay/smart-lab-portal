@@ -1023,7 +1023,8 @@ async def broadcast_frame_from_browser(request: Request, admin: User = Depends(r
     body = await request.body()
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
-    pc_control.broadcast_put(body)
+    if not pc_control.broadcast_put(body, st.get("session")):
+        raise HTTPException(status.HTTP_409_CONFLICT, "That share has ended or another one started")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1052,7 +1053,8 @@ async def broadcast_frame_from_master(request: Request, device_uid: str = Query(
     body = await request.body()
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
-    pc_control.broadcast_put(body)
+    if not pc_control.broadcast_put(body, st.get("session")):
+        raise HTTPException(status.HTTP_409_CONFLICT, "That share has ended or another one started")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -193,8 +193,8 @@ def _probe(state: dict, url: str, good) -> Optional[bool]:
         def run():
             import httpx
             try:
-                ok = good(httpx.get(url, timeout=1.0).status_code)
-            except Exception:
+                ok = bool(good(httpx.get(url, timeout=1.0)))
+            except Exception:                    # timeout, refused, malformed body: not up
                 ok = False
             state.update(at=time.monotonic(), ok=ok, busy=False)
         threading.Thread(target=run, daemon=True, name="device-probe").start()
@@ -202,12 +202,24 @@ def _probe(state: dict, url: str, good) -> Optional[bool]:
 
 
 def _face_server_up() -> Optional[bool]:
-    """The face server never reports; ask it directly (background, cached 15 s)."""
+    """The face server never reports; ask it directly (background, cached 15 s).
+    Only a genuine answer counts (2026-11-19): /health with 200 and {"status": "ok"}. It used to be any
+    reply under 500 from /users, so a 404 from some other program on port 5000 read as a healthy face server."""
     import os
     if os.environ.get("DEVICE_PROBES", "1") == "0":   # tests: never touch real hardware
         return None
     from app.core.config import settings
-    return _probe(_face_probe, settings.FACE_SERVER_URL.rstrip("/") + "/users", lambda c: c < 500)
+    return _probe(_face_probe, settings.FACE_SERVER_URL.rstrip("/") + "/health", _face_health_ok)
+
+
+def _face_health_ok(r) -> bool:
+    if r.status_code != 200:
+        return False
+    try:
+        body = r.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("status") == "ok"
 
 
 def _entry_camera_up() -> bool:
@@ -216,7 +228,7 @@ def _entry_camera_up() -> bool:
     if os.environ.get("DEVICE_PROBES", "1") == "0":   # tests: never touch real hardware
         return False
     from app.core.config import settings
-    return bool(_probe(_cam_probe, settings.CAMERA_URL.rstrip("/") + "/status", lambda c: c == 200))
+    return bool(_probe(_cam_probe, settings.CAMERA_URL.rstrip("/") + "/status", lambda r: r.status_code == 200))
 
 
 def _derived_state(d: Device, out, now: datetime) -> None:

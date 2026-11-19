@@ -89,7 +89,10 @@ services:
             sleep 300
             continue
           fi
-          sleep $$((BACKUP_EVERY_HOURS * 3600))
+          # 2026-11-19: wait by the wall clock in 1-minute steps. One long `sleep` does not count the time the
+          # laptop is suspended (the Docker VM's clock stops), so a night asleep left 14 h without a backup.
+          next=$$(( $$(date +%s) + BACKUP_EVERY_HOURS * 3600 ))
+          while [ "$$(date +%s)" -lt "$$next" ]; do sleep 60; done
         done
     restart: unless-stopped
     healthcheck:

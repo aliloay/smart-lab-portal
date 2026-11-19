@@ -35,15 +35,15 @@ Full table with protocols and authentication: [INTEGRATION_MATRIX.md](../../INTE
 
 ### Knowledge, automation and the assistants (precise wording)
 
-- **Obsidian vault:** 322 notes and about 1,700 wikilinks, generated from the repository (`kb.py build`): system notes, the n8n workflow catalogue, the database dictionary and one note per source file. Hand-written runbooks, decisions and incidents survive rebuilds.
+- **Obsidian vault:** about 800 notes (counted 2026-11-19; 322 when this brief was first written), generated from the repository (`kb.py build`): system notes, the n8n workflow catalogue, the database dictionary and one note per source file. Hand-written runbooks, decisions and incidents survive rebuilds.
 - **Direction of the links:** the vault *documents* the n8n workflows and the agent *reads* the vault. n8n does not read Obsidian; it calls the backend (`/api/automation/*`), and the backend holds the rules. Say "the knowledge base documents the automation layer and lets the agent explain it", not "Obsidian drives n8n".
-- **n8n:** 23 workflows; schedules (daily report 20:00, weekly report Mondays 07:00, data-quality check 06:00) and event webhooks. Workflows stay thin: they trigger, the backend decides.
+- **n8n:** 23 portal workflows plus 3 knowledge-service workflows (repo copies in `automation/n8n/json/` and `automation/n8n/json/knowledge/`); schedules (daily report 20:00, weekly report Mondays 07:00, data-quality check 06:00) and event webhooks. Workflows stay thin: they trigger, the backend decides.
 - **Assistants:** common questions are answered instantly from the records without a model; open questions use a local model (qwen2.5:1.5b) with read-only tools. A booking is a proposal the user confirms; an assistant cannot act on hardware.
 - **Voice and camera:** speech in and out through local faster-whisper and Piper; the phone page needs HTTPS (local certificate authority) because browsers allow the camera only in a secure context.
 
 ## 3. Questions the committee is likely to ask
 
-**Why Docker, and why WSL 2?** The backend, database, web server, n8n and backup are Linux services. Docker gives the same pinned versions (PostgreSQL 16, n8n 2.40.7) on any PC and one-command start. On Windows, Docker Desktop runs these containers inside a small Linux virtual machine provided by WSL 2. Its memory is capped at 6 GB (`.wslconfig`), and freed cache is returned to Windows.
+**Why Docker, and why WSL 2?** The backend, database, web server, n8n and backup are Linux services. Docker gives the same pinned versions (PostgreSQL 16, n8n 2.40.7) on any PC and one-command start. On Windows, Docker Desktop runs these containers inside a small Linux virtual machine provided by WSL 2. Its memory is capped at 4 GB (`.wslconfig`, checked 2026-11-19), and freed cache is returned to Windows.
 
 **Why not pure Windows?** Installing PostgreSQL, Python, Node, nginx and n8n by hand gives a setup that differs on every PC and is hard to reproduce or back up. Containers make the installation a file in the repository.
 

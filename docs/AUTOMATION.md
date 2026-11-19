@@ -1,7 +1,8 @@
 # Automation (n8n), events and analytics
 
 This document covers the layer added on top of the working portal: a
-transactional event outbox, an automation API for n8n, 22 n8n workflows,
+transactional event outbox, an automation API for n8n, 23 n8n workflows
+(plus 3 knowledge-service workflows in `automation/n8n/json/knowledge/`, 2026-11-19),
 and the analytics behind the Operations Center. None of it changes the door.
 
 ## 1. The rule this layer never breaks
@@ -188,8 +189,9 @@ git pull
 docker compose --profile automation up -d --build
 ```
 
-The normal `docker compose up` (and the launch script) does **not** start
-n8n. That is intentional: the portal never depends on it. With the profile,
+A plain `docker compose up` does **not** start n8n: the portal never depends on it.
+`launch.bat` adds `--profile automation` only when `.env` sets `AUTOMATION_WEBHOOK_BASE`
+(checked 2026-11-19, launch.bat "Automation (n8n) is optional"). With the profile,
 the editor is at http://localhost:5678 (bound to this laptop only) and n8n
 reaches the API as `http://backend:8000`.
 

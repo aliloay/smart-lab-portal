@@ -108,7 +108,8 @@ PRESENTER_GONE_S = 90.0          # a browser presenter silent this long has gone
 #                                  90 s, not less: Chrome throttles a background tab's timers to ~1 per minute.
 _broadcast: dict = {"active": False, "by": None, "by_id": None, "source": None, "since": None, "title": "",
                    "device_id": None, "audience": "all",
-                    "targets": None}                   # None = every lab PC; else a list of device ids
+                    "targets": None,                   # None = every lab PC; else a list of device ids
+                    "session": 0}                      # +1 per start: a frame checked against an older share is refused
 _bframe: list = [None, 0.0]                     # [jpeg, received at]
 
 
@@ -118,6 +119,7 @@ def broadcast_start(by: str, by_id: int, source: str, title: str = "", targets: 
     agent captures). audience "staff": only staff may watch (a student showing the admin only)."""
     with _lock:
         _broadcast.update(active=True, by=by, by_id=by_id, source=source, since=time.time(), title=title[:80],
+                          session=_broadcast["session"] + 1,
                           targets=sorted(set(targets)) if targets else None, device_id=device_id,
                           audience=audience)
         _bframe[0], _bframe[1] = None, 0.0
@@ -224,9 +226,11 @@ def broadcast_state() -> dict:
     return s
 
 
-def broadcast_put(jpeg: bytes) -> bool:
+def broadcast_put(jpeg: bytes, session: Optional[int] = None) -> bool:
+    """session: the share the caller was checked against (broadcast_state()["session"]). The upload body is read
+    after that check; if another share started meanwhile, the old presenter's frame must not appear in it."""
     with _lock:
-        if not _broadcast["active"]:
+        if not _broadcast["active"] or (session is not None and session != _broadcast["session"]):
             return False
         _bframe[0], _bframe[1] = jpeg, time.monotonic()
         return True

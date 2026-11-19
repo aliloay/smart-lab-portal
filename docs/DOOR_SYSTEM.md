@@ -1,5 +1,12 @@
 # Smart Lab Access Control — How to Run
 
+> **Out of date in places (note added 2026-11-19).** The current door wiring is
+> [docs/hardware/DOOR_MASTER_WIRING.md](hardware/DOOR_MASTER_WIRING.md): the MFRC522 was retired for a PN532 (I2C),
+> the lock moved to the relay's NO contact on 2026-10-04, and on 2026-11-08 the relay stage was rebuilt
+> (relay on 5 V, NPN driver, GPIO26 HIGH = locked) replacing the BC557 stage. The ESP32-CAM must be built with
+> **esp32 core 3.2.1** (`D:\SmartLabData\arduino_core321`); the Master ESP32 uses 3.3.11.
+> The run steps below are still valid.
+
 Full system: RFID **or** QR → fingerprint **or** face → door.
 
 ---

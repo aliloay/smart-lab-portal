@@ -12,19 +12,21 @@ Set-Location $root
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $bytes = New-Object byte[] 18; $rng.GetBytes($bytes)
 $dbPass = -join ($bytes | ForEach-Object { $_.ToString('x2') })
-docker rm -f smartlab-testdb 2>$null | Out-Null
-docker run -d --name smartlab-testdb --network smart-lab-portal_default `
+# 2026-11-19: a name of its own per run. With one fixed name, a second session starting the suite removed the first
+# run's database mid-run (27 errors, all "connection refused"). Nothing here removes another run's container.
+$dbName = 'smartlab-testdb-' + $dbPass.Substring(0, 8)
+docker run -d --name $dbName --network smart-lab-portal_default `
   --tmpfs /var/lib/postgresql/data:rw,size=1g `
   -e POSTGRES_USER=smartlab -e POSTGRES_PASSWORD=$dbPass -e POSTGRES_DB=smartlab_test `
   postgres:16-alpine -c fsync=off -c synchronous_commit=off -c full_page_writes=off | Out-Null
 try {
-  do { Start-Sleep 1; docker exec smartlab-testdb pg_isready -U smartlab -d smartlab_test 2>$null | Out-Null } while ($LASTEXITCODE -ne 0)
+  do { Start-Sleep 1; docker exec $dbName pg_isready -U smartlab -d smartlab_test 2>$null | Out-Null } while ($LASTEXITCODE -ne 0)
   $args2 = @($PytestArgs | Where-Object { $_ })    # @(): one argument stays an array (a bare string splats per character)
   docker compose run --rm --no-deps -T `
-    -e TEST_DATABASE_URL=postgresql+psycopg://smartlab:${dbPass}@smartlab-testdb:5432/smartlab_test `
+    -e TEST_DATABASE_URL=postgresql+psycopg://smartlab:${dbPass}@${dbName}:5432/smartlab_test `
     -v "${root}\backend:/app" backend python -m pytest -q -p no:cacheprovider @args2
   $code = $LASTEXITCODE
 } finally {
-  docker rm -f smartlab-testdb 2>$null | Out-Null
+  docker rm -f $dbName 2>$null | Out-Null
 }
 exit $code
