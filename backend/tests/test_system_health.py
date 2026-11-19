@@ -71,3 +71,15 @@ def test_liveness_scan_is_throttled_in_production_but_still_returns_devices(db, 
     a, b = dv.refresh_liveness(db), dv.refresh_liveness(db)
     assert calls["n"] == 1                                       # second call within 3 s skipped the scan
     assert [d.device_uid for d in a] == [d.device_uid for d in b] and any(d.device_uid == "ENV_X" for d in b)
+
+
+def test_retired_test_cards_are_not_listed_in_system_health(client, db, staff, lab):
+    """2026-11-19 (owner: remove the old test PC cards): 'TEST - ...' devices stay in the database for their history
+    but are hidden on System analytics too, like on Equipment and in /api/system/status."""
+    old = datetime.now(timezone.utc) - timedelta(days=20)
+    db.add_all([Device(device_uid="PC_OLD_T", name="TEST - old HP test PC (10-21)", device_type=DeviceType.PC, lab_id=lab.id, last_seen_at=old),
+                Device(device_uid="PC_REAL_T", name="PC-11", device_type=DeviceType.PC, lab_id=lab.id, last_seen_at=old)])
+    db.commit()
+    uids = {s.get("device_uid") for s in client.get("/api/system/services", headers=auth_headers(client, staff.email)).json()["services"]}
+    assert "PC_REAL_T" in uids and "PC_OLD_T" not in uids
+    assert db.query(Device).filter_by(device_uid="PC_OLD_T").one()       # still in the database
