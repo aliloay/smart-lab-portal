@@ -162,6 +162,8 @@ def _device_health(db: Session, now: datetime) -> list[dict]:
     for d in db.scalars(select(Device).order_by(Device.device_type, Device.name)).all():
         if d.device_type not in groups:
             continue
+        if (d.name or "").startswith("TEST -"):
+            continue      # retired duplicates (kept for their history), hidden like on Equipment and in /status (19 Nov)
         fresh = is_fresh(d, now)
         cs = d.component_state or {}
         last = d.last_seen_at
