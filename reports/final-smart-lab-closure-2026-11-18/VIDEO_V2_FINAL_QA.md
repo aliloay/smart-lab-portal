@@ -41,3 +41,9 @@ V1 (`SMART_RESEARCH_LAB_FINAL_SHOWCASE.mp4`) was not touched by this work. The p
 - **The "live system" views are dated recordings** (19 Oct, 14 Oct, 18 Nov), not the current state. At home on 19 Nov the nodes and robots were offline.
 - **The n8n canvases are drawn from the workflow JSON.** They are not screenshots of the n8n editor, which was deliberately not started.
 - **The knowledge-graph animation is rendered from the vault's link data.** The real Obsidian graph view is shown right before it.
+
+## Independent QA by the parallel closure session (19 Nov), and follow-ups
+- **Confirmed:** privacy fixes hold; no black ≥ 0.5 s or silence ≥ 2 s; the sign-in shows only the demo account.
+- **Fixed:** the knowledge-graph slide highlighted "Knowledge & AI · 0 files". The vault graph has no files from that group (tools/knowledge code is not mirrored), so empty groups are now skipped. Patched by re-rendering that window only.
+- **Fixed:** the audio true peak was −0.2 dBFS; a limiter now holds it at −1.3 dB for venue speakers.
+- **OWNER DECISION (B-26):** a third person's name ("nour ramy (Student) USER6 …") is visible in the camera-1 label boxes (~1:47–2:05) and in small text in the portal camera panel (~1:43–1:51), the same as in V1. Faces are blurred. Blurring these labels is a one-line change plus a patch render if the owner wants it.
