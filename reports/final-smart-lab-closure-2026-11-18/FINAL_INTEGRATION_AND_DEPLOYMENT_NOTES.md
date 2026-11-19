@@ -3,9 +3,9 @@
 ## What is running (live-verified 19 Nov)
 | Part | Version | How checked |
 |---|---|---|
-| Backend | `c4848e2-20261119000402` (merge of `claude/final-closure-2026-11-19`) | `curl -sk https://127.0.0.1/api/health` |
+| Backend | `1456d9e-20261119140546` (19 Nov 14:06; includes the other session's `66ff251`) | `curl -sk https://127.0.0.1/api/health` |
 | Frontend | `ecbb167-20261118231702` (no frontend code changed since) | `curl -sk https://127.0.0.1/version.json` |
-| Database, backup | `db` healthy; `backup` restarted 18 Nov 23:43 after it had stopped (Exited 137) | `docker compose ps` |
+| Database, backup | `db` healthy; `backup` recreated 19 Nov 14:06 with the wall-clock wait (dump `auto_smartlab_20261119_1406`); it had stopped on 18 Nov and skipped 14 h overnight | `docker compose ps`, `docker logs` |
 | n8n | stopped (Exited 0); not touched | `docker compose ps` |
 
 Branch `fix/pre-lab-hardening` in `C:\Projects\smart-lab-portal`. **Not pushed to GitHub.**
@@ -25,8 +25,8 @@ Branch `fix/pre-lab-hardening` in `C:\Projects\smart-lab-portal`. **Not pushed t
    since Compose v5 it exits 0 without building on this laptop).
 4. `docker compose up -d --no-deps backend`, then check that `/api/health` shows the new commit id.
 
-Rollback points: `smart-lab-portal-backend:pre-retired-20261119` (= `ecbb167`), plus the older `pre-*` tags.
-Dumps: `D:\SmartLabData\db_dumps\predeploy_2026-11-19.dump`, `predeploy_retired_2026-11-19.dump`.
+Rollback points: `smart-lab-portal-backend:pre-share-20261119` (= `c4848e2`), `pre-retired-20261119` (= `ecbb167`), plus older `pre-*` tags.
+Dumps: `D:\SmartLabData\db_dumps\predeploy_2026-11-19.dump`, `predeploy_retired_2026-11-19.dump`, `predeploy_share_2026-11-19.dump`.
 
 ## Changes in this round
 See `GEMINI_RECONCILIATION_AND_FIXES_2026-11-19.md`. A second round, made after that report, adds:

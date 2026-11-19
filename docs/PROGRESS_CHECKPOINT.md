@@ -1,5 +1,13 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-19 14:06 - DEPLOYED backend 1456d9e-20261119140546 (NOT pushed)
+Share frames bound to their share (session number), face server up only on /health 200 + status ok, backup waits by
+wall clock (a night of laptop suspend had skipped 14 h; backup recreated, dump 20261119_1406), test_backend_fast.ps1 uses
+its own test-DB name per run (two sessions had killed each other's DB), other session's 66ff251 (system health skips TEST
+cards) included. Docs: DEFENSE_BRIEF / AUTOMATION / DOOR_SYSTEM corrected; HARDWARE_TEST_PLAN, FINAL_INTEGRATION_AND_DEPLOYMENT_NOTES,
+FINAL_SMART_LAB_REMAINING_WORK in reports/final-smart-lab-closure-2026-11-18/. Backend 856 passed / 3 skipped.
+Rollback tag pre-share-20261119 (= c4848e2); dump D:\SmartLabData\db_dumps\predeploy_share_2026-11-19.dump.
+
 ## UPDATE 2026-11-19 late (home) - Gemini Argon findings reconciled; merged c4848e2, backend DEPLOYED c4848e2-20261119000402 (NOT pushed; rollback tag pre-retired-20261119; dump D:\SmartLabData\db_dumps\predeploy_retired_2026-11-19.dump)
 Branch claude/final-closure-2026-11-19 (from 6e09864): retired "TEST -" cards + _SIM robots left out of watch alerts (B-07),
 summary KPI, device list (?include_retired=true shows them), lab page, health score, markers, OPC UA (B-08); daily robot hours
