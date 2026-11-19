@@ -1,0 +1,144 @@
+1
+00:00:03,299 --> 00:00:09,890
+What if every system in a lab worked together? This is the Smart Research Lab at the German International University.
+
+2
+00:00:03,600 --> 00:00:07,000
+SMART RESEARCH LAB - German International University, Robotics Lab
+
+3
+00:00:09,890 --> 00:00:17,640
+It starts at the sign-in page. Here a demo staff account signs in on the demo copy of the portal, and the password stays masked.
+
+4
+00:00:20,589 --> 00:00:22,939
+Signing in opens the welcome screen.
+
+5
+00:00:27,390 --> 00:00:35,130
+Dive in, and it explains the idea: every lab, robot, sensor and door decision connected into one system.
+
+6
+00:00:45,489 --> 00:00:56,969
+These views were recorded on days when the nodes were online: the command center, live temperature and humidity, the consumables bin counting by weight, and reusable items tracked by NFC.
+
+7
+00:00:56,870 --> 00:00:59,910
+The command center is the wall view of the whole lab.
+
+8
+00:01:01,270 --> 00:01:08,670
+Every device shows its last heartbeat and firmware. A silent device is shown as offline, never assumed healthy.
+
+9
+00:01:08,769 --> 00:01:20,609
+Every node started as a CAD model: the door controller with its ESP32 camera, the environment node, the consumables scale and the reusable bin dock, each split into printable parts.
+
+10
+00:01:20,670 --> 00:01:27,120
+Printed and assembled, each enclosure holds its ESP32, its sensors and its display.
+
+11
+00:01:29,370 --> 00:01:38,720
+The real prototypes: the master door node with fingerprint, card reader and screen, and the reusable bin, whose lid opens after an NFC scan.
+
+12
+00:01:42,870 --> 00:01:51,780
+Two AI security cameras work as one system. They follow each person, give them one lab number on both cameras, and know who sits at which computer.
+
+13
+00:01:51,680 --> 00:01:58,580
+Camera one, enlarged. Names come from the face, the door entry or a staff confirmation, never from a guess.
+
+14
+00:01:58,980 --> 00:02:05,570
+Camera two sees the other half of the room. A computer is marked in use only when someone is actually sitting at it.
+
+15
+00:02:05,879 --> 00:02:15,090
+In this recorded session, people walk through the lab. Each one is detected, tracked and placed at a desk or a robot. Names and faces are hidden here.
+
+16
+00:02:15,680 --> 00:02:22,310
+Every lab computer reports through the engineer's relay PC. The portal shows who is signed in and what is running.
+
+17
+00:02:22,479 --> 00:02:28,710
+Staff can view all lab screens at once, view only. Each computer shows a notice while it is being viewed.
+
+18
+00:02:28,609 --> 00:02:33,929
+Staff can also present their own screen. Here it goes live to one chosen lab computer.
+
+19
+00:02:34,009 --> 00:02:39,560
+Staff can send a message to every lab computer at once. It appears on top of each screen.
+
+20
+00:02:40,009 --> 00:02:46,109
+On the real lab computers, the message and the shutdown countdown appear on every screen at the same time.
+
+21
+00:02:46,210 --> 00:02:53,870
+A computer can be put into maintenance mode. Its screen shows out of order, and mouse and keyboard stop working until staff switch it back.
+
+22
+00:02:54,410 --> 00:03:01,440
+When the UR5e is on, its digital twin follows the real joint angles, read only, many times a second.
+
+23
+00:03:01,440 --> 00:03:10,260
+At the lab, the real UR5e moves, and its digital twin on the laptop follows the same joint angles, read only, from the robot's own data.
+
+24
+00:03:11,890 --> 00:03:21,930
+With no live data, the twin switches to preview. It can be turned, zoomed and posed with the mouse. This is a visual simulation only: nothing is ever sent to the robot.
+
+25
+00:03:31,490 --> 00:03:39,600
+On a phone, augmented reality recognises the UR5e and says how sure it is. Scanning its marker opens the robot's live data.
+
+26
+00:03:44,538 --> 00:03:51,408
+The FANUC and the sensor nodes are recognised the same way, always marked as appearance only until the marker is scanned.
+
+27
+00:03:59,304 --> 00:04:10,494
+Twenty-three n8n workflow definitions handle routine work. Schedules and webhooks trigger checks against the FastAPI backend, and the results become staff notifications and reports.
+
+28
+00:04:10,594 --> 00:04:16,254
+Shown here from the workflow files themselves: this is the configuration, not a live run.
+
+29
+00:04:21,094 --> 00:04:27,934
+All project knowledge lives in an Obsidian vault: notes for every system, workflow, decision and source file.
+
+30
+00:04:28,794 --> 00:04:34,044
+The knowledge graph links sensors, controllers, robots, software and documents.
+
+31
+00:04:51,194 --> 00:05:02,494
+The vault is indexed and embedded locally. For each question, retrieval picks the relevant passages, and the local AI writes an answer that cites them. Obsidian is the knowledge source, not the AI.
+
+32
+00:05:02,194 --> 00:05:08,334
+The AI assistant runs locally on this laptop. It answers from the lab's own records, with sources.
+
+33
+00:05:08,194 --> 00:05:14,294
+Ask the lab: "What is the state of the robots?"
+
+34
+00:05:13,594 --> 00:05:21,304
+Project questions are answered with sources. Unsafe requests, like opening the door, are refused before they ever reach the model.
+
+35
+00:05:29,694 --> 00:05:40,434
+One integrated system: sensor nodes, robots, cameras and lab computers feed one backend and database, and the portal, automations, AR and the local AI all build on it.
+
+36
+00:05:43,634 --> 00:05:48,334
+Smart Lab: compact, local, low cost and fully integrated.
+
