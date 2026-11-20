@@ -102,11 +102,6 @@ export function ConsumableBins() {
                 </button>
                 <ItemSwitcher bin={b} onDone={() => load(true)} />
                 {b.calibrated && <BinQuickActions bin={b} onDone={() => load(true)} />}
-                <div className="px-5 pb-3 -mt-1">
-                  <button type="button" className="btn-ghost btn-sm w-full" onClick={() => setOpen(b)}
-                          title="New container or new kind of part: guided steps on the bin's screen">
-                    <Scale size={13} />Calibrate (new container / parts)</button>
-                </div>
                 </div>))}
             </div>}
       </section>
@@ -114,8 +109,8 @@ export function ConsumableBins() {
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.item_name ?? ''} subtitle={open?.code}>
         {open && <BinDetail bin={open} onChanged={b => { setOpen(b); load() }} />}
       </Drawer>
-      <Drawer open={creating} onClose={() => setCreating(false)} title="New bin">
-        {creating && <CreateBin onDone={() => { setCreating(false); load() }} />}
+      <Drawer open={creating} onClose={() => { setCreating(false); load(true) }} title="New bin">
+        {creating && <NewBin bins={bins ?? []} onDone={() => { setCreating(false); load(true) }} />}
       </Drawer>
     </div>
   )
@@ -181,14 +176,26 @@ const CAL_HINT: Record<NonNullable<BinCalibration['step']>, string> = {
   DONE: 'Saved. The bin counts with the new calibration from now on.',
 }
 
-function GuidedCalibration({ bin, onSaved }: { bin: InventoryBin; onSaved: (b: InventoryBin) => void }) {
+function GuidedCalibration({ bin, onSaved, initialName, autoStart = false, onClosed }: {
+  bin: InventoryBin; onSaved: (b: InventoryBin) => void
+  /** prefilled item name; with autoStart the session starts at once (the New bin flow) */
+  initialName?: string; autoStart?: boolean
+  /** called when the session ends (saved or cancelled) - the New bin drawer closes then */
+  onClosed?: () => void
+}) {
   const [st, setSt] = useState<BinCalibration | null>(null)
-  const [name, setName] = useState(bin.item_name)
+  const [name, setName] = useState(initialName ?? bin.item_name)
+  const [saved, setSaved] = useState(false)
   const [pieces, setPieces] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const running = !!st?.step
-  useEffect(() => { api.binCalStatus(bin.id).then(s => setSt(s.step ? s : null)).catch(() => {}) }, [bin.id])
+  useEffect(() => {
+    api.binCalStatus(bin.id).then(s => {
+      if (s.step) setSt(s)
+      else if (autoStart) api.binCalStart(bin.id, (initialName ?? '').trim() || undefined).then(setSt).catch(e => setErr(e.message))
+    }).catch(() => {})
+  }, [bin.id])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!running) return
     const t = setInterval(() => { api.binCalStatus(bin.id).then(s => setSt(s.step ? s : null)).catch(() => {}) }, 1000)
@@ -202,12 +209,14 @@ function GuidedCalibration({ bin, onSaved }: { bin: InventoryBin; onSaved: (b: I
   }
   async function finish() {
     setErr(''); setBusy(true)
-    try { const r = await api.binCalFinish(bin.id, parseInt(pieces, 10)); setSt(r); onSaved(r.bin) }
+    try { const r = await api.binCalFinish(bin.id, parseInt(pieces, 10)); setSt(r); setSaved(true); onSaved(r.bin) }
     catch (e) { setErr(e instanceof Error ? e.message : 'Calibration failed') } finally { setBusy(false) }
   }
   async function cancel() {
-    setErr(''); try { await api.binCalCancel(bin.id) } catch { /* already gone */ } setSt(null)
+    setErr(''); try { await api.binCalCancel(bin.id) } catch { /* already gone */ } setSt(null); onClosed?.()
   }
+  // The DONE screen ends by itself (the bin goes back to counting): let the parent close too.
+  useEffect(() => { if (saved && !running) onClosed?.() }, [saved, running])  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!running) return (
     <div className="space-y-2">
@@ -433,6 +442,41 @@ function BinDetail({ bin, onChanged }: { bin: InventoryBin; onChanged: (b: Inven
         <p className="mt-2 text-[11px] text-slate-500">A name appears only when exactly one person was inside
           the lab - a correlation, not proof of who took it.</p>
       </div>
+    </div>
+  )
+}
+
+/**
+ * "New bin" (owner, 2026-11-20): usually a new kind of part in the same glass box on the same scale - pick the
+ * scale, name the part, and the guided calibration runs right here (the bin's screen shows the steps). A new
+ * scale (another bin node with its own BIN_CODE) is the second option.
+ */
+function NewBin({ bins, onDone }: { bins: InventoryBin[]; onDone: () => void }) {
+  const [mode, setMode] = useState<'item' | 'scale'>(bins.length ? 'item' : 'scale')
+  const [scaleId, setScaleId] = useState(bins[0] ? String(bins[0].id) : '')
+  const [name, setName] = useState('')
+  const [go, setGo] = useState(false)
+  const scale = bins.find(b => String(b.id) === scaleId)
+  const taken = !!scale?.items?.some(i => i.item_name.trim().toLowerCase() === name.trim().toLowerCase())
+  return (
+    <div className="space-y-4">
+      {!go && <Tabs id="new-bin-mode" value={mode} onChange={setMode}
+        tabs={[{ key: 'item', label: 'New item on a scale' }, { key: 'scale', label: 'New scale (bin node)' }]} />}
+      {mode === 'scale' ? <CreateBin onDone={onDone} />
+        : !go ? (
+          <div className="space-y-3">
+            <p className="text-[12.5px] text-slate-400">Same scale and glass box, a different part. The scale keeps every
+              item's calibration: you can switch back to any of them later on the bin card.</p>
+            <Field label="Scale">
+              <select className="input" value={scaleId} onChange={e => setScaleId(e.target.value)}>
+                {bins.map(b => <option key={b.id} value={b.id}>{b.code} - now counting {b.item_name}</option>)}</select></Field>
+            <Field label="Item" hint={taken ? 'Already saved on this scale - this recalibrates it.' : 'e.g. Screws M3'}>
+              <input className="input" value={name} maxLength={64} placeholder="Screws M3"
+                     onChange={e => setName(e.target.value)} /></Field>
+            <button type="button" className="btn-primary w-full" disabled={!scale || !name.trim()} onClick={() => setGo(true)}>
+              <Scale size={15} />Start calibration</button>
+          </div>)
+        : scale && <GuidedCalibration bin={scale} initialName={name.trim()} autoStart onSaved={() => {}} onClosed={onDone} />}
     </div>
   )
 }
