@@ -84,13 +84,16 @@ export function InstitutionLogo({ className = '', textClass = '', strong = false
   if (LOGO_URL && !failed) {
     return (
       // The G and the first flag stripe are black, as in the official logo.
-      // On a dark page a thin, soft light outline keeps their shape legible
+      // On a dark page a HAIRLINE light outline keeps their shape legible
       // without recolouring them - a display effect, the file is unchanged.
+      // 2026-11-20: the blurred halo (2-3px) read as a glow and softened the
+      // white lettering at a distance; dropped to a single crisp sub-pixel
+      // outline so the text stays sharp and the black G still separates.
       <img src={LOGO_URL} alt="German International University"
            className={`h-8 w-auto object-contain ${className}`}
            style={{ filter: strong
-             ? 'drop-shadow(0 0 0.8px rgba(241,245,249,1)) drop-shadow(0 0 0.8px rgba(241,245,249,.85)) drop-shadow(0 0 3px rgba(241,245,249,.22))'
-             : 'drop-shadow(0 0 0.6px rgba(241,245,249,.95)) drop-shadow(0 0 2px rgba(241,245,249,.18))' }}
+             ? 'drop-shadow(0 0 0.6px rgba(241,245,249,1)) drop-shadow(0 0 0.6px rgba(241,245,249,.9))'
+             : 'drop-shadow(0 0 0.5px rgba(241,245,249,.95))' }}
            onError={() => setFailed(true)} />
     )
   }

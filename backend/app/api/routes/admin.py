@@ -298,7 +298,19 @@ def _summary_now(db: Session) -> AdminSummary:
 # ----------------------------------------------------------------- users ---
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    return db.scalars(select(User).order_by(User.full_name)).all()
+    users = db.scalars(select(User).order_by(User.full_name)).all()
+    # Flag self-signups still awaiting first approval so the admin list can show
+    # and approve them. Pending = inactive AND signed up AND never edited/removed
+    # (an admin-disabled or removed account has a USER_UPDATED/USER_REMOVED row).
+    signed_up = set(db.scalars(select(AuditLog.entity_id).where(
+        AuditLog.action == "USER_SIGNUP", AuditLog.entity_type == "user")).all())
+    touched = set(db.scalars(select(AuditLog.entity_id).where(
+        AuditLog.action.in_(("USER_UPDATED", "USER_REMOVED")),
+        AuditLog.entity_type == "user")).all())
+    for u in users:
+        u.pending_approval = (not u.is_active and str(u.id) in signed_up
+                              and str(u.id) not in touched)
+    return users
 
 
 @router.get("/users/next-auth-subject")

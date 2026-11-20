@@ -36,6 +36,8 @@ export interface User {
   created_at?: string | null
   fingerprint_enrolled_at?: string | null
   face_enrolled_at?: string | null
+  /** a self-signup still awaiting the first admin approval (inactive, never edited/removed) */
+  pending_approval?: boolean
 }
 
 export interface AccessSetupItem {

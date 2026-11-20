@@ -49,6 +49,10 @@ class UserOut(ORM):
     created_at: Optional[datetime] = None
     fingerprint_enrolled_at: Optional[datetime] = None
     face_enrolled_at: Optional[datetime] = None
+    # True for a self-signup still awaiting the first admin approval (inactive,
+    # never edited/removed). Lets the admin list show and approve it instead of
+    # hiding it behind "Show removed" (2026-11-20). Not a stored column.
+    pending_approval: bool = False
 
 
 class UserCreate(BaseModel):

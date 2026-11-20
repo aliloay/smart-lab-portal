@@ -50,10 +50,19 @@ export default function Users() {
   }, [find, setParams])
 
   const [showRemoved, setShowRemoved] = useState(false)
-  const list = useMemo(() => (rows ?? []).filter(u => (showRemoved || u.is_active) && (!role || u.role === role) &&
+  // Pending signups (inactive, awaiting first approval) are always shown, even with
+  // "Show removed" off - otherwise the "new sign-up" notification leads to an empty list.
+  const list = useMemo(() => (rows ?? []).filter(u => (showRemoved || u.is_active || u.pending_approval) && (!role || u.role === role) &&
     (!q || `${u.full_name} ${u.email} ${u.username ?? ''} ${u.auth_subject ?? ''} ${u.department ?? ''}`.toLowerCase()
       .includes(q.toLowerCase()))), [rows, q, role, showRemoved])
   const count = (r: Role) => (rows ?? []).filter(u => u.role === r).length
+  const pendingCount = (rows ?? []).filter(u => u.pending_approval).length
+
+  const approve = useCallback(async (u: User) => {
+    setError('')
+    try { await api.updateUser(u.id, { is_active: true }); load() }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not approve the account') }
+  }, [load])
 
   return (
     <div>
@@ -68,6 +77,11 @@ export default function Users() {
           <button className="btn-ghost" onClick={() => setCreating('ADMIN')}><UserPlus size={16} />Add admin</button>
         </div>} />
       {error && <div className="mb-4"><ErrorBanner message={error} onDismiss={() => setError('')} /></div>}
+      {admin && pendingCount > 0 && (
+        <div className="mb-4"><Notice tone="warn" icon={<ShieldCheck size={15} />}>
+          {pendingCount === 1 ? 'One account is' : `${pendingCount} accounts are`} waiting for approval. Review{' '}
+          {pendingCount === 1 ? 'it' : 'them'} below and press <b>Approve</b> so the person can sign in.
+        </Notice></div>)}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
         <MetricCard label="Accounts" value={rows ? rows.length : null} icon={<UsersIcon size={15} />}
@@ -124,8 +138,12 @@ export default function Users() {
                             {[!u.fingerprint_enrolled_at && 'fingerprint', !u.face_enrolled_at && 'face']
                               .filter(Boolean).join(' + ')} pending</div>)}</td>
                       <td className="td text-slate-300">{u.department ?? '—'}</td>
-                      <td className="td"><Chip tone={u.is_active ? 'ok' : 'bad'} dot>{u.is_active ? 'Active' : 'Disabled'}</Chip></td>
+                      <td className="td"><Chip tone={u.is_active ? 'ok' : u.pending_approval ? 'warn' : 'bad'} dot>
+                        {u.is_active ? 'Active' : u.pending_approval ? 'Pending approval' : 'Disabled'}</Chip></td>
                       <td className="td text-right whitespace-nowrap">
+                        {u.pending_approval && admin && (
+                          <button className="btn-primary btn-sm mr-1" title="Approve this sign-up so the person can sign in"
+                                  onClick={() => approve(u)}><ShieldCheck size={13} />Approve</button>)}
                         {u.auth_subject && (
                           <button className={`btn-sm mr-1 ${u.fingerprint_enrolled_at && u.face_enrolled_at
                                     ? 'btn-quiet' : 'btn-primary'}`}
