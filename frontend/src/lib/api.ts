@@ -1468,6 +1468,9 @@ export const api = {
     names: { name: string; role: string; entered_at: number }[]; camera_people: number | null
     cameras: { camera: string; online: boolean | null; people: number | null }[]; note: string; at: number; advisory: string }[]>('/labs/headcount'),
   lab: (id: number) => request<LabStatus>(`/labs/${id}`),
+  // administrators: correct a lab's details (audited); the code never changes
+  updateLab: (id: number, changes: { name?: string; description?: string; location?: string; capacity?: number }) =>
+    request<Lab>(`/labs/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   labActivity: (id: number, limit = 80) =>
     request<AccessEvent[]>(`/labs/${id}/activity?limit=${limit}`),
   labSensors: (id: number) => request<unknown[]>(`/labs/${id}/sensors`),

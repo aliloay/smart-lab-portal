@@ -1,6 +1,9 @@
 """Laboratories: listing, detail, live status and per-lab activity."""
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, select
@@ -118,6 +121,34 @@ def create_lab(req: LabCreate, db: Session = Depends(get_db),
         raise HTTPException(status.HTTP_409_CONFLICT, "Lab code already exists")
     lab = Lab(**req.model_dump())
     db.add(lab)
+    db.commit()
+    db.refresh(lab)
+    return lab
+
+
+class LabUpdate(BaseModel):
+    """Correct a lab's details (2026-11-20: the Robotics Lab room was recorded as 214, it is 224 - there was no way
+    to fix it from the portal). Administrators only; every change is audited. The code never changes."""
+    name: Optional[str] = Field(default=None, min_length=2, max_length=128)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    location: Optional[str] = Field(default=None, max_length=128)
+    capacity: Optional[int] = Field(default=None, ge=1, le=1000)
+    category: Optional[str] = Field(default=None, max_length=64)
+
+
+@router.patch("/{lab_id}", response_model=LabOut)
+def update_lab(lab_id: int, req: LabUpdate, db: Session = Depends(get_db),
+               admin: User = Depends(require_admin)):
+    from app.models import AuditLog
+    lab = db.get(Lab, lab_id)
+    if lab is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
+    changes = {k: v for k, v in req.model_dump(exclude_unset=True).items() if v is not None}
+    before = {k: getattr(lab, k) for k in changes}
+    for k, v in changes.items():
+        setattr(lab, k, v.strip() if isinstance(v, str) else v)
+    db.add(AuditLog(actor_user_id=admin.id, action="LAB_UPDATED", entity_type="lab", entity_id=str(lab.id),
+                    detail={"before": before, "after": {k: getattr(lab, k) for k in changes}}))
     db.commit()
     db.refresh(lab)
     return lab

@@ -558,6 +558,9 @@ _PATTERNS: list[tuple[str, str, bool]] = [
     # "open maintenance issues" reached the model, which printed a raw tool call (2026-10-27 question mix)
     ("open_issues", r"\bopen (maintenance )?(issues|tickets|reports|faults)\b|\bmaintenance\b.*\b(open|pending|backlog|issues|tickets)\b|"
                     r"\b(issues|tickets)\b.*\b(open|pending|unresolved)\b", True),
+    # "where is the robotics lab" / "which room is the PLC lab in": the lab's location field, one line (2026-11-20:
+    # "where is" matched the project-documents lookup and answered with quoted passages instead of the room)
+    ("lab_location", r"\b(where('s| is| are)?|location of|which (room|building|floor)|what (room|building|floor))\b.*\blab(s|_\w+|\s?\d+)?\b", False),
     # "tell me about the PLC lab" / "how is LAB_02": that lab's state now, from the records (2026-10-27)
     ("lab_info", r"\b(tell me about|about|status of|state of|how is|what about|info(rmation)? (on|about)|describe)\b.*\blab(s|_\w+|\s?\d+)?\b", False),
     ("next_booking", r"\b(my )?(next|upcoming)\b.*\bbook\w*|\bwhen is my\b", False),
@@ -602,6 +605,16 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
 
     if intent == "device_advice":
         return _device_advice(db, question, now)
+
+    if intent == "lab_location":
+        from app.services import agent_actions
+        lab, several = agent_actions._lab(db, question.lower())
+        if lab is None:
+            return None if not several else _answer(
+                "Which lab do you mean? " + ", ".join(f"{l.code} {l.name}" for l in several[:5]), intent)
+        where = (lab.location or "").strip()
+        return _answer(f"**{lab.name}** ({lab.code}): {where}." if where else
+                       f"{lab.name} ({lab.code}) has no location recorded yet - add it under Laboratories.", intent)
 
     if intent == "lab_info":
         from app.services import agent_actions

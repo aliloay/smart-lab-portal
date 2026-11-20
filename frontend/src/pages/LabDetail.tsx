@@ -4,7 +4,7 @@ import { Link, useParams } from 'react-router-dom'
 import {
   Activity, ArrowLeft, Boxes, CalendarClock, CalendarPlus, CalendarRange, Camera,
   CircuitBoard, Cpu, DoorClosed, Fingerprint, FlaskConical, Gauge, Lock, MapPin, Radio, Server,
-  TriangleAlert, Users, Wrench,
+  Pencil, TriangleAlert, Users, Wrench,
 } from 'lucide-react'
 import { AccessEvent, Asset, Device, LabStatus, LabTwin, api } from '../lib/api'
 import { isStaff, useAuth } from '../lib/auth'
@@ -135,8 +135,7 @@ export default function LabDetail() {
             {lab.description || 'No description provided.'}
           </p>
           <div className="mt-4 flex items-center gap-5 flex-wrap text-[13px] text-slate-300">
-            <span className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400" />
-              {lab.location || 'Location not set'}</span>
+            <LabLocation labId={lab.id} location={lab.location} editable={user?.role === 'ADMIN'} onSaved={loadStatus} />
             <span className="flex items-center gap-1.5"><Users size={14} className="text-slate-400" />
               Capacity {lab.capacity}</span>
             <span className="flex items-center gap-1.5"><Boxes size={14} className="text-slate-400" />
@@ -485,4 +484,36 @@ function DayStrip({ days, openHours }: { days: { day: string; booked_hours: numb
       </div>
     </div>
   )
+}
+
+
+/** The lab's location, editable by administrators (2026-11-20: the Robotics Lab room was 214 in the records, it is
+ *  224, and nothing in the portal could correct it). Saved through PATCH /labs/{id}, which writes an audit row. */
+function LabLocation({ labId, location, editable, onSaved }: {
+  labId: number; location: string; editable: boolean; onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [v, setV] = useState(location)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function save() {
+    setBusy(true); setErr('')
+    try { await api.updateLab(labId, { location: v.trim() }); setEditing(false); onSaved() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Save failed') } finally { setBusy(false) }
+  }
+  if (editing) return (
+    <span className="flex items-center gap-1.5">
+      <MapPin size={14} className="text-slate-400" />
+      <input className="input !py-1 !text-[13px] w-72" value={v} maxLength={128} autoFocus
+             onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
+             aria-label="Lab location" />
+      <button type="button" className="btn-primary btn-sm" disabled={busy || !v.trim()} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="button" className="btn-quiet btn-sm" onClick={() => { setEditing(false); setV(location) }}>Cancel</button>
+      {err && <span className="text-[12px] text-warn-soft">{err}</span>}
+    </span>)
+  return (
+    <span className="flex items-center gap-1.5"><MapPin size={14} className="text-slate-400" />
+      {location || 'Location not set'}
+      {editable && <button type="button" className="btn-quiet btn-sm !px-1.5" title="Edit the location"
+                           onClick={() => { setV(location); setEditing(true) }}><Pencil size={12} /></button>}</span>)
 }
