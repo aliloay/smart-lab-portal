@@ -42,7 +42,7 @@ FAST = {  # measured 2026-10-13 (EVALUATION.md): prompt reading dominated latenc
     # 2026-10-17 bench (13 questions, qwen2.5:1.5b on the i7-9750H CPU): k 4 -> 3 cut the prompt ~15 %,
     # median first word 8.5 s -> 4.4 s, median total 12.9 s -> 7.5 s, and facts correct 9/12 -> 10/12
     # (the 4th passage was mostly noise). width 340 was faster but lost a fact - kept 480.
-    "k": 3, "width": 400, "num_ctx": 4096, "num_predict": 150, "keep_alive": "30m",
+    "k": 3, "width": 400, "num_ctx": 4096, "num_predict": 150, "keep_alive": "4h",   # 30m on 16 GB; 4h since 2026-11-20 (32 GB)
     # 2026-11-18: lead passage wide, the others short (same prompt size, more of the right source); hits under min_rel
     # of the best score are dropped; investigate evidence capped (a 'why does' question built a 1,825-token prompt = 41 s)
     # 2026-11-19: width 480->400, lead 900->720, extras 1400->1000, 3 sentences / 150 tokens: ~150 fewer prompt tokens

@@ -34,7 +34,11 @@ class TokenResponse(BaseModel):
 
 class UserOut(ORM):
     id: int
-    email: EmailStr
+    # str, not EmailStr (2026-11-20): output must never re-validate stored data. Accounts made by the
+    # camera's "confirm person" flow use <subject>@camera.smartlab.local, which email-validator rejects
+    # as a reserved name - one such row made GET /api/users answer 500 and emptied Users & roles.
+    # Typed addresses are still checked on input (UserCreate / SignupRequest / UserUpdate).
+    email: str
     username: Optional[str] = None
     full_name: str
     role: Role

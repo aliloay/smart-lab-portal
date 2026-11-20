@@ -527,7 +527,7 @@ def embed(cfg: dict, texts: list, prefix: str, threads: int = 0, timeout: float 
     if threads:
         opts["num_thread"] = threads
     body = {"model": cfg.get("embed_model", EMBED_MODEL), "input": [prefix + t[:2000] for t in texts],
-            "keep_alive": "30m", "options": opts}    # was 15m (2.5 s reload), then 2h; 30m since 2026-11-03 (RAM)
+            "keep_alive": "4h", "options": opts}    # was 15m, 2h, 30m (16 GB, 2026-11-03); 4h since 2026-11-20 (32 GB)
     req = urllib.request.Request(url + "/api/embed", json.dumps(body).encode(), {"Content-Type": "application/json"})
     wait_s = timeout if timeout > 0 else cfg.get("embed_timeout_s", 120)
     with urllib.request.urlopen(req, timeout=wait_s) as r:

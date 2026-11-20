@@ -5,6 +5,7 @@ Note what is absent: there is no endpoint that opens a door. /grant and /deny
 RECORD an outcome the master has already decided. The relay is driven by one
 line of firmware and no HTTP request can reach it.
 """
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,6 +32,8 @@ from app.ui_text import denial_sentence
 router = APIRouter(prefix="/access", tags=["access (device)"])
 
 # Biometric outcomes that complete step 2 on the master.
+log = logging.getLogger(__name__)
+
 _SECOND_FACTOR = {EventType.FACE_ACCEPTED: AuthMethod.FACE,
                   EventType.FINGERPRINT_ACCEPTED: AuthMethod.FINGERPRINT}
 
@@ -249,6 +252,28 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
     return {"status": "recorded"}
 
 
+def _touch_entry_camera(db: Session, master: Device, lab, components: dict) -> None:
+    """The ESP32-CAM never calls the portal: the Master polls it over Wi-Fi and reports
+    "camera": true/false in its heartbeat (2026-11-20). While the Master says the camera
+    answers, keep the lab's entry-camera row (CAMERA type, e.g. CAM_LAB01) seen, so the
+    device list stops showing it as never seen. When the Master says false, the row is
+    left alone and goes offline through the normal timeout. Display only: never affects
+    the door decision, and a failure here must never fail the Master's heartbeat."""
+    if master.device_type != DeviceType.MASTER_CONTROLLER or components.get("camera") is not True:
+        return
+    try:
+        now = datetime.now(timezone.utc)
+        for cam in db.query(Device).filter(Device.lab_id == lab.id,
+                                           Device.device_type == DeviceType.CAMERA).all():
+            if not cam.is_online:
+                log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id, device_id=cam.id,
+                          message=f"{cam.name} online (reported by {master.name})")
+                resolve_offline_alerts(db, cam)
+            cam.last_seen_at, cam.is_online = now, True
+    except Exception:
+        log.warning("entry camera touch failed", exc_info=True)
+
+
 @router.post("/heartbeat", tags=["devices"])
 def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
               identity: str = Depends(require_device)):
@@ -288,6 +313,7 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
     if req.components is not None:
         device.component_state = req.components
         record_component_health(db, device, lab, req.components)
+        _touch_entry_camera(db, device, lab, req.components)
 
     if not was_online:
         log_event(db, EventType.DEVICE_ONLINE, lab_id=lab.id,

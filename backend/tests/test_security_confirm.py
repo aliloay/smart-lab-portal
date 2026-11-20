@@ -38,6 +38,10 @@ def test_other_adds_a_new_person_and_confirms_them(client, db, lab, admin, devic
     assert u.auth_subject and u.email.endswith("@camera.smartlab.local") and u.is_active
     assert sent[-1]["label"] == u.auth_subject and sent[-1]["name"] == "Omar Hassan"
     assert db.query(AuditLog).filter_by(action="USER_CREATED", entity_id=str(u.id)).count() == 1
+    # 2026-11-20: the .local address must not break Users & roles (it answered 500 and showed 0 accounts)
+    listed = client.get("/api/users", headers=auth_headers(client, admin.email))
+    assert listed.status_code == 200, listed.text
+    assert any(x["email"] == u.email for x in listed.json())
     # typed again (any case): the same person, not a second one
     client.post(f"/api/security/cameras/{cid}/confirm", headers=auth_headers(client, admin.email),
                 json={"track_id": 8, "new_name": "omar hassan"})
