@@ -17,8 +17,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import device_scope, require_device, require_staff
 from app.db.session import get_db
-from app.models import (AuditLog, InventoryBin, InventoryMeasurement,
+from app.models import (AuditLog, InventoryBin, InventoryBinItem, InventoryMeasurement,
                         InventoryTransaction, Lab, User)
+from app.services import bin_calibration as cal
 from app.services import inventory as inv
 from app.services.access import get_device
 
@@ -56,6 +57,21 @@ def post_measurements(req: MeasurementReport, db: Session = Depends(get_db),
                 raise HTTPException(status.HTTP_403_FORBIDDEN,
                                     f"{r.bin_code} is weighed by another device")
             device.last_seen_at = now
+        s = cal.get(b.id)
+        if s is not None:
+            # Guided calibration running: store the raw reading, book nothing, and tell the LCD the step.
+            db.add(InventoryMeasurement(bin_id=b.id, mass_g=round(r.mass_g, 2), recorded_at=now))
+            if cal.on_reading(s, r.mass_g):
+                _PENDING_TARE[b.code] = now
+            l1, l2 = cal.lcd(s)
+            item = {"bin_code": b.code, "known": True, "item_name": s.item_name, "qty_est": None,
+                    "qty_err": None, "qty_booked": None, "calibrated": inv.calibrated(b),
+                    "transaction": None, "calibrating": True, "lcd1": l1, "lcd2": l2}
+            asked = _PENDING_TARE.pop(b.code, None)
+            if asked is not None and (now - asked).total_seconds() <= ZERO_FRESH_S:
+                item["tare"] = True
+            out.append(item)
+            continue
         tx = inv.record(db, b, round(r.mass_g, 2), now)
         lv = inv.live_count(b)
         item = {"bin_code": b.code, "known": True, "item_name": b.item_name,
@@ -139,6 +155,8 @@ def update_bin(bin_id: int, req: BinUpdate, db: Session = Depends(get_db),
         b.calibrated_at = datetime.now(timezone.utc)
     if {"tare_g", "unit_mass_g"} & changes.keys():
         b.last_mass_g = None          # recalibrated: the next reading is the new starting point
+    if {"item_name", "category", "tare_g", "unit_mass_g", "noise_g", "reorder_qty", "stock_max"} & changes.keys():
+        inv.save_active_item(db, b)   # one scale, several items: the active item follows the edit
     db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_UPDATED",
                     entity_type="inventory_bin", entity_id=str(b.id), detail=changes))
     db.commit()
@@ -289,3 +307,138 @@ def zero_bin(bin_id: int, db: Session = Depends(get_db), staff: User = Depends(r
                                                  "tare_g_before": old_tare, "tare_g_after": b.tare_g}))
     db.commit()
     return {**inv.bin_out(db, b), "zero_offset_g": total, "zeroed_by": "portal"}
+
+
+# ---------------------------------------------------- guided calibration ---
+# One button in the portal; the node's LCD shows each step with a countdown (app/services/bin_calibration.py).
+class CalibrationStart(BaseModel):
+    item_name: Optional[str] = Field(default=None, max_length=64)
+
+
+class CalibrationFinish(BaseModel):
+    pieces: int = Field(ge=1, le=100000)
+
+
+def _bin_or_404(db: Session, bin_id: int) -> InventoryBin:
+    b = db.get(InventoryBin, bin_id)
+    if b is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Bin not found")
+    return b
+
+
+@router.post("/bins/{bin_id}/calibration")
+def calibration_start(bin_id: int, req: CalibrationStart, db: Session = Depends(get_db),
+                      staff: User = Depends(require_staff)):
+    b = _bin_or_404(db, bin_id)
+    s = cal.start(b.id, req.item_name or b.item_name, staff.id)
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_CALIBRATION_STARTED",
+                    entity_type="inventory_bin", entity_id=str(b.id), detail={"item_name": s.item_name}))
+    db.commit()
+    return cal.status(s)
+
+
+@router.get("/bins/{bin_id}/calibration")
+def calibration_status(bin_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    _bin_or_404(db, bin_id)
+    s = cal.get(bin_id)
+    return cal.status(s) if s is not None else {"active": False, "step": None}
+
+
+@router.post("/bins/{bin_id}/calibration/finish")
+def calibration_finish(bin_id: int, req: CalibrationFinish, db: Session = Depends(get_db),
+                       staff: User = Depends(require_staff)):
+    b = _bin_or_404(db, bin_id)
+    s = cal.get(b.id)
+    if s is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No calibration running for this bin - start it first")
+    before = {"tare_g": b.tare_g, "unit_mass_g": b.unit_mass_g, "item_name": b.item_name, "stock_max": b.stock_max}
+    try:
+        res = cal.finish(s, req.pieces)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    now = datetime.now(timezone.utc)
+    inv.save_active_item(db, b)          # the outgoing item keeps its latest values
+    b.tare_g, b.unit_mass_g = res["tare_g"], res["unit_mass_g"]
+    if res["item_name"]:
+        b.item_name = res["item_name"]
+    if b.stock_max is not None and b.stock_max < req.pieces:
+        b.stock_max = req.pieces         # more pieces than the lab "owns" were just counted in
+    b.calibrated_at = now
+    b.last_mass_g = None                 # the next reading (parts on the scale) is the new starting point
+    item = inv.save_active_item(db, b, new_name=res["item_name"] or b.item_name)
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_CALIBRATED", entity_type="inventory_bin",
+                    entity_id=str(b.id), detail={**res, "before": before, "by": "guided",
+                                                 "item_id": item.id if item else None}))
+    # The node zeroed itself in this session: any earlier portal zero offset no longer applies.
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_ZEROED", entity_type="inventory_bin",
+                    entity_id=str(b.id), detail={"offset_total_g": 0.0, "by": "guided calibration"}))
+    db.commit()
+    return {**cal.status(s), "bin": inv.bin_out(db, b)}
+
+
+@router.delete("/bins/{bin_id}/calibration")
+def calibration_cancel(bin_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    _bin_or_404(db, bin_id)
+    return {"cancelled": cal.cancel(bin_id)}
+
+
+
+# ------------------------------------------------- one scale, several items ---
+class ItemSelect(BaseModel):
+    # Optional: how many pieces are in the container right now. With a fresh steady reading the portal anchors
+    # the count to it (the container mass may have drifted since this item was last used).
+    count: Optional[int] = Field(default=None, ge=0, le=100000)
+
+
+def _item_or_404(db: Session, b: InventoryBin, item_id: int) -> InventoryBinItem:
+    i = db.get(InventoryBinItem, item_id)
+    if i is None or i.bin_id != b.id or not i.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found on this bin")
+    return i
+
+
+@router.get("/bins/{bin_id}/items")
+def list_items(bin_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    return inv.items_out(db, _bin_or_404(db, bin_id))
+
+
+@router.post("/bins/{bin_id}/items/{item_id}/select")
+def select_item(bin_id: int, item_id: int, req: ItemSelect, db: Session = Depends(get_db),
+                staff: User = Depends(require_staff)):
+    b = _bin_or_404(db, bin_id)
+    if cal.get(b.id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A calibration is running on this bin - finish or cancel it first")
+    item = _item_or_404(db, b, item_id)
+    before = b.item_name
+    inv.select_item(db, b, item)
+    anchored = None
+    if req.count is not None and inv.calibrated(b):
+        row = db.execute(select(InventoryMeasurement.mass_g, InventoryMeasurement.recorded_at)
+                         .where(InventoryMeasurement.bin_id == b.id)
+                         .order_by(InventoryMeasurement.recorded_at.desc(), InventoryMeasurement.id.desc())
+                         .limit(1)).first()
+        now = datetime.now(timezone.utc)
+        if row is None or (now - row[1]).total_seconds() > ZERO_FRESH_S:
+            raise HTTPException(status.HTTP_409_CONFLICT, "No reading in the last 3 minutes - is the bin node on?")
+        b.tare_g = round(row[0] - req.count * b.unit_mass_g, 4)
+        item.tare_g = b.tare_g
+        anchored = {"reading_g": row[0], "count": req.count}
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_ITEM_SELECTED", entity_type="inventory_bin",
+                    entity_id=str(b.id), detail={"from": before, "to": item.item_name, "item_id": item.id,
+                                                 "anchored": anchored}))
+    db.commit()
+    return inv.bin_out(db, b)
+
+
+@router.post("/bins/{bin_id}/items/{item_id}/remove")
+def remove_item(bin_id: int, item_id: int, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    """Hide a saved item (kept in the database - never deleted). The item being counted cannot be removed."""
+    b = _bin_or_404(db, bin_id)
+    item = _item_or_404(db, b, item_id)
+    if item.is_selected:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Switch the bin to another item first")
+    item.is_active = False
+    db.add(AuditLog(actor_user_id=staff.id, action="INVENTORY_BIN_ITEM_REMOVED", entity_type="inventory_bin",
+                    entity_id=str(b.id), detail={"item_id": item.id, "item_name": item.item_name}))
+    db.commit()
+    return inv.items_out(db, b)

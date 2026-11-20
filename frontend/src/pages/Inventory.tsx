@@ -12,7 +12,7 @@
  */
 import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { Boxes, Nfc, Package, Plus, Scale } from 'lucide-react'
-import { Asset, BinItem, InventoryBin, InventoryTx, Lab, User, api } from '../lib/api'
+import { Asset, BinCalibration, BinItem, InventoryBin, InventoryTx, Lab, User, api } from '../lib/api'
 import { fmtDateTime, relative } from '../lib/time'
 import { useLiveMessages } from '../lib/live'
 import {
@@ -100,7 +100,13 @@ export function ConsumableBins() {
                     {b.measured_at && <> · {relative(b.measured_at)}</>}
                   </div>
                 </button>
+                <ItemSwitcher bin={b} onDone={() => load(true)} />
                 {b.calibrated && <BinQuickActions bin={b} onDone={() => load(true)} />}
+                <div className="px-5 pb-3 -mt-1">
+                  <button type="button" className="btn-ghost btn-sm w-full" onClick={() => setOpen(b)}
+                          title="New container or new kind of part: guided steps on the bin's screen">
+                    <Scale size={13} />Calibrate (new container / parts)</button>
+                </div>
                 </div>))}
             </div>}
       </section>
@@ -158,6 +164,162 @@ function BinQuickActions({ bin, onDone }: { bin: InventoryBin; onDone: () => voi
   )
 }
 
+/**
+ * Guided calibration (2026-11-20, owner): one button; the bin node's LCD shows the same step and countdown.
+ * Empty scale (held 10 s) -> the node zeroes -> empty container (held 10 s) -> parts in -> type the count ->
+ * Calibrate. Nothing is booked while it runs. Backend: app/services/bin_calibration.py.
+ */
+const CAL_STEPS: { key: NonNullable<BinCalibration['step']>; label: string }[] = [
+  { key: 'CLEAR', label: 'Empty scale' }, { key: 'ZEROING', label: 'Zero' },
+  { key: 'CONTAINER', label: 'Empty container' }, { key: 'PIECES', label: 'Parts + count' }, { key: 'DONE', label: 'Saved' },
+]
+const CAL_HINT: Record<NonNullable<BinCalibration['step']>, string> = {
+  CLEAR: 'Take everything off the platform and do not touch it. The countdown runs while the scale is steady.',
+  ZEROING: 'The bin node is zeroing itself - a few seconds.',
+  CONTAINER: 'Put the EMPTY container on the platform and leave it. The countdown runs while it is steady.',
+  PIECES: 'Put the parts in the container, wait until it is steady, then type how many you put in and press Calibrate.',
+  DONE: 'Saved. The bin counts with the new calibration from now on.',
+}
+
+function GuidedCalibration({ bin, onSaved }: { bin: InventoryBin; onSaved: (b: InventoryBin) => void }) {
+  const [st, setSt] = useState<BinCalibration | null>(null)
+  const [name, setName] = useState(bin.item_name)
+  const [pieces, setPieces] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const running = !!st?.step
+  useEffect(() => { api.binCalStatus(bin.id).then(s => setSt(s.step ? s : null)).catch(() => {}) }, [bin.id])
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => { api.binCalStatus(bin.id).then(s => setSt(s.step ? s : null)).catch(() => {}) }, 1000)
+    return () => clearInterval(t)
+  }, [running, bin.id])
+
+  async function start() {
+    setErr(''); setBusy(true)
+    try { setSt(await api.binCalStart(bin.id, name.trim() || undefined)); setPieces('') }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Could not start') } finally { setBusy(false) }
+  }
+  async function finish() {
+    setErr(''); setBusy(true)
+    try { const r = await api.binCalFinish(bin.id, parseInt(pieces, 10)); setSt(r); onSaved(r.bin) }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Calibration failed') } finally { setBusy(false) }
+  }
+  async function cancel() {
+    setErr(''); try { await api.binCalCancel(bin.id) } catch { /* already gone */ } setSt(null)
+  }
+
+  if (!running) return (
+    <div className="space-y-2">
+      <div className="label">Guided calibration (new container or new parts)</div>
+      <p className="text-[11.5px] text-slate-400">The bin's screen walks you through it with a countdown:
+        empty scale, empty container, then the parts and how many. Type a saved item's name to recalibrate it, or a
+        new name to add another kind of part to this scale. Moving the scale does not need this.</p>
+      {err && <p className="text-[12px] text-warn-soft">{err}</p>}
+      <div className="flex gap-2">
+        <input className="input flex-1" placeholder="What goes in it, e.g. Screws M3" value={name} maxLength={64}
+               list={`bin-items-${bin.id}`} onChange={e => setName(e.target.value)} aria-label="Item name" />
+        {/* A saved item's name recalibrates that item; a new name adds a new item to this scale. */}
+        <datalist id={`bin-items-${bin.id}`}>{(bin.items ?? []).map(i => <option key={i.id} value={i.item_name} />)}</datalist>
+        <button type="button" className="btn-primary" disabled={busy} onClick={start}>
+          <Scale size={15} />{busy ? 'Starting…' : 'Start'}</button>
+      </div>
+    </div>
+  )
+
+  const idx = CAL_STEPS.findIndex(s => s.key === st!.step)
+  const counting = (st!.step === 'CLEAR' || st!.step === 'CONTAINER') && st!.reading_fresh && (st!.held_s ?? 0) > 0
+  return (
+    <div className="space-y-3 rounded-xl border border-accent-500/30 bg-accent-500/[0.05] p-4">
+      <div className="flex items-center justify-between">
+        <div className="label !mb-0">Guided calibration - {st!.item_name}</div>
+        {st!.step !== 'DONE' && <button type="button" className="btn-quiet btn-sm" onClick={cancel}>Cancel</button>}
+      </div>
+      <ol className="flex gap-1">
+        {CAL_STEPS.map((s, i) => (
+          <li key={s.key} className={`flex-1 text-center rounded-md px-1 py-1 text-[10.5px] ${i < idx ? 'bg-ok/15 text-ok-soft'
+            : i === idx ? 'bg-accent-500/20 text-accent-200 font-semibold' : 'bg-ink-700/50 text-slate-500'}`}>{s.label}</li>))}
+      </ol>
+      {/* Same two lines the bin's LCD shows. */}
+      <div className="mx-auto w-fit rounded-md border-4 border-ink-600 bg-[#1f3d1a] px-3 py-2 font-mono text-[15px] leading-tight text-[#b8f5a0] tracking-wider"
+           aria-label="Bin screen">
+        <div className="whitespace-pre">{(st!.lcd?.[0] ?? '').padEnd(16)}</div>
+        <div className="whitespace-pre">{(st!.reading_fresh || st!.step === 'DONE' ? (st!.lcd?.[1] ?? '') : 'Hold still...').padEnd(16)}</div>
+      </div>
+      <p className="text-[12.5px] text-slate-300">{CAL_HINT[st!.step!]}</p>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-slate-400 tnum">
+        <span>Scale: <b className="text-slate-200">{st!.last_g == null ? '—' : `${st!.last_g.toFixed(2)} g`}</b>
+          {!st!.reading_fresh && st!.step !== 'DONE' && <span className="text-warn-soft"> (moving)</span>}</span>
+        {counting && <span>Countdown: <b className="text-accent-200">{st!.countdown_s}s</b></span>}
+        {st!.m0_g != null && <span>Empty container: <b className="text-slate-200">{st!.m0_g.toFixed(3)} g</b></span>}
+        {st!.net_g != null && <span>Parts: <b className="text-slate-200">{st!.net_g.toFixed(3)} g</b></span>}
+      </div>
+      {st!.step === 'PIECES' && (
+        <div className="flex gap-2">
+          <input className="input w-32" inputMode="numeric" placeholder="How many?" value={pieces}
+                 onChange={e => setPieces(e.target.value)} aria-label="Number of pieces put in" />
+          <button type="button" className="btn-primary flex-1" disabled={busy || !st!.parts_ready || !/^\d+$/.test(pieces) || pieces === '0'}
+                  onClick={finish} title={st!.parts_ready ? '' : 'Put the parts in and wait until the scale is steady'}>
+            {busy ? 'Calibrating…' : st!.parts_ready ? 'Calibrate' : 'Waiting for a steady reading…'}</button>
+        </div>)}
+      {st!.step === 'DONE' && st!.result && (
+        <p className="text-[12.5px] text-ok-soft">
+          {st!.result.pieces} pieces = {st!.result.net_g.toFixed(3)} g, so one piece = <b>{st!.result.unit_mass_g.toFixed(4)} g</b>;
+          empty container {st!.result.tare_g.toFixed(3)} g.</p>)}
+      {err && <p className="text-[12px] text-warn-soft">{err}</p>}
+    </div>
+  )
+}
+
+/**
+ * One scale, several items (2026-11-20, owner): the same scale and glass box count different parts, each with
+ * its own saved calibration. Pick what is in the box now; optionally say how many are in it so the count is
+ * anchored to the current reading. A new kind of part is added with the guided calibration.
+ */
+function ItemSwitcher({ bin, onDone }: { bin: InventoryBin; onDone: () => void }) {
+  const items = bin.items ?? []
+  const current = items.find(i => i.is_selected)
+  const [pick, setPick] = useState<string>('')
+  const [count, setCount] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  if (!items.length) return null
+  const target = items.find(i => String(i.id) === pick)
+  async function sw() {
+    if (!target) return
+    setBusy(true); setMsg(null)
+    try {
+      await api.binItemSelect(bin.id, target.id, count === '' ? undefined : parseInt(count, 10))
+      setMsg({ ok: true, text: `Now counting ${target.item_name}${count !== '' ? ` from ${count}` : ''}.` })
+      setPick(''); setCount(''); onDone()
+    } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Switch failed' }) }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className="border-t border-ink-600/60 px-5 py-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+        <span className="text-slate-400">Counting:</span>
+        <b className="text-slate-100">{current?.item_name ?? bin.item_name}</b>
+        {current?.unit_mass_g != null && <span className="text-slate-500 tnum">({current.unit_mass_g.toFixed(4)} g each)</span>}
+      </div>
+      {items.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          <select className="input !py-1 !text-[13px] flex-1 min-w-[9rem]" value={pick} onChange={e => setPick(e.target.value)}
+                  aria-label="Switch to another item">
+            <option value="">Switch to…</option>
+            {items.filter(i => !i.is_selected).map(i => <option key={i.id} value={i.id}>{i.item_name}</option>)}
+          </select>
+          <input className="input !py-1 !text-[13px] w-24" inputMode="numeric" placeholder="How many in"
+                 title="Optional: how many are in the box now (anchors the count)" value={count}
+                 onChange={e => setCount(e.target.value)} />
+          <button type="button" className="btn-primary btn-sm" disabled={busy || !target || (count !== '' && !/^\d+$/.test(count))}
+                  onClick={sw}>{busy ? 'Switching…' : 'Switch'}</button>
+        </div>)}
+      {msg && <p className={`text-[12px] ${msg.ok ? 'text-ok-soft' : 'text-warn-soft'}`}>{msg.text}</p>}
+    </div>
+  )
+}
+
 function num(v: string): number | null {
   const n = parseFloat(v)
   return v.trim() === '' || Number.isNaN(n) ? null : n
@@ -210,6 +372,10 @@ function BinDetail({ bin, onChanged }: { bin: InventoryBin; onChanged: (b: Inven
   return (
     <div className="space-y-5">
       {error && <ErrorBanner message={error} onDismiss={() => setError('')} />}
+      <GuidedCalibration bin={bin} onSaved={b => {
+        onChanged(b)
+        setF(x => ({ ...x, item_name: b.item_name, tare_g: b.tare_g?.toString() ?? '', unit_mass_g: b.unit_mass_g?.toString() ?? '' }))
+      }} />
       <form onSubmit={save} className="space-y-3">
         <div className="label">Calibration - measured values only</div>
         <Field label="Item"><input className="input" value={f.item_name} onChange={e => setF({ ...f, item_name: e.target.value })} /></Field>

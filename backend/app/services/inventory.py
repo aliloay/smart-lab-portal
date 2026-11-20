@@ -23,7 +23,7 @@ from typing import Optional
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import (AccessSession, Alert, AlertSeverity, Device, InventoryBin,
+from app.models import (AccessSession, Alert, AlertSeverity, Device, InventoryBin, InventoryBinItem,
                         InventoryMeasurement, InventoryTransaction, Lab)
 from app.services.devices import is_fresh
 
@@ -293,4 +293,63 @@ def bin_out(db: Session, b: InventoryBin, now: Optional[datetime] = None) -> dic
             **(live_count(b) or {"qty_live": None, "settled": True}),
             "reorder_qty": b.reorder_qty, "stock_max": b.stock_max,
             "low": qty is not None and b.reorder_qty is not None and qty <= b.reorder_qty,
-            "notes": b.notes, "is_active": b.is_active}
+            "notes": b.notes, "is_active": b.is_active, "items": items_out(db, b)}
+
+
+# ------------------------------------------------- one scale, several items ---
+# (2026-11-20, owner) A bin's scale and container stay; the kind of part changes. Each kind keeps its own
+# saved calibration in inventory_bin_items; the bin row always holds the ACTIVE one (counting reads only it).
+_ITEM_FIELDS = ("item_name", "category", "tare_g", "unit_mass_g", "noise_g", "reorder_qty", "stock_max",
+                "calibrated_at")
+
+
+def items_out(db: Session, b: InventoryBin) -> list[dict]:
+    rows = db.scalars(select(InventoryBinItem).where(InventoryBinItem.bin_id == b.id,
+                                                    InventoryBinItem.is_active.is_(True))
+                      .order_by(InventoryBinItem.item_name)).all()
+    return [{"id": i.id, "item_name": i.item_name, "category": i.category, "unit_mass_g": i.unit_mass_g,
+             "tare_g": i.tare_g, "calibrated_at": i.calibrated_at, "is_selected": i.is_selected} for i in rows]
+
+
+def selected_item(db: Session, b: InventoryBin) -> Optional[InventoryBinItem]:
+    return db.scalar(select(InventoryBinItem).where(InventoryBinItem.bin_id == b.id,
+                                                    InventoryBinItem.is_selected.is_(True),
+                                                    InventoryBinItem.is_active.is_(True)).limit(1))
+
+
+def save_active_item(db: Session, b: InventoryBin, new_name: Optional[str] = None) -> Optional[InventoryBinItem]:
+    """Store the bin's current calibration as its active item. new_name: a guided calibration for a part
+    that may be new - reuse the saved item with that name (any case) or create it; otherwise update the
+    selected item (a rename stays the same item). Uncalibrated bins are not saved."""
+    if not calibrated(b):
+        return None
+    item = None
+    if new_name:
+        item = db.scalar(select(InventoryBinItem).where(
+            InventoryBinItem.bin_id == b.id, InventoryBinItem.is_active.is_(True),
+            func.lower(InventoryBinItem.item_name) == new_name.strip().lower()).limit(1))
+    else:
+        item = selected_item(db, b)
+    if item is None:
+        item = InventoryBinItem(bin_id=b.id, item_name=b.item_name)
+        db.add(item)
+    for f in _ITEM_FIELDS:
+        setattr(item, f, getattr(b, f))
+    for other in db.scalars(select(InventoryBinItem).where(InventoryBinItem.bin_id == b.id,
+                                                           InventoryBinItem.is_selected.is_(True))).all():
+        if other is not item:
+            other.is_selected = False
+    item.is_selected = True
+    db.flush()
+    return item
+
+
+def select_item(db: Session, b: InventoryBin, item: InventoryBinItem) -> None:
+    """Make a saved item the one the scale counts: its values onto the bin, the next reading is the start."""
+    save_active_item(db, b)                       # keep the outgoing item's latest (drift-followed) values
+    for f in _ITEM_FIELDS:
+        setattr(b, f, getattr(item, f))
+    for other in db.scalars(select(InventoryBinItem).where(InventoryBinItem.bin_id == b.id)).all():
+        other.is_selected = other.id == item.id
+    b.last_mass_g = None
+    LIVE.pop(b.id, None)

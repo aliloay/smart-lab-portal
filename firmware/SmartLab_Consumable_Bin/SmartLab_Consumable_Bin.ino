@@ -45,7 +45,8 @@ constexpr uint16_t BACKEND_PORT = 8000;
 const char *LAB_ID    = "LAB_01";      // Robotics Lab (was BENCH, which the portal does not have)
 const char *DEVICE_ID = "BIN_NODE_1";
 const char *BIN_CODE  = "BIN-R10K";            // must exist in the portal (Inventory)
-const char *FIRMWARE  = "bin-0.5";      // 0.4: portal "Zero scale"; 0.5 (2026-11-17): Wi-Fi modem sleep off
+const char *FIRMWARE  = "bin-0.6";      // 0.4: portal "Zero scale"; 0.5 (2026-11-17): Wi-Fi modem sleep off;
+                                        // 0.6 (2026-11-20): guided calibration - LCD lines from the portal
 const IPAddress LOCAL_IP(192, 168, 1, 153), GATEWAY(192, 168, 1, 1),
                 SUBNET(255, 255, 255, 0);
 
@@ -126,6 +127,12 @@ float    savedMassG = NAN;         // last reading saved in flash (restart refer
 uint32_t lastMassSaveMs = 0;
 const char *bootAnchor = "none";   // what the power-on check did (heartbeat)
 long     qtyEst = -1, qtyErr = -1;
+// bin-0.6 guided calibration: while the portal runs one, its replies carry two LCD lines ("lcd1"/"lcd2":
+// step + countdown). Shown instead of the grams; "Hold still..." while the weight moves (no settled
+// reading is sent then, so no reply either). Dropped when a reply comes without them, or after OVR_MS.
+String   ovr1 = "", ovr2 = "";
+uint32_t ovrMs = 0;
+constexpr uint32_t OVR_MS = 15000;
 
 // --- I2C: find the LCD instead of assuming its address --------------------------
 void scanI2c() {
@@ -151,6 +158,11 @@ void lcdShow(const String &l1, const String &l2) {
 }
 
 void drawLcd() {
+  if (ovrMs != 0 && millis() - ovrMs < OVR_MS) {        // guided calibration step from the portal
+    lcdShow(ovr1, stable ? ovr2 : String("Hold still..."));
+    return;
+  }
+  ovrMs = 0;
   String l1 = itemName.length() ? itemName : String(BIN_CODE);
   String l2;
   if (scaleFactor == 0)      l2 = "NOT CALIBRATED";
@@ -460,6 +472,9 @@ void sendMass() {
     else Serial.printf("[CAL] Portal zero refused: %.2f g, %s\n", shownG, stable ? "too heavy" : "settling");
   }
   itemName = jsonStr(reply, "item_name");
+  String o1 = jsonStr(reply, "lcd1");
+  if (o1.length()) { ovr1 = o1; ovr2 = jsonStr(reply, "lcd2"); ovrMs = millis(); if (!ovrMs) ovrMs = 1; }
+  else ovrMs = 0;
   qtyEst = jsonLong(reply, "qty_est");
   qtyErr = jsonLong(reply, "qty_err");
   String tx = jsonStr(reply, "transaction");

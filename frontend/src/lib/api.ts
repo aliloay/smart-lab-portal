@@ -226,6 +226,37 @@ export interface DeviceCommand {
 }
 
 /** A consumable weighing bin (Robotics Lab, System 3). */
+/** Guided bin calibration (2026-11-20): portal + the node's LCD show the same step and countdown. */
+export interface BinCalibration {
+  active: boolean
+  step: 'CLEAR' | 'ZEROING' | 'CONTAINER' | 'PIECES' | 'DONE' | null
+  step_no?: number
+  steps?: number
+  item_name?: string
+  last_g?: number | null
+  reading_fresh?: boolean
+  held_s?: number
+  hold_s?: number
+  countdown_s?: number
+  m0_g?: number | null
+  parts_g?: number | null
+  net_g?: number | null
+  parts_ready?: boolean
+  lcd?: [string, string]
+  result?: { tare_g: number; unit_mass_g: number; pieces: number; net_g: number; item_name: string } | null
+}
+
+/** One scale, several items (2026-11-20): a saved calibration per kind of part. */
+export interface BinItemProfile {
+  id: number
+  item_name: string
+  category: string
+  unit_mass_g: number | null
+  tare_g: number | null
+  calibrated_at: string | null
+  is_selected: boolean
+}
+
 export interface InventoryBin {
   id: number; code: string; item_name: string; category: string
   lab_id: number; lab_code: string | null; device_uid: string | null
@@ -236,6 +267,8 @@ export interface InventoryBin {
   noise_g: number | null; calibrated_at: string | null; min_change_g: number
   qty_est: number | null; qty_err: number | null; reorder_qty: number | null
   low: boolean; notes: string; is_active: boolean
+  /** saved items this scale can count (one scale, several items) */
+  items?: BinItemProfile[]
 }
 export interface InventoryTx {
   id: number; kind: 'WITHDRAWAL' | 'REFILL' | 'COUNT'
@@ -1681,6 +1714,18 @@ export const api = {
       `/inventory/bins/${id}/history?hours=${hours}`),
   zeroBin: (id: number) =>
     post<InventoryBin & { zero_offset_g: number; zeroed_by: 'node' | 'portal' }>(`/inventory/bins/${id}/zero`, {}),
+  // Guided calibration (2026-11-20): the node's LCD shows the same step + countdown.
+  binCalStart: (id: number, item_name?: string) =>
+    post<BinCalibration>(`/inventory/bins/${id}/calibration`, item_name ? { item_name } : {}),
+  binCalStatus: (id: number) => request<BinCalibration>(`/inventory/bins/${id}/calibration`),
+  binCalFinish: (id: number, pieces: number) =>
+    post<BinCalibration & { bin: InventoryBin }>(`/inventory/bins/${id}/calibration/finish`, { pieces }),
+  binItemSelect: (binId: number, itemId: number, count?: number) =>
+    post<InventoryBin>(`/inventory/bins/${binId}/items/${itemId}/select`, count === undefined ? {} : { count }),
+  binItemRemove: (binId: number, itemId: number) =>
+    post<BinItemProfile[]>(`/inventory/bins/${binId}/items/${itemId}/remove`, {}),
+  binCalCancel: (id: number) =>
+    request<{ cancelled: boolean }>(`/inventory/bins/${id}/calibration`, { method: 'DELETE' }),
   cameraKnown: (deviceId: number) =>
     request<{ label: string; name: string; role: string | null }[]>(`/security/cameras/${deviceId}/known`),
   confirmPerson: (deviceId: number, track_id: number, label: string, new_name = '') =>

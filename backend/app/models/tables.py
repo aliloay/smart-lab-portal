@@ -919,6 +919,27 @@ class InventoryBin(Base):
     created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
 
 
+class InventoryBinItem(Base):
+    """One scale, several items (2026-11-20): a saved calibration per kind of part a bin can hold. The bin row
+    keeps the ACTIVE item's values (counting reads only those); selecting an item copies its values back.
+    Never deleted: a removed item is is_active = False."""
+    __tablename__ = "inventory_bin_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bin_id: Mapped[int] = mapped_column(ForeignKey("inventory_bins.id"), index=True)
+    item_name: Mapped[str] = mapped_column(String(64))
+    category: Mapped[str] = mapped_column(String(32), default="component")
+    tare_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit_mass_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    noise_g: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reorder_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stock_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    calibrated_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    is_selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(TS, default=utcnow)
+
+
 class InventoryMeasurement(Base):
     """A stable reading reported by a bin node (raw history for analysis)."""
     __tablename__ = "inventory_measurements"
