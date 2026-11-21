@@ -401,3 +401,29 @@ def test_many_boxes_at_once_become_one_camera_wide_incident(client, db, lab, sta
     assert len(alerts) == 3 and len(wide) == 1                          # 2 per-box + 1 camera-wide
     assert "camera-wide" in wide[0].title and "PC-05" in wide[0].detail and "PC-03" in wide[0].detail
     assert db.query(SecurityEvent).filter_by(kind="EQUIPMENT_MOTION").count() == 5   # nothing hidden
+
+
+def test_recording_link_token_is_not_a_sign_in(client, db, lab, admin, device_headers, monkeypatch):
+    """2026-11-21 audit F-01: the 10-minute recording play-link token carried the admin's id and was accepted as a full
+    admin Bearer token. Only sign-in tokens may sign in; the link still plays its recording."""
+    from datetime import datetime, timedelta, timezone
+    import jwt as _j
+    from app.core.config import settings
+    from app.core.security import create_access_token, decode_access_token
+    cid = _register(client, device_headers, lab)["device_id"]
+    name = "SECCAM_LAB01_2026-10-07_01-15-39.mp4"
+    url = client.post(f"/api/security/cameras/{cid}/recordings/{name}/link",
+                      headers=auth_headers(client, admin.email)).json()["url"]
+    link_token = url.split("t=", 1)[1]
+    for path in ("/api/auth/me", "/api/users", "/api/devices"):
+        assert client.get(path, headers={"Authorization": f"Bearer {link_token}"}).status_code == 401, path
+    # the emergency link (also signed with the same key) is refused too
+    emg = _j.encode({"emg": str(admin.id), "sub": str(admin.id), "typ": "emergency",
+                     "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, settings.SECRET_KEY,
+                    algorithm=settings.ALGORITHM)
+    assert decode_access_token(emg) is None
+    # real sign-in tokens: new ones are typed "access"; ones issued before the fix (no typ) still work until expiry
+    assert decode_access_token(create_access_token(admin.id, "ADMIN"))["typ"] == "access"
+    legacy = _j.encode({"sub": str(admin.id), "role": "ADMIN", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+                       settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {legacy}"}).status_code == 200

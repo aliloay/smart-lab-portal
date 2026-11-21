@@ -65,6 +65,7 @@ def create_access_token(subject: str | int, role: str,
     payload: dict[str, Any] = {
         "sub": str(subject),
         "role": role,
+        "typ": "access",
         "exp": expire,
         "iat": datetime.now(timezone.utc),
     }
@@ -72,11 +73,16 @@ def create_access_token(subject: str | int, role: str,
 
 
 def decode_access_token(token: str) -> Optional[dict]:
+    """A SIGN-IN token only. Other tokens signed with the same key (recording play links, emergency links) carry
+    their own "typ" and must never work as a sign-in (2026-11-21 audit F-01: a 10-minute recording link was accepted
+    as an admin Bearer token). Sign-in tokens issued before this change have no "typ" and stay valid until they expire."""
     try:
-        return jwt.decode(token, settings.SECRET_KEY,
-                          algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
+    if payload.get("typ", "access") != "access":
+        return None
+    return payload
 
 
 def generate_qr_token() -> str:
