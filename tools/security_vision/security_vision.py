@@ -358,6 +358,17 @@ class Service:
         reid = args.reid if args.reid and os.path.isfile(args.reid) else None
         self.appearance = Appearance(reid)
         print(f"[vision] identity lock: colours{' + body re-id model' if reid else ' only (no re-id model)'}")
+        # 2026-11-21 (audit F-16): measured body pose (pose.py) when models/yolov8n-pose.onnx exists; otherwise None
+        # and nothing changes. At most one pose pass every SMARTLAB_POSE_EVERY_S, under the same GPU lock.
+        try:
+            from pose import PoseModel
+            self.pose = PoseModel.load()
+        except Exception as e:                                   # never let pose stop the camera
+            print(f"[vision] pose model not loaded ({e.__class__.__name__})")
+            self.pose = None
+        self._pose_last = 0.0
+        self._pose_every = float(os.environ.get("SMARTLAB_POSE_EVERY_S", "0.5"))
+        print(f"[vision] body pose: {self.pose.engine if self.pose else 'off (no models/yolov8n-pose.onnx)'}")
         self.metrics = PipelineMetrics()
         process_load()                                 # primes psutil's CPU counter (its first reading is 0)
         self.camera = Camera(args.source, args.max_width, self.metrics)
@@ -635,6 +646,16 @@ class Service:
                 looks = self.appearance.looks(frame, people, t0)
                 r1 = time.perf_counter()
                 tracks = self.tracker.update(people, t0, looks, low=low, starts=[p in sure for p in people])
+                if self.pose is not None and tracks and time.time() - self._pose_last >= self._pose_every:
+                    self._pose_last = time.time()
+                    try:
+                        from pose import attach
+                        from vision import GPU_LOCK
+                        with GPU_LOCK:
+                            poses = self.pose.infer(frame)
+                        attach(tracks, poses)
+                    except Exception as e:                       # a pose failure must never stop tracking
+                        print(f"[vision] pose pass failed: {e.__class__.__name__}")
                 r2 = time.perf_counter()
                 occupants = self.cfg.get("occupants", [])
                 door = self.cfg.get("door")
@@ -1431,7 +1452,10 @@ def make_app(svc: Service) -> Flask:
             return Response("device key required", status=401)
         return jsonify({**svc.metrics.summary(), "process": process_load(), "gpu": gpu_load(),
                         "stream": svc.camera.status(),
-                        "engines": {"detector": svc.detector_engine(), "reid": svc.appearance.engine},
+                        "engines": {"detector": svc.detector_engine(), "reid": svc.appearance.engine,
+                                    "pose": (f"{svc.pose.engine} ({sum(svc.pose.ms) / len(svc.pose.ms):.0f} ms)"
+                                             if getattr(svc, "pose", None) and svc.pose.ms else
+                                             (svc.pose.engine if getattr(svc, "pose", None) else "off"))},
                         "track_parts_ms_p50": {k: round(sorted(v)[len(v) // 2], 1) for k, v in svc.part_ms.items() if v},
                         "settings": {"det_fps": svc.args.det_fps, "size": svc.args.size,
                                      "max_width": svc.args.max_width, "render_fps": svc.RENDER_FPS}})

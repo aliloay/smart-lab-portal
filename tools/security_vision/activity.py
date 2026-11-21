@@ -237,7 +237,12 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12,
         at_pc = bool(nz and nz[1] and nz[0].upper().startswith("PC-"))
         desk_occluded = at_pc and t.box[3] < 1.4 * max(t.box[2], 1e-6)
         pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part, at_pc=at_pc)
-        pv = pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded or desk_occluded, partial=is_part)
+        # 2026-11-21 (audit F-16): MEASURED joints from the keypoint model when a fresh pose matched this track
+        # (pose.py); otherwise the box-proportion estimate as before (basis tells which one the portal shows).
+        from pose import fresh_kps, measured_visibility
+        kp = fresh_kps(t)
+        pv = measured_visibility(kp) if kp is not None else \
+            pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded or desk_occluded, partial=is_part)
         # trousers only when the legs are in view (a cut-off or desk-occluded box's lowest band is still the shirt/chair)
         legs = None if (is_part or desk_occluded) else legs_colour(look_obj.color if look_obj is not None else None)
         clothes = ", ".join(x for x in (f"{colour} top" if colour else "", f"{legs} trousers" if legs else "") if x)

@@ -12,8 +12,8 @@ Source: `tools/security_vision/vision.py`, `docs/benchmarks/SECURITYCAM_ENGINE_A
 
 ## Q: Do the cameras do full-body pose?
 Also asked: skeleton, keypoints, limb tracking, head tracking
-**A:** Not with a keypoint model yet. The head, torso and limb positions shown are estimates from each person's box (marked PREDICTED), not measured joints.
-Source: `tools/security_vision/activity.py` (pose_visibility)
+**A:** Yes, when the keypoint model file is installed (models/yolov8n-pose.onnx). Then head, shoulders, elbows, wrists, torso, hips, knees and ankles are MEASURED, each with its own confidence, and a joint below 50 % confidence is shown as hidden, never guessed. Without the model file, positions are estimates from the person's box (marked PREDICTED).
+Source: `tools/security_vision/pose.py`, `tools/security_vision/activity.py` (pose_visibility)
 
 ## Q: Are the security cameras working?
 Also asked: camera status, is camera 1 live
