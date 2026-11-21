@@ -761,6 +761,9 @@ _portrait_lock = threading.Lock()
 
 
 PORTRAIT_CANDIDATES = 8      # colour frames kept per person for the admin's "Door photo" picker (2026-11-21)
+FACE_FRAME_MAX_AGE_S = 15    # "Take photo now": the last frame WITH a face, if this recent
+_last_face_frame = {"jpeg": None, "at": 0.0}
+_cand_last: dict = {}        # name -> time a candidate was last considered (throttle)
 
 
 def _candidate_dir(name):
@@ -852,6 +855,44 @@ def _photo_guard(name):
     return None
 
 
+TRAINING_CANDIDATES = 24     # face-training crops offered too (owner: "choose from the saved training photos")
+
+
+def _training_ids(name):
+    """Face-training pictures, offered as candidates: s<n> = SFace aligned colour crop (112x112), g<n> = LBPH grey
+    crop (200x200). Face only and small - shown labelled as such; the owner asked to be able to pick them."""
+    out = []
+    for prefix, root, ext in (("s", SFACE_DATASET_DIR, ".png"), ("g", DATASET_DIR, ".jpg")):
+        d = os.path.join(root, name)
+        if os.path.isdir(d):
+            ids = sorted((f[:-len(ext)] for f in os.listdir(d) if f.endswith(ext) and f[:-len(ext)].isdigit()),
+                         key=int)[:TRAINING_CANDIDATES]
+            out += [prefix + i for i in ids]
+    return out
+
+
+def _candidate_path(name, cid):
+    """Path of a candidate id: <area> (colour frame), s<n> (SFace crop), g<n> (grey crop); None if not valid."""
+    if re.fullmatch(r"\d{1,9}", cid):
+        return os.path.join(_candidate_dir(name), f"{cid}.jpg")
+    if re.fullmatch(r"s\d{1,6}", cid):
+        return os.path.join(SFACE_DATASET_DIR, name, f"{cid[1:]}.png")
+    if re.fullmatch(r"g\d{1,6}", cid):
+        return os.path.join(DATASET_DIR, name, f"{cid[1:]}.jpg")
+    return None
+
+
+def _load_candidate(name, cid):
+    path = _candidate_path(name, cid)
+    if path is None or not os.path.isfile(path):
+        return None
+    img = cv2.imread(path, cv2.IMREAD_COLOR)            # grey crops come back as 3 identical channels
+    if img is not None and max(img.shape[:2]) < 320:     # face-only crops: enlarge so the LCD crop has pixels
+        s = 320 / max(img.shape[:2])
+        img = cv2.resize(img, None, fx=s, fy=s, interpolation=cv2.INTER_CUBIC)
+    return img
+
+
 def _set_chosen_portrait(name, img, how):
     os.makedirs(PORTRAIT_DIR, exist_ok=True)
     cv2.imwrite(os.path.join(PORTRAIT_DIR, f"{name}.jpg"), img)
@@ -873,7 +914,8 @@ def portrait_info(name):
     m = _portrait_meta(name) or {}
     has = os.path.isfile(os.path.join(PORTRAIT_DIR, f"{name}.jpg"))
     return jsonify({"name": name, "has_photo": has, "source": m.get("source", "manual" if has else None),
-                    "how": m.get("how"), "candidates": cands, "camera_live": _preview["jpeg"] is not None
+                    "how": m.get("how"), "candidates": cands, "training": _training_ids(name),
+                    "camera_live": _preview["jpeg"] is not None
                     and time.time() - _preview["at"] <= PREVIEW_MAX_AGE_S})
 
 
@@ -893,11 +935,15 @@ def portrait_candidate(name, cid):
     bad = _photo_guard(name)
     if bad:
         return bad
-    if not cid.isdigit():
+    path = _candidate_path(name, cid)
+    if path is None:
         return jsonify({"error": "bad candidate"}), 400
-    path = os.path.join(_candidate_dir(name), f"{cid}.jpg")
     if not os.path.isfile(path):
         return jsonify({"error": "no such candidate"}), 404
+    if path.endswith(".png"):                            # SFace crops are PNG: send as JPEG like the rest
+        img = cv2.imread(path, cv2.IMREAD_COLOR)
+        return Response(cv2.imencode(".jpg", img)[1].tobytes(), mimetype="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
     return send_file(path, mimetype="image/jpeg", max_age=0)
 
 
@@ -910,17 +956,24 @@ def portrait_choose(name):
     how = str(body.get("from", ""))
     if how == "candidate":
         cid = str(body.get("candidate", ""))
-        path = os.path.join(_candidate_dir(name), f"{cid}.jpg")
-        img = cv2.imread(path) if cid.isdigit() and os.path.isfile(path) else None
+        img = _load_candidate(name, cid)
         if img is None:
             return jsonify({"error": "no such candidate"}), 404
-        _set_chosen_portrait(name, img, "enrollment frame")
+        _set_chosen_portrait(name, img, {"s": "training photo (colour crop)",
+                                         "g": "training photo (grey crop)"}.get(cid[:1], "door / enrollment frame"))
     elif how == "camera":
-        if _preview["jpeg"] is None or time.time() - _preview["at"] > PREVIEW_MAX_AGE_S:
+        # The latest frame in which the door's own detector found a face (the detector the door uses is better than a
+        # second Haar pass on a small frame); else the current frame, checked here.
+        if _last_face_frame["jpeg"] is not None and time.time() - _last_face_frame["at"] <= FACE_FRAME_MAX_AGE_S:
+            img = cv2.imdecode(np.frombuffer(_last_face_frame["jpeg"], dtype=np.uint8), cv2.IMREAD_COLOR)
+        elif _preview["jpeg"] is not None and time.time() - _preview["at"] <= PREVIEW_MAX_AGE_S:
+            img = cv2.imdecode(np.frombuffer(_preview["jpeg"], dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is not None and largest_face_box(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)) is None:
+                img = None
+        else:
             return jsonify({"error": "the door camera is not sending pictures right now"}), 409
-        img = cv2.imdecode(np.frombuffer(_preview["jpeg"], dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None or largest_face_box(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)) is None:
-            return jsonify({"error": "no face in front of the door camera - look at it and try again"}), 409
+        if img is None:
+            return jsonify({"error": "no face seen by the door camera in the last 15 s - look at it and try again"}), 409
         _set_chosen_portrait(name, img, "door camera")
     else:
         return jsonify({"error": "from must be candidate or camera"}), 400
@@ -1110,6 +1163,15 @@ def analyze():
                     face_name = label_to_name.get(label)
 
         t_face = time.perf_counter()
+        # Door photo picker (2026-11-21): remember the last frame that had a face ("Take photo now" uses it), and keep
+        # frames of RECOGNISED people as photo candidates - in a thread, at most every 3 s per person, so recognition
+        # timing is unchanged. Everyone gets pictures to choose from through normal use, without re-enrolling.
+        if face is not None:
+            _last_face_frame.update(jpeg=raw, at=time.time())
+        if face_name and face_row is not None and time.time() - _cand_last.get(face_name, 0) >= 3.0:
+            _cand_last[face_name] = time.time()
+            area = int(face_row[2] * face_row[3])
+            threading.Thread(target=keep_candidate, args=(face_name, img.copy(), area), daemon=True).start()
         if look is not None and _auto.get("active"):
             with _auto_lock:                         # (lock order: cv_lock, then _auto_lock)
                 _auto_consider(img, gray, look)      # after the door's result: it cannot change it

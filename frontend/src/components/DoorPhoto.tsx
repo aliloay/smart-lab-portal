@@ -88,8 +88,25 @@ export default function DoorPhoto({ userId, savedSubject }: { userId: number; sa
                   </button>))}
               </div>
             </div>
-          ) : <p className="text-[11.5px] text-slate-500">Enrollment frames to pick from appear after the next face
-              enrollment; until then take one at the door camera or upload one.</p>}
+          ) : <p className="text-[11.5px] text-slate-500">Full photos from the door camera appear here after this person
+              is recognised at the door a few times (or after the next face enrollment).</p>}
+          {(info.training ?? []).length > 0 && (
+            <div>
+              <div className="text-[11.5px] text-slate-400 mb-1.5">From face training ({info.training!.length}) - face-only
+                crops, small; <span className="text-slate-300">colour</span> ones look best on the door screen:</div>
+              <div className="grid grid-cols-6 gap-1.5 max-h-56 overflow-y-auto pr-1">
+                {info.training!.map(c => (
+                  <button key={c} type="button" disabled={!!busy}
+                          title={c.startsWith('s') ? 'Training photo (colour crop)' : 'Training photo (grey crop)'}
+                          className="relative rounded-md overflow-hidden border border-ink-600 hover:border-accent-400 focus:border-accent-400"
+                          onClick={() => run(`c${c}`, () => api.doorPhotoChoose(userId, { from: 'candidate', candidate: c }), 'Door photo chosen.')}>
+                    <AuthedImg path={`/users/${userId}/door-photo/candidate/${c}.jpg`} alt="Training photo"
+                               className="w-full aspect-square object-cover" />
+                    <span className={`absolute bottom-0 inset-x-0 text-[9px] text-center ${c.startsWith('s')
+                      ? 'bg-accent-600/70 text-white' : 'bg-ink-900/70 text-slate-300'}`}>{c.startsWith('s') ? 'colour' : 'grey'}</span>
+                  </button>))}
+              </div>
+            </div>)}
           {msg && <p className="text-[12px] text-ok-soft">{msg}</p>}
         </>
       )}

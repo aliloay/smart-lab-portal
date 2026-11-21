@@ -1765,7 +1765,7 @@ export const api = {
   // Face photos uploaded by staff: straight to the face server, nothing kept.
   // Door photo (2026-11-21): which photo the ACCESS GRANTED screen (door LCD + tablet) shows for this person.
   doorPhotoInfo: (id: number) => request<{ has_photo: boolean; source: string | null; how: string | null;
-    candidates: string[]; camera_live: boolean }>(`/users/${id}/door-photo`),
+    candidates: string[]; training?: string[]; camera_live: boolean }>(`/users/${id}/door-photo`),
   doorPhotoChoose: (id: number, body: { from: 'candidate'; candidate: string } | { from: 'camera' }) =>
     post<{ ok: boolean }>(`/users/${id}/door-photo/choose`, body),
   doorPhotoUpload: (id: number, file: File) => {

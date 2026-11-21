@@ -327,7 +327,8 @@ def door_photo_current(user_id: int, db: Session = Depends(get_db), _: User = De
 
 @router.get("/users/{user_id}/door-photo/candidate/{cid}.jpg")
 def door_photo_candidate(user_id: int, cid: str, db: Session = Depends(get_db), _: User = Depends(require_staff)):
-    if not cid.isdigit():
+    import re as _re
+    if not _re.fullmatch(r"\d{1,9}|[sg]\d{1,6}", cid):     # door/enrollment frame, or a face-training crop (s/g)
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad candidate")
     u = _person(db, user_id)
     r = _photo_call("GET", f"/portrait/{u.auth_subject}/candidate/{cid}.jpg")

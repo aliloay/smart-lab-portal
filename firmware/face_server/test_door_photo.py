@@ -69,3 +69,30 @@ def test_camera_capture_refuses_without_a_live_frame(env, monkeypatch):
 def test_bad_names_are_refused(env):
     assert env.get("/portrait/..%2Fx/info", headers=KEY).status_code in (400, 404)
     assert env.post("/portrait/USER9/choose", headers=KEY, json={"from": "candidate", "candidate": "../x"}).status_code == 404
+
+
+def test_camera_capture_uses_the_last_frame_with_a_face(env, monkeypatch):
+    monkeypatch.setitem(fs._last_face_frame, "jpeg", jpg(img(face=False)))   # the door's detector saw a face here
+    monkeypatch.setitem(fs._last_face_frame, "at", fs.time.time())
+    r = env.post("/portrait/USER9/choose", headers=KEY, json={"from": "camera"})
+    assert r.status_code == 200, r.get_json()
+    monkeypatch.setitem(fs._last_face_frame, "at", fs.time.time() - 60)       # too old, and no live frame
+    monkeypatch.setitem(fs._preview, "jpeg", None)
+    assert env.post("/portrait/USER9/choose", headers=KEY, json={"from": "camera"}).status_code == 409
+
+
+def test_training_photos_are_offered_and_can_be_chosen(env, monkeypatch, tmp_path):
+    monkeypatch.setattr(fs, "DATASET_DIR", str(tmp_path / "dataset"))
+    monkeypatch.setattr(fs, "SFACE_DATASET_DIR", str(tmp_path / "dataset_sface"))
+    os.makedirs(tmp_path / "dataset" / "USER9")
+    os.makedirs(tmp_path / "dataset_sface" / "USER9")
+    cv2.imwrite(str(tmp_path / "dataset" / "USER9" / "3.jpg"), np.full((200, 200), 120, np.uint8))
+    cv2.imwrite(str(tmp_path / "dataset_sface" / "USER9" / "7.png"), np.full((112, 112, 3), 90, np.uint8))
+    info = env.get("/portrait/USER9/info", headers=KEY).get_json()
+    assert info["training"] == ["s7", "g3"]
+    assert env.get("/portrait/USER9/candidate/s7.jpg", headers=KEY).status_code == 200
+    r = env.post("/portrait/USER9/choose", headers=KEY, json={"from": "candidate", "candidate": "g3"})
+    assert r.status_code == 200, r.get_json()
+    meta = json.load(open(os.path.join(fs.PORTRAIT_DIR, "USER9.json")))
+    assert meta["source"] == "chosen" and "grey" in meta["how"]
+    assert env.get("/portrait/USER9/candidate/x9.jpg", headers=KEY).status_code == 400
