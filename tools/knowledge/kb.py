@@ -39,6 +39,15 @@ import gpu_gate  # noqa: E402  (camera-first GPU admission for the answer model)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# Models with a hidden reasoning ("thinking") pass. Same list as backend/app/services/ai.py THINKING_FAMILIES:
+# these get think=false, otherwise every answer spends seconds reasoning before the first word.
+THINKING_FAMILIES = ("qwen3", "gemma4", "deepseek-r1", "lfm2.5-thinking", "magistral", "gpt-oss")
+
+
+def thinks(model: str) -> bool:
+    m = (model or "").lower()
+    return any(m.startswith(f) for f in THINKING_FAMILIES)
+
 DEFAULT_ALLOW = [
     "README.md", "docs/*.md", "docs/benchmarks/*.md", "docs/knowledge-platform/*.md",
     "automation/n8n/json/*.json", "automation/n8n/README.md",
@@ -177,7 +186,7 @@ def load_config(path: str | None = None) -> dict:
         cfg[k] = os.path.abspath(os.path.expanduser(os.path.expandvars(cfg[k])))
     cfg.setdefault("allow", DEFAULT_ALLOW)
     cfg.setdefault("ollama", "http://127.0.0.1:11434")
-    cfg.setdefault("model", "qwen2.5:1.5b")
+    cfg.setdefault("model", "qwen3:1.7b")
     cfg.setdefault("llm_on_cpu", True)
     REDACT_LITERALS[:] = [x for x in cfg.get("redact_literals", []) if isinstance(x, str) and len(x) >= 4]
     return cfg
@@ -669,6 +678,8 @@ def ask(cfg: dict, question: str, k: int = 5, use_llm: bool = True) -> dict:
     body = {"model": cfg["model"], "prompt": PROMPT.format(evidence=ev, question=question), "stream": False,
             "options": {"temperature": 0.1, "num_ctx": 4096, "num_thread": int(cfg.get("llm_threads", 4)),
                         **({} if gpu_gate.use_gpu(cfg) else {"num_gpu": 0})}}   # camera-first: gpu_gate.py
+    if thinks(body["model"]):
+        body["think"] = False   # qwen3 & co: no hidden reasoning pass (same rule as backend ai.py)
     req = urllib.request.Request(cfg["ollama"].rstrip("/") + "/api/generate", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
     if not re.match(r"https?://(127\.0\.0\.1|localhost)(:\d+)?$", cfg["ollama"].rstrip("/")):

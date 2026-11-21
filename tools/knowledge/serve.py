@@ -112,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         idx_p = os.path.join(cfg["data"], "index.json")
         emb = os.path.join(cfg["data"], "embeddings.npy")
         self._json(200, {"ok": True, "index_built": datetime.fromtimestamp(os.path.getmtime(idx_p)).astimezone().isoformat(timespec="seconds") if os.path.isfile(idx_p) else None,
-                         "embeddings": os.path.isfile(emb), "model": cfg.get("agent_model", "qwen2.5:1.5b"),
+                         "embeddings": os.path.isfile(emb), "model": cfg.get("agent_model", "qwen3:1.7b"),
                          "jobs": STATE["jobs"], "job_running": JOB_LOCK.locked()})
 
     def do_POST(self):
@@ -155,7 +155,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 raise KeyboardInterrupt            # the browser closed the stream: stop generating
         cfg = kb.load_config()
-        cfg["model"] = cfg.get("agent_model", "qwen2.5:1.5b")
+        cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
         # Answer cache: the same question against the same index gets the same cited answer at once.
         idx = os.path.join(cfg["data"], "index.json")
         version = os.path.getmtime(idx) if os.path.isfile(idx) else 0
@@ -205,7 +205,7 @@ def warm_up() -> None:
     t0 = time.time()
     try:
         cfg = kb.load_config()
-        cfg["model"] = cfg.get("agent_model", "qwen2.5:1.5b")
+        cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
         agent.ollama_stream(cfg, "Reply with: ok", lambda _t: None)
         kb.embed(cfg, ["warm up"], "search_query: ")
         print(f"[kb-service] models warm in {time.time() - t0:.1f} s")

@@ -182,6 +182,8 @@ def ollama_stream(cfg, prompt, on_token, model=None):
             "options": {"temperature": 0.1, "num_ctx": FAST["num_ctx"], "num_predict": FAST["num_predict"],
                         "num_thread": int(cfg.get("llm_threads", 4)),
                         **({} if gpu_gate.use_gpu(cfg) else {"num_gpu": 0})}}   # camera-first: gpu_gate.py
+    if kb.thinks(body["model"]):
+        body["think"] = False   # qwen3 & co: no hidden reasoning pass (same rule as backend ai.py)
     req = urllib.request.Request(url + "/api/generate", json.dumps(body).encode(), {"Content-Type": "application/json"})
     t0, first, text, stats = time.perf_counter(), None, [], {}
     with urllib.request.urlopen(req, timeout=cfg.get("llm_timeout_s", 240)) as r:
@@ -501,7 +503,7 @@ def main(argv=None):
     # Agent default: qwen2.5:1.5b (already installed). Measured 2026-10-14 on the 11-question set:
     # 9/10 correct, first word ~6.8 s; qwen2.5:3b refused 3 answerable questions, first word ~12.3 s.
     # Override with --model or "agent_model" in tools/knowledge/config.json.
-    cfg["model"] = cfg.get("agent_model", "qwen2.5:1.5b")
+    cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
     if a.model:
         cfg["model"] = a.model
     if a.bench:
