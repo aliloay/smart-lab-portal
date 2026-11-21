@@ -24,6 +24,7 @@ import { AppearanceHint, ScanAnswer, ScanCard, api, scanAppearance, scanAsk, sca
 import { Chip } from '../components/ui'
 import LiveTargetPanel, { LiveSummary, RobotBars, fmtAge } from '../components/live/LiveTargetPanel'
 import { PersonTracker, Track, faceCrop } from '../components/live/tracker'
+import { SHIFT_EVERY_MS, SHIFT_HIDE, SHIFT_H, SHIFT_MAX_X, SHIFT_MAX_Y, SHIFT_W, estimateShift, grayThumb } from './arshift'
 
 type Pt = { x: number; y: number }
 type Seen = { text: string; corners: Pt[]; at: number; cx: number; cy: number; top: number }
@@ -40,6 +41,7 @@ const PEOPLE_EVERY_MS = 800           // people frames at most this often (was b
 // last server answer is applied again - the answer an unchanged picture would get - so tracks stay alive (tracker
 // LOST_MS = 1500 ms: skipping outright made the boxes vanish). At most STILL_MAX_MS between real uploads.
 const MOTION_THUMB = 32, STILL_MAD = 4, PIXEL_STEP = 14, STILL_PIXELS = 3, STILL_MAX_MS = 3000
+
 function thumbOf(src: CanvasImageSource, c: HTMLCanvasElement): Uint8ClampedArray {
   c.width = c.height = MOTION_THUMB
   const x = c.getContext('2d', { willReadFrequently: true })!
@@ -413,7 +415,22 @@ export default function Scan() {
       }
       // the box look-up's frame (2026-10-28, owner: "the message appeared but no frame around the bin"): around the
       // matched points, dashed = unverified, for 5 s after the check
-      const ab = apBox.current
+      // follow the phone's motion since the detection frame (audit F-15)
+      const vv = video.current
+      if (apRef.current && vv?.videoWidth && now - apShift.current.at >= SHIFT_EVERY_MS && (apBox.current || apAll.current)) {
+        const zc = crop()
+        const cur = grayThumb(vv, zc.x * vv.videoWidth, zc.y * vv.videoHeight, zc.w * vv.videoWidth, zc.h * vv.videoHeight,
+                              shiftCanvas.current ?? (shiftCanvas.current = document.createElement('canvas')))
+        if (cur) {
+          const e = estimateShift(apRef.current, cur)
+          // a shift at the search edge or a poor match = the view moved more than we can follow: hide, don't guess
+          const atEdge = Math.abs(e.dx * SHIFT_W) >= SHIFT_MAX_X || Math.abs(e.dy * SHIFT_H) >= SHIFT_MAX_Y
+          apShift.current = { dx: -e.dx, dy: -e.dy, ok: !atEdge && e.err < 40 && Math.abs(e.dx) < SHIFT_HIDE && Math.abs(e.dy) < SHIFT_HIDE, at: now }
+        }
+      }
+      const sh = apShift.current
+      const ab0 = apBox.current
+      const ab = ab0 && sh.ok ? { ...ab0, x: ab0.x + sh.dx, y: ab0.y + sh.dy } : null
       if (ab && now - ab.at < 5000) {
         const x = s.mirror ? mx(ox + (ab.x + ab.w) * pw) : ox + ab.x * pw, y = oy + ab.y * ph
         ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 3; ctx.strokeStyle = '#38bdf8'; ctx.globalAlpha = 1
@@ -428,7 +445,8 @@ export default function Scan() {
       }
       // every other object the detectors saw in the same frame (2026-11-02, owner: "detect everything in frame")
       const al = apAll.current
-      if (al && now - al.at < 5000) for (const d of al.list) {
+      if (al && sh.ok && now - al.at < 5000) for (const d0 of al.list) {
+        const d = { ...d0, box: { ...d0.box, x: d0.box.x + sh.dx, y: d0.box.y + sh.dy } }
         const x = s.mirror ? mx(ox + (d.box.x + d.box.w) * pw) : ox + d.box.x * pw, y = oy + d.box.y * ph
         ctx.save(); ctx.setLineDash([10, 6]); ctx.lineWidth = 2.5; ctx.strokeStyle = d.registered ? '#38bdf8' : '#a78bfa'
         ctx.strokeRect(x, y, d.box.w * pw, d.box.h * ph); ctx.setLineDash([])
@@ -531,6 +549,10 @@ export default function Scan() {
   const boxAt = useRef(0)
   const apBox = useRef<{ x: number; y: number; w: number; h: number; at: number; cls: string; label?: string } | null>(null)
   const apAll = useRef<{ at: number; list: NonNullable<AppearanceHint['detections']> } | null>(null)
+  // the detection frame's grey thumb and the view's current shift from it (audit F-15)
+  const apRef = useRef<Uint8Array | null>(null)
+  const apShift = useRef<{ dx: number; dy: number; ok: boolean; at: number }>({ dx: 0, dy: 0, ok: true, at: 0 })
+  const shiftCanvas = useRef<HTMLCanvasElement | null>(null)
   const setBoxHint = (t: string) => { boxAt.current = Date.now(); setBoxHint0(t) }
   // a box verdict is about ONE frame: it fades after 5 s instead of staying on whatever comes next (owner 2026-10-28:
   // "my face - it says looks like the reusable bin" = the bin's verdict still on screen)
@@ -551,6 +573,7 @@ export default function Scan() {
     const w = Math.min(W, Math.round(v.videoWidth * cz.w)); g.width = w; g.height = Math.round(w * (v.videoHeight * cz.h) / (v.videoWidth * cz.w))
     const zc = crop()
     g.getContext('2d')!.drawImage(v, zc.x * v.videoWidth, zc.y * v.videoHeight, zc.w * v.videoWidth, zc.h * v.videoHeight, 0, 0, g.width, g.height)
+    const sentThumb = grayThumb(g, 0, 0, g.width, g.height)        // the reference the boxes will follow from
     if (!auto) setBoxHint('Comparing with the enclosure photos…')
     g.toBlob(b => {
       if (!b) return
@@ -571,6 +594,7 @@ export default function Scan() {
         const rest = (r.detections ?? []).filter(d => !(r.best && r.best.box_kind === 'detector' && d.code === r.best.code)
                                                      && !inViewRef.current.includes(d.code))
         apAll.current = rest.length ? { at: Date.now(), list: rest } : null
+        apRef.current = sentThumb; apShift.current = { dx: 0, dy: 0, ok: true, at: 0 }
         setBoxHint(r.decision === 'PROBABLE' && r.best ? `Looks like ${name(r.best.code)} (unverified, ${r.best.box_kind === 'detector' ? `detector ${Math.round((r.best.confidence ?? 0) * 100)}% sure` : `${r.best.inliers} matching points`})${r.best.registered === false ? ' - not a registered asset yet, so no live data.' : ' - scan its marker to see its live data.'}`
           : r.decision === 'AMBIGUOUS' ? `Could be ${r.candidates.slice(0, 2).map(c => name(c.code)).join(' or ')} - they look alike. Scan the marker.`
           : `Not recognised${r.note.includes('no reference') ? ' (no enclosure photos yet)' : ''} - scan the marker.`)
@@ -592,7 +616,7 @@ export default function Scan() {
       tick++
       if (document.hidden || Date.now() <= boxQuietUntil.current) return
       if (inViewRef.current.length === 0 || tick % 2 === 0) whichBoxRef.current(true)
-    }, 3000)
+    }, 1500)          // 2026-11-21 (audit F-15): 3 s / 6 s -> 1.5 s / 3 s; boxes follow motion in between (estimateShift)
     return () => window.clearInterval(t)
   }, [running, paused])
   // 2026-10-28 (owner: "a refresh button - after it detects something and speaks, refresh so I can walk on faster"):
