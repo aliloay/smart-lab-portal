@@ -102,8 +102,10 @@
 - **Assistant:** answers questions about the lab, labs' locations, devices, bookings and robots from the portal's data and the knowledge vault.
   - Model: qwen2.5:1.5b on the GPU, approved 19 Oct; revert to CPU if a camera suffers.
   - Today: "where is the X lab" answers in one line.
-- **To check:** `tools/knowledge/config.json` names `qwen2.5:3b`, which is not installed. The running assistant uses 1.5b.
-  Confirm which one the knowledge service actually loads.
+- **Checked 15:52:** Ollama has `qwen2.5:1.5b` loaded, on the CPU (no GPU memory used). `tools/knowledge/config.json` still
+  names `qwen2.5:3b`, which is not installed; update the config to match.
+- **Update 15:51:** `launch.bat` restarted. Face server, both security cameras, knowledge and voice all answer, and both
+  cameras report to the portal.
 - **Knowledge vault (Obsidian):**
   - `C:\Users\dell\SmartLabKnowledge\vault`, 806 notes;
   - sections: Home, Project, Systems, n8n Workflows, Database, Runbooks, Incidents and Lessons, Decisions, Generated Reports,
@@ -129,6 +131,11 @@
 | 12 | Rule-based anomaly detection | K2 | Knowledge: vault health check |
 | 13 | Environment hazard escalation | K3 | Knowledge: weekly summary |
 
+- **Checked 16:00:** 19 workflows ran in the last 24 h, all successful.
+- **Delivery:** in-portal notifications only. n8n's only credentials are the portal's header keys: no email or Telegram.
+- **Daily/weekly reports not run recently:** 06 daily (last 13 Nov), 07 weekly (12 Nov), 05/11/22 (18 Nov).
+  They run at fixed hours, n8n does not catch up on runs it missed while the laptop or n8n was off, and Knowledge 2 failed
+  on 18 Nov. Owner can press Execute in n8n (Claude does not run live workflows).
 - Copies of the workflows are in the repo under `automation/n8n/`.
 - Backup from 18 Nov: `D:\SmartLabData\n8n_backup_20261118`.
 
