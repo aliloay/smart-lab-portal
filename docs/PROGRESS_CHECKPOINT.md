@@ -1,5 +1,18 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-21 night - independent audit + fixes (reports/claude-independent-full-audit-2026-11-21/)
+- F-01 security: recording/emergency link tokens no longer work as sign-in tokens (typ=access). F-05: GPU gate counts
+  Ollama's own VRAM as available (assistants on GPU when cameras idle). F-06/F-07: docs/faq (60 Q&A, ~40 ms answers
+  without the model), 322 duplicate vault mirrors moved to vault_retired (0 broken wikilinks), kb.py retire/wikilinks.
+- F-09: backups move (never delete) to D:/SmartLabData/backup_archive after 14 d (uploads 7 d); C: 6.2 -> 2.4 GB;
+  restore drill OK (44 tables, 374,212 rows). F-11: n8n LIVE hardened: error handler, 15 s timeouts, webhook retries
+  (backup D:/SmartLabData/n8n_backup_20261121). F-15: AR boxes follow phone motion, detection 1.5 s.
+- F-16: measured body pose (tools/security_vision/pose.py, YOLOv8-pose) - OFF until the owner downloads
+  models/yolov8n-pose.onnx (download blocked for the agent). F-08: CAM shows last QR 10 s only - built, NOT flashed
+  (needs the ESP32-CAM on USB). F-17/F-20/F-22/F-23/F-13/F-18 fixed. Owner decisions: F-02/F-03/F-10 unchanged.
+- Tests 21 Nov night: backend 890 passed (3 skipped), cameras 404, robots 44, knowledge 72, face 22, PC agent 40 (py 3.14),
+  relay 6, smartlab CLI 107, frontend tsc + vite build + unit 10.
+
 ## UPDATE 2026-11-21 evening - smartlab CLI, assistant live answers, model split, alert clean-up (NOT pushed: f5ba8ac, a0814c7)
 - AI: knowledge assistant qwen3:1.7b (think=false, 9/11), portal assistant stays qwen2.5:1.5b (86.5% vs 80.8%); 3b/4b/7b removed (docs/benchmarks/LOCAL_MODEL_BENCHMARK_2026-11-21.md).
 - smartlab CLI (read-only, CLI-Anything method): tools/smartlab_cli, installed in C:/Projects/external-tools/venvs/clihub, shims in C:/Projects/external-tools/bin (user PATH); 107 tests; reports in reports/cli-anything-smartlab-integration/. CLI-Anything plugin + CLI-Hub (blender, ollama, 3mf) installed.
