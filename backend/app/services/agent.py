@@ -589,6 +589,13 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
     staff = user.role in (Role.ADMIN, Role.LAB_STAFF)
     # the whole-lab answers added 2026-10-27 come before the door-only history (it read "today's summary" as a door report)
     first = detect(question, staff)
+    # 2026-11-21: live one-liners (lab count, one named device, which ESP32 does X, ESP32 boards, model in use, health
+    # score) that used to reach the model and come back wrong. Only when no specific intent claimed the question.
+    if first in (None, "offline", "robots_status", "cameras_status", "pcs_status"):
+        from app.services import agent_live
+        live = agent_live.answer(db, question, staff, _when, _answer, _bullets)
+        if live is not None:
+            return live
     if staff and first not in ("report_daily", "low_stock", "recent_activity", "bookings_today", "empty_labs"):
         # Door history, any period, charts: exact, from the records (agent_history).
         h = agent_history.answer(db, question)
