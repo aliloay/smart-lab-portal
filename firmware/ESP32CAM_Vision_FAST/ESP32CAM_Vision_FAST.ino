@@ -73,6 +73,7 @@ constexpr uint32_t ANALYZE_INTERVAL_MS = 150;
 // MOTION_SIZE_PCT from the last frame - someone walking up). A person at the door gets full speed within ~1 s.
 constexpr uint32_t IDLE_INTERVAL_MS = 1000;
 constexpr uint32_t ACTIVE_HOLD_MS   = 10000;
+constexpr uint32_t QR_SHOW_MS       = 10000;   // F-08: QR text visible on /status for 10 s only (Master uses <= 3.5 s)
 constexpr uint32_t MOTION_SIZE_PCT  = 8;
 
 // JPEG quality, 0-63, LOWER = better quality and a BIGGER file. Every frame
@@ -384,12 +385,16 @@ static esp_err_t status_handler(httpd_req_t *req) {
   LOCK();
   long qrAge   = everQr   ? (long)(millis() - lastQrMs)   : -1;
   long faceAge = everFace ? (long)(millis() - lastFaceMs) : -1;
+  // 2026-11-21 audit F-08: the last QR text (a booking token valid for the whole booking) stayed readable here
+  // forever for anyone on the lab Wi-Fi. The Master ignores anything older than VISION_FRESH_MS (3.5 s), so after
+  // QR_SHOW_MS only the age is reported - door behaviour is unchanged.
+  bool qrShow  = everQr && qrAge >= 0 && qrAge < (long)QR_SHOW_MS;
 
   int len = snprintf(buf, sizeof(buf),
     "{\"qr\":%s%s%s,\"qr_age_ms\":%ld,"
     "\"face\":%s%s%s,\"face_age_ms\":%ld,"
     "\"distance\":%.1f,\"online\":true}",
-    everQr ? "\"" : "", everQr ? lastQr.c_str() : "null", everQr ? "\"" : "",
+    qrShow ? "\"" : "", qrShow ? lastQr.c_str() : "null", qrShow ? "\"" : "",
     qrAge,
     everFace ? "\"" : "", everFace ? lastFace.c_str() : "null", everFace ? "\"" : "",
     faceAge,
@@ -452,7 +457,7 @@ static esp_err_t snapshot_handler(httpd_req_t *req) {
 
 static esp_err_t index_handler(httpd_req_t *req) {
   LOCK();
-  String qrNow   = everQr   ? lastQr   : String("none");
+  String qrNow   = (everQr && millis() - lastQrMs < QR_SHOW_MS) ? lastQr : String("none");   // F-08
   String faceNow = everFace ? lastFace : String("none");
   UNLOCK();
   // No meta refresh: it would wipe the name being typed. The two values are
