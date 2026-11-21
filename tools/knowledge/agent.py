@@ -19,6 +19,7 @@ if Ollama is down, the evidence is returned with "no AI synthesis was performed"
 """
 from __future__ import annotations
 
+from typing import Optional
 import argparse
 import json
 import os
@@ -307,6 +308,50 @@ def _index_stamp(cfg) -> float:
 
 
 # ----------------------------------------------------------- the 3 routes ---
+# ------------------------------------------------------------------- faq ---
+# 2026-11-21 (audit F-06): one-line factual questions went through full synthesis (11.7 s on the CPU) although a
+# curated answer existed. docs/faq/*.md holds "## Q: ..." / "Also asked:" / "**A:** ..." / "Source: ..." entries;
+# when the best search hit is such an entry AND the question's content words match its question or one of its
+# alternatives closely, that answer is returned at once, cited, without the model. Anything weaker -> normal path.
+FAQ_PREFIX = "docs/faq/"
+_FAQ_STOP = set("the a an is are was were be does do did of in on at to for my me i we our you your it its this that "
+                "what which who whom whose where when why how can could should would will there here any some "
+                "please tell show give about and or with from by as lab's".split())
+
+
+def _faq_words(s: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9]+", s.lower().replace("-", " ")) if w not in _FAQ_STOP and len(w) > 1}
+
+
+def faq_answer(q: str, hits: list) -> Optional[dict]:
+    if not hits:
+        return None
+    h = hits[0]
+    if not h["source"].startswith(FAQ_PREFIX) or not h["heading"].lower().startswith("q:"):
+        return None
+    text = h.get("text") or ""
+    a = re.search(r"\*\*A:\*\*\s*(.+)", text)
+    if not a:
+        return None
+    also = re.search(r"^Also asked:\s*(.+)$", text, re.M)
+    variants = [h["heading"][2:]] + ([x for x in also.group(1).split(",")] if also else [])
+    qw = _faq_words(q)
+    if len(qw) < 1:
+        return None
+    best = 0.0
+    for v in variants:
+        vw = _faq_words(v)
+        if not vw:
+            continue
+        common = len(qw & vw)
+        score = min(common / len(qw), common / len(vw))     # both ways: no extra unmatched intent on either side
+        best = max(best, score)
+    if best < 0.6:
+        return None
+    src = re.search(r"^Source:\s*(.+)$", text, re.M)
+    return {"answer": a.group(1).strip(), "match": round(best, 2), "faq_source": src.group(1).strip() if src else None}
+
+
 def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None):
     """emit(event) receives structured events for the portal: meta, sources, token, done."""
     emit = emit or (lambda e: None)
@@ -340,6 +385,18 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
     if not hits:
         out(NO_EVIDENCE)
         res.update(status="completed", answer=NO_EVIDENCE, total_ms=round((time.perf_counter() - t0) * 1000))
+        return res
+    fa = None if forced else faq_answer(q, hits)
+    if fa and r == "investigate" and fa["match"] < 0.8:     # "why does ..." is a debug question unless it IS the FAQ
+        fa = None
+    if fa:
+        text = fa["answer"] + " [1]"
+        res.update(route="faq", why=f"curated FAQ answer (match {fa['match']}) - no model", faq=fa)
+        emit({"type": "sources", "sources": [{"n": 1, "source": hits[0]["source"], "label": hits[0]["label"]}]})
+        (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
+        out("")
+        res.update(status="completed", answer=text, citations_valid=True, citations=res["citations"][:1],
+                   total_ms=round((time.perf_counter() - t0) * 1000))
         return res
     if r == "lookup":
         for i, h in enumerate(hits):

@@ -171,3 +171,28 @@ def test_guard_answers_unsafe_and_impossible_questions_without_the_model(cfg, mo
                                "How does the current sensor reading reach the portal?"])
 def test_guard_leaves_questions_about_these_topics_to_the_normal_routes(q):
     assert agent.guard(q) is None
+
+
+def _faq_hit(heading, text, source="docs/faq/x.md"):
+    return [{"source": source, "heading": heading, "text": text, "label": "DOCUMENTED (repo)", "snippet": text}]
+
+
+FAQ_TEXT = ("## Q: Can the portal move the robots?\nAlso asked: robot control, home the robot\n"
+            "**A:** No. Robot control is off.\nSource: `backend/app/services/robot_control.py`\n")
+
+
+def test_faq_answer_matches_question_and_alternatives():
+    """2026-11-21 audit F-06: a curated FAQ entry answers at once when the question clearly matches it."""
+    hits = _faq_hit("Q: Can the portal move the robots?", FAQ_TEXT)
+    a = agent.faq_answer("can the portal move the robots", hits)
+    assert a and a["answer"] == "No. Robot control is off." and a["faq_source"].startswith("`backend")
+    assert agent.faq_answer("Home the robot?", hits)["match"] >= 0.6
+
+
+def test_faq_answer_refuses_weak_or_foreign_matches():
+    hits = _faq_hit("Q: Can the portal move the robots?", FAQ_TEXT)
+    assert agent.faq_answer("Why did the UR5e twin drift by 3 degrees during the October calibration?", hits) is None
+    assert agent.faq_answer("can the portal move the robots", _faq_hit("Q: Can the portal move the robots?", FAQ_TEXT,
+                                                                       source="docs/OTHER.md")) is None
+    assert agent.faq_answer("anything", _faq_hit("Normal heading", FAQ_TEXT)) is None
+    assert agent.faq_answer("x", []) is None
