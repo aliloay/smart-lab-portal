@@ -1,0 +1,20 @@
+harness,category,registry_version,upstream_requirement,installed_on_laptop,smart_lab_use,can_alter,decision,reason
+blender,3d,1.0.0,blender >= 4.2,yes (Blender 5.1 C:\Program Files\Blender Foundation),enclosure/lab renders; preview bundles for thesis figures,local project/render files only,INSTALLED AND VERIFIED,real Blender render + preview-bundle/v1 verified; needs PYTHONUTF8=1 on Windows; render execute only writes the script
+ollama,ai,1.0.1,Ollama at localhost:11434,yes (Ollama 0.40.16),inspect models / ps for the assistants,model pull/rm/copy; text generation,INSTALLED AND VERIFIED,read commands verified live; use only server status / model list / ps in agent workflows (pull/rm need owner OK)
+3mf,graphics,1.0.0,numpy scipy trimesh,yes (pure Python),3D-print mesh checks (watertight / volume / holes / repair),writes repaired copies,INSTALLED AND VERIFIED,info verified on a FANUC link converted to 3MF; setup.py misses networkx + lxml (added)
+mermaid,diagrams,1.0.0,none,n/a,thesis diagrams,sends diagram text to mermaid.ink,NOT INSTALLED,online renderer breaks the local-only rule
+n8n,automation,2.4.7,n8n >= 1.0.0 + API key,n8n 2.40.7 in Docker,workflow inspection,activate / execute / edit live workflows,NOT INSTALLED,project rule: never run or edit live n8n workflows; smartlab reads repo definitions instead
+obsidian,knowledge,1.1.0,Obsidian + Local REST API plugin,Obsidian yes / plugin no,vault notes,creates/edits notes and runs Obsidian commands,NOT INSTALLED,needs an extra plugin; writes to the live vault (not without a reviewed plan)
+obsidian-cli / obsidian-agent-cli,knowledge,public,Obsidian 1.12.7+ running,partly,vault automation,writes notes,NOT INSTALLED,same as obsidian
+freecad,3d,1.1.0,FreeCAD >= 1.1,no (SolidWorks is used),parametric CAD,local files,NOT INSTALLED,application not installed; owner uses SolidWorks (no harness exists)
+libreoffice,office,1.0.1,libreoffice,no,thesis docs/spreadsheets to PDF/DOCX,local files,RECOMMENDED IF INSTALLED,would need LibreOffice (~350 MB); Word is used for the thesis
+inkscape,image,1.0.1,inkscape,no,vector diagrams,local files,RECOMMENDED IF INSTALLED,application not installed
+gimp,image,1.0.0,gimp,no,figure editing,local files,NOT INSTALLED,application not installed
+drawio,diagrams,1.0.0,draw.io desktop,no,architecture diagrams,local files,RECOMMENDED IF INSTALLED,application not installed; local renderer (unlike mermaid)
+shotcut / kdenlive,video,1.0.0,melt (+ffmpeg),ffmpeg yes / melt no,showcase video edits,local files,NOT INSTALLED,video pipeline already scripted with ffmpeg (montage_v2.py); melt missing
+videocaptioner,video,1.0.0,videocaptioner + ffmpeg,ffmpeg yes,subtitle generation,local files; may call online LLM APIs,NOT INSTALLED,subtitles already produced locally (Piper/Whisper); check for online calls first
+openscreen,video,1.0.0,ffmpeg,ffmpeg yes,screen-recording edits,local files,NOT INSTALLED,no current need
+obs-studio,streaming,1.0.0,obs-studio,no,demo recording,OBS scenes,NOT INSTALLED,application not installed
+audacity,audio,1.0.0,sox,no,narration audio clean-up,local files,NOT INSTALLED,sox not installed; no current need
+chromadb,database,1.0.0,ChromaDB server,chroma-mcp only,vector DB,collections,NOT INSTALLED,the knowledge service uses its own index, not a ChromaDB server
+wiremock,testing,0.1.0,java WireMock,no,API mocking,mock server,NOT INSTALLED,tests use a stdlib fake portal instead
