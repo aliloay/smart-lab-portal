@@ -215,7 +215,9 @@ def test_generated_vault_copies_in_the_repo_are_not_sources_and_are_not_called_r
     (repo / "docs/knowledge/obsidian/vault/01 - Project/Overview.md").write_text("# Hand-written\n", encoding="utf-8")
     reg = kb.scan(cfg)
     assert not any("14 - Sources" in r for r in reg["sources"])
-    assert "docs/knowledge/obsidian/vault/01 - Project/Overview.md" in reg["sources"]     # hand-written notes stay
+    # 2026-11-21 (audit F-07): the repo copy's hand-written notes are snapshots of notes that live in the vault itself,
+    # so the whole repo copy is excluded (they were mirrored back as duplicates)
+    assert "docs/knowledge/obsidian/vault/01 - Project/Overview.md" not in reg["sources"]
     # a registry made before the fix: the mirror was a source -> now excluded, not removed
     reg["sources"]["docs/knowledge/obsidian/vault/14 - Sources/README.md.md"] = {"status": "present", "sha256": "x" * 64}
     json.dump(reg, open(os.path.join(cfg["data"], "registry.json"), "w", encoding="utf-8"))
@@ -223,3 +225,48 @@ def test_generated_vault_copies_in_the_repo_are_not_sources_and_are_not_called_r
     assert reg["sources"]["docs/knowledge/obsidian/vault/14 - Sources/README.md.md"]["status"] == "excluded"
     h = kb.health(cfg, reg)
     assert h["removed_sources"] == [] and not any("14 - Sources" in b for b in h["broken_links"])
+
+
+def test_retire_moves_stale_mirrors_and_never_deletes(tmp_path, monkeypatch):
+    """2026-11-21 audit F-07: 322 mirrors of the repo's own vault copy duplicated the vault. retire MOVES mirrors whose
+    source is denied or gone to vault_retired/ (dry run by default); live mirrors and hand-written notes stay."""
+    repo, vault = tmp_path / "repo", tmp_path / "kb" / "vault"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "A.md").write_text("a")
+    src = vault / "14 - Sources"
+    src.mkdir(parents=True)
+    mk = lambda name, rel: (src / name).write_text(f'---\ntype: "source-mirror"\nsource_path: "{rel}"\n---\nx')
+    mk("docs_A.md.md", "docs/A.md")                                            # live source: kept
+    mk("vault_copy.md", "docs/knowledge/obsidian/vault/00 - Home/Home.md")     # denied: retired
+    mk("gone.md", "docs/Gone.md")                                              # deleted from repo: retired
+    (src / "hand.md").write_text("my own note")                                # not a mirror: kept
+    monkeypatch.setattr(kb, "HERE", str(repo / "tools" / "knowledge"))
+    cfg = {"vault": str(vault), "repo": "../.."}
+    dry = kb.retire(cfg)
+    assert dry["dry_run"] and dry["moved"] == 2 and dry["kept"] == 2 and len(list(src.iterdir())) == 4
+    out = kb.retire(cfg, dry_run=False)
+    assert out["moved"] == 2
+    assert sorted(p.name for p in src.iterdir()) == ["docs_A.md.md", "hand.md"]
+    assert sorted(p.name for p in (tmp_path / "kb" / "vault_retired" / "14 - Sources").iterdir()) == ["gone.md", "vault_copy.md"]
+
+
+def test_wikilinks_ignore_code_and_find_real_breaks(tmp_path):
+    v = tmp_path / "vault"
+    (v / "a").mkdir(parents=True)
+    (v / "a" / "Home.md").write_text("[[Target]] [[Missing note]] [[Target|alias]] `[[inline]]`\n```\nx = [[1, 2]]\n```")
+    (v / "a" / "Target.md").write_text("[[Home#Section]]")
+    r = kb.wikilinks({"vault": str(v)})
+    assert r["notes"] == 2 and list(r["broken"]) == ["Missing note"]
+
+
+def test_workflow_links_use_the_workflow_note_name():
+    kb._WF_NOTE.clear()
+    kb._WF_NOTE["automation/n8n/json/06-daily-report.json"] = "Smart Lab 06 - Daily lab report"
+    assert kb.note_link("automation/n8n/json/06-daily-report.json") == "Smart Lab 06 - Daily lab report"
+    assert kb.note_link("docs/A.md") == "docs_A.md"
+    kb._WF_NOTE.clear()
+
+
+def test_repo_vault_copy_is_never_a_source():
+    assert kb.denied("docs/knowledge/obsidian/vault/01 - Project/Current-Truth.md")
+    assert not kb.denied("docs/PROGRESS_CHECKPOINT.md")

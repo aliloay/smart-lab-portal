@@ -81,6 +81,9 @@ GENERATED_DIRS = ["00 - Home", "02 - Systems", "05 - n8n Workflows", "12 - Gener
 # tool's own output: never sources (fnmatch's "*" also matches "/", so "docs/*.md" took them in and health
 # link-checked mirrors of mirrors - 27 false broken links). Hand-written vault notes stay sources.
 DENY += [f"docs/knowledge/obsidian/vault/{d}/*" for d in GENERATED_DIRS]
+# 2026-11-21 (audit F-07): the repo copy's hand-written notes are snapshots of notes that live in the vault itself, so
+# mirroring them made duplicates. The live vault is the original; the whole repo copy is no longer a source.
+DENY += ["docs/knowledge/obsidian/vault/*"]
 
 # System hubs (navigation aid, generated): a note belongs to a system when its path or workflow
 # name matches one of these patterns. The hub lists the rule that matched - nothing is inferred.
@@ -711,6 +714,15 @@ def note_name(rel: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", rel)
 
 
+# n8n workflow sources are written as notes named after the workflow, not the file (2026-11-21, audit F-07: 26 links
+# such as [[automation_n8n_json_06-daily-report.json]] pointed at notes that never existed). Filled by build_vault.
+_WF_NOTE: dict[str, str] = {}
+
+
+def note_link(rel: str) -> str:
+    return _WF_NOTE.get(rel, note_name(rel))
+
+
 KIND_LABEL = {"imports": "imports", "tests": "tests", "calls": "workflow calls", "mentions": "mentioned by docs",
               "changed": "changed together"}
 
@@ -729,13 +741,20 @@ def related_links(cfg: dict, rel: str, present: set) -> str:
         if other == rel or other not in present or other in seen:
             continue
         seen.add(other)
-        lines.append(f"- [[{note_name(other)}]] - {KIND_LABEL.get(e['kind'], e['kind'])}")
+        lines.append(f"- [[{note_link(other)}]] - {KIND_LABEL.get(e['kind'], e['kind'])}")
     return ("## Related" + chr(10) + chr(10).join(lines) + chr(10) * 2) if lines else ""
 
 
 def build_vault(cfg: dict, reg: dict) -> dict:
     v, built = cfg["vault"], now_iso()
     present = {r for r, x in reg["sources"].items() if x.get("status") == "present"}
+    _WF_NOTE.clear()
+    for r in present:
+        if reg["sources"][r].get("kind") == "n8n-workflow":
+            try:
+                _WF_NOTE[r] = note_name(parse_workflow(read_source(cfg, r))["name"])
+            except (ValueError, KeyError, OSError):
+                pass
     lives = load_live(cfg)
     for d in GENERATED_DIRS + CURATED_DIRS + ["Attachments"]:
         os.makedirs(os.path.join(v, d), exist_ok=True)
@@ -757,7 +776,7 @@ def build_vault(cfg: dict, reg: dict) -> dict:
             workflows.append(wf)
             live_status = ("active" if live["active"] else "inactive") if live else "unverified"
             same = live is not None and live["structure"] == wf["file_structure"]
-            related = sorted({f"- [[{note_name(r)}]] (code it calls)" for r in route_files(wf, present)}
+            related = sorted({f"- [[{note_link(r)}]] (code it calls)" for r in route_files(wf, present)}
                              | {f"- [[{n}]] (system)" for n, _ in systems_for(wf["name"] + " " + rel)})
             body = [fm(type="n8n-workflow", workflow_id=wf["id"], status_in_file="active" if wf["active_in_file"] else "inactive",
                        live_status=live_status, live_checked=live["exported"] if live else None,
@@ -825,6 +844,8 @@ def build_vault(cfg: dict, reg: dict) -> dict:
             "- Facts here come from the files linked; a generated note is a navigation aid, the source file wins."]
     hubs = {n: [] for n in SYSTEMS}
     for rel in sorted(present):
+        if rel in _WF_NOTE:                      # workflows are added below under their own note name
+            continue
         for n, rx in systems_for(rel):
             hubs[n].append((f"[[{note_name(rel)}]]", rx))
     for wf in workflows:
@@ -955,14 +976,78 @@ def verify_restore(cfg: dict) -> dict:
 
 
 # --------------------------------------------------------------------- cli ---
+
+WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]")
+
+
+def wikilinks(cfg: dict) -> dict:
+    """Obsidian [[wikilinks]] whose target note does not exist in the vault (names compared like Obsidian does)."""
+    v = cfg["vault"]
+    names, notes = set(), []
+    for root, _dirs, files in os.walk(v):
+        if os.sep + "." in root:
+            continue
+        for f in files:
+            if f.endswith(".md"):
+                names.add(f[:-3].lower())
+                notes.append(os.path.join(root, f))
+            else:
+                names.add(f.lower())
+    broken: dict[str, list[str]] = {}
+    for n in notes:
+        try:
+            text = open(n, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        text = re.sub(r"```.*?```", "", text, flags=re.S)       # Obsidian does not resolve links inside code
+        text = re.sub(r"`[^`\n]*`", "", text)
+        for m in WIKILINK.finditer(text):
+            target = os.path.basename(m.group(1).strip()).lower()
+            if target and target not in names and (target[:-3] if target.endswith(".md") else target) not in names:
+                broken.setdefault(m.group(1).strip(), []).append(os.path.relpath(n, v))
+    return {"notes": len(notes), "broken_targets": len(broken),
+            "broken": {k: sorted(set(x))[:5] for k, x in sorted(broken.items())}}
+
+
+def retire(cfg: dict, dry_run: bool = True) -> dict:
+    """Source mirrors whose source is no longer a source (now denied, or gone from the repository) are MOVED out of the
+    vault to <vault>/../vault_retired/ - kept, never deleted (owner rule), and no longer searched or link-checked."""
+    v = cfg["vault"]
+    src_dir = os.path.join(v, "14 - Sources")
+    dest = os.path.join(os.path.dirname(os.path.abspath(v)), "vault_retired", "14 - Sources")
+    repo = os.path.abspath(os.path.join(HERE, cfg.get("repo", "../..")))
+    moved, kept = [], 0
+    for f in sorted(os.listdir(src_dir)) if os.path.isdir(src_dir) else []:
+        if not f.endswith(".md"):
+            continue
+        p = os.path.join(src_dir, f)
+        head = open(p, encoding="utf-8", errors="replace").read(1200)
+        m = re.search(r'^source_path:\s*"?([^"\n]+)"?', head, re.M)
+        if not m or "source-mirror" not in head:
+            kept += 1
+            continue
+        rel = m.group(1).strip()
+        if denied(rel) or not os.path.exists(os.path.join(repo, rel)):
+            moved.append(f)
+            if not dry_run:
+                os.makedirs(dest, exist_ok=True)
+                target = os.path.join(dest, f)
+                if os.path.exists(target):
+                    target = os.path.join(dest, f[:-3] + f".{int(time.time())}.md")
+                shutil.move(p, target)
+        else:
+            kept += 1
+    return {"dry_run": dry_run, "moved": len(moved), "kept": kept, "to": dest, "examples": moved[:5]}
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=["scan", "build", "ask", "search", "health", "drift", "backup", "verify-restore", "eval",
-                                    "live-export"])
+                                    "live-export", "retire", "wikilinks"])
     ap.add_argument("text", nargs="?")
     ap.add_argument("--config")
     ap.add_argument("--no-llm", action="store_true")
     ap.add_argument("--accept", action="store_true")
+    ap.add_argument("--apply", action="store_true", help="retire: really move (default is a dry run)")
     ap.add_argument("-k", type=int, default=5)
     a = ap.parse_args(argv)
     cfg = load_config(a.config)
@@ -996,6 +1081,10 @@ def main(argv=None):
     elif a.cmd == "eval":
         out = evaluate(cfg, a.text or os.path.join(HERE, "eval_questions.json"), use_llm=not a.no_llm)
         print(json.dumps(out, indent=1, ensure_ascii=False))
+    elif a.cmd == "retire":
+        print(json.dumps(retire(cfg, dry_run=not a.apply)))
+    elif a.cmd == "wikilinks":
+        print(json.dumps(wikilinks(cfg), indent=1, ensure_ascii=False))
     elif a.cmd == "backup":
         print(backup(cfg))
     elif a.cmd == "verify-restore":
