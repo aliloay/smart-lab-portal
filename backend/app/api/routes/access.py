@@ -6,6 +6,7 @@ RECORD an outcome the master has already decided. The relay is driven by one
 line of firmware and no HTTP request can reach it.
 """
 import logging
+from typing import Optional
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -110,6 +111,24 @@ def validate_rfid_endpoint(req: ValidateRfidRequest,
     )
 
 
+# Store and forward (portal-1.2, 2026-11-21): the master keeps events it could not deliver and sends them later with
+# age_ms. They are logged at the REAL time and marked replayed. An event older than REPLAY_AFTER_S is history: it must
+# not open a live occupancy session or send the person a stale "access denied" - security alerts still go out.
+REPLAY_AFTER_S = 60
+
+
+def _when(req) -> tuple[datetime, bool, Optional[dict]]:
+    now = datetime.now(timezone.utc)
+    if not req.age_ms:
+        return now, False, req.metadata
+    at = now - timedelta(milliseconds=req.age_ms)
+    replayed = req.age_ms >= REPLAY_AFTER_S * 1000
+    meta = dict(req.metadata or {})
+    if replayed:
+        meta.update({"replayed": True, "delay_s": round(req.age_ms / 1000)})
+    return at, replayed, meta or None
+
+
 @router.post("/events")
 def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
                identity: str = Depends(require_device)):
@@ -123,6 +142,7 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)
 
+    at, replayed, meta = _when(req)
     log_event(db, req.event_type,
               lab_id=lab.id if lab else None,
               user_id=user.id if user else None,
@@ -130,7 +150,7 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
               device_id=device.id if device else None,
               method=req.method, result=req.result, reason=req.reason,
               message=req.message or req.event_type.value,
-              metadata=req.metadata)
+              metadata=meta, occurred_at=at)
 
     if req.event_type == EventType.IDENTITY_MISMATCH:
         notify_security(db, lab, "IDENTITY_MISMATCH",
@@ -140,7 +160,7 @@ def post_event(req: DeviceEventRequest, db: Session = Depends(get_db),
     if req.event_type == EventType.ALARM and lab is not None and req.reason:
         record_door_alarm(db, lab, device, req.reason, req.message)
 
-    if lab is not None:
+    if lab is not None and not replayed:
         # The door cycle is recorded on the session; it does not end it.
         if req.event_type == EventType.DOOR_OPENED:
             sessions.record_door_opened(db, lab.id, user)
@@ -169,15 +189,17 @@ def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)
 
+    at, replayed, meta = _when(req)
     log_event(db, EventType.ACCESS_GRANTED,
               lab_id=lab.id if lab else None,
               user_id=user.id if user else None,
               booking_id=req.booking_id,
               device_id=device.id if device else None,
               method=req.method, result=AccessResult.GRANTED,
-              message=req.message or "Access granted at door")
+              message=req.message or "Access granted at door",
+              metadata=meta, occurred_at=at)
 
-    if lab is not None and user is not None:
+    if lab is not None and user is not None and not replayed:
         s = sessions.open_session(db, lab_id=lab.id, user_id=user.id,
                                   booking_id=req.booking_id,
                                   device_id=device.id if device else None,
@@ -202,10 +224,11 @@ def record_grant(req: DeviceEventRequest, db: Session = Depends(get_db),
     if req.booking_id:
         booking = db.get(Booking, req.booking_id)
         if booking is not None:
-            now = datetime.now(timezone.utc)
-            if booking.first_entry_at is None:
+            now = at                     # the real entry time, also for a replayed grant
+            if booking.first_entry_at is None or now < booking.first_entry_at:
                 booking.first_entry_at = now
-            booking.last_entry_at = now
+            if booking.last_entry_at is None or now > booking.last_entry_at:
+                booking.last_entry_at = now
             booking.entry_count += 1
 
     db.commit()
@@ -220,6 +243,7 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
     device = get_device(db, req.device_uid)
     user = _user_by_subject(db, req.auth_subject)
 
+    at, replayed, meta = _when(req)
     log_event(db, EventType.ACCESS_DENIED,
               lab_id=lab.id if lab else None,
               user_id=user.id if user else None,
@@ -227,7 +251,8 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
               device_id=device.id if device else None,
               method=req.method, result=AccessResult.DENIED,
               reason=req.reason,
-              message=req.message or f"Access denied: {req.reason}")
+              message=req.message or f"Access denied: {req.reason}",
+              metadata=meta, occurred_at=at)
 
     if req.reason:
         notify_security(db, lab, req.reason, req.message or "")
@@ -235,7 +260,7 @@ def record_deny(req: DeviceEventRequest, db: Session = Depends(get_db),
     # Tell the person, once. The master can report the same refusal from two
     # places in quick succession; a minute of de-duplication keeps that to a
     # single notification.
-    if user is not None:
+    if user is not None and not replayed:
         recent = datetime.now(timezone.utc) - timedelta(minutes=1)
         already = db.scalar(select(Notification.id).where(
             Notification.user_id == user.id,

@@ -427,6 +427,9 @@ class DeviceEventRequest(BaseModel):
     reason: Optional[str] = None
     message: str = ""
     metadata: Optional[dict[str, Any]] = None
+    # Store and forward (portal-1.2, 2026-11-21): how long ago the door saw this event. The master keeps events it could
+    # not deliver (portal unreachable) and sends them later; the portal logs them at the REAL time. Max 7 days.
+    age_ms: Optional[int] = Field(default=None, ge=0, le=7 * 24 * 3600 * 1000)
 
 
 class HeartbeatRequest(BaseModel):

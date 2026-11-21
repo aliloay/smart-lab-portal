@@ -163,3 +163,6 @@ docs/reports/local-only-*/
 # 2026-11-19 (Gemini B-12/B-30): raw live dumps from the Gemini runs can hold lab Windows account names; local backups
 reports/gemini-*/raw/
 *.bak-*
+
+# face server: hashes of device keys it accepts (2026-11-21)
+firmware/face_server/allowed_key_hashes.txt

@@ -771,14 +771,55 @@ struct PortalEvent {
   char result[12];
   char reason[32];
   char message[160];
+  uint32_t at;                               // millis() when the door saw it (store and forward)
 };
 QueueHandle_t eventQueue = nullptr;          // loop -> task
 volatile bool heartbeatWanted = false;       // loop -> task
 
-void sendEventNow(const char *eventType, const char *authSubject,
+bool sendEventNow(const char *eventType, const char *authSubject,
                   long bookingId, const char *method, const char *result,
-                  const char *reason, const char *message);
+                  const char *reason, const char *message, uint32_t ageMs);
 void sendHeartbeat();
+
+// ---------------------------------------------------------------------------
+// STORE AND FORWARD (portal-1.2, 2026-11-21). Before, an event the portal could not take (laptop off, cable out,
+// Wi-Fi down) was dropped: the door still opened, but the access log had a gap (30-min offline test: entries lost).
+// Now undelivered events wait here, in order, and are sent when the portal answers again, each with its age so the
+// portal logs the REAL time. RAM only (a reboot loses what is waiting); when full, the oldest is dropped and counted.
+// Only portalTask (core 0) touches it.
+// ---------------------------------------------------------------------------
+constexpr uint8_t  RETRY_N        = 40;      // ~10.5 KB
+constexpr uint32_t RETRY_EVERY_MS = 4000;    // while offline, try the oldest this often
+PortalEvent retryBuf[RETRY_N];
+uint8_t  retryHead = 0, retryCount = 0;
+uint32_t retryDropped = 0, retryLastTry = 0;
+
+// void*, not PortalEvent&: the Arduino IDE puts its generated prototypes above the struct definitions.
+void retryPush(const void *ev) {
+  const PortalEvent &e = *static_cast<const PortalEvent *>(ev);
+  if (retryCount == RETRY_N) {               // full: drop the oldest, keep the newest
+    retryHead = (retryHead + 1) % RETRY_N;
+    retryCount--;
+    retryDropped++;
+    Serial.printf("[PORTAL] event buffer full - oldest dropped (%lu dropped)\n", (unsigned long)retryDropped);
+  }
+  retryBuf[(retryHead + retryCount) % RETRY_N] = e;
+  retryCount++;
+  Serial.printf("[PORTAL] event %s kept for later (%u waiting)\n", e.type, retryCount);
+}
+
+// One step: send the oldest waiting event. true = sent (call again soon), false = still offline.
+bool retryFlushOne() {
+  if (retryCount == 0) return false;
+  PortalEvent &e = retryBuf[retryHead];
+  uint32_t age = millis() - e.at;
+  if (!sendEventNow(e.type, e.subject, e.booking, e.method, e.result, e.reason, e.message, age)) return false;
+  Serial.printf("[PORTAL] delivered late: %s (%lu s old, %u still waiting)\n", e.type,
+                (unsigned long)(age / 1000), retryCount - 1);
+  retryHead = (retryHead + 1) % RETRY_N;
+  retryCount--;
+  return true;
+}
 
 QueueHandle_t commandQueue  = nullptr;   // task -> loop
 QueueHandle_t progressQueue = nullptr;   // loop -> task
@@ -888,8 +929,16 @@ void portalTask(void *) {
   for (;;) {
     // Door events first, in order, as soon as they happen.
     if (eventQueue && xQueueReceive(eventQueue, &ev, 0) == pdTRUE) {
-      sendEventNow(ev.type, ev.subject, ev.booking, ev.method, ev.result, ev.reason, ev.message);
+      // Older events still waiting: this one goes behind them, so the portal gets them in order.
+      if (retryCount > 0 ||
+          !sendEventNow(ev.type, ev.subject, ev.booking, ev.method, ev.result, ev.reason, ev.message, millis() - ev.at))
+        retryPush(&ev);
       continue;
+    }
+    if (retryCount > 0 && BACKEND_ENABLED && WiFi.status() == WL_CONNECTED &&
+        millis() - retryLastTry >= RETRY_EVERY_MS) {
+      if (!retryFlushOne()) retryLastTry = millis();   // still offline: wait before the next try
+      continue;                                        // sent: the next one goes on the next pass
     }
     if (heartbeatWanted && BACKEND_ENABLED && WiFi.status() == WL_CONNECTED) {
       heartbeatWanted = false;
@@ -1054,14 +1103,36 @@ void printDoorStatus() {
                 relayUnlocked ? "UNLOCKED" : "LOCKED", note);
 }
 
+// RELOCK GUARD (portal-1.2, 2026-11-21) - a software workaround, not a fix. Measured on 21 Nov: the PN532 froze 4
+// times, each time AT the relock (the solenoid's switch-off spike; no flyback diode across the lock yet) and only a
+// power cycle brought it back. Try: put the PN532 into PowerDown (analog front end off) just before the relock, let
+// the spike pass, then wake and re-init it. Unlock is untouched (no delay on entry). The log line says whether the
+// reader survived each relock, so the workaround can be judged from data. Real fix: 1N4007 across the lock.
+constexpr uint32_t RELOCK_QUIET_MS = 250;
+uint32_t relockGuardOk = 0, relockGuardFail = 0;
+
 void setRelay(bool unlock) {
   if (relayEverDriven && relayUnlocked == unlock) return;   // already there - do nothing
+  bool guard = !unlock && relayEverDriven && relayUnlocked && !rfidLinkDown;
+  if (guard) {
+    uint8_t powerDown[] = {0x16, 0x80};    // PN532 PowerDown, wake-up source: I2C
+    nfc.sendCommandCheckAck(powerDown, sizeof(powerDown), 50);
+    delay(5);
+  }
   gpio_set_drive_capability((gpio_num_t)RELAY_PIN, GPIO_DRIVE_CAP_3);   // see setup()
   digitalWrite(RELAY_PIN, unlock ? RELAY_UNLOCKED_LEVEL : RELAY_LOCKED_LEVEL);
   relayUnlocked   = unlock;
   relayEverDriven = true;
   Serial.printf("[RELAY] %s\n", unlock ? "UNLOCKED (GPIO26 LOW)" : "LOCKED (GPIO26 HIGH)");
   printDoorStatus();
+  if (guard) {
+    delay(RELOCK_QUIET_MS);                // the switch-off spike is over long before this
+    bool ok = rfidFirmwareOk(rfidInitReader());   // wake (I2C), firmware query, SAMConfig
+    if (ok) relockGuardOk++; else relockGuardFail++;
+    Serial.printf("[RFID][GUARD] reader parked for the relock - %s (ok %lu, silent %lu)\n",
+                  ok ? "back OK" : "SILENT after relock",
+                  (unsigned long)relockGuardOk, (unsigned long)relockGuardFail);
+  }
   // Switching the coil is the biggest current step in the system and is what
   // resets the TFT to white. Flag it; the refresh happens later, in IDLE only.
   tftRefreshWanted = true;
@@ -1676,18 +1747,20 @@ void reportEvent(const char *eventType, const char *authSubject,
   strlcpy(e.result, result ? result : "", sizeof(e.result));
   strlcpy(e.reason, reason ? reason : "", sizeof(e.reason));
   strlcpy(e.message, message.c_str(), sizeof(e.message));
+  e.at = millis();
   if (eventQueue && xQueueSend(eventQueue, &e, 0) == pdTRUE) return;
   // No task (out of memory) or 16 events waiting: send it here rather than lose it.
   Serial.println("[PORTAL] event queue full - sending directly");
-  sendEventNow(e.type, e.subject, e.booking, e.method, e.result, e.reason, e.message);
+  sendEventNow(e.type, e.subject, e.booking, e.method, e.result, e.reason, e.message, 0);
 }
 
 // Called by the background task (or, as a fallback, from reportEvent).
 // Its own client each time: it may run on either core.
-void sendEventNow(const char *eventType, const char *authSubject,
+bool sendEventNow(const char *eventType, const char *authSubject,
                   long bookingId, const char *method, const char *result,
-                  const char *reason, const char *message) {
-  if (!BACKEND_ENABLED || WiFi.status() != WL_CONNECTED) return;
+                  const char *reason, const char *message, uint32_t ageMs) {
+  if (!BACKEND_ENABLED) return true;                 // nothing to deliver to: do not keep it
+  if (WiFi.status() != WL_CONNECTED) return false;
 
   WiFiClient client;
   HTTPClient http;
@@ -1710,12 +1783,19 @@ void sendEventNow(const char *eventType, const char *authSubject,
   if (method && strlen(method))           body += String(",\"method\":\"") + method + "\"";
   if (result && strlen(result))           body += String(",\"result\":\"") + result + "\"";
   if (reason && strlen(reason))           body += String(",\"reason\":\"") + reason + "\"";
+  body += String(",\"age_ms\":") + ageMs;          // the portal logs the real time (store and forward)
   body += String(",\"message\":\"") + message + "\"}";
 
   int code = http.POST(body);
-  if (code != 200) Serial.printf("[PORTAL] event %s not recorded (HTTP %d)\n",
-                                 eventType, code);
   http.end();
+  // 2xx = recorded. A 4xx means the portal refused this event (bad data): retrying cannot help, so it is not kept.
+  if (code >= 200 && code < 300) return true;
+  if (code >= 400 && code < 500) {
+    Serial.printf("[PORTAL] event %s refused (HTTP %d) - not kept\n", eventType, code);
+    return true;
+  }
+  Serial.printf("[PORTAL] event %s not delivered (HTTP %d)\n", eventType, code);
+  return false;
 }
 
 void sendHeartbeat() {
@@ -1734,7 +1814,7 @@ void sendHeartbeat() {
   String body = String("{\"device_uid\":\"") + DEVICE_ID +
                 "\",\"lab_id\":\"" + LAB_ID +
                 "\",\"ip_address\":\"" + WiFi.localIP().toString() +
-                "\",\"firmware_version\":\"portal-1.1\"" +
+                "\",\"firmware_version\":\"portal-1.2\"" +
                 ",\"door_closed\":" + (doorClosed ? "true" : "false") +
                 // Per-component health for the admin view. The LCD is not
                 // here: its bus has no return line, so a dead display

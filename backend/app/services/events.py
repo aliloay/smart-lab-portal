@@ -31,13 +31,15 @@ def log_event(db: Session, event_type: EventType, *,
               result: Optional[AccessResult] = None,
               reason: Optional[str] = None,
               message: str = "",
-              metadata: Optional[dict[str, Any]] = None) -> AccessEvent:
+              metadata: Optional[dict[str, Any]] = None,
+              occurred_at: Optional[datetime] = None) -> AccessEvent:
+    # occurred_at: the real time of an event the door delivers late (store and forward, 2026-11-21); default now.
     ev = AccessEvent(
         event_type=event_type, lab_id=lab_id, user_id=user_id,
         booking_id=booking_id, device_id=device_id, method=method,
         result=result, reason=reason, message=message,
         event_metadata=metadata,
-        created_at=datetime.now(timezone.utc),
+        created_at=occurred_at or datetime.now(timezone.utc),
     )
     db.add(ev)
     db.flush()          # populate ev.id without committing

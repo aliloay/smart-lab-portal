@@ -677,7 +677,7 @@ def enroll_auto():
     """POST ?name=USER5&target=12 starts, GET reports progress, DELETE stops. Device key required:
     it stores pictures of a person."""
     global _enrolling_at
-    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
         return jsonify({"error": "device key required"}), 403
     if ENGINE != "sface":
         return jsonify({"error": "automatic enrolment needs the SFace models"}), 501
@@ -730,6 +730,32 @@ def _device_key():
 
 
 DEVICE_KEY = _device_key()
+
+
+# 2026-11-21 (owner OK): since October the master signs with its OWN device key (issued on Devices); this server only
+# knew the shared key, so the master's grant-screen photo fetch answered 403. A key is also accepted when its SHA-256
+# is listed in allowed_key_hashes.txt - the same hash the portal stores in devices.key_hash. Hashes only, no secret.
+def _allowed_key_hashes():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "allowed_key_hashes.txt")
+    out = set()
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                h = line.split("#", 1)[0].strip().lower()
+                if len(h) == 64:
+                    out.add(h)
+    return out
+
+
+ALLOWED_KEY_HASHES = _allowed_key_hashes()
+
+
+def device_key_ok(key):
+    key = key or ""
+    if hmac.compare_digest(key, DEVICE_KEY):
+        return True
+    import hashlib
+    return hashlib.sha256(key.encode()).hexdigest() in ALLOWED_KEY_HASHES
 _portrait_cache = {}            # name -> (mtime, rgb565 bytes)
 _portrait_lock = threading.Lock()
 
@@ -759,7 +785,7 @@ def keep_best_portrait(name, img, face_area):
 @app.route("/portrait/<name>.rgb565", methods=["GET"])
 def portrait_rgb565(name):
     """160x128 RGB565, little-endian - the LCD's own pixel format."""
-    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
         return jsonify({"error": "device key required"}), 403
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
         return jsonify({"error": "bad name"}), 400
@@ -877,7 +903,7 @@ def identify():
     Returns {"name": "USER1"|null, "score": cosine|null, "second": cosine of
     the next most alike person|null, "face": bool}.
     """
-    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
         return jsonify({"error": "device key required"}), 401
     if ENGINE != "sface":
         return jsonify({"error": "identify needs the SFace models"}), 501
@@ -1138,7 +1164,7 @@ _last_face: dict = {"name": None, "distance": None, "at": 0.0}
 
 @app.route("/door/last-face", methods=["GET"])
 def door_last_face():
-    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
         return jsonify({"error": "device key required"}), 401
     return jsonify({**_last_face, "age_s": round(time.time() - _last_face["at"], 1) if _last_face["at"] else None})
 
@@ -1159,7 +1185,7 @@ def reset_person():
     """A person's face samples (and grant-screen photo) stop being used: they
     are MOVED to dataset_archive/<name>_<time>/ - never deleted - and the
     templates are rebuilt without them. Then capture new samples as usual."""
-    if not hmac.compare_digest(request.headers.get("X-Device-Key", ""), DEVICE_KEY):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
         return jsonify({"error": "device key required"}), 403
     name = request.args.get("name", "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
