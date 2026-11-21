@@ -367,7 +367,7 @@ class Service:
             print(f"[vision] pose model not loaded ({e.__class__.__name__})")
             self.pose = None
         self._pose_last = 0.0
-        self._pose_every = float(os.environ.get("SMARTLAB_POSE_EVERY_S", "0.5"))
+        self._pose_every = float(os.environ.get("SMARTLAB_POSE_EVERY_S", "1.0"))   # measured 62 ms/pass on the GTX 1650 (21 Nov)
         print(f"[vision] body pose: {self.pose.engine if self.pose else 'off (no models/yolov8n-pose.onnx)'}")
         self.metrics = PipelineMetrics()
         process_load()                                 # primes psutil's CPU counter (its first reading is 0)

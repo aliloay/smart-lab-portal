@@ -7,8 +7,8 @@
 - F-09: backups move (never delete) to D:/SmartLabData/backup_archive after 14 d (uploads 7 d); C: 6.2 -> 2.4 GB;
   restore drill OK (44 tables, 374,212 rows). F-11: n8n LIVE hardened: error handler, 15 s timeouts, webhook retries
   (backup D:/SmartLabData/n8n_backup_20261121). F-15: AR boxes follow phone motion, detection 1.5 s.
-- F-16: measured body pose (tools/security_vision/pose.py, YOLOv8-pose) - OFF until the owner downloads
-  models/yolov8n-pose.onnx (download blocked for the agent). F-08: CAM shows last QR 10 s only - built, NOT flashed
+- F-16: measured body pose (tools/security_vision/pose.py, YOLOv8-pose, models/yolov8n-pose.onnx downloaded 21 Nov with
+  owner approval): recorded lab frames 2304x1296 -> 11-16 of 17 joints trusted per person, 62 ms/pass GTX 1650, 1 pass/s. F-08: CAM shows last QR 10 s only - built, NOT flashed
   (needs the ESP32-CAM on USB). F-17/F-20/F-22/F-23/F-13/F-18 fixed. Owner decisions: F-02/F-03/F-10 unchanged.
 - Tests 21 Nov night: backend 890 passed (3 skipped), cameras 404, robots 44, knowledge 72, face 22, PC agent 40 (py 3.14),
   relay 6, smartlab CLI 107, frontend tsc + vite build + unit 10.

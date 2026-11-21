@@ -1,0 +1,118 @@
+[
+ {
+  "kind": "short_fact",
+  "q": "Which port does the knowledge service listen on?",
+  "first_token_s": null,
+  "total_s": 1.41,
+  "token_events": 0,
+  "route": "lookup",
+  "cached": false,
+  "sources": [],
+  "answer": "",
+  "keys": [
+   "answer",
+   "citations_valid",
+   "error",
+   "llm",
+   "note",
+   "retrieval_ms",
+   "route",
+   "status",
+   "total_ms",
+   "type"
+  ]
+ },
+ {
+  "kind": "normal_rag",
+  "q": "How does the consumables bin calculate stock from weight?",
+  "first_token_s": 9.7,
+  "total_s": 15.69,
+  "token_events": 72,
+  "route": "answer",
+  "cached": false,
+  "sources": [],
+  "answer": "The consumables bin calculates stock from weight using a derived estimate based on the HX711 sensor, which measures mass in grams. The bin does not directly measure resistance, capacitance, or LED parameters. The stock level is determined by counting the number of items in the bin, which serves as a",
+  "keys": [
+   "answer",
+   "citations_valid",
+   "error",
+   "llm",
+   "note",
+   "retrieval_ms",
+   "route",
+   "status",
+   "total_ms",
+   "type"
+  ]
+ },
+ {
+  "kind": "multi_doc",
+  "q": "Compare how the door master and the reusable bin report to the portal.",
+  "first_token_s": 12.96,
+  "total_s": 18.38,
+  "token_events": 60,
+  "route": "answer",
+  "cached": false,
+  "sources": [],
+  "answer": "The door master reports to the portal by comparing the TFT idle screen with the portal door t, while the reusable bin reports by updating the card without refresh and showing an unknown tag for staff. The reusable bin's reporting is scan-driven, whereas the door master's reporting is portal-driven. ",
+  "keys": [
+   "answer",
+   "citations_valid",
+   "error",
+   "llm",
+   "note",
+   "retrieval_ms",
+   "route",
+   "status",
+   "total_ms",
+   "type"
+  ]
+ },
+ {
+  "kind": "uncertain",
+  "q": "What is the WiFi password of the GIU campus network?",
+  "first_token_s": 0.02,
+  "total_s": 0.02,
+  "token_events": 1,
+  "route": "guard",
+  "cached": false,
+  "sources": [],
+  "answer": "Passwords, keys, tokens, RTSP addresses and .env values are never shown: they are excluded from the knowledge base when it is built (files like .env, camera.env and robot.env are never read, and secret patterns are redacted), so there is nothing to reveal [1].",
+  "keys": [
+   "answer",
+   "citations_valid",
+   "error",
+   "llm",
+   "note",
+   "retrieval_ms",
+   "route",
+   "status",
+   "total_ms",
+   "type"
+  ]
+ },
+ {
+  "kind": "short_fact",
+  "q": "Which port does the knowledge service listen on?",
+  "first_token_s": null,
+  "total_s": 0.0,
+  "token_events": 0,
+  "route": "lookup",
+  "cached": true,
+  "sources": [],
+  "answer": "",
+  "keys": [
+   "answer",
+   "cached",
+   "citations_valid",
+   "error",
+   "llm",
+   "note",
+   "retrieval_ms",
+   "route",
+   "status",
+   "total_ms",
+   "type"
+  ]
+ }
+]

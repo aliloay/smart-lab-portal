@@ -7,7 +7,8 @@ joints. Rules (the owner's): a joint below MIN_KP_CONF is reported OCCLUDED with
 older than FRESH_S is not used; with no model file the cameras behave exactly as before.
 
 Model file: models/yolov8n-pose.onnx (input 1x3x640x640, output 1x56xN: box, score, 17 x (x, y, conf)).
-Turn off with SMARTLAB_POSE=0; rate with SMARTLAB_POSE_EVERY_S (default 0.5 s = at most 2 pose passes a second).
+Turn off with SMARTLAB_POSE=0; rate with SMARTLAB_POSE_EVERY_S (default 1.0 s). Measured 21 Nov on recorded lab frames
+(2304x1296): 62 ms per pass on the GTX 1650 (DirectML), 11-16 of 17 joints trusted per visible person.
 """
 from __future__ import annotations
 
