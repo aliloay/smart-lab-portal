@@ -55,7 +55,10 @@ boot). No false inventory bookings, master kept card + fingerprint available thr
 ## E. Findings
 - **PN532 freezes at the relock** - 4 times on 21 Nov, each at the relock (solenoid switch-off spike, no flyback diode). Only a
   power cycle cleared it. portal-1.2 relock guard (PN532 PowerDown before the relock, re-init 250 ms after): reader survived
-  4/4 relocks in the first test. Real fix: 1N4007 across the lock (owner will fit it with the new buzzer).
+  7 of 8 relocks (froze at the 8th, 15:06:29, NAGY fingerprint entry). The guard reduces the freezes but cannot stop them:
+  the spike reaches the PN532 through the shared supply even when it is parked. Real fix: 1N4007 across the lock (owner
+  will fit it with the new buzzer); re-test 20 relocks after.
+- **Tablet grant page** (http://192.168.1.151/) and the admin-chosen door photo (USER1): confirmed by the owner, 21 Nov.
 - **ESP32-CAM Wi-Fi idle throttle** (core 3.2.1 build): with the camera idle, 0 % ping loss to all four other nodes
   (30/30 each, 8-11 ms); before, 10-50 % loss while it streamed nonstop.
 - **Consumables scale**: a 3D-printed holder fixed to the platform (15.78 g, included in the zero) made the container position
