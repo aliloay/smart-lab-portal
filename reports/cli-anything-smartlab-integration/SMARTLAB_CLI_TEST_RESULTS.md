@@ -31,8 +31,14 @@ CLI_ANYTHING_FORCE_INSTALLED=1 SMARTLAB_LIVE=1 python -m pytest -v cli_anything/
 | `smartlab github status` | fix/pre-lab-hardening, 1 ahead / 0 behind origin/main, which confirms the owner's push landed |
 | `smartlab logs recent master_serial_20261120.log --errors` | the PN532 "frozen - only a power cycle clears it" lines (redacted) |
 
+## Signed-in live check (21 Nov, 19:00, owner signed in as admin)
+| Command | Real result |
+|---|---|
+| `smartlab esp32 list` | 5/5 ONLINE: BIN_NODE_1, MASTER_LAB01, CAM_LAB01, ENV_LAB01, REUSE_BIN_1 (ages 0–21 s) |
+| `smartlab esp32 firmware` | all 4 reporting boards match their repo source (bin-0.6, portal-1.2, env-0.1.1, reuse-mod-0.5); the ESP32-CAM reports no version |
+| `smartlab esp32 ping` | 5/5 reachable, 2–24 ms |
+| `smartlab devices summary` | 23 devices, 7 online; offline = the robots and 10 PCs (at GIU); security cameras DEGRADED (service up, no picture) |
+| `smartlab doctor` | **15 PASS, 2 WARN, 0 FAIL, 0 SKIP** (WARN = camera pictures away from the lab; 3 commits not on GitHub) |
+
 ## Not covered (honest gaps)
-- **Device, ESP32, robot, PC and `system health` against the real portal:** they need a staff sign-in, which only the owner
-  can do. Against the real portal they returned AUTH_REQUIRED as designed; the parsing is proven against the fake portal.
-  **Owner action:** `smartlab auth login`, then `smartlab devices list`.
 - **Official `/cli-anything:test`:** the plugin's commands load only after a Claude Code restart. Run it once then.

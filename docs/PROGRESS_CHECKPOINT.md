@@ -1,5 +1,12 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-21 evening - smartlab CLI, assistant live answers, model split, alert clean-up (NOT pushed: f5ba8ac, a0814c7)
+- AI: knowledge assistant qwen3:1.7b (think=false, 9/11), portal assistant stays qwen2.5:1.5b (86.5% vs 80.8%); 3b/4b/7b removed (docs/benchmarks/LOCAL_MODEL_BENCHMARK_2026-11-21.md).
+- smartlab CLI (read-only, CLI-Anything method): tools/smartlab_cli, installed in C:\Projects\external-toolsenvs\clihub, shims in C:\Projects\external-toolsin (user PATH); 107 tests; reports in reports/cli-anything-smartlab-integration/. CLI-Anything plugin + CLI-Hub (blender, ollama, 3mf) installed.
+- Portal assistant: services/agent_live.py - lab count, named device by role words, which ESP32 does X, ESP32 boards, model in use, health score (were wrong via the model). DEPLOYED backend a0814c7-20261121185827; backend 887 passed.
+- 264 stale alerts (no activity > 24 h) resolved through POST /api/alerts/{id}/resolve (audited, nothing deleted); ids in D:\SmartLabData\db_dumpslerts_resolved_20261121_ids.txt, dump before_alert_cleanup_20261121.dump. Open alerts 268 -> 4; LAB_01 health 48 -> 58.
+- Open: 1N4007 diode (RFID freezes at relock, guard not enough), restart Claude Code for /cli-anything commands, push.
+
 ## UPDATE 2026-11-20/21 (home, all 5 ESP32 nodes connected) - DEPLOYED, NOT pushed (latest 0deb0e8)
 - Laptop 32 GB RAM; .wslconfig memory=10GB processors=6; Best performance on AC; launch.bat must be started via explorer.exe
   (from a VS Code terminal it inherits backend/.venv: mDNS failed, knowledge ran twice).
