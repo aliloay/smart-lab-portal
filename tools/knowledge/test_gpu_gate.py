@@ -96,3 +96,27 @@ def test_default_policy_is_unchanged():
     assert gpu_gate.use_gpu({"llm_on_cpu": True}) is False
     assert gpu_gate.use_gpu({"llm_on_cpu": False}) is True
     assert gpu_gate.use_gpu({}) is False
+
+
+def test_own_model_memory_does_not_push_the_assistant_off_the_gpu(monkeypatch):
+    """2026-11-21 audit F-05: with qwen3 on the GPU (1420 MB) the cameras' metrics showed 1673 MB free, below
+    NEED_FREE_MB, and the gate flipped to CPU. Memory Ollama holds is the assistants' own and is added back."""
+    idle = {"port": 5100, "state": "idle", "fps": 0.0, "gpu_free_mb": 1673.0}
+    monkeypatch.setattr(gpu_gate, "camera_state", lambda p, k, timeout=1.5: dict(idle, port=p))
+    monkeypatch.setattr(gpu_gate, "device_key", lambda repo: "k")
+    monkeypatch.setattr(gpu_gate, "ollama_vram_mb", lambda *a, **k: 1420.0)
+    g = gpu_gate.Gate()
+    g.mode = "gpu"                                   # already on the GPU, cameras idle
+    monkeypatch.setattr(gpu_gate, "_GATE", g)
+    monkeypatch.setattr(gpu_gate, "_LAST", {"at": 0.0, "body": None})
+    body = gpu_gate.current(".", now=1000.0)
+    assert body["device"] == "gpu"
+    assert body["cameras"][0]["gpu_free_mb"] == 3093.0 and body["cameras"][0]["gpu_free_raw_mb"] == 1673.0
+    # nothing held by Ollama and really too little memory: still CPU
+    monkeypatch.setattr(gpu_gate, "ollama_vram_mb", lambda *a, **k: 0.0)
+    monkeypatch.setattr(gpu_gate, "_LAST", {"at": 0.0, "body": None})
+    assert gpu_gate.current(".", now=2000.0)["device"] == "cpu"
+
+
+def test_ollama_vram_unreachable_is_zero(monkeypatch):
+    assert gpu_gate.ollama_vram_mb("http://127.0.0.1:9", timeout=0.3) == 0.0

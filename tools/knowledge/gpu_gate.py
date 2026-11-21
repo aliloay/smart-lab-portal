@@ -74,6 +74,16 @@ def camera_state(port: int, key: str, timeout: float = 1.5) -> dict:
     return out
 
 
+def ollama_vram_mb(url: str = "http://127.0.0.1:11434", timeout: float = 1.0) -> float:
+    """GPU memory (MB) held by the models Ollama has loaded right now; 0 when Ollama is not reachable."""
+    try:
+        with urllib.request.urlopen(url + "/api/ps", timeout=timeout) as r:
+            models = json.loads(r.read()).get("models") or []
+        return round(sum(float(m.get("size_vram") or 0) for m in models) / 2**20, 1)
+    except (OSError, ValueError, socket.timeout):
+        return 0.0
+
+
 class Gate:
     """The decision with its memory (hysteresis). `decide` is pure given `now` and the camera states."""
 
@@ -124,8 +134,16 @@ def current(repo: str, now: float | None = None) -> dict:
             return _LAST["body"]
         key = device_key(repo)
         cams = [camera_state(p, key) for p in CAMERA_PORTS]
+        # 2026-11-21 audit F-05: the GPU memory the assistants' OWN models already hold counted against them. A model
+        # loaded on the GPU (~1.4 GB) left "1673 MB free" < NEED_FREE_MB, the gate flipped to CPU, Ollama reloaded on
+        # the CPU, and the assistants stayed there. Memory held by Ollama is the assistants' own, so add it back.
+        held = ollama_vram_mb()
+        for c in cams:
+            if c.get("gpu_free_mb") is not None:
+                c["gpu_free_raw_mb"] = c["gpu_free_mb"]
+                c["gpu_free_mb"] = round(c["gpu_free_mb"] + held, 1)
         mode = _GATE.decide(t, cams)
-        body = {"device": mode, "reason": _GATE.reason, "cameras": cams,
+        body = {"device": mode, "reason": _GATE.reason, "cameras": cams, "ollama_vram_mb": held,
                 "since": _GATE.changed_at or None, "checked_at": t}
         _LAST.update(at=t, body=body)
         return body
