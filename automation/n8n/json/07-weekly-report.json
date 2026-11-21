@@ -40,7 +40,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/reports/weekly",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -68,7 +71,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"WEEKLY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"WEEKLY_REPORT\", title: String($json.title).slice(0, 160), body: String($json.lines.join(\" \")).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -93,7 +99,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"07-weekly-report\", status: \"success\", summary: $(\"Build Report In Backend\").item.json.title, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"07-weekly-report\", status: \"success\", summary: $(\"Build Report In Backend\").item.json.title, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -151,6 +160,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

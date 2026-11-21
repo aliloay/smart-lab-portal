@@ -38,7 +38,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/devices/offline",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -80,13 +83,19 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: $json.audience, kind: \"DEVICE_OFFLINE\", title: $json.title, body: $json.body, link: \"/admin/devices\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: $json.audience, kind: \"DEVICE_OFFLINE\", title: $json.title, body: $json.body, link: \"/admin/devices\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "81e72f28-a093-5333-a2ab-58fc7c7965da",
@@ -105,7 +114,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"04-device-offline-escalation\", status: \"success\", summary: \"Offline devices: \" + $(\"Get Offline Devices\").first().json.offline.length, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"04-device-offline-escalation\", status: \"success\", summary: \"Offline devices: \" + $(\"Get Offline Devices\").first().json.offline.length, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -113,7 +125,10 @@
         }
       },
       "executeOnce": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "04011fb5-b844-508e-a074-f8d41f3eb6a3",
@@ -207,6 +222,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

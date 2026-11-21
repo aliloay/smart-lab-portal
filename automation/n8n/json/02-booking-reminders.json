@@ -36,7 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/bookings/upcoming?within_minutes=20",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -106,7 +109,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({}) }}"
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -131,7 +137,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"02-booking-reminders\", status: \"success\", summary: \"Reminders raised: \" + $input.all().filter(i => i.json.created).length, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"02-booking-reminders\", status: \"success\", summary: \"Reminders raised: \" + $input.all().filter(i => i.json.created).length, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -213,6 +222,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

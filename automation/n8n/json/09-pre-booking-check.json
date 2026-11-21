@@ -36,7 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/bookings/upcoming?within_minutes=60",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -107,7 +110,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"PRE_BOOKING_CHECK\", title: String(\"Heads-up for your \" + $json.lab_code + \" booking\").slice(0, 160), body: String($json.readiness.warnings.join(\" \") + \" Your booking is unchanged.\").slice(0, 500), link: $json.link, severity: \"warning\", dedupe_key: \"pre-booking:\" + $json.booking_id, booking_id: $json.booking_id }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"PRE_BOOKING_CHECK\", title: String(\"Heads-up for your \" + $json.lab_code + \" booking\").slice(0, 160), body: String($json.readiness.warnings.join(\" \") + \" Your booking is unchanged.\").slice(0, 500), link: $json.link, severity: \"warning\", dedupe_key: \"pre-booking:\" + $json.booking_id, booking_id: $json.booking_id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -132,7 +138,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"PRE_BOOKING_CHECK\", title: String(\"Lab not ready for booking #\" + $(\"Lab Not Ready\").item.json.booking_id).slice(0, 160), body: String($(\"Lab Not Ready\").item.json.lab_code + \": \" + $(\"Lab Not Ready\").item.json.readiness.warnings.join(\" \")).slice(0, 500), link: \"/admin/bookings\", severity: \"warning\", dedupe_key: \"pre-booking-staff:\" + $(\"Lab Not Ready\").item.json.booking_id }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"PRE_BOOKING_CHECK\", title: String(\"Lab not ready for booking #\" + $(\"Lab Not Ready\").item.json.booking_id).slice(0, 160), body: String($(\"Lab Not Ready\").item.json.lab_code + \": \" + $(\"Lab Not Ready\").item.json.readiness.warnings.join(\" \")).slice(0, 500), link: \"/admin/bookings\", severity: \"warning\", dedupe_key: \"pre-booking-staff:\" + $(\"Lab Not Ready\").item.json.booking_id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -157,7 +166,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"09-pre-booking-check\", status: \"success\", summary: \"Warnings sent\", execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"09-pre-booking-check\", status: \"success\", summary: \"Warnings sent\", execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -250,6 +262,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

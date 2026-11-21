@@ -36,7 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/robotics/robots",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -77,7 +80,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"ROBOT\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"ROBOT\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.severity, dedupe_key: $json.dedupe_key }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -102,7 +108,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"18-robot-offline-fault\", status: \"success\", summary: \"Findings: \" + $(\"Check In Backend\").first().json.count, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"18-robot-offline-fault\", status: \"success\", summary: \"Findings: \" + $(\"Check In Backend\").first().json.count, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -173,6 +182,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

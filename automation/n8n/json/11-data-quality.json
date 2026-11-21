@@ -36,7 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/data-quality",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -94,7 +97,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"DATA_QUALITY\", title: String(\"Data quality: \" + $json.failing + \" check(s) need attention\").slice(0, 160), body: String($json.summary).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"DATA_QUALITY\", title: String(\"Data quality: \" + $json.failing + \" check(s) need attention\").slice(0, 160), body: String($json.summary).slice(0, 500), link: \"/admin/operations\", severity: \"info\", dedupe_key: $json.dedupe_key }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -119,7 +125,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"11-data-quality\", status: \"success\", summary: $(\"Run Checks In Backend\").item.json.summary, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"11-data-quality\", status: \"success\", summary: $(\"Run Checks In Backend\").item.json.summary, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -190,6 +199,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

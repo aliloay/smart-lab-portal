@@ -1,0 +1,106 @@
+{
+  "id": "SmartLab00ErrHnd",
+  "name": "Smart Lab 00 - Error handler",
+  "active": false,
+  "nodes": [
+    {
+      "id": "e0000000-0000-4000-8000-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000002",
+      "name": "Record Failed Run",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        460,
+        220
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/runs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow: String($json.workflow.name || \"unknown\").slice(0, 48), status: \"error\", summary: String(($json.execution.lastNodeExecuted ? \"Node \" + $json.execution.lastNodeExecuted + \": \" : \"\") + (($json.execution.error || {}).message || \"failed\")).slice(0, 500), execution_id: String($json.execution.id || \"\") }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
+          "name": "Smart Lab automation key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e0000000-0000-4000-8000-000000000003",
+      "name": "Raise Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        460,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/automation/alerts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: (\"n8n workflow failed: \" + String($json.workflow.name || \"unknown\")).slice(0, 128), detail: String(\"Execution \" + ($json.execution.id || \"?\") + \", node \" + ($json.execution.lastNodeExecuted || \"?\") + \": \" + (($json.execution.error || {}).message || \"no message\")).slice(0, 1900), dedupe_key: (\"n8n-error-\" + String($json.workflow.id || \"x\") + \"-\" + String($json.execution.id || Date.now())).slice(0, 160) }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "1V0PfllJdkPmPubj",
+          "name": "Smart Lab automation key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Record Failed Run",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Raise Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

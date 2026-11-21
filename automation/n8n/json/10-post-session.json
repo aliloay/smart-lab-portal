@@ -36,7 +36,10 @@
         "method": "GET",
         "url": "http://backend:8000/api/automation/bookings/ended?minutes=60",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -77,7 +80,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"POST_SESSION\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.attended ? \"info\" : \"warning\", dedupe_key: $json.dedupe_key, booking_id: $json.booking_id }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"POST_SESSION\", title: String($json.title).slice(0, 160), body: String($json.body).slice(0, 500), link: $json.link, severity: $json.attended ? \"info\" : \"warning\", dedupe_key: $json.dedupe_key, booking_id: $json.booking_id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -102,7 +108,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"10-post-session\", status: \"success\", summary: \"Follow-ups: \" + $(\"Get Bookings That Just Ended\").first().json.bookings.length, execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"10-post-session\", status: \"success\", summary: \"Follow-ups: \" + $(\"Get Bookings That Just Ended\").first().json.bookings.length, execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -173,6 +182,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

@@ -105,7 +105,7 @@
     "executionOrder": "v1",
     "saveManualExecutions": true,
     "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": "",
+    "errorWorkflow": "SmartLab00ErrHnd",
     "availableInMCP": true
   },
   "staticData": {

@@ -39,14 +39,19 @@
         "url": "=http://backend:8000/api/automation/bookings/{{ $json.body.object.id }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "67cd6261-3d36-53df-a0b0-2540889c13c9",
@@ -98,14 +103,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"BOOKING_BRIEFING\", title: \"Before your \" + $json.lab_code + \" session\", body: [...$json.readiness.warnings, ...$json.readiness.notes].join(\" \").slice(0, 490), link: $json.link, severity: $json.readiness.level === \"warning\" ? \"warning\" : \"info\", booking_id: $json.booking_id, dedupe_key: \"booking-briefing:\" + $json.booking_id }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "db68767e-4feb-53d3-abac-2209ae87882f",
@@ -124,14 +134,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"01-booking-confirmation\", status: \"success\", summary: \"Briefing for booking \" + $(\"Get Booking Readiness\").item.json.booking_id, execution_id: $execution.id }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "d63b54ff-b2a8-5e5f-a7fa-ad878c1d4086",
@@ -194,6 +209,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

@@ -39,14 +39,19 @@
         "url": "=http://backend:8000/api/automation/access/denials{{ $json.body.lab_id ? \"?lab_id=\" + $json.body.lab_id : \"\" }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "9124add5-5b21-50d4-a4d8-a25c1cf20975",
@@ -98,14 +103,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ severity: \"WARNING\", title: \"Repeated refusals at \" + $json.lab_code, detail: $json.message + \". Reasons: \" + Object.entries($json.by_reason).map(([k, v]) => k + \" x\" + v).join(\", \"), lab_id: $json.lab_id, dedupe_key: $json.dedupe_key }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "da7c2c1f-eff4-5bf5-a6b5-6d081cfbd5c5",
@@ -124,14 +134,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"SECURITY_EVENT\", title: String(\"Repeated refusals at \" + $(\"Evaluate Denial Burst\").item.json.lab_code).slice(0, 160), body: String($(\"Evaluate Denial Burst\").item.json.message + \" - check the camera and who is at the door.\").slice(0, 500), link: \"/admin/access\", severity: \"warning\", dedupe_key: $(\"Evaluate Denial Burst\").item.json.dedupe_key }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "c5f0b78d-22c2-5048-a2d0-f63a306ce32f",
@@ -150,14 +165,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"03-access-denial-intelligence\", status: \"success\", summary: \"Burst at \" + $(\"Evaluate Denial Burst\").item.json.lab_code, execution_id: $execution.id }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "aab52454-1b39-5d66-a02e-78f4cad3874e",
@@ -231,6 +251,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

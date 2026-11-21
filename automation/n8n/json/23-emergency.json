@@ -38,13 +38,19 @@
         "method": "GET",
         "url": "=http://backend:8000/api/automation/emergency/{{ $json.body.lab_id }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "188b7ce4-83e6-5c34-aa13-6bb9b8b47cb0",
@@ -76,13 +82,19 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"EMERGENCY\", title: $json.title, body: $json.body, link: \"/\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"user\", user_id: $json.user_id, kind: \"EMERGENCY\", title: $json.title, body: $json.body, link: \"/\", severity: $json.severity, dedupe_key: $json.dedupe_key }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "80c0440d-511d-52ec-a39a-c236fda3801d",
@@ -112,14 +124,20 @@
         "method": "GET",
         "url": "=http://backend:8000/api/automation/emergency/{{ $json.lab_id }}",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
       },
-      "executeOnce": true
+      "executeOnce": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "918dffa6-6a05-5787-a94f-08efbcc84ec9",
@@ -168,13 +186,19 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"EMERGENCY\", title: String(\"Door at \" + $json.lab_code + \" has NOT applied the emergency\").slice(0, 160), body: ($json.controller_online === false ? \"The door controller is offline. \" : \"The door controller has not confirmed after 30 s. \") + \"Act at the door in person.\", link: \"/admin/emergency\", severity: \"critical\", dedupe_key: \"emergency-unapplied:\" + $json.lab_id + \":v\" + $json.version }) }}"
+        "jsonBody": "={{ JSON.stringify({ audience: \"admins\", kind: \"EMERGENCY\", title: String(\"Door at \" + $json.lab_code + \" has NOT applied the emergency\").slice(0, 160), body: ($json.controller_online === false ? \"The door controller is offline. \" : \"The door controller has not confirmed after 30 s. \") + \"Act at the door in person.\", link: \"/admin/emergency\", severity: \"critical\", dedupe_key: \"emergency-unapplied:\" + $json.lab_id + \":v\" + $json.version }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "419e2a66-adf5-5835-addb-d4a287167d0b",
@@ -193,7 +217,10 @@
         "sendBody": true,
         "contentType": "json",
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ workflow: \"23-emergency\", status: \"success\", summary: $json.lab_code + \" v\" + $json.version + ($json.has_door ? \": door \" + ($json.applied ? \"applied it\" : \"did not confirm\") : \": no door controller\"), execution_id: $execution.id }) }}"
+        "jsonBody": "={{ JSON.stringify({ workflow: \"23-emergency\", status: \"success\", summary: $json.lab_code + \" v\" + $json.version + ($json.has_door ? \": door \" + ($json.applied ? \"applied it\" : \"did not confirm\") : \": no door controller\"), execution_id: $execution.id }) }}",
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -201,7 +228,10 @@
         }
       },
       "executeOnce": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "8574ef2c-692c-56ec-af7c-c00741ef38c0",
@@ -296,6 +326,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }

@@ -39,7 +39,9 @@
         "url": "=http://backend:8000/api/automation/issues/{{ $json.body.object.id }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -119,14 +121,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String($json.severity + \" issue in a booked lab: \" + $json.ticket).slice(0, 160), body: String($json.title + \" - \" + $json.bookings_next_24h + \" booking(s) in \" + $json.lab_code + \" in the next 24 h.\").slice(0, 500), link: $json.link, severity: $json.severity === \"CRITICAL\" ? \"critical\" : \"warning\", dedupe_key: \"issue-impact:\" + $json.issue_id }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "79406b5a-a01e-5087-a627-144df0211195",
@@ -145,14 +152,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ workflow: \"05-maintenance-automation\", status: \"success\", summary: \"Maintenance notification sent\", execution_id: $execution.id }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "91aa8dd5-db4b-5f05-aaa1-7e8f5e852f30",
@@ -186,7 +198,9 @@
         "url": "http://backend:8000/api/automation/maintenance",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
@@ -248,14 +262,19 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ audience: \"staff\", kind: \"MAINTENANCE_DIGEST\", title: String(\"Maintenance digest: \" + $json.overdue.length + \" overdue, \" + $json.unassigned_urgent.length + \" urgent unassigned\").slice(0, 160), body: String([...$json.overdue.map(i => i.ticket + \" overdue\"), ...$json.unassigned_urgent.map(i => i.ticket + \" unassigned\"), ...$json.assets_due.map(a => a.name + (a.overdue ? \" maintenance overdue\" : \" maintenance due\"))].join(\"; \")).slice(0, 500), link: \"/issues\", severity: \"warning\", dedupe_key: \"maintenance-digest:\" + $json.dedupe_day }) }}",
-        "options": {}
+        "options": {
+          "timeout": 15000
+        }
       },
       "credentials": {
         "httpHeaderAuth": {
           "id": "1V0PfllJdkPmPubj",
           "name": "Smart Lab automation key"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "id": "a3de26c6-b778-5961-a8f4-9353e3ede309",
@@ -362,6 +381,8 @@
       ]
     }
   },
-  "settings": {},
+  "settings": {
+    "errorWorkflow": "SmartLab00ErrHnd"
+  },
   "tags": []
 }
