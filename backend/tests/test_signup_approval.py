@@ -47,3 +47,22 @@ def test_admin_removed_account_is_not_pending(client, db, admin, staff, monkeypa
     rows = client.get("/api/users", headers=auth_headers(client, admin.email)).json()
     row = next(x for x in rows if x["id"] == staff.id)
     assert row["is_active"] is False and row["pending_approval"] is False
+
+
+def test_staff_correcting_a_pending_signup_keeps_it_pending(client, db, admin, staff, monkeypatch):
+    """2026-11-21 audit F-17: a staff correction of the name (USER_UPDATED without is_active) hid the sign-up from
+    'pending' and it looked like a disabled account. Only a decision about the account (is_active / removal) counts."""
+    from app.core.config import settings
+    from tests.conftest import auth_headers
+    monkeypatch.setattr(settings, "SIGNUP_ENABLED", True)
+    monkeypatch.setattr(settings, "SIGNUP_REQUIRES_APPROVAL", True)
+    assert _signup(client).status_code == 201
+    u = db.query(User).filter_by(email="newbie@giu-uni.de").one()
+    r = client.patch(f"/api/users/{u.id}", headers=auth_headers(client, staff.email), json={"full_name": "New Bie (fixed)"})
+    assert r.status_code == 200, r.text
+    row = next(x for x in client.get("/api/users", headers=auth_headers(client, admin.email)).json() if x["id"] == u.id)
+    assert row["pending_approval"] is True and row["is_active"] is False
+    # an admin's explicit decision (reject = remove) does end pending
+    client.post(f"/api/users/{u.id}/remove", headers=auth_headers(client, admin.email))
+    row = next(x for x in client.get("/api/users", headers=auth_headers(client, admin.email)).json() if x["id"] == u.id)
+    assert row["pending_approval"] is False

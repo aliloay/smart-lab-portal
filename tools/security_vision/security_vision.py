@@ -1388,7 +1388,9 @@ def make_app(svc: Service) -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "camera": svc.camera.ok, "fps": svc.live_fps(),
+        # 2026-11-21 (audit F-22): "ok" only with a picture. The service itself is alive either way (HTTP 200 - the
+        # watchdog and launcher read the code), but a monitor reading "status" no longer sees "ok" with no camera.
+        return jsonify({"status": "ok" if svc.camera.ok else "no_picture", "camera": svc.camera.ok, "fps": svc.live_fps(),
                         "stream": svc.camera.status(), "device": svc.args.device, "time": round(time.time(), 3),
                         "analysis_age_s": round(time.time() - svc.analysed_at, 1) if svc.analysed_at else None,
                         "analysis_errors": svc.analysis_errors,

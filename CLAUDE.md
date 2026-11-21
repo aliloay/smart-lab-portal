@@ -8,7 +8,7 @@ BSc thesis (GIU). Public repo. Start every session with `docs/PROGRESS_CHECKPOIN
 - Open the door from anything but the Master ESP32; change door firmware, auth or credentials.
 - Edit/activate/deactivate live n8n workflows; push to GitHub; commit secrets, `.env`, `camera.env`, `robot.env`, photos of people.
 - Overwrite the owner's uncommitted work (`.env.example`, `frontend/e2e/command_center.mjs`, untracked files) - copy first.
-- Install packages / download models without asking. Cameras keep GPU priority; since 2026-10-19 (owner approved after an A/B: answers 68 s -> 3 s, camera 2 unaffected) both assistants run qwen2.5:1.5b on the GPU - revert with OLLAMA_CPU_ONLY=true + knowledge llm_on_cpu if a camera suffers.
+- Install packages / download models without asking. Cameras keep GPU priority; since 2026-10-19 (owner approved after an A/B: answers 68 s -> 3 s, camera 2 unaffected) both assistants may use the GPU only while the cameras are idle (camera-first gate, tools/knowledge/gpu_gate.py). Models since 2026-11-21 (docs/benchmarks/LOCAL_MODEL_BENCHMARK_2026-11-21.md): portal assistant qwen2.5:1.5b (.env OLLAMA_MODEL), knowledge assistant qwen3:1.7b (tools/knowledge/config.json, think=false). Force CPU with OLLAMA_CPU_ONLY=true.
 
 ## Map
 - backend/ FastAPI (routes in app/api/routes) · frontend/ React+TS+Tailwind · docker-compose.yml (db, backend, frontend, n8n, backup)

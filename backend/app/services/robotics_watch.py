@@ -89,16 +89,28 @@ def low_stock(db: Session, now: datetime) -> list[dict]:
 
 
 def unattended_stock(db: Session, now: datetime) -> list[dict]:
-    out = []
+    """2026-11-21 (audit F-23): one notice per BIN per hour (it was one per withdrawal - 66 in a day during a home
+    calibration), and none for a bin that is in guided calibration right now (the owner is at the scale)."""
+    from app.services import bin_calibration
+    by_bin: dict[int, list] = {}
     for t in db.scalars(select(InventoryTransaction).where(
             InventoryTransaction.kind == "WITHDRAWAL",
             InventoryTransaction.attribution == "NOBODY_INSIDE",
             InventoryTransaction.recorded_at >= now - timedelta(hours=1))).all():
-        b = db.get(InventoryBin, t.bin_id)
+        if bin_calibration.get(t.bin_id) is not None:
+            continue
+        by_bin.setdefault(t.bin_id, []).append(t)
+    out = []
+    for bin_id, ts in by_bin.items():
+        b = db.get(InventoryBin, bin_id)
+        ts.sort(key=lambda t: t.recorded_at)
+        total = sum(float(t.delta_mass_g or 0) for t in ts)
+        first, last = _utc(ts[0].recorded_at), _utc(ts[-1].recorded_at)
+        when = f"at {first:%H:%M} UTC" if len(ts) == 1 else f"between {first:%H:%M} and {last:%H:%M} UTC"
         out.append(_item(f"Stock change with nobody inside: {b.item_name}",
-                         f"{t.delta_mass_g} g at {_utc(t.recorded_at):%H:%M} UTC with no access "
-                         "session open. A record to check, not an accusation.", "info",
-                         "/admin/equipment?tab=consumables", f"robotics:unattended:{t.id}", b.lab_id))
+                         f"{len(ts)} change(s), {total:g} g in total, {when}, with no access session open. "
+                         "A record to check, not an accusation.", "info",
+                         "/admin/equipment?tab=consumables", f"robotics:unattended:{bin_id}:{now:%Y%m%d%H}", b.lab_id))
     return out
 
 

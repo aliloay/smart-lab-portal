@@ -64,3 +64,23 @@ def test_topics_report_what_is_stored(client, db, lab):
 def test_unknown_topic_and_key(client):
     assert client.get("/api/automation/robotics/nope", headers=KEY).status_code == 404
     assert client.get("/api/automation/robotics/daily").status_code in (401, 403)
+
+
+def test_unattended_stock_is_one_notice_per_bin_per_hour_and_quiet_during_calibration(client, db, lab):
+    """2026-11-21 audit F-23: one notice per withdrawal flooded the bell (66 in a day during a home calibration)."""
+    from app.services import bin_calibration
+    b = InventoryBin(code="BIN-U", lab_id=lab.id, item_name="Screws", tare_g=0, unit_mass_g=0.5)
+    db.add(b)
+    db.flush()
+    for g in (-1, -2, -3):
+        db.add(InventoryTransaction(bin_id=b.id, kind="WITHDRAWAL", delta_mass_g=g, attribution="NOBODY_INSIDE"))
+    db.commit()
+    items = _topic(client, "unattended-stock")
+    assert len(items) == 1 and "3 change(s), -6 g in total" in items[0]["body"]
+    assert items[0]["dedupe_key"].startswith(f"robotics:unattended:{b.id}:")
+    bin_calibration.SESSIONS.clear()
+    bin_calibration.start(b.id, "Screws", 1)
+    try:
+        assert _topic(client, "unattended-stock") == []          # the owner is calibrating that bin
+    finally:
+        bin_calibration.SESSIONS.clear()

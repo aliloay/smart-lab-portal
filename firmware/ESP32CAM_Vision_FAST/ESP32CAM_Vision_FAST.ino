@@ -45,6 +45,12 @@
   ===========================================================================
 */
 
+// 2026-11-21 (audit F-20): this board needs esp32 Arduino core 3.2.1 - 3.3.x builds boot with "Camera init failed".
+// Fail the BUILD instead of flashing a camera that will not start (build with the 3.2.1 install, see DOOR_SYSTEM.md).
+#include <esp_arduino_version.h>
+#if !defined(ESP_ARDUINO_VERSION) || ESP_ARDUINO_VERSION != ESP_ARDUINO_VERSION_VAL(3, 2, 1)
+#error "ESP32CAM_Vision_FAST needs esp32 Arduino core 3.2.1 (newer cores: Camera init failed). Use the D:/SmartLabData/arduino_core321 install."
+#endif
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <HTTPClient.h>

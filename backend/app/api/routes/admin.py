@@ -304,9 +304,13 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_staff)):
     # (an admin-disabled or removed account has a USER_UPDATED/USER_REMOVED row).
     signed_up = set(db.scalars(select(AuditLog.entity_id).where(
         AuditLog.action == "USER_SIGNUP", AuditLog.entity_type == "user")).all())
-    touched = set(db.scalars(select(AuditLog.entity_id).where(
-        AuditLog.action.in_(("USER_UPDATED", "USER_REMOVED")),
-        AuditLog.entity_type == "user")).all())
+    # 2026-11-21 (audit F-17): only a decision about the ACCOUNT ends "pending" - removal, or an update that set
+    # is_active. A staff correction of the name / email (USER_UPDATED without is_active) used to hide the sign-up.
+    touched = set()
+    for eid, action, detail in db.execute(select(AuditLog.entity_id, AuditLog.action, AuditLog.detail).where(
+            AuditLog.action.in_(("USER_UPDATED", "USER_REMOVED")), AuditLog.entity_type == "user")).all():
+        if action == "USER_REMOVED" or (isinstance(detail, dict) and "is_active" in detail):
+            touched.add(eid)
     for u in users:
         u.pending_approval = (not u.is_active and str(u.id) in signed_up
                               and str(u.id) not in touched)
