@@ -1,5 +1,21 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-20/21 (home, all 5 ESP32 nodes connected) - DEPLOYED, NOT pushed (latest 0deb0e8)
+- Laptop 32 GB RAM; .wslconfig memory=10GB processors=6; Best performance on AC; launch.bat must be started via explorer.exe
+  (from a VS Code terminal it inherits backend/.venv: mDNS failed, knowledge ran twice).
+- Firmware flashed (backups in D:\SmartLabDatairmware_backup): master portal-1.2 (NFC recovery, store and forward, relock
+  guard), bin-0.6 (guided calibration LCD), ESP32-CAM idle-throttle on core 3.2.1 (D:\SmartLabDatarduino_core321). COM6 master,
+  COM7 bin, COM8 CAM. Env (env-0.1.1) and reusable (reuse-mod-0.5) online, nothing to flash.
+- Portal: Users & roles 500 fixed (.local email on output) + pending sign-ups with Approve; entry camera online from the master's
+  report; guided bin calibration + one scale several items (migration a7b3c9d1e240, additive); New bin = new item on a scale;
+  lab location edit (admin, audited) + assistant one-line "where is X lab"; store and forward (age_ms, replayed events);
+  door photo picker (training photos, door camera, upload; face server accepts the master's own key by hash).
+- Measurements: docs/reports/MEASUREMENTS_2026-11-21.md (door <10 ms after match, QR 161 ms, cold start 2.9 s, router cut 5.4 s).
+- BOM draft: docs/hardware/BILL_OF_MATERIALS.md (prices blank - receipts).
+- Open (owner): 1N4007 across the lock + new buzzer; flame sensor facing sun at home (clear the alert); GIU: robots before
+  Hemaly's PC, twins, PC-10 agent, PC-11 sticker, assistant timing with both cameras; thesis writing; passwords later.
+  Owner decisions: no extra wires, Nagy slot 3 as is, ahmed left pending (approval demo).
+
 ## UPDATE 2026-11-19 afternoon - prepared for the ESP32 session (owner away)
 Firmware images (4 nodes) in D:\SmartLabDatairmware_builds_20261119 (compile only); ESP32-CAM core 3.2.1 install
 incomplete (needs download OK). Thesis paste file, assistant recheck, V2 film QA: see
