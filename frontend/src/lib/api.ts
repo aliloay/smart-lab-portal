@@ -1763,6 +1763,16 @@ export const api = {
   cardRemove: (id: number, cardId?: number) => post<DeviceCommand>(`/users/${id}/rfid/remove`, cardId === undefined ? {} : { card_id: cardId }),
   userCards: (id: number) => request<{ id: number; uid_hex: string; label: string; issued_at: string }[]>(`/users/${id}/rfid`),
   // Face photos uploaded by staff: straight to the face server, nothing kept.
+  // Door photo (2026-11-21): which photo the ACCESS GRANTED screen (door LCD + tablet) shows for this person.
+  doorPhotoInfo: (id: number) => request<{ has_photo: boolean; source: string | null; how: string | null;
+    candidates: string[]; camera_live: boolean }>(`/users/${id}/door-photo`),
+  doorPhotoChoose: (id: number, body: { from: 'candidate'; candidate: string } | { from: 'camera' }) =>
+    post<{ ok: boolean }>(`/users/${id}/door-photo/choose`, body),
+  doorPhotoUpload: (id: number, file: File) => {
+    const form = new FormData()
+    form.append('image', file)
+    return upload<{ ok: boolean }>(`/users/${id}/door-photo/upload`, form)
+  },
   faceUpload: (id: number, files: File[], onProgress?: (f: number) => void) => {
     const form = new FormData()
     files.forEach(f => form.append('files', f))

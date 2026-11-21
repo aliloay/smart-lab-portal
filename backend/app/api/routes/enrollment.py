@@ -283,3 +283,87 @@ async def face_upload(user_id: int, files: list[UploadFile] = File(...),
     return {"sent": len(raws), "saved": saved, "samples": samples,
             "face_enrolled": enrolled, "has_photo": u.auth_subject in portraits,
             "message": message}
+
+
+# ------------------------------------------------------------------------------------------------- door photo ---
+# (2026-11-21, owner) Which photo the ACCESS GRANTED screen (door LCD + tablet) shows for a person: one of their
+# enrollment frames, a photo taken now at the door camera, or an upload. The face server keeps the images; these
+# routes pass them through with the device key (the browser never gets it). A chosen photo is never replaced by a
+# later enrollment. The door fetches it at step 1 of the next entry (it re-fetches at most every 5 minutes).
+def _photo_call(method: str, path: str, **kw):
+    try:
+        return _face.request(method, f"{settings.FACE_SERVER_URL}{path}",
+                             headers={"X-Device-Key": settings.DEVICE_API_KEY, **kw.pop("headers", {})},
+                             timeout=httpx.Timeout(8.0, connect=2.0), **kw)
+    except httpx.HTTPError:
+        raise _unreachable("face server", settings.FACE_SERVER_URL)
+
+
+def _photo_error(r) -> HTTPException:
+    try:
+        msg = r.json().get("error") or r.text
+    except ValueError:
+        msg = r.text
+    return HTTPException(r.status_code if 400 <= r.status_code < 500 else status.HTTP_502_BAD_GATEWAY, msg)
+
+
+@router.get("/users/{user_id}/door-photo")
+def door_photo_info(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    r = _photo_call("GET", f"/portrait/{u.auth_subject}/info")
+    if r.status_code != 200:
+        raise _photo_error(r)
+    return r.json()
+
+
+@router.get("/users/{user_id}/door-photo/current.jpg")
+def door_photo_current(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    r = _photo_call("GET", f"/portrait/{u.auth_subject}.jpg")
+    if r.status_code != 200:
+        raise _photo_error(r)
+    return Response(r.content, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/users/{user_id}/door-photo/candidate/{cid}.jpg")
+def door_photo_candidate(user_id: int, cid: str, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    if not cid.isdigit():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "bad candidate")
+    u = _person(db, user_id)
+    r = _photo_call("GET", f"/portrait/{u.auth_subject}/candidate/{cid}.jpg")
+    if r.status_code != 200:
+        raise _photo_error(r)
+    return Response(r.content, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/users/{user_id}/door-photo/choose")
+def door_photo_choose(user_id: int, body: dict, db: Session = Depends(get_db), staff: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    src = body.get("from")
+    if src not in ("candidate", "camera"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "from must be candidate or camera")
+    payload = {"from": src, **({"candidate": str(body.get("candidate", ""))} if src == "candidate" else {})}
+    r = _photo_call("POST", f"/portrait/{u.auth_subject}/choose", json=payload)
+    if r.status_code != 200:
+        raise _photo_error(r)
+    db.add(AuditLog(actor_user_id=staff.id, action="DOOR_PHOTO_CHOSEN", entity_type="user", entity_id=str(u.id),
+                    detail={"from": src, "candidate": payload.get("candidate")}))
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/door-photo/upload")
+async def door_photo_upload(user_id: int, image: UploadFile = File(...), db: Session = Depends(get_db),
+                            staff: User = Depends(require_staff)):
+    u = _person(db, user_id)
+    data = await image.read()
+    if not data or len(data) > 6 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Send one image up to 6 MB")
+    r = await run_in_threadpool(_photo_call, "POST", f"/portrait/{u.auth_subject}/upload", content=data,
+                                headers={"Content-Type": image.content_type or "application/octet-stream"})
+    if r.status_code != 200:
+        raise _photo_error(r)
+    db.add(AuditLog(actor_user_id=staff.id, action="DOOR_PHOTO_CHOSEN", entity_type="user", entity_id=str(u.id),
+                    detail={"from": "upload", "bytes": len(data)}))
+    db.commit()
+    return {"ok": True}

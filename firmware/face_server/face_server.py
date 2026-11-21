@@ -70,7 +70,7 @@ import hmac
 import sys
 import cv2
 import numpy as np
-from flask import Flask, Response, request, jsonify
+from flask import Flask, Response, request, jsonify, send_file
 
 DATASET_DIR = "dataset"
 MODEL_PATH  = "lbph_model.yml"
@@ -760,20 +760,51 @@ _portrait_cache = {}            # name -> (mtime, rgb565 bytes)
 _portrait_lock = threading.Lock()
 
 
+PORTRAIT_CANDIDATES = 8      # colour frames kept per person for the admin's "Door photo" picker (2026-11-21)
+
+
+def _candidate_dir(name):
+    return os.path.join(PORTRAIT_DIR, "candidates", name)
+
+
+def keep_candidate(name, img, face_area):
+    """Keep the PORTRAIT_CANDIDATES enrollment frames with the largest faces (file name = face area)."""
+    d = _candidate_dir(name)
+    os.makedirs(d, exist_ok=True)
+    have = sorted((int(f[:-4]) for f in os.listdir(d) if f[:-4].isdigit() and f.endswith(".jpg")), reverse=True)
+    if len(have) >= PORTRAIT_CANDIDATES and face_area <= have[-1]:
+        return
+    if face_area in have:
+        return
+    cv2.imwrite(os.path.join(d, f"{int(face_area)}.jpg"), img)
+    for old in have[PORTRAIT_CANDIDATES - 1:]:          # drop the smallest beyond the limit
+        try:
+            os.remove(os.path.join(d, f"{old}.jpg"))
+        except OSError:
+            pass
+
+
+def _portrait_meta(name):
+    meta = os.path.join(PORTRAIT_DIR, f"{name}.json")
+    try:
+        with open(meta, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def keep_best_portrait(name, img, face_area):
     """Keep the enrollment frame with the largest (closest, sharpest) face."""
     os.makedirs(PORTRAIT_DIR, exist_ok=True)
+    keep_candidate(name, img, face_area)
     jpg = os.path.join(PORTRAIT_DIR, f"{name}.jpg")
     meta = os.path.join(PORTRAIT_DIR, f"{name}.json")
     if os.path.exists(jpg) and not os.path.exists(meta):
         return                                  # chosen by hand: keep it
-    best = 0
-    if os.path.exists(meta):
-        try:
-            with open(meta, encoding="utf-8") as f:
-                best = json.load(f).get("face_area", 0)
-        except (OSError, ValueError):
-            best = 0
+    m = _portrait_meta(name) or {}
+    if m.get("source") == "chosen":
+        return                                  # picked by an admin in the portal: keep it
+    best = m.get("face_area", 0)
     if face_area <= best:
         return
     cv2.imwrite(jpg, img)
@@ -806,6 +837,115 @@ def portrait_rgb565(name):
             _portrait_cache[name] = cached
     return Response(cached[1], mimetype="application/octet-stream",
                     headers={"Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# Door photo picker (2026-11-21, owner): the portal's admin chooses which photo the ACCESS GRANTED screen shows -
+# one of the person's enrollment frames, a photo taken now at the door camera, or an uploaded one. A chosen photo is
+# never replaced by a later enrollment. Device key only (the portal backend calls these): these are photos of people.
+# --------------------------------------------------------------------------------------------------------------------
+def _photo_guard(name):
+    if not device_key_ok(request.headers.get("X-Device-Key", "")):
+        return jsonify({"error": "device key required"}), 403
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+        return jsonify({"error": "bad name"}), 400
+    return None
+
+
+def _set_chosen_portrait(name, img, how):
+    os.makedirs(PORTRAIT_DIR, exist_ok=True)
+    cv2.imwrite(os.path.join(PORTRAIT_DIR, f"{name}.jpg"), img)
+    with open(os.path.join(PORTRAIT_DIR, f"{name}.json"), "w", encoding="utf-8") as f:
+        json.dump({"source": "chosen", "how": how, "at": int(time.time())}, f)
+    with _portrait_lock:
+        _portrait_cache.pop(name, None)
+    print(f"[portrait] {name}: door photo chosen ({how})")
+
+
+@app.route("/portrait/<name>/info", methods=["GET"])
+def portrait_info(name):
+    bad = _photo_guard(name)
+    if bad:
+        return bad
+    d = _candidate_dir(name)
+    cands = sorted((f[:-4] for f in os.listdir(d) if f.endswith(".jpg")), key=lambda s: -int(s)) \
+        if os.path.isdir(d) else []
+    m = _portrait_meta(name) or {}
+    has = os.path.isfile(os.path.join(PORTRAIT_DIR, f"{name}.jpg"))
+    return jsonify({"name": name, "has_photo": has, "source": m.get("source", "manual" if has else None),
+                    "how": m.get("how"), "candidates": cands, "camera_live": _preview["jpeg"] is not None
+                    and time.time() - _preview["at"] <= PREVIEW_MAX_AGE_S})
+
+
+@app.route("/portrait/<name>.jpg", methods=["GET"])
+def portrait_jpg(name):
+    bad = _photo_guard(name)
+    if bad:
+        return bad
+    path = os.path.join(PORTRAIT_DIR, f"{name}.jpg")
+    if not os.path.isfile(path):
+        return jsonify({"error": "no photo"}), 404
+    return send_file(path, mimetype="image/jpeg", max_age=0)
+
+
+@app.route("/portrait/<name>/candidate/<cid>.jpg", methods=["GET"])
+def portrait_candidate(name, cid):
+    bad = _photo_guard(name)
+    if bad:
+        return bad
+    if not cid.isdigit():
+        return jsonify({"error": "bad candidate"}), 400
+    path = os.path.join(_candidate_dir(name), f"{cid}.jpg")
+    if not os.path.isfile(path):
+        return jsonify({"error": "no such candidate"}), 404
+    return send_file(path, mimetype="image/jpeg", max_age=0)
+
+
+@app.route("/portrait/<name>/choose", methods=["POST"])
+def portrait_choose(name):
+    bad = _photo_guard(name)
+    if bad:
+        return bad
+    body = request.get_json(silent=True) or {}
+    how = str(body.get("from", ""))
+    if how == "candidate":
+        cid = str(body.get("candidate", ""))
+        path = os.path.join(_candidate_dir(name), f"{cid}.jpg")
+        img = cv2.imread(path) if cid.isdigit() and os.path.isfile(path) else None
+        if img is None:
+            return jsonify({"error": "no such candidate"}), 404
+        _set_chosen_portrait(name, img, "enrollment frame")
+    elif how == "camera":
+        if _preview["jpeg"] is None or time.time() - _preview["at"] > PREVIEW_MAX_AGE_S:
+            return jsonify({"error": "the door camera is not sending pictures right now"}), 409
+        img = cv2.imdecode(np.frombuffer(_preview["jpeg"], dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is None or largest_face_box(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)) is None:
+            return jsonify({"error": "no face in front of the door camera - look at it and try again"}), 409
+        _set_chosen_portrait(name, img, "door camera")
+    else:
+        return jsonify({"error": "from must be candidate or camera"}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/portrait/<name>/upload", methods=["POST"])
+def portrait_upload(name):
+    bad = _photo_guard(name)
+    if bad:
+        return bad
+    data = request.get_data(cache=False)
+    if not data or len(data) > 6 * 1024 * 1024:
+        return jsonify({"error": "send one image up to 6 MB"}), 400
+    img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return jsonify({"error": "not an image (JPEG or PNG)"}), 400
+    if largest_face_box(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)) is None:
+        return jsonify({"error": "no face found in that photo"}), 409
+    h, w = img.shape[:2]
+    if max(h, w) > 1280:                                   # keep the file small
+        s = 1280 / max(h, w)
+        img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+    _set_chosen_portrait(name, img, "upload")
+    return jsonify({"ok": True})
 
 
 @app.route("/train", methods=["GET", "POST"])

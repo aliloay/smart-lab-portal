@@ -7,6 +7,7 @@ import { FaceReviewQueue } from '../components/FaceSubmission'
 import { useSearchParams } from 'react-router-dom'
 import FingerprintEnrollment from '../components/FingerprintEnrollment'
 import CardEnrollment from '../components/CardEnrollment'
+import DoorPhoto from '../components/DoorPhoto'
 import { roleLabel, useAuth } from '../lib/auth'
 import {
   Avatar, Chip, Drawer, EmptyState, ErrorBanner, Field, MetricCard, Modal, Notice, PageHeader,
@@ -172,6 +173,7 @@ export default function Users() {
                                    enrolledAt={enrolling.fingerprint_enrolled_at ?? null} onEnrolled={() => load()} />
             <FaceEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject} onEnrolled={() => load()} />
             <CardEnrollment userId={enrolling.id} savedSubject={enrolling.auth_subject} />
+            <DoorPhoto userId={enrolling.id} savedSubject={enrolling.auth_subject} />
           </div>)}
       </Drawer>
 
