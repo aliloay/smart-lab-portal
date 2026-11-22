@@ -12,7 +12,7 @@ what happened. The commit is named for each fix; all tests were re-run after the
 | F-05 | Assistants on the CPU although the gate said GPU | **FIXED, live** | `tools/knowledge/gpu_gate.py`: memory held by Ollama's own models counts as available; doctor shows "assistants on gpu: cameras idle" |
 | F-06 | One-line facts went through full synthesis | **FIXED, live** | `docs/faq/` (60 Q&A) + instant FAQ path in `tools/knowledge/agent.py` (~40 ms, cited) |
 | F-07 | Vault duplicates + broken links | **FIXED, live** | 322 stale mirrors moved to `vault_retired/` (`kb.py retire`); workflow links by note name; wikilinks 48 -> 0 |
-| F-08 | ESP32-CAM showed the last booking QR forever | **FIXED in source, built**; NOT flashed | QR text visible 10 s only; needs the ESP32-CAM on USB to flash (owner) |
+| F-08 | ESP32-CAM showed the last booking QR forever | **FIXED, flashed 22 Nov** | QR text visible 10 s only; app-only flash (partition table identical), hash verified, back on Wi-Fi 0 % loss; rollback image `D:/SmartLabData/firmware_backup/esp32cam_app_before_F08_20261122.bin` |
 | F-09 | Backups: no retention, uploads unencrypted, no restore test | **FIXED** (encryption: owner decision) | Move-not-delete retention to D: (C: 6.2 -> 2.4 GB); uploads encrypted when BACKUP_PASSPHRASE is set; restore drill passed |
 | F-10 | Bin shows ~60 screws while "empty" | OWNER: no change | Owner was testing the bin |
 | F-11 | n8n: no error workflow / timeouts / retries | **FIXED, live** | Error handler + 15 s timeouts (82/82 HTTP nodes) + webhook retries; backup `D:/SmartLabData/n8n_backup_20261121` |
