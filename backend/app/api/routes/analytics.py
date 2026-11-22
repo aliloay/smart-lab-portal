@@ -1,5 +1,6 @@
 """Aggregates for the Operations Center, the lab digital twin and "my usage"."""
 import csv
+from app.core import csvsafe
 import io
 from datetime import datetime, timezone
 from typing import Literal, Optional
@@ -69,7 +70,7 @@ def export_csv(kind: Literal["bookings", "sessions", "events", "weekly"] = "book
     """Recorded rows as CSV, for spreadsheets and the thesis appendix."""
     head, rows = analytics.export_rows(db, kind, days)
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csvsafe.writer(buf)   # B-08: no spreadsheet formulas from free text
     w.writerow(head)
     w.writerows(rows)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")

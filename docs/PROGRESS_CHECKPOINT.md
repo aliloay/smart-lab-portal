@@ -1,5 +1,12 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-22 - ultracode upgrade (worktree C:/Projects/smart-lab-claude-ultracode, branch claude/max-ultracode-system-upgrade-2026-11-22, base 9378f20; NOT committed / deployed)
+- 39 new findings (reports/claude-ultracode-full-system-upgrade-2026-11-22/PRIORITIZED_BUG_BACKLOG.csv); 30 fixed + 2 partly, B-01 kept (owner), 6 next.
+- Key: FAQ wrong-question answers (K1), guard bypass (K5), dead camera stream kept people (V-F1/F2), look-only confirmed names -> guess (V-F3),
+  cross-lab device keys (B-02), smart-bin checkout/swap (B-03/B-05), thread supervisor, pose staleness, WS rights on role change.
+- Tests: backend 902 passed/3 skipped, cameras 410, knowledge 80, robots 43, PC agent 40, relay 6, face 21, frontend tsc+build+unit 16.
+- Deploy needs owner OK (images + camera/knowledge restart via launch.bat). Camera fixes need the GIU re-test in REMAINING_BUGS_AND_BLOCKERS.md.
+
 ## UPDATE 2026-11-21 night - independent audit + fixes (reports/claude-independent-full-audit-2026-11-21/)
 - F-01 security: recording/emergency link tokens no longer work as sign-in tokens (typ=access). F-05: GPU gate counts
   Ollama's own VRAM as available (assistants on GPU when cameras idle). F-06/F-07: docs/faq (60 Q&A, ~40 ms answers

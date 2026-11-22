@@ -178,6 +178,15 @@ CURATED_DIRS = ["10 - Decisions", "09 - Incidents and Lessons", "07 - Runbooks",
 
 
 # ------------------------------------------------------------------ config ---
+ANSWER_MODEL_DEFAULT = "qwen3:1.7b"
+
+
+def answer_model(cfg: dict) -> str:
+    """The ONE model the knowledge assistant answers with (ultracode K8): "agent_model", else "model", else the
+    benchmarked default (docs/benchmarks/LOCAL_MODEL_BENCHMARK_2026-11-21.md). Every caller uses this."""
+    return cfg.get("agent_model") or cfg.get("model") or ANSWER_MODEL_DEFAULT
+
+
 def load_config(path: str | None = None) -> dict:
     p = path or os.path.join(HERE, "config.json")
     if not os.path.isfile(p):
@@ -678,7 +687,7 @@ def ask(cfg: dict, question: str, k: int = 5, use_llm: bool = True) -> dict:
     if not use_llm:
         return res
     ev = "\n\n".join(f"[{i + 1}] ({h['source']} - {h['heading']})\n{h['text'][:1100]}" for i, h in enumerate(hits))
-    body = {"model": cfg["model"], "prompt": PROMPT.format(evidence=ev, question=question), "stream": False,
+    body = {"model": answer_model(cfg), "prompt": PROMPT.format(evidence=ev, question=question), "stream": False,
             "options": {"temperature": 0.1, "num_ctx": 4096, "num_thread": int(cfg.get("llm_threads", 4)),
                         **({} if gpu_gate.use_gpu(cfg) else {"num_gpu": 0})}}   # camera-first: gpu_gate.py
     if thinks(body["model"]):

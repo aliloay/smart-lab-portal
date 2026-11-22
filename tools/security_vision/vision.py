@@ -1464,6 +1464,8 @@ class Labeler:
             if len(cl) != 1:
                 continue                            # two lost names fit this one: nobody
             tid, who, source = cl[0]
+            if who["auth_subject"] in held:         # V-F10: this name already went to another track this pass
+                continue
             self._give(live[t_id], who, source, how="place")
             held.add(who["auth_subject"])
             del self.lost[tid]
@@ -1712,6 +1714,10 @@ class Labeler:
         look like the person the name is locked to drops the name (Unknown)."""
         if not hasattr(self, "_unlike"):
             self._unlike: dict[int, int] = {}
+        if self._unlike:                               # V-F12: drop counters of tracks that are gone
+            live = {t.id for t in tracks}
+            for tid in [k for k in self._unlike if k not in live]:
+                del self._unlike[tid]
         for t in tracks:
             if not t.label or t.crowded or t.look is None or t.box[3] < self.VETO_MIN_H or not upright(t.box):
                 continue

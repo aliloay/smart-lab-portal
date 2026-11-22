@@ -50,6 +50,26 @@ class ConnectionManager:
     def disconnect(self, ws: WebSocket) -> None:
         self._clients.pop(ws, None)
 
+    def update_rights(self, user_id: int, is_staff: bool, active: bool = True) -> int:
+        """ultracode B-07 (2026-11-22): rights were fixed when the socket connected, so a demoted or removed staff
+        member kept receiving staff-only messages (camera state, PC state, robot joints) until they reconnected.
+        Now a role change takes effect at once; a disabled account's sockets get nothing more and are closed."""
+        n = 0
+        for ws, c in list(self._clients.items()):
+            if c.user_id != user_id:
+                continue
+            n += 1
+            if not active:
+                self._clients.pop(ws, None)
+                if self.loop is not None:
+                    try:
+                        asyncio.run_coroutine_threadsafe(ws.close(code=4403), self.loop)
+                    except Exception:
+                        pass
+            else:
+                c.is_staff = is_staff
+        return n
+
     # --------------------------------------------------------------- routing
     def _wants(self, client: Client, message: dict[str, Any]) -> bool:
         kind = message.get("type")

@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { LabOverview, Summary, api } from '../../lib/api'
 import { firstName, useAuth } from '../../lib/auth'
-import { useLiveMessages } from '../../lib/live'
+import { useDebounced, useLiveMessages } from '../../lib/live'
 import { fmtDateLong, greeting } from '../../lib/time'
 import { CardsSkeleton, Dot, EmptyState, MetricCard, SectionTitle } from '../../components/ui'
 import { Bloom, GridField, NodeField } from '../../components/visual'
@@ -27,7 +27,8 @@ export default function StaffDashboard() {
     const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
+  const reload = useDebounced(load)
+  useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') reload() })
 
   const active = labs.filter(l => l.occupied)
 

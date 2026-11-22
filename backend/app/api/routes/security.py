@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, require_admin, require_device, require_staff
+from app.api.deps import device_lab_scope, device_scope, require_admin, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (AccessSession, Alert, AlertSeverity, Asset, AuditLog, Device,
@@ -137,6 +137,8 @@ def config(device_uid: str = Query(max_length=64), lab_id: str = Query(max_lengt
     if lab is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
     d = get_device(db, device_uid)
+    if d is not None:                               # B-02: own key -> own lab, cameras only
+        device_lab_scope(identity, d, lab, (DeviceType.SECURITY_CAMERA,))
     now = datetime.now(timezone.utc)
     if d is None:
         d = Device(device_uid=device_uid, name=name, device_type=DeviceType.SECURITY_CAMERA,
@@ -313,12 +315,22 @@ def report_event(meta: str = Form(..., max_length=2000),
         m = json.loads(meta)
     except ValueError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "meta must be JSON")
+    if not isinstance(m, dict):                       # ultracode B-09: "[]" used to raise AttributeError -> 500
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "meta must be a JSON object")
+    try:
+        zone_id = int(m["zone_id"]) if m.get("zone_id") else None
+    except (TypeError, ValueError):                   # B-09: "abc" used to raise ValueError -> 500
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "zone_id must be a number")
+    try:
+        people_seen, people_inside = int(m.get("people_seen", 0) or 0), int(m.get("people_inside", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "people counts must be numbers")
     device_scope(identity, str(m.get("device_uid", "")))
     d = get_device(db, str(m.get("device_uid", "")))
     kind = str(m.get("kind", ""))
     if d is None or kind not in KINDS:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown camera or event kind")
-    zone = db.get(SecurityZone, int(m["zone_id"])) if m.get("zone_id") else None
+    zone = db.get(SecurityZone, zone_id) if zone_id else None
     if zone is not None and zone.device_id != d.id:
         zone = None
     key = None
@@ -332,8 +344,8 @@ def report_event(meta: str = Form(..., max_length=2000),
         title = f"{title}: {zone.name}"
     detail = str(m.get("detail", ""))[:255]
     ev = SecurityEvent(device_id=d.id, lab_id=d.lab_id, zone_id=zone.id if zone else None,
-                       kind=kind, detail=detail, people_seen=int(m.get("people_seen", 0)),
-                       people_inside=int(m.get("people_inside", 0)), snapshot_key=key)
+                       kind=kind, detail=detail, people_seen=people_seen,
+                       people_inside=people_inside, snapshot_key=key)
     db.add(ev)
     db.flush()
     lab = db.get(Lab, d.lab_id)

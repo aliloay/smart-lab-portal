@@ -47,7 +47,7 @@ Source: `docs/hardware/reusables-node.md`, `firmware/SmartLab_Reusable_Bin_Modul
 
 ## Q: What firmware versions run on the boards?
 Also asked: firmware version, which version is the master on
-**A:** Live: each board reports its version and the portal assistant shows it ("What firmware is the master running?"). On 21 Nov the versions were master portal-1.2, bin bin-0.6, environment env-0.1.1 and reusable bin reuse-mod-0.5.
+**A:** Live: each board reports its version and the portal assistant shows it ("What firmware is the master running?"). Historical (21 Nov 2026, not live): the versions were master portal-1.2, bin bin-0.6, environment env-0.1.1 and reusable bin reuse-mod-0.5.
 Source: `devices.firmware_version` (live), version constants in `firmware/*`
 
 ## Q: What happens when the Wi-Fi router restarts?

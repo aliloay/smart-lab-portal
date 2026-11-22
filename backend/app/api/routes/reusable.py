@@ -477,6 +477,12 @@ def _complete_impl(req: CompleteReport, db: Session = Depends(get_db),
         a = _swapped_for(db, scanned)
         if a is None:
             return {"recorded": False, "lcd1": scanned.asset_tag[:16], "lcd2": "ALREADY IN"}
+        # ultracode B-05 (2026-11-22): a swap closes SOMEONE ELSE's open loan, so it needs proof that an item
+        # actually went in - re-scanning a tag that is already in the bin (equal masses) closed Bob's loan before.
+        put_in = (req.mass_after_g - req.mass_before_g
+                  if req.mass_before_g is not None and req.mass_after_g is not None else None)
+        if put_in is None or put_in < MIN_ITEM_G:
+            return {"recorded": False, "lcd1": scanned.asset_tag[:16], "lcd2": "ALREADY IN"}
         # The person had the scanned one; the record said the other: the open
         # checkout is closed by this return, and staff are told about the swap.
         note = (f"{scanned.name} was returned while {a.name} was recorded as taken - "

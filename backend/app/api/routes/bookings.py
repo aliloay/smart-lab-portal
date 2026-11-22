@@ -184,9 +184,10 @@ def confirm(booking_id: int, db: Session = Depends(get_db),
     b = db.get(Booking, booking_id)
     if b is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Booking not found")
-    if b.status in (BookingStatus.CANCELLED, BookingStatus.REJECTED):
+    if b.status in (BookingStatus.CANCELLED, BookingStatus.REJECTED, BookingStatus.COMPLETED):
+        # ultracode B-10: a finished booking is history - re-confirming issued a new door token for a past window
         raise HTTPException(status.HTTP_409_CONFLICT,
-                            "Cancelled or rejected bookings cannot be confirmed")
+                            "Cancelled, rejected or completed bookings cannot be confirmed")
     confirm_booking(db, b, issue_token=True)
     db.commit()
     db.refresh(b)
@@ -215,6 +216,8 @@ def cancel(booking_id: int, db: Session = Depends(get_db),
     if b.status in (BookingStatus.CANCELLED, BookingStatus.REJECTED):
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "This booking is already cancelled")
+    if b.status == BookingStatus.COMPLETED:          # B-10: history is not rewritten
+        raise HTTPException(status.HTTP_409_CONFLICT, "A completed booking cannot be cancelled")
     cancel_booking(db, b, user)
     db.refresh(b)
     return _decorate(db, b)

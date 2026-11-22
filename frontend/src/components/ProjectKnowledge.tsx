@@ -7,6 +7,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { BookOpen, Send, Square } from 'lucide-react'
 import { getToken } from '../lib/api'
+import { applyKbEvent, finishKbTurn, parseKbLine } from '../lib/kbstream'
 import MicButton from './MicButton'
 
 interface Cite { n: number; source: string; heading?: string; label: string; snippet?: string; updated?: string | null }
@@ -38,6 +39,8 @@ export default function ProjectKnowledge() {
 
   useEffect(() => { if (!running) return; const t = setInterval(() => setNow(Date.now()), 250); return () => clearInterval(t) }, [running])
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [turns])
+  // ultracode 2026-11-22 FE-1: leaving the tab stops the stream, so the knowledge service frees its model slot.
+  useEffect(() => () => abort.current?.abort(), [])
 
   const patch = (fn: (t: Turn) => Turn) => setTurns(ts => ts.map((t, i) => i === ts.length - 1 ? fn(t) : t))
 
@@ -62,28 +65,24 @@ export default function ProjectKnowledge() {
       const reader = res.body.getReader()
       const dec = new TextDecoder()
       let buf = ''
+      let sawDone = false
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
         buf += dec.decode(value, { stream: true })
         let nl
         while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim()
+          const line = buf.slice(0, nl)
           buf = buf.slice(nl + 1)
-          if (!line) continue
-          const e = JSON.parse(line)
-          if (e.type === 'meta') patch(t => ({ ...t, route: e.route, why: e.why, cites: e.citations ?? [] }))
-          else if (e.type === 'step') patch(t => ({ ...t, steps: [...t.steps, String(e.text).replace(/^step: /, '')] }))
-          else if (e.type === 'sources') patch(t => ({ ...t, cites: e.sources }))
-          else if (e.type === 'token') patch(t => ({ ...t, text: t.text + e.text, firstMs: t.firstMs ?? Date.now() - started.current }))
-          else if (e.type === 'done') patch(t => ({
-            ...t, status: e.status === 'completed' ? 'completed' : e.status === 'cancelled' ? 'cancelled' : 'failed',
-            error: e.error, note: e.note, ms: Date.now() - started.current,
-            text: t.text || (e.answer && e.route !== 'lookup' ? e.answer : t.text),
-          }))
+          // ultracode 2026-11-22 FE-1b: a malformed line is skipped, not allowed to abort the whole answer
+          const e = parseKbLine(line)
+          if (!e) continue
+          if (e.type === 'done') sawDone = true
+          patch(t => applyKbEvent(t, e, started.current, Date.now()))
         }
       }
-      patch(t => t.status === 'running' ? { ...t, status: 'completed', ms: Date.now() - started.current } : t)
+      // ultracode 2026-11-22 FE-1b: only a done event completes a turn; a stream that ends without it has failed
+      patch(t => finishKbTurn(t, sawDone, ac.signal.aborted, started.current, Date.now()))
     } catch (err) {
       patch(t => ({ ...t, status: ac.signal.aborted ? 'cancelled' : 'failed',
                     error: ac.signal.aborted ? undefined : (err as Error).message, ms: Date.now() - started.current }))

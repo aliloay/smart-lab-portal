@@ -508,7 +508,7 @@ class Service:
                 tracks = list(self.tracks)
                 zones = [{"id": s.id, "name": s.name, "status": s.status, "score": s.score,
                           "visual": self.robot_visual.get(s.id)}
-                         for s in self.zones.states.values()]
+                         for s in list(self.zones.states.values())]   # F4: the zone thread may add/drop keys
             named = [{"label": t.label, "name": t.name, "role": t.role, "source": t.source,
                       "entered": t.entered, "verified": t.verified, "face": t.mismatch,
                       "track_id": t.id, "identity_state": t.identity_state,
@@ -586,15 +586,35 @@ class Service:
             return snap, snap_at
 
     # -- analysis ----------------------------------------------------------
+    def withdraw_stale_tracks(self) -> bool:
+        """No live picture: publish no people (their state is UNKNOWN, not 'still there'). True if anything was withdrawn."""
+        with self.lock:
+            if not self.tracks and self.det_frame is None:
+                return False
+            self.tracks = []
+            self.person_rects = []
+            self.det_frame = None
+        print("[camera] stream stale - published people withdrawn until a fresh frame arrives")
+        return True
+
     def analyse(self):
         period = 1.0 / self.args.det_fps
         times = []
         while True:
             t0 = time.time()
             frame, at, seq = self.camera.latest_seq()
-            if frame is None or t0 - at > 5:
+            # ultracode F1/F2 (2026-11-22): a frame older than Camera.STALE_S is not live, and the same frame is never
+            # analysed twice (hold timers must not advance on no new evidence). When the stream is stale, the people
+            # last seen are withdrawn at once: the other camera, the portal and the seat logic must never keep
+            # pairing against a frozen picture (a frozen "Ali" could otherwise name whoever stands on that spot).
+            if frame is None or t0 - at > Camera.STALE_S:
+                self.withdraw_stale_tracks()
                 time.sleep(0.2)
                 continue
+            if seq == getattr(self, "_last_seq", None):
+                time.sleep(0.02)
+                continue
+            self._last_seq = seq
             frame_full = self.camera.full_for(seq)
             try:
                 age_ms = (t0 - at) * 1000
@@ -651,9 +671,12 @@ class Service:
                     try:
                         from pose import attach
                         from vision import GPU_LOCK
-                        with GPU_LOCK:
+                        if str(self.pose.engine).startswith("directml"):     # F9: the GPU lock only for GPU work
+                            with GPU_LOCK:
+                                poses = self.pose.infer(frame)
+                        else:
                             poses = self.pose.infer(frame)
-                        attach(tracks, poses)
+                        attach(tracks, poses, now=at)                    # F7: joints carry the frame's time
                     except Exception as e:                       # a pose failure must never stop tracking
                         print(f"[vision] pose pass failed: {e.__class__.__name__}")
                 r2 = time.perf_counter()
@@ -682,11 +705,16 @@ class Service:
                         fresh = pv and -1.0 <= t0 - float(pv.get("t", 0)) <= 1.0
                         notes_cc = notes_cc + self.labnums.assign(tracks, self.crosscam.links, t0,
                                                                   pv.get("tracks") if fresh else None)
-                        for t_back, who in self.labnums.restore:   # same look came back: its confirmed name too
-                            src = "operator" if who.get("source") == "operator" else "peer"
-                            self.labeler._give(t_back, who, src, how="came back (same look)")
+                        # ultracode F3 (2026-11-22): a look (clothes / re-ID) alone is NOT identity. The returning
+                        # name used to come back as a CONFIRMED "peer" name (shared to the other camera, kept after a
+                        # door exit) at re-ID distance <= 0.55 - a visitor in similar clothes could take it. It now
+                        # comes back as the marked guess "Name ? (look)"; the face or the other camera confirms it.
+                        for t_back, who in self.labnums.restore:
+                            if t_back.label:                    # never overwrite a name this pass already gave
+                                continue
+                            self.labeler._give(t_back, who, "look", how="came back (same look) - guess")
                             notes_cc.append({"kind": "NAME_BACK_BY_LOOK", "track_id": t_back.id, "label": who["auth_subject"],
-                                             "detail": f"same look as Person {t_back.lab_no} - confirmed name given back"})
+                                             "detail": f"same look as Person {t_back.lab_no} - name shown as a guess until the face confirms"})
                     except Exception as e:             # a register problem never stops tracking
                         print(f"[labmap] skipped: {e.__class__.__name__}: {e}")
                     self.frame_wh = (w, h)
@@ -701,6 +729,8 @@ class Service:
                         if now_log - self._note_seen.get(key, -1e9) < 30.0:
                             continue                   # throttle identical per-pass conflict spam to 1 per 30 s
                         self._note_seen[key] = now_log
+                        if len(self._note_seen) > 500:     # F12: prune - one key per (track, detail) grew for ever
+                            self._note_seen = {k: v for k, v in self._note_seen.items() if now_log - v < 60.0}
                     self.identity_log.append({"t": now_log, **nt})
                     self._persist_identity(self.identity_log[-1])
                 self._identity_events(id_events, tracks, occupants)
@@ -722,8 +752,13 @@ class Service:
                         print(f"[door] {'opened' if self.door_open else 'closed'} (camera)")
                 else:
                     self.door_open = None
+                # ultracode V-F6 (2026-11-22): readers (/peer, post_state, faces, drawing) get a finished COPY of this
+                # pass. The tracker and the Labeler keep changing their own Track objects in the next pass, so a
+                # reader can no longer see a half-decided name (label set, name / source not yet).
+                snap = [copy.copy(t) for t in tracks]
                 with self.lock:
-                    self.tracks = tracks
+                    self.tracks = snap
+                    self.tracks_at = at                # frame time of these tracks (/peer reports it, F1)
                     # The frame these boxes come from: faces are cut from THIS frame,
                     # so a face can never be cropped from a later frame where the
                     # box already holds someone else (2026-10-12 root cause #1).
@@ -823,6 +858,9 @@ class Service:
                 self.extra_reported = False
         # The badge said one person, the face clearly says another: card sharing?
         known = {k["auth_subject"]: k["name"] for k in self.cfg.get("known", [])}
+        if len(self.mismatch_reported) > 200:          # V-F12: track ids only grow - forget the gone ones
+            live = {t.id for t in tracks}
+            self.mismatch_reported = {k for k in self.mismatch_reported if k[0] in live}
         for t in tracks:
             if t.mismatch and (t.id, t.mismatch) not in self.mismatch_reported:
                 self.mismatch_reported.add((t.id, t.mismatch))
@@ -1350,6 +1388,30 @@ class Service:
             time.sleep(max(0.0, 1.0 / max(fps, 0.1) - (time.time() - t0)))
 
 
+def supervised(svc, fn, backoff_s: float = 2.0, max_backoff_s: float = 30.0, max_restarts: Optional[int] = None):
+    """ultracode F5 (2026-11-22): run a worker loop for ever. A loop that raises (bad config JSON, an empty crop in
+    cv2.imencode, a dict changed during iteration ...) used to end its thread silently - the camera then kept
+    answering /health "ok" while config / state / faces / drawing had stopped. Now it is logged, counted in
+    svc.thread_restarts and restarted after a growing pause."""
+    name = getattr(fn, "__name__", "worker")
+    wait, restarts = backoff_s, 0
+    while True:
+        try:
+            fn()
+            return                                       # a loop that ends normally is done
+        except Exception as e:
+            restarts += 1
+            counts = getattr(svc, "thread_restarts", None)
+            if counts is None:
+                counts = svc.thread_restarts = {}
+            counts[name] = counts.get(name, 0) + 1
+            print(f"[supervisor] {name} stopped ({e.__class__.__name__}: {e}) - restart {restarts} in {wait:.0f} s")
+            if max_restarts is not None and restarts >= max_restarts:
+                return
+            time.sleep(wait)
+            wait = min(wait * 2, max_backoff_s)
+
+
 def make_app(svc: Service) -> Flask:
     app = Flask(__name__)
 
@@ -1394,16 +1456,19 @@ def make_app(svc: Service) -> Flask:
                         "stream": svc.camera.status(), "device": svc.args.device, "time": round(time.time(), 3),
                         "analysis_age_s": round(time.time() - svc.analysed_at, 1) if svc.analysed_at else None,
                         "analysis_errors": svc.analysis_errors,
+                        "thread_restarts": dict(getattr(svc, "thread_restarts", {}) or {}),
                         "people": len(svc.tracks), "zones": len(svc.cfg.get("zones", []))})
 
     @app.get("/frame.jpg")
     def frame():
-        svc.view_wanted_at = time.time()            # someone is watching: draw at the full rate again
+        if authorised():                            # F11: only a keyed viewer switches full-rate drawing on
+            svc.view_wanted_at = time.time()        # someone is watching: draw at the full rate again
         return image(svc.jpeg)
 
     @app.get("/raw.jpg")
     def raw():
-        svc.raw_wanted_at = time.time()
+        if authorised():                            # F11
+            svc.raw_wanted_at = time.time()
         data = svc.raw_jpeg
         if data is None and authorised():          # first request after a quiet spell: encode now
             frame, at = svc.camera.latest()
@@ -1420,8 +1485,15 @@ def make_app(svc: Service) -> Flask:
         w, h = svc.frame_wh
         with svc.lock:
             tracks = list(svc.tracks)
-        return jsonify(peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time(),
-                                 svc.linked_desks() if w else None))
+            t_at = getattr(svc, "tracks_at", None)
+        # F1: tracks from a frame older than Camera.STALE_S are never served (a frozen stream gives no people).
+        # "t" stays the serve time (crosscam's MAX_AGE_S is tuned to that); "frame_t" tells the frame's own time.
+        if t_at is None or time.time() - t_at > Camera.STALE_S:
+            tracks = []
+        view = peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time(),
+                         svc.linked_desks() if w else None)
+        view["frame_t"] = t_at
+        return jsonify(view)
 
     @app.get("/state")
     def state():
@@ -1777,7 +1849,7 @@ def main():
     svc.crosscam.start()
     for target in (svc.poll_config, svc.post_state, svc.analyse, svc.render, svc.identify_faces,
                    svc.watch_view, svc.watch_equipment, svc.watch_zones, svc.keep_identities):
-        threading.Thread(target=target, daemon=True).start()
+        threading.Thread(target=supervised, args=(svc, target), daemon=True, name=target.__name__).start()
     host = "127.0.0.1" if svc.demo else args.host
     print(f"Smart Lab security camera {args.device} ({args.lab}) on port {args.port}. Ctrl+C stops.")
     if svc.demo:

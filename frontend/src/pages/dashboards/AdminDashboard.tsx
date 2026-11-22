@@ -5,7 +5,7 @@ import {
   FlaskConical, Network, PlayCircle, ShieldX, Users, Wrench,
 } from 'lucide-react'
 import { Alert, LabOverview, Summary, SystemStatus, api } from '../../lib/api'
-import { useLive, useLiveMessages } from '../../lib/live'
+import { useDebounced, useLive, useLiveMessages } from '../../lib/live'
 import { fmtDateLong, relative } from '../../lib/time'
 import {
   CardsSkeleton, Chip, Dot, EmptyState, MetricCard, ProgressBar, SectionTitle, Skeleton,
@@ -45,7 +45,8 @@ export default function AdminDashboard() {
     const t = visibleInterval(load, 30000)
     return () => window.clearInterval(t)
   }, [load])
-  useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') load() })
+  const reload = useDebounced(load)
+  useLiveMessages(m => { if (m.type === 'access_event' || m.type === 'staff') reload() })
 
   const nodes = useMemo(() => (labs ?? []).map(o => ({
     id: o.lab.id, code: o.lab.code, name: o.lab.name, hasHardware: o.lab.has_controller,

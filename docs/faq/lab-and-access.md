@@ -5,9 +5,14 @@ Also asked: where is LAB_01, robotics lab location, which room is the robotics l
 **A:** The Robotics Lab (LAB_01) is recorded as Building S, Floor 2, Room 224. Admins can change the location on the lab's page.
 Source: `labs.location` (live value; edited from the Laboratories page), 21 Nov 2026
 
+## Q: When is the Robotics Lab open?
+Also asked: robotics lab opening hours, what time does the robotics lab open, when does the lab close, lab working hours, lab timings, lab schedule
+**A:** The Robotics Lab follows the university's five teaching slots. It opens at 8:30 AM, when slot 1 starts, and closes at 5:15 PM, when slot 5 ends (slot 5 runs 3:45 to 5:15 PM). That is 8 hours 45 minutes a day. Each slot is about 1.5 hours.
+Source: owner (lab hours follow the GIU slot timetable), 23 Nov 2026
+
 ## Q: How many labs are there?
 Also asked: number of labs, list of labs, which labs exist
-**A:** Live: 11 labs are registered and 10 of them are active (LAB_10 is inactive). The portal assistant lists them from the records.
+**A:** Live: the portal assistant lists the labs from the records ("How many labs are there?"). Historical count (21 Nov 2026, not live): 11 registered, 10 active.
 Source: `labs` table (live), checked 21 Nov 2026
 
 ## Q: How can I open the lab door?

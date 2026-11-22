@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import SHARED, device_scope, require_device
+from app.api.deps import SHARED, device_lab_scope, device_scope, require_device
 from app.db.session import get_db
 from app.models import (AccessEvent, AccessResult, AuthMethod, Booking, Device,
                         DeviceType, EventType, Notification, SensorReading,
@@ -385,6 +385,7 @@ def telemetry(req: TelemetryRequest, db: Session = Depends(get_db),
     if lab is None:
         return {"status": "unknown_lab"}
     device = get_device(db, req.device_uid)
+    device_lab_scope(identity, device, lab)        # B-02: own key -> own lab only
     now = datetime.now(timezone.utc)
     for r in req.readings:
         db.add(SensorReading(lab_id=lab.id,

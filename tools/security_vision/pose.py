@@ -79,21 +79,31 @@ def decode(raw: np.ndarray, scale: float, px: int, py: int, min_score: float = M
 
 
 def attach(tracks, poses: list, now: Optional[float] = None) -> int:
-    """Give each track the pose whose box overlaps it most (>= MATCH_IOU); one pose per track. Returns matches."""
+    """Give each track the pose whose box overlaps it most (>= MATCH_IOU); one pose per track. Returns matches.
+    ultracode F7/F8 (2026-11-22): pairs are taken best-IoU-first over ALL tracks (a wide box no longer steals the
+    neighbour's skeleton just because it comes first), crowded tracks get no pose, and a track that gets no pose in
+    this pass loses its old one at once - stale joints are never shown as OBSERVED. `now` = the FRAME time."""
     now = time.time() if now is None else now
-    used, n = set(), 0
-    for t in tracks:
-        best, bi = 0.0, None
-        for i, p in enumerate(poses):
-            if i in used:
-                continue
+    pairs = []
+    for ti, t in enumerate(tracks):
+        if getattr(t, "crowded", False):
+            continue
+        for pi, p in enumerate(poses):
             o = _iou(t.box, p["box"])
-            if o > best:
-                best, bi = o, i
-        if bi is not None and best >= MATCH_IOU:
-            used.add(bi)
-            t.kp, t.kp_at, t.kp_score = poses[bi]["kps"], now, poses[bi]["score"]
-            n += 1
+            if o >= MATCH_IOU:
+                pairs.append((o, ti, pi))
+    pairs.sort(key=lambda x: -x[0])
+    used_t, used_p, n = set(), set(), 0
+    for o, ti, pi in pairs:
+        if ti in used_t or pi in used_p:
+            continue
+        used_t.add(ti); used_p.add(pi)
+        t = tracks[ti]
+        t.kp, t.kp_at, t.kp_score = poses[pi]["kps"], now, poses[pi]["score"]
+        n += 1
+    for ti, t in enumerate(tracks):
+        if ti not in used_t and getattr(t, "kp", None) is not None:
+            t.kp = None
     return n
 
 
@@ -104,18 +114,31 @@ def fresh_kps(t, now: Optional[float] = None):
     return kp if ((time.time() if now is None else now) - at) <= FRESH_S else None
 
 
-def measured_visibility(kps) -> dict:
-    """Per body part from MEASURED keypoints: OBSERVED (xy = mean of the trusted joints, confidence = their mean) or
-    OCCLUDED (no xy) when no joint of that part reaches MIN_KP_CONF. The torso needs a trusted shoulder AND hip."""
+def _in_frame(x: float, y: float, frame_wh) -> bool:
+    if not frame_wh:
+        return True
+    w, h = frame_wh
+    return 0.0 <= x < w and 0.0 <= y < h
+
+
+def measured_visibility(kps, frame_wh=None) -> dict:
+    """Per body part from MEASURED keypoints: OBSERVED (xy = mean of the trusted joints, confidence = their mean),
+    OCCLUDED (no xy) when no joint of that part reaches MIN_KP_CONF, or OUT_OF_FRAME (no xy) when every joint of the
+    part lies outside the picture (ultracode V-F13, 2026-11-22: a cut-off leg is not "observed").
+    `frame_wh` = (width, height) of the frame; without it no frame check is made. The torso needs a trusted shoulder
+    AND hip."""
     out = {}
     for part, idx in PART_KP.items():
-        ok = [kps[i] for i in idx if kps[i][2] >= MIN_KP_CONF]
+        inside = [kps[i] for i in idx if _in_frame(kps[i][0], kps[i][1], frame_wh)]
+        ok = [k for k in inside if k[2] >= MIN_KP_CONF]
         if ok:
             out[part] = {"state": "OBSERVED", "confidence": round(sum(c for _, _, c in ok) / len(ok), 2),
                          "xy": (round(sum(x for x, _, _ in ok) / len(ok), 1), round(sum(y for _, y, _ in ok) / len(ok), 1)),
                          "basis": "keypoint_model"}
+        elif not inside:
+            out[part] = {"state": "OUT_OF_FRAME", "confidence": 0.0, "xy": None, "basis": "keypoint_model"}
         else:
-            best = max(kps[i][2] for i in idx)
+            best = max(k[2] for k in inside)
             out[part] = {"state": "OCCLUDED", "confidence": round(best, 2), "xy": None, "basis": "keypoint_model"}
     sh, hp = out["shoulders"], out["hips"]
     if sh["state"] == "OBSERVED" and hp["state"] == "OBSERVED":
@@ -150,7 +173,9 @@ class PoseModel:
                 return cls(s, s.get_inputs()[0].name, f"directml-gpu{dev}")
             except Exception:
                 pass
-        s = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+        so = ort.SessionOptions()        # F9: two camera processes must not each take every core
+        so.intra_op_num_threads = int(os.environ.get("SMARTLAB_POSE_THREADS", "2"))
+        s = ort.InferenceSession(path, so, providers=["CPUExecutionProvider"])
         return cls(s, s.get_inputs()[0].name, "cpu")
 
     def infer(self, frame: np.ndarray) -> list:

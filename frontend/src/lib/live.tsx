@@ -142,3 +142,16 @@ export function useLiveMessages(handler: Handler) {
   ref.current = handler
   useEffect(() => subscribe(m => ref.current(m)), [subscribe])
 }
+
+/** ultracode FE-5 (2026-11-22): a burst of live messages (e.g. ten 'staff' events in one second) runs `fn` once,
+ *  `ms` after the last one, instead of firing one refetch per message. */
+export function useDebounced(fn: () => void, ms = 400) {
+  const ref = useRef(fn)
+  ref.current = fn
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  return useCallback(() => {
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => ref.current(), ms)
+  }, [ms])
+}

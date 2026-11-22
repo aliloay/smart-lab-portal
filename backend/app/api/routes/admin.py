@@ -332,6 +332,14 @@ def _may_manage(actor: User, target: User) -> bool:
     return actor.role == Role.ADMIN or (actor.role == Role.LAB_STAFF and target.role == Role.STUDENT)
 
 
+def _ws_rights(u: User) -> None:
+    try:
+        from app.ws.manager import manager
+        manager.update_rights(u.id, u.role in (Role.ADMIN, Role.LAB_STAFF), bool(u.is_active))
+    except Exception:                               # live updates are best effort; the change itself is saved
+        pass
+
+
 @router.post("/users/{user_id}/remove", response_model=UserOut)
 def remove_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     """Remove a person from use - their history stays (bookings, door entries,
@@ -360,6 +368,7 @@ def remove_user(user_id: int, db: Session = Depends(get_db), admin: User = Depen
                                                  "door_qr_revoked": qrs}))
     db.commit()
     db.refresh(u)
+    _ws_rights(u)                                   # B-07: a removed account's sockets get nothing more
     return u
 
 
@@ -416,6 +425,7 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db),
                             for k, v in changes.items()}))
     db.commit()
     db.refresh(u)
+    _ws_rights(u)                                   # ultracode B-07: role / active change applies to open sockets
     return u
 
 
@@ -732,9 +742,13 @@ def inspect_asset(asset_id: int, req: AssetInspect,
 @router.post("/assets/{asset_id}/checkout", response_model=AssetOut)
 def checkout_asset(asset_id: int, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):
-    a = db.get(Asset, asset_id)
+    # ultracode B-03: row lock - two simultaneous checkouts both passed the AVAILABLE check
+    a = db.get(Asset, asset_id, with_for_update=True)
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    if (a.bin_item or a.nfc_uid) and not _staff(user):
+        # smart-bin items go through the bin (inside the lab, lid, weight check: /reusable/checkout)
+        raise HTTPException(status.HTTP_409_CONFLICT, "This item lives in the smart bin - take it from the bin")
     if a.status != AssetStatus.AVAILABLE:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Asset is {a.status.value}")
@@ -753,9 +767,11 @@ def checkout_asset(asset_id: int, db: Session = Depends(get_db),
 @router.post("/assets/{asset_id}/return", response_model=AssetOut)
 def return_asset(asset_id: int, db: Session = Depends(get_db),
                  user: User = Depends(get_current_user)):
-    a = db.get(Asset, asset_id)
+    a = db.get(Asset, asset_id, with_for_update=True)      # B-03: row lock
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Asset not found")
+    if (a.bin_item or a.nfc_uid) and not _staff(user):    # B-03: bin items are returned through the bin
+        raise HTTPException(status.HTTP_409_CONFLICT, "This item lives in the smart bin - put it back in the bin")
     if a.status != AssetStatus.CHECKED_OUT:
         raise HTTPException(status.HTTP_409_CONFLICT,
                             f"Asset is {a.status.value}, not checked out")
@@ -823,6 +839,7 @@ def export_events(lab_id: Optional[int] = None,
     """
     import csv
     import io
+    from app.core import csvsafe
 
     from fastapi.responses import StreamingResponse
 
@@ -836,7 +853,7 @@ def export_events(lab_id: Optional[int] = None,
     users = {u.id: u.full_name for u in db.scalars(select(User)).all()}
 
     buf = io.StringIO()
-    w = csv.writer(buf)
+    w = csvsafe.writer(buf)   # B-08: no spreadsheet formulas from free text
     w.writerow(["timestamp", "lab", "event_type", "person", "method",
                 "result", "reason", "booking_id", "message"])
     for e in db.scalars(stmt).all():

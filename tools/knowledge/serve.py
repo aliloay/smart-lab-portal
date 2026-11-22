@@ -112,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         idx_p = os.path.join(cfg["data"], "index.json")
         emb = os.path.join(cfg["data"], "embeddings.npy")
         self._json(200, {"ok": True, "index_built": datetime.fromtimestamp(os.path.getmtime(idx_p)).astimezone().isoformat(timespec="seconds") if os.path.isfile(idx_p) else None,
-                         "embeddings": os.path.isfile(emb), "model": cfg.get("agent_model", "qwen3:1.7b"),
+                         "embeddings": os.path.isfile(emb), "model": kb.answer_model(cfg),
                          "jobs": STATE["jobs"], "job_running": JOB_LOCK.locked()})
 
     def do_POST(self):
@@ -155,14 +155,16 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 raise KeyboardInterrupt            # the browser closed the stream: stop generating
         cfg = kb.load_config()
-        cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
+        cfg["model"] = kb.answer_model(cfg)
         # Answer cache: the same question against the same index gets the same cited answer at once.
         idx = os.path.join(cfg["data"], "index.json")
         version = os.path.getmtime(idx) if os.path.isfile(idx) else 0
-        key = (" ".join(q.lower().split()), forced, version)
+        key = (" ".join(q.lower().split()), forced, version, cfg["model"])     # K8: model in key
         hit = ANSWER_CACHE.get(key)
         if hit and time.time() - hit["at"] < CACHE_S:
             emit({"type": "meta", **hit["meta"], "cached": True})
+            if hit.get("sources"):            # K6: the citations the answer refers to ([4]..[9] on investigate)
+                emit({"type": "sources", **hit["sources"]})
             if hit["done"].get("answer"):
                 emit({"type": "token", "text": hit["done"]["answer"]})
             emit({**hit["done"], "cached": True, "total_ms": 0})
@@ -173,26 +175,29 @@ class Handler(BaseHTTPRequestHandler):
         captured: dict = {}
 
         def emit_and_keep(e):
-            if e.get("type") == "meta":
-                captured["meta"] = {k: v for k, v in e.items() if k != "type"}
+            if e.get("type") in ("meta", "sources"):
+                captured[e["type"]] = {k: v for k, v in e.items() if k != "type"}   # last one wins (K6)
             emit(e)
-        if not LLM_LOCK.acquire(timeout=60):
-            emit({"type": "done", "status": "failed", "error": "busy - two answers already running"})
-            return
         try:
             res = agent.run(cfg, q, forced, out=lambda s: emit({"type": "step", "text": s}) if s.startswith("step:") else None,
-                            on_token=lambda t: emit({"type": "token", "text": t}), emit=emit_and_keep)
+                            on_token=lambda t: emit({"type": "token", "text": t}), emit=emit_and_keep,
+                            llm_lock=LLM_LOCK)     # K3: only the model call waits for a permit
             done = {"type": "done", **{k: res.get(k) for k in ("status", "route", "error", "note", "total_ms", "retrieval_ms",
                                                                 "citations_valid", "answer")}, "llm": res.get("llm")}
             emit(done)
-            if res.get("status") == "completed" and "meta" in captured:     # never cache failures or cancellations
+            # never cache failures or cancellations; FAQ / guard answers are instant and may change with the docs (K7)
+            if res.get("status") == "completed" and "meta" in captured and res.get("route") not in ("faq", "guard"):
                 if len(ANSWER_CACHE) > 200:
                     ANSWER_CACHE.clear()
-                ANSWER_CACHE[key] = {"at": time.time(), "meta": captured["meta"], "done": done}
+                ANSWER_CACHE[key] = {"at": time.time(), "meta": captured["meta"], "sources": captured.get("sources"),
+                                     "done": done}
         except KeyboardInterrupt:
             pass
-        finally:
-            LLM_LOCK.release()
+        except Exception as e:      # K4: never end a 200 stream without "done" (index missing / rewritten, etc.)
+            try:
+                emit({"type": "done", "status": "failed", "error": f"answer stopped early ({e.__class__.__name__})"})
+            except KeyboardInterrupt:
+                pass
 
     def log_message(self, fmt, *args):         # no request bodies in logs
         sys.stderr.write(f"[kb-service] {self.address_string()} {fmt % args}\n")
@@ -205,7 +210,7 @@ def warm_up() -> None:
     t0 = time.time()
     try:
         cfg = kb.load_config()
-        cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
+        cfg["model"] = kb.answer_model(cfg)
         agent.ollama_stream(cfg, "Reply with: ok", lambda _t: None)
         kb.embed(cfg, ["warm up"], "search_query: ")
         print(f"[kb-service] models warm in {time.time() - t0:.1f} s")

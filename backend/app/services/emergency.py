@@ -95,6 +95,14 @@ def state(db: Session, lab_id: int, now: Optional[datetime] = None) -> LabEmerge
         e = LabEmergency(lab_id=lab_id, door_mode="NORMAL", message="", alarm=False, speak=True, version=0)
         db.add(e)
         db.flush()
+    def _expired(x) -> bool:
+        return ((x.door_mode == "UNLOCKED" and x.door_until is not None and _utc(x.door_until) <= now)
+                or (bool(x.message) and x.message_until is not None and _utc(x.message_until) <= now))
+    if _expired(e):
+        # ultracode B-04b (2026-11-22): the expiry bump is a write - lock the row (only when something expired, so
+        # plain reads stay lock-free) and re-check, so two GETs at the same moment bump the version once, and an
+        # act() running at the same time is not overwritten.
+        e = db.get(LabEmergency, lab_id, with_for_update=True, populate_existing=True) or e
     changed = False
     if e.door_mode == "UNLOCKED" and e.door_until is not None and _utc(e.door_until) <= now:
         e.door_mode, e.door_until, changed = "NORMAL", None, True

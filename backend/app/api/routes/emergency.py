@@ -192,6 +192,7 @@ def act(lab_id: int, req: LabAction, db: Session = Depends(get_db),
     if lab is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     now = datetime.now(timezone.utc)
+    db.get(LabEmergency, lab.id, with_for_update=True)   # ultracode B-04: one writer at a time (version bump)
     e = em.state(db, lab.id, now)
     alarm_was = bool(e.alarm)
     new_message = False
@@ -238,6 +239,7 @@ def back_to_normal(lab_id: int, db: Session = Depends(get_db), admin: User = Dep
     if lab is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Lab not found")
     now = datetime.now(timezone.utc)
+    db.get(LabEmergency, lab.id, with_for_update=True)   # ultracode B-04: one writer at a time (version bump)
     e = em.state(db, lab.id, now)
     alarm_was = bool(e.alarm)
     e.door_mode, e.door_until, e.message, e.message_until, e.alarm = "NORMAL", None, "", None, False

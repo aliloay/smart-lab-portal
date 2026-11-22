@@ -241,7 +241,7 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12,
         # (pose.py); otherwise the box-proportion estimate as before (basis tells which one the portal shows).
         from pose import fresh_kps, measured_visibility
         kp = fresh_kps(t)
-        pv = measured_visibility(kp) if kp is not None else \
+        pv = measured_visibility(kp, (fw, fh) if fw and fh else None) if kp is not None else \
             pose_visibility(t.box, fw=fw, fh=fh, crowded=crowded or desk_occluded, partial=is_part)
         # trousers only when the legs are in view (a cut-off or desk-occluded box's lowest band is still the shirt/chair)
         legs = None if (is_part or desk_occluded) else legs_colour(look_obj.color if look_obj is not None else None)

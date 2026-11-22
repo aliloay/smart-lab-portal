@@ -242,7 +242,7 @@ def submission_photo(sid: int, n: int,
 
 
 def _waiting_or_409(db: Session, sid: int) -> FaceSubmission:
-    s = db.get(FaceSubmission, sid)
+    s = db.get(FaceSubmission, sid, with_for_update=True)   # ultracode B-11: two approvals at once enrol once
     if s is None or s.status != "PENDING":
         raise HTTPException(status.HTTP_409_CONFLICT, "This submission is not waiting for review.")
     return s

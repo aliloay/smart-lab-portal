@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -44,7 +45,18 @@ def notify(db: Session, user_ids: Iterable[int], kind: str, title: str, *,
                          issue_id=issue_id, booking_id=booking_id,
                          created_at=datetime.now(timezone.utc),
                          dedupe_key=dedupe_key, source=source)
-        db.add(n)
+        if dedupe_key:
+            # ultracode B-06 (2026-11-22): two requests at once (badge poll + inbox, two tabs, n8n) both passed the
+            # "already" check and the second commit hit uq_notification_dedupe -> a GET answered 500. Each deduped
+            # row goes in under a savepoint; losing that race simply means it was already sent.
+            try:
+                with db.begin_nested():
+                    db.add(n)
+                    db.flush()
+            except IntegrityError:
+                continue
+        else:
+            db.add(n)
         rows.append(n)
     if rows:
         db.flush()

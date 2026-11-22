@@ -196,3 +196,75 @@ def test_faq_answer_refuses_weak_or_foreign_matches():
                                                                        source="docs/OTHER.md")) is None
     assert agent.faq_answer("anything", _faq_hit("Normal heading", FAQ_TEXT)) is None
     assert agent.faq_answer("x", []) is None
+
+
+# ---------------------------------------------------------------- ultracode 2026-11-22 regression tests ---
+LOC = ("## Q: Where is the Robotics Lab?\nAlso asked: robotics lab room\n**A:** Room 224.\nSource: `labs`\n")
+COUNT = ("## Q: How many labs are there?\nAlso asked: number of labs\n**A:** Ask the portal.\nSource: `labs`\n")
+SPEED = ("## Q: How fast does the door open?\nAlso asked: door speed\n**A:** Under 10 ms after a match.\nSource: x\n")
+
+
+def test_faq_question_word_must_agree():
+    """K1: 'When ... open?' is not 'Where is ...?' - no confident cited answer to a different question."""
+    assert agent.faq_answer("When is the Robotics Lab open?", _faq_hit("Q: Where is the Robotics Lab?", LOC)) is None
+    assert agent.faq_answer("Where is the Robotics Lab?", _faq_hit("Q: Where is the Robotics Lab?", LOC))["answer"] == "Room 224."
+
+
+def test_faq_extra_words_and_negation_refused():
+    assert agent.faq_answer("How many labs are free?", _faq_hit("Q: How many labs are there?", COUNT)) is None
+    assert agent.faq_answer("Why doesn't the door open?", _faq_hit("Q: How fast does the door open?", SPEED)) is None
+    assert agent.faq_answer("How fast does the door open?", _faq_hit("Q: How fast does the door open?", SPEED))
+
+
+def test_why_doesnt_routes_to_investigate():
+    assert agent.route("Why doesn't the door open?")[0] == "investigate"
+
+
+def test_forced_route_still_runs_the_guard(cfg, monkeypatch):
+    """K5: route=answer from the API must not skip the robot/door/secret guard."""
+    monkeypatch.setattr(agent, "ollama_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called")))
+    r = agent.run(cfg, "Move the UR5e home", forced="answer", out=quiet(), on_token=lambda t: None)
+    assert r["route"] == "guard"
+
+
+def test_ollama_error_inside_stream_is_a_failure(cfg, monkeypatch):
+    """K9: {"error": ...} in the stream used to give status=completed with an empty answer."""
+    class R:
+        def __enter__(self): return iter([b'{"error":"model requires more memory"}\n'])
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(agent.urllib.request, "urlopen", lambda *a, **k: R())
+    with pytest.raises(RuntimeError):
+        agent.ollama_stream(cfg, "p", lambda t: None)
+    r = agent.run(cfg, "Explain the door authority", out=quiet(), on_token=lambda t: None)
+    assert r["status"] == "failed"
+
+
+def test_model_lock_only_around_the_model(cfg, monkeypatch):
+    """K3: lookup / guard answers never wait for a permit; a model answer that cannot get one fails fast and clean."""
+    lock = threading.Semaphore(0)                                          # no permits at all
+    monkeypatch.setattr(agent, "ollama_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("called")))
+    r = agent.run(cfg, "Where is 192.168.1.151 documented?", out=quiet(), llm_lock=lock)
+    assert r["route"] == "lookup" and r["status"] == "completed"
+    lock2 = threading.Semaphore(1)
+    monkeypatch.setattr(agent, "ollama_stream", lambda c, p, cb, model=None: ("ok [1]", {"ttft_ms": 1}))
+    agent._CACHE.clear()
+    r = agent.run(cfg, "Explain the door authority", out=quiet(), on_token=lambda t: None, llm_lock=lock2)
+    assert r["status"] == "completed" and lock2.acquire(blocking=False)     # permit released again
+
+
+def test_answer_model_single_source():
+    """K8: one helper decides the knowledge assistant's model."""
+    assert kb.answer_model({"agent_model": "a", "model": "b"}) == "a"
+    assert kb.answer_model({"model": "b"}) == "b"
+    assert kb.answer_model({}) == kb.ANSWER_MODEL_DEFAULT
+
+
+def test_faq_live_answers_hold_no_frozen_numbers():
+    """K7: an FAQ line that says 'Live:' must not state a frozen number as live."""
+    import glob, re
+    root = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "faq")
+    for p in glob.glob(os.path.join(root, "*.md")):
+        for line in open(p, encoding="utf-8"):
+            if line.startswith("**A:** Live:"):
+                live_part = line.split("Historical", 1)[0]
+                assert not re.search(r"\b\d+ (labs?|boards?|PCs?)\b", live_part), (p, line)

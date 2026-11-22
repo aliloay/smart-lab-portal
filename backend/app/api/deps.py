@@ -109,3 +109,17 @@ def device_scope(identity: str, device_uid: Optional[str]) -> None:
     if identity != SHARED and identity != device_uid:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "This device key belongs to another device")
+
+
+def device_lab_scope(identity: str, device, lab, allowed_types=None) -> None:
+    """ultracode B-02 (2026-11-22): a device with its own key may only report for ITS OWN lab (and, when given,
+    only as one of `allowed_types`). Before, a sensor node in lab A could post smoke=1 for lab B (full-screen
+    alarm for everyone) or smoke=0 to clear a real alarm there. The shared key is unchanged (bring-up)."""
+    if identity == SHARED:
+        return
+    if device is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Unknown device for this key")
+    if device.lab_id is not None and lab is not None and device.lab_id != lab.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This device belongs to another lab")
+    if allowed_types is not None and device.device_type not in allowed_types:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This device type may not report here")

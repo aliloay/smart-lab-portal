@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+from app.core import csvsafe
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal, Optional
 
@@ -74,7 +75,7 @@ def report(kind: str, start: Optional[date] = None, end: Optional[date] = None, 
     if r["columns"]:
         wr = csv.DictWriter(buf, fieldnames=r["columns"])
         wr.writeheader()
-        wr.writerows(r["rows"])
+        wr.writerows([{k: csvsafe.safe_cell(v) for k, v in row.items()} for row in r["rows"]])   # B-08
     name = f"smartlab_{kind}_{s.date()}_{e.date()}.csv"
     return Response(content=buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})

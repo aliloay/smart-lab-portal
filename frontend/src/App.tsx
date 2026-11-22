@@ -161,7 +161,8 @@ export default function App() {
   }
   // The printable weekly / monthly report: its own page, white, for "Save as PDF".
   if (staff && loc.pathname === '/report') {
-    return <><Chunk><ReportPrint /></Chunk><SafetyLayer /></>
+    // ultracode FE-3: inside LiveProvider too, so the hazard alarm arrives at once (not only on the 10 s poll)
+    return <LiveProvider><Chunk><ReportPrint /></Chunk><SafetyLayer /></LiveProvider>
   }
 
   // Sign-in lands here: straight from the login screen into the full-screen welcome, never via the dashboard frame.

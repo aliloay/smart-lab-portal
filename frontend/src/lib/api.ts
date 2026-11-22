@@ -1886,7 +1886,9 @@ export const api = {
     request<Notification[]>(`/notifications${qs({ unread_only: unreadOnly || undefined, limit })}`),
   unreadCount: () => request<{ unread: number }>('/notifications/unread-count'),
   /** one-time 30 s ticket for the live-updates socket: the sign-in token never goes into a URL */
-  wsTicket: () => request<{ ticket: string }>('/auth/ws-ticket', { method: 'POST' }),
+  // ultracode 2026-11-22 FE-2: a websocket (re)connect is not a write - going through request() cleared the shared
+  // read caches (the "last answer first" cache) on every reconnect. send() keeps the same auth header, no cache clear.
+  wsTicket: () => send<{ ticket: string }>('/auth/ws-ticket', { method: 'POST' }),
   markRead: (id: number) => post<Notification>(`/notifications/${id}/read`),
   markAllRead: () => post<{ updated: number }>('/notifications/read-all'),
   inbox: (q: { tab?: InboxTab; kind?: string; q?: string; offset?: number; limit?: number }) =>

@@ -28,7 +28,7 @@ import { GridBackdrop } from './visual'
 import { Summary, api } from '../lib/api'
 import { warmRoute } from '../lib/warm'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
-import { useLive, useLiveMessages } from '../lib/live'
+import { useDebounced, useLive, useLiveMessages } from '../lib/live'
 import { isCapturing, syncShare } from '../lib/screenShare'
 import { visibleInterval } from '../lib/visibleInterval'
 
@@ -287,8 +287,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     const t = visibleInterval(load, 60000)
     return () => window.clearInterval(t)
   }, [staff])
+  const refreshSummary = useDebounced(() => { api.summary().then(setSummary).catch(() => {}) })
   useLiveMessages(m => {
-    if (staff && m.type === 'staff') api.summary().then(setSummary).catch(() => {})
+    if (staff && m.type === 'staff') refreshSummary()
     if (m.type === 'share_state' && isCapturing()) void syncShare(user?.id)   // Stop pressed elsewhere: release now
   })
 

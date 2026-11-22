@@ -60,7 +60,7 @@ LABEL = {"source-code": "VERIFIED_CURRENT (repo file)", "test-code": "VERIFIED_C
 
 # ----------------------------------------------------------------- router ---
 LOOKUP = re.compile(r"(?i)^\s*(where|which (file|folder|path|commit|workflow|port|ip)|what (is|'s) the (ip|address|path|port|file|folder|commit)|find|list|show me|locate)\b")
-INVESTIGATE = re.compile(r"(?i)\b(investigate|debug|diagnose|trace|root cause|why does|why is .* (failing|broken|wrong|changing)|reproduce)\b")
+INVESTIGATE = re.compile(r"(?i)\b(investigate|debug|diagnose|trace|root cause|why (?:does|doesn't|do|don't|isn't|won't|can't)|why is .* (failing|broken|wrong|changing)|reproduce)\b")
 
 
 def route(q: str) -> tuple[str, str]:
@@ -190,6 +190,8 @@ def ollama_stream(cfg, prompt, on_token, model=None):
     with urllib.request.urlopen(req, timeout=cfg.get("llm_timeout_s", 240)) as r:
         for line in r:
             d = json.loads(line)
+            if d.get("error"):     # ultracode K9: Ollama reports failures inside the stream, not as an HTTP error
+                raise RuntimeError(f"ollama: {d['error']}")
             tok = d.get("response", "")
             if tok:
                 if first is None:
@@ -317,10 +319,25 @@ FAQ_PREFIX = "docs/faq/"
 _FAQ_STOP = set("the a an is are was were be does do did of in on at to for my me i we our you your it its this that "
                 "what which who whom whose where when why how can could should would will there here any some "
                 "please tell show give about and or with from by as lab's".split())
+# 2026-11-22 (ultracode K1): the question word used to be dropped, so "When is the Robotics Lab open?" matched
+# "Where is the Robotics Lab?" (2 of 3 words) and got the room as a cited answer; "Why doesn't the door open?"
+# got the door speed. Now the question word (and "how many/much/long/fast") must agree, a negation on one side
+# only is a mismatch, and the asker's content words must be covered >= 0.8 (the FAQ side >= 0.6 as before).
+_QWORD = re.compile(r"(how (?:many|much|long|fast|often|old)|what|which|who|whom|whose|where|when|why|how)")
+_NEG = re.compile(r"(not|never|no|cannot|without)|n't")
 
 
 def _faq_words(s: str) -> set:
     return {w for w in re.findall(r"[a-z0-9]+", s.lower().replace("-", " ")) if w not in _FAQ_STOP and len(w) > 1}
+
+
+def _faq_qword(s: str) -> Optional[str]:
+    m = _QWORD.search(s.lower().replace("’", "'"))
+    return m.group(1) if m else None
+
+
+def _faq_neg(s: str) -> bool:
+    return bool(_NEG.search(s.lower().replace("’", "'")))
 
 
 def faq_answer(q: str, hits: list) -> Optional[dict]:
@@ -338,12 +355,20 @@ def faq_answer(q: str, hits: list) -> Optional[dict]:
     qw = _faq_words(q)
     if len(qw) < 1:
         return None
+    q_qw, q_neg = _faq_qword(q), _faq_neg(q)
     best = 0.0
     for v in variants:
         vw = _faq_words(v)
         if not vw:
             continue
+        v_qw = _faq_qword(v)
+        if q_qw and v_qw and q_qw != v_qw:                  # "when" is not "where", "how many" is not "how"
+            continue
+        if q_neg != _faq_neg(v):                            # "why doesn't X" is not "how does X"
+            continue
         common = len(qw & vw)
+        if common / len(qw) < 0.8:                          # the asker's own words must (almost) all be covered
+            continue
         score = min(common / len(qw), common / len(vw))     # both ways: no extra unmatched intent on either side
         best = max(best, score)
     if best < 0.6:
@@ -352,11 +377,13 @@ def faq_answer(q: str, hits: list) -> Optional[dict]:
     return {"answer": a.group(1).strip(), "match": round(best, 2), "faq_source": src.group(1).strip() if src else None}
 
 
-def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None):
-    """emit(event) receives structured events for the portal: meta, sources, token, done."""
+def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None, llm_lock=None):
+    """emit(event) receives structured events for the portal: meta, sources, token, done.
+    llm_lock (ultracode K3): a semaphore taken ONLY around the model call, so guard / FAQ / lookup answers never
+    queue behind two long syntheses."""
     emit = emit or (lambda e: None)
     t0 = time.perf_counter()
-    g = None if forced else guard(q)
+    g = guard(q)            # ultracode K5: a forced route chooses the route only, never skips the safety guard
     if g:
         kinds = g.split("+")
         text = " ".join(GUARD_TEXT[k] for k in kinds)
@@ -419,7 +446,7 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
     res["prompt_build_ms"] = round((time.perf_counter() - tb) * 1000, 1)
     res["sources"] = [s for s, _, _ in ev_items]
     emit({"type": "sources", "sources": [{"n": i + 1, "source": s, "label": lab} for i, (s, lab, _) in enumerate(ev_items)]})
-    key = (r, re.sub(r"\W+", " ", q.lower()).strip(), _index_stamp(cfg))
+    key = (r, re.sub(r"\W+", " ", q.lower()).strip(), _index_stamp(cfg), cfg.get("model"))   # K8: model in key
     hit = _CACHE.get(key)
     if hit and time.time() - hit[0] < FAST["cache_s"]:
         (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(hit[1])
@@ -428,6 +455,10 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
         res["total_ms"] = round((time.perf_counter() - t0) * 1000)
         for i, (src, lab, _) in enumerate(ev_items):
             out(f"[{i + 1}] {src}  ({lab})")
+        return res
+    if llm_lock is not None and not llm_lock.acquire(timeout=60):
+        res.update(status="failed", answer=None, error="busy - two answers already running; evidence below is valid")
+        res["total_ms"] = round((time.perf_counter() - t0) * 1000)
         return res
     try:
         text, st = ollama_stream(cfg, prompt, on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))
@@ -439,9 +470,12 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
         res["citations_valid"] = all(1 <= int(n) <= len(ev_items) for n in re.findall(r"\[(\d+)\]", text))
     except KeyboardInterrupt:
         res.update(status="cancelled", answer=None)
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+    except (urllib.error.URLError, TimeoutError, ConnectionError, RuntimeError, ValueError) as e:
         res.update(status="failed", answer=None, error=f"local LLM unavailable ({e.__class__.__name__}) - "
                    "evidence below is valid; no AI synthesis was performed")
+    finally:
+        if llm_lock is not None:
+            llm_lock.release()
     out("")
     for i, (src, lab, _) in enumerate(ev_items):
         out(f"[{i + 1}] {src}  ({lab})")
@@ -560,7 +594,7 @@ def main(argv=None):
     # Agent default: qwen2.5:1.5b (already installed). Measured 2026-10-14 on the 11-question set:
     # 9/10 correct, first word ~6.8 s; qwen2.5:3b refused 3 answerable questions, first word ~12.3 s.
     # Override with --model or "agent_model" in tools/knowledge/config.json.
-    cfg["model"] = cfg.get("agent_model", "qwen3:1.7b")
+    cfg["model"] = kb.answer_model(cfg)
     if a.model:
         cfg["model"] = a.model
     if a.bench:

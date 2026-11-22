@@ -53,20 +53,25 @@ export default function LabDetails({ t, pill, badges, onClose }: {
   const navigate = useNavigate()
   const timer = useRef<number>()
 
-  const load = useCallback(() => {
-    api.lab(t.lab_id).then(setStatus).catch(() => {})
-    api.labActivity(t.lab_id, 12).then(setEvents).catch(() => setEvents([]))
-    api.alerts(true).then(a => setAlerts(a.filter(x => x.lab_id === t.lab_id))).catch(() => setAlerts([]))
+  // ultracode 2026-11-22 FE-4: a reply for a lab that is no longer selected must not overwrite the current one.
+  // `live` says whether the effect that started this load is still the current one (false after a lab change or unmount).
+  const load = useCallback((live: () => boolean = () => true) => {
+    api.lab(t.lab_id).then(v => { if (live()) setStatus(v) }).catch(() => {})
+    api.labActivity(t.lab_id, 12).then(v => { if (live()) setEvents(v) }).catch(() => { if (live()) setEvents([]) })
+    api.alerts(true).then(a => { if (live()) setAlerts(a.filter(x => x.lab_id === t.lab_id)) })
+      .catch(() => { if (live()) setAlerts([]) })
   }, [t.lab_id])
   useEffect(() => {
-    load()
-    const i = visibleInterval(load, 10_000)
-    return () => { window.clearInterval(i); window.clearTimeout(timer.current) }
+    let live = true
+    const current = () => live
+    load(current)
+    const i = visibleInterval(() => load(current), 10_000)
+    return () => { live = false; window.clearInterval(i); window.clearTimeout(timer.current) }
   }, [load])
   useLiveMessages(m => {
     if (!RELOAD_ON.has(m.type)) return
     window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(load, 400)
+    timer.current = window.setTimeout(() => load(), 400)
   })
   // Esc closes the full-screen camera first, then this window.
   useEffect(() => {
