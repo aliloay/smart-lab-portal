@@ -75,17 +75,53 @@ def is_watched(device_id: int) -> bool:
     return t is not None and time.monotonic() - t < VIEWER_TIMEOUT_S
 
 
+# 2026-11-23 (next-gen upgrade): every new picture gets a stamp (ETag for the viewers' 304s and the WebSocket
+# "frame_hint"); an agent whose screen did not change only refreshes the time (touch_frame) - no upload, no new stamp.
+_fstamp: dict[int, int] = {}
+_stamp_seq = [int(time.time() * 1000)]   # starts at the wall clock: a viewer's ETag from before a restart never matches
+
+
+def _next_stamp() -> int:
+    _stamp_seq[0] += 1
+    return _stamp_seq[0]
+
+
+def _hint(message: dict) -> None:
+    try:
+        from app.ws.manager import manager
+        manager.publish(message)
+    except Exception:
+        pass
+
+
 def put_frame(device_id: int, jpeg: bytes) -> None:
     with _lock:
         _frames[device_id] = (jpeg, time.monotonic())
+        stamp = _fstamp[device_id] = _next_stamp()
+    _hint({"type": "frame_hint", "scope": "pc", "device_id": device_id, "stamp": stamp})
+
+
+def touch_frame(device_id: int) -> bool:
+    """The agent's screen is unchanged: keep the stored picture fresh. False = nothing stored (send a full frame)."""
+    with _lock:
+        f = _frames.get(device_id)
+        if f is None or time.monotonic() - f[1] > FRAME_MAX_AGE_S:
+            return False
+        _frames[device_id] = (f[0], time.monotonic())
+        return True
+
+
+def latest_frame_stamped(device_id: int) -> tuple[Optional[bytes], int]:
+    with _lock:
+        f = _frames.get(device_id)
+        stamp = _fstamp.get(device_id, 0)
+    if f is None or time.monotonic() - f[1] > FRAME_MAX_AGE_S:
+        return None, 0
+    return f[0], stamp
 
 
 def latest_frame(device_id: int) -> Optional[bytes]:
-    with _lock:
-        f = _frames.get(device_id)
-    if f is None or time.monotonic() - f[1] > FRAME_MAX_AGE_S:
-        return None
-    return f[0]
+    return latest_frame_stamped(device_id)[0]
 
 
 def reset() -> None:
@@ -93,6 +129,7 @@ def reset() -> None:
     with _lock:
         _viewers.clear()
         _frames.clear()
+        _fstamp.clear()
         _broadcast.update(active=False, by=None, by_id=None, source=None, since=None, title="", targets=None)
         _opts.clear()
         _versions.clear()
@@ -111,6 +148,7 @@ _broadcast: dict = {"active": False, "by": None, "by_id": None, "source": None, 
                     "targets": None,                   # None = every lab PC; else a list of device ids
                     "session": 0}                      # +1 per start: a frame checked against an older share is refused
 _bframe: list = [None, 0.0]                     # [jpeg, received at]
+_bstamp: list = [0]                              # stamp of the current presented picture (ETag / frame_hint)
 
 
 def broadcast_start(by: str, by_id: int, source: str, title: str = "", targets: Optional[list] = None,
@@ -233,6 +271,19 @@ def broadcast_put(jpeg: bytes, session: Optional[int] = None) -> bool:
         if not _broadcast["active"] or (session is not None and session != _broadcast["session"]):
             return False
         _bframe[0], _bframe[1] = jpeg, time.monotonic()
+        stamp = _bstamp[0] = _next_stamp()
+    _hint({"type": "frame_hint", "scope": "broadcast", "stamp": stamp})
+    return True
+
+
+def broadcast_touch(session: Optional[int] = None) -> bool:
+    """The presenter's screen is unchanged: keep the current picture fresh (same stamp, viewers get 304)."""
+    with _lock:
+        if not _broadcast["active"] or (session is not None and session != _broadcast["session"]):
+            return False
+        if _bframe[0] is None or time.monotonic() - _bframe[1] > BROADCAST_FRAME_MAX_AGE_S:
+            return False
+        _bframe[1] = time.monotonic()
         return True
 
 
@@ -248,7 +299,7 @@ def broadcast_frame_stamped() -> tuple[Optional[bytes], int]:
     with _lock:
         if not _broadcast["active"] or _bframe[0] is None or time.monotonic() - _bframe[1] > BROADCAST_FRAME_MAX_AGE_S:
             return None, 0
-        return _bframe[0], int(_bframe[1] * 1000)
+        return _bframe[0], _bstamp[0]
 
 
 def broadcast_reset() -> None:

@@ -21,3 +21,9 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Time per statement (2026-11-23, app/services/querystats.py): in memory only, parameter values never kept.
+from app.services import querystats  # noqa: E402
+
+querystats.install(engine)

@@ -44,7 +44,10 @@ rem is swapped for the DirectML build once. vision.py then picks the fastest.
 %PY% -c "import onnxruntime as o,sys; sys.exit(0 if 'DmlExecutionProvider' in o.get_available_providers() else 1)" >nul 2>&1 || (
   echo Setting up the graphics-card detector once...
   %PY% -m pip uninstall -y onnxruntime >nul 2>&1
-  %PY% -m pip install onnxruntime-directml
+  rem 2026-11-23: both wheels share the "onnxruntime" folder, so uninstalling the plain one also deletes
+  rem DirectML's files while pip still lists onnxruntime-directml as installed - a plain "pip install"
+  rem then does nothing. Force the reinstall of the pinned DirectML build (requirements.txt).
+  %PY% -m pip install --force-reinstall --no-deps onnxruntime-directml==1.24.4
 )
 %PY% -c "import openvino" >nul 2>&1 || %PY% -m pip install openvino
 rem The camera address (with its password) goes through the environment, not the command

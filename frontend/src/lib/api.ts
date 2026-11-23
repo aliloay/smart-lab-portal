@@ -1379,6 +1379,20 @@ function upload<T>(path: string, form: FormData,
 }
 
 /** Fetch a protected binary (photo, CSV) with the auth header. */
+/** A live picture with ETag revalidation (2026-11-23): 304 -> blob null (the viewer keeps its picture, it is
+ *  still current), 204 -> blob null (nothing yet). Other errors throw like fetchBlob. */
+export async function fetchFrame(path: string, etag: string | null): Promise<{ blob: Blob | null; etag: string | null; status: number }> {
+  const token = getToken()
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+  if (etag) headers['If-None-Match'] = etag
+  const res = await fetch(`/api${path}`, { headers, cache: 'no-store' })
+  if (res.status === 401 && token) expired()
+  if (res.status === 304) return { blob: null, etag, status: 304 }
+  if (!res.ok) throw await parseError(res)
+  if (res.status === 204) return { blob: null, etag: null, status: 204 }
+  return { blob: await res.blob(), etag: res.headers.get('ETag'), status: res.status }
+}
+
 export async function fetchBlob(path: string): Promise<Blob> {
   const token = getToken()
   const res = await fetch(`/api${path}`, {
@@ -1395,6 +1409,10 @@ export interface AlertQuality {
   reopened_incidents: number; time_to_acknowledge_s_median: number | null
   time_to_resolve_s_median: { by_staff: number | null; condition_cleared: number | null }; open: number
   storms: { minute: string; new_incidents: number }[]
+}
+export interface QueryReport {
+  since_s: number; slow_threshold_ms: number; statements: number; queries: number; slow: number
+  top: { statement: string; n: number; total_ms: number; mean_ms: number; p95_ms: number | null; max_ms: number; slow: number }[]
 }
 export interface Investigation {
   incident: number; generated_at: string; statement: string; earliest_warning: string; unknowns: string[]
@@ -1666,6 +1684,7 @@ export const api = {
   relDrift: () => request<DriftReport>('/reliability/drift'),
   relDriftAccept: (id: string, reason: string, days?: number) => post<unknown>('/reliability/drift/accept', { id, reason, days }),
   relPerformance: () => request<PerfReport>('/reliability/performance'),
+  relQueries: () => request<QueryReport>('/reliability/queries', { cache: 'no-store' }),
   relBaseline: () => post<{ captured_at: string; requests: number; routes: number }>('/reliability/performance/baseline'),
   relPolicy: () => request<{ rules: { action: string; automatic: string; on_request: string; role: string; why: string }[]; results: string[] }>('/reliability/policy'),
   relDiagnose: () => post<{ ran_ms: number }>('/reliability/diagnose', { check: 'services' }),

@@ -23,7 +23,7 @@ from app.api.deps import require_admin, require_staff
 from app.core.config import settings
 from app.db.session import engine, get_db
 from app.models import Alert, AuditLog, SystemSetting, User
-from app.services import alert_grouping, briefing, dependency_graph, drift, investigate, perfmon, policy
+from app.services import alert_grouping, briefing, dependency_graph, drift, investigate, perfmon, policy, querystats
 
 router = APIRouter(prefix="/reliability", tags=["reliability"])
 
@@ -120,6 +120,12 @@ def performance(_: User = Depends(require_staff), db: Session = Depends(get_db))
             "baseline": {"captured_at": saved.get("captured_at") if saved else None,
                          "note": "compare only under comparable load", "compare": compare},
             "db_pool": {"size": pool.size(), "checked_out": pool.checkedout(), "overflow": pool.overflow()}}
+
+
+@router.get("/queries")
+def queries(_: User = Depends(require_admin)):
+    """Database time per statement since this backend started (no parameter values). Administrators only."""
+    return querystats.summary()
 
 
 @router.post("/performance/baseline")

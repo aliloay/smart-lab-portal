@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Activity, BookOpen, Database, GitBranch, Gauge, HeartPulse, ListChecks, RefreshCw, Scale, ShieldAlert } from 'lucide-react'
-import { AlertQuality, DriftReport, PerfReport, RelGraph, RelNode, WhatIf, api } from '../lib/api'
+import { AlertQuality, DriftReport, PerfReport, QueryReport, RelGraph, RelNode, WhatIf, api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { Chip, MetricCard, PageHeader, Tabs } from '../components/ui'
 import { Evaluation, LabHealth } from '../components/LabHealth'
@@ -218,6 +218,30 @@ function Performance() {
         <tbody>{s.routes.map(r => <tr key={r.route} className="border-t border-ink-700"><td className="p-2 mono">{r.route}</td>
           <td className="p-2 text-center">{r.n}</td><td className="p-2 text-center">{r.p50}</td><td className="p-2 text-center">{r.p95}</td>
           <td className="p-2 text-center">{r.p99 ?? '-'}</td><td className="p-2 text-center">{r.errors_5xx}</td></tr>)}</tbody></table></div>
+      {user?.role === 'ADMIN' && <Queries />}
+    </div>
+  )
+}
+
+/** Where the database time goes (2026-11-23): statements without their values, since this backend started. */
+function Queries() {
+  const [q, err, reload] = useLoad<QueryReport>(api.relQueries)
+  if (err) return <p className="text-bad-soft text-sm">{err}</p>
+  if (!q) return <p className="text-slate-400 text-sm">Loading…</p>
+  return (
+    <div className="card overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-2 p-3">
+        <span className="label">Database time per query</span>
+        <span className="text-[12px] text-slate-400">{q.queries} queries since {fmtS(q.since_s)} · {q.slow} slower than {q.slow_threshold_ms} ms · values are never kept</span>
+        <button className="btn-ghost btn-sm ml-auto" onClick={reload}><RefreshCw size={13} /> Refresh</button>
+      </div>
+      <table className="w-full text-[12px]"><thead className="text-slate-400"><tr>
+        <th className="text-left p-2">Statement</th><th className="p-2">n</th><th className="p-2">total ms</th><th className="p-2">mean</th><th className="p-2">p95</th><th className="p-2">max</th><th className="p-2">slow</th></tr></thead>
+        <tbody>{q.top.map(r => <tr key={r.statement} className="border-t border-ink-700">
+          <td className="p-2 mono max-w-[520px] truncate" title={r.statement}>{r.statement}</td>
+          <td className="p-2 text-center">{r.n}</td><td className="p-2 text-center">{r.total_ms}</td><td className="p-2 text-center">{r.mean_ms}</td>
+          <td className="p-2 text-center">{r.p95_ms ?? '-'}</td><td className="p-2 text-center">{r.max_ms}</td>
+          <td className={`p-2 text-center ${r.slow ? 'text-amber-300' : ''}`}>{r.slow}</td></tr>)}</tbody></table>
     </div>
   )
 }
