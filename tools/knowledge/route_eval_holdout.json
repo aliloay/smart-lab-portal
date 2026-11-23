@@ -1,0 +1,22 @@
+[
+ {"q": "In which building is the robotics lab?", "expect": "faq:Where is the Robotics Lab?"},
+ {"q": "What hours is the robotics lab open?", "expect": "faq:When is the Robotics Lab open?"},
+ {"q": "Who has to approve my new account?", "expect": "faq:Who approves new accounts?"},
+ {"q": "How long does a login session last?", "expect": "faq:How long does a sign-in last?"},
+ {"q": "Which photo is shown on the door screen when I come in?", "expect": "faq:What photo appears on the door screen when I enter?"},
+ {"q": "What is the reusable bin used for?", "expect": "faq:What does the reusable bin do?"},
+ {"q": "What does the ESP32 camera do?", "expect": "faq:What does the ESP32-CAM do?"},
+ {"q": "Which firmware versions are running on the ESP32 boards?", "expect": "faq:What firmware versions run on the boards?"},
+ {"q": "What happens if the WiFi router reboots?", "expect": "faq:What happens when the Wi-Fi router restarts?"},
+ {"q": "Which IPs do the robots have?", "expect": "faq:What IP addresses do the robots use?"},
+ {"q": "Where do I see my notifications?", "expect": "faq:Where do notifications appear?"},
+ {"q": "Has anyone tested restoring a backup?", "expect": "faq:Has a backup restore been tested?"},
+ {"q": "Where does the AI get its information from?", "expect": "faq:Where does the assistant get its knowledge?"},
+ {"q": "What do I need to start so the lab works?", "expect": "faq:What should be started for the lab to work?"},
+ {"q": "Where is the reusable bin?", "expect": "notfaq"},
+ {"q": "Who calibrated the consumables bin last week?", "expect": "notfaq"},
+ {"q": "Why did the UR5e stop yesterday?", "expect": "notfaq|guard:live"},
+ {"q": "How many items are in the reusable bin right now?", "expect": "notfaq|guard:live"},
+ {"q": "What does the n8n daily report workflow send on Fridays?", "expect": "notfaq"},
+ {"q": "Which camera sees PC-07?", "expect": "notfaq"}
+]

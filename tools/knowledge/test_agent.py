@@ -288,7 +288,58 @@ def test_current_device_status_is_live_data_not_documents():
     """C-06: 'Is the environment node online?' got 'ONLINE' from old documents while the node was offline."""
     for q in ["Is the environment node online?", "Are the ESP32 boards connected?", "Is SECCAM_LAB02 running right now?",
               "When was the consumables bin last seen?"]:
-        assert agent.guard(q) == "live", q
+        assert agent.status_guard(q), q
     for q in ["How does the portal decide a node is offline?", "Is the system usable offline?",
               "Why is a robot marked stale?", "Does the door work offline?"]:
-        assert agent.guard(q) is None, q
+        assert not agent.status_guard(q), q
+
+
+ESP_FAQ = ("## Q: Are the ESP32 boards online?\nAlso asked: are the nodes up\n"
+           "**A:** Live: the portal assistant answers this; offline after 90 s without a report.\nSource: agent_live\n")
+
+
+def _run(monkeypatch, q, hits):
+    monkeypatch.setattr(agent, "evidence", lambda cfg, q, k: (hits, 1.0))
+    monkeypatch.setattr(agent, "ollama_stream", lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called")))
+    return agent.run({}, q, out=lambda s: None, on_token=lambda t: None)
+
+
+def test_status_question_order_faq_then_status_guard_never_the_model(monkeypatch):
+    """C-06 order: a curated status FAQ entry wins (it names the live source and the 90 s rule); otherwise the
+    status guard answers; the model is never asked a device's current state."""
+    faq = _run(monkeypatch, "Are the ESP32 boards online?", _faq_hit("Q: Are the ESP32 boards online?", ESP_FAQ))
+    assert faq["route"] == "faq" and "90 s" in faq["answer"]
+    doc = [{"source": "docs/OLD_STATUS.md", "heading": "Status", "text": "ENV_LAB01 ONLINE", "label": "DOCUMENTED (repo)",
+            "snippet": "ENV_LAB01 ONLINE"}]
+    g = _run(monkeypatch, "Is the environment node online?", doc)
+    assert g["route"] == "guard" and "ONLINE" not in g["answer"]
+
+
+def test_faq_meaning_match_rules(monkeypatch, tmp_path):
+    """Closure 23 Nov: the meaning-based FAQ fallback answers a clear paraphrase, and refuses a weak match, a close
+    second entry, or a different question word."""
+    import numpy as np
+    faq = tmp_path / "docs" / "faq"
+    faq.mkdir(parents=True)
+    (faq / "a.md").write_text("## Q: Which device opens the door?\nAlso asked: what unlocks the lock\n"
+                              "**A:** Only the Master ESP32.\nSource: x\n\n"
+                              "## Q: When is the Robotics Lab open?\n**A:** 8:30-17:15.\nSource: y\n", encoding="utf-8")
+    vecs = {"Which device opens the door?": [1, 0, 0], "what unlocks the lock": [0.98, 0.2, 0],
+            "When is the Robotics Lab open?": [0, 1, 0]}
+    queries = {"Which device actually unlocks the door?": [0.97, 0.05, 0.0],     # clear paraphrase
+               "Which colour is the door?": [0.6, 0.0, 0.8],                    # weak
+               "Where does the door open?": [0.99, 0.0, 0.0]}                    # 'where' vs 'which'
+
+    def fake_embed(cfg, texts, prefix, **k):
+        v = np.array([vecs.get(t) or queries[t] for t in texts], dtype=np.float32)
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+    monkeypatch.setattr(agent.kb, "embed", fake_embed)
+    agent._FAQ_SEM.clear()
+    cfg = {"repo": str(tmp_path)}
+    hit = agent.faq_semantic(cfg, "Which device actually unlocks the door?")
+    assert hit and hit["answer"] == "Only the Master ESP32." and hit["file"] == "docs/faq/a.md"
+    assert agent.faq_semantic(cfg, "Which colour is the door?") is None
+    assert agent.faq_semantic(cfg, "Where does the door open?") is None
+    monkeypatch.setattr(agent.kb, "embed", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ollama down")))
+    agent._FAQ_SEM.clear()
+    assert agent.faq_semantic(cfg, "Which device actually unlocks the door?") is None

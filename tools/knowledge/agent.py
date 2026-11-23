@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Optional
 import argparse
+import glob
 import json
 import os
 import re
@@ -134,9 +135,13 @@ def guard(q: str):
         return "node"
     if live and re.search(r"(?i)\b(read|reading|measured|temperature|humidity|weight|value|ppm|level)\b", q):
         return "live"
-    if GUARD_STATUS.search(q):
-        return "live"
     return None
+
+
+def status_guard(q: str) -> bool:
+    """C-06: a question about a device's CURRENT state. Checked after the FAQ (curated status entries such as
+    "Are the ESP32 boards online?" name the live source and the 90 s rule - they win), before the model."""
+    return bool(GUARD_STATUS.search(q))
 
 
 # --------------------------------------------------------------- evidence ---
@@ -328,6 +333,12 @@ def _index_stamp(cfg) -> float:
 # when the best search hit is such an entry AND the question's content words match its question or one of its
 # alternatives closely, that answer is returned at once, cited, without the model. Anything weaker -> normal path.
 FAQ_PREFIX = "docs/faq/"
+FAQ_TOPK = 3                 # FAQ entries among the first N search hits are considered (closure 23 Nov)
+# Closure 23 Nov: meaning-based FAQ fallback (local nomic-embed-text, the same model as the search index). Calibrated on
+# tools/knowledge/route_eval.json: every must-not-answer question scored < 0.90, 26 of 32 paraphrases >= 0.90.
+FAQ_SEM_MIN, FAQ_SEM_MARGIN = 0.90, 0.05
+FAQ_SEM_INVESTIGATE = 0.95   # "why ..." questions: highest must-not-answer one scored 0.897
+_FAQ_SEM: dict = {}
 _FAQ_STOP = set("the a an is are was were be does do did of in on at to for my me i we our you your it its this that "
                 "what which who whom whose where when why how can could should would will there here any some "
                 "please tell show give about and or with from by as lab's".split())
@@ -353,7 +364,10 @@ def _faq_words(s: str) -> set:
 
 def _faq_qword(s: str) -> Optional[str]:
     m = _QWORD.search(_faq_norm(s))
-    return m.group(1) if m else None
+    if not m:
+        return None
+    w = m.group(1)
+    return "what" if w == "which" else w        # "which photo" = "what photo" (hold-out set, 23 Nov)
 
 
 def _faq_neg(s: str) -> bool:
@@ -363,38 +377,105 @@ def _faq_neg(s: str) -> bool:
 def faq_answer(q: str, hits: list) -> Optional[dict]:
     if not hits:
         return None
-    h = hits[0]
-    if not h["source"].startswith(FAQ_PREFIX) or not h["heading"].lower().startswith("q:"):
-        return None
-    text = h.get("text") or ""
-    a = re.search(r"\*\*A:\*\*\s*(.+)", text)
-    if not a:
-        return None
-    also = re.search(r"^Also asked:\s*(.+)$", text, re.M)
-    variants = [h["heading"][2:]] + ([x for x in also.group(1).split(",")] if also else [])
     qw = _faq_words(q)
     if len(qw) < 1:
         return None
     q_qw, q_neg = _faq_qword(q), _faq_neg(q)
-    best = 0.0
-    for v in variants:
-        vw = _faq_words(v)
-        if not vw:
+    found = None
+    # Closure 23 Nov (route_eval): only hits[0] was tried, so a paraphrase whose FAQ entry ranked 2nd or 3rd went to the
+    # model (18 of 32 held-out paraphrases). The FAQ entries among the first FAQ_TOPK hits are scored by the SAME rules
+    # (question word, negation, >= 0.8 coverage, >= 0.6 both ways); the best one wins.
+    for i, h in enumerate(hits[:FAQ_TOPK]):
+        if not h["source"].startswith(FAQ_PREFIX) or not h["heading"].lower().startswith("q:"):
             continue
-        v_qw = _faq_qword(v)
-        if q_qw and v_qw and q_qw != v_qw:                  # "when" is not "where", "how many" is not "how"
+        text = h.get("text") or ""
+        a = re.search(r"\*\*A:\*\*\s*(.+)", text)
+        if not a:
             continue
-        if q_neg != _faq_neg(v):                            # "why doesn't X" is not "how does X"
-            continue
-        common = len(qw & vw)
-        if common / len(qw) < 0.8:                          # the asker's own words must (almost) all be covered
-            continue
-        score = min(common / len(qw), common / len(vw))     # both ways: no extra unmatched intent on either side
-        best = max(best, score)
-    if best < 0.6:
+        also = re.search(r"^Also asked:\s*(.+)$", text, re.M)
+        variants = [h["heading"][2:]] + ([x for x in also.group(1).split(",")] if also else [])
+        best = 0.0
+        for v in variants:
+            vw = _faq_words(v)
+            if not vw:
+                continue
+            v_qw = _faq_qword(v)
+            if q_qw and v_qw and q_qw != v_qw:                  # "when" is not "where", "how many" is not "how"
+                continue
+            if q_neg != _faq_neg(v):                            # "why doesn't X" is not "how does X"
+                continue
+            common = len(qw & vw)
+            if common / len(qw) < 0.8:                          # the asker's own words must (almost) all be covered
+                continue
+            score = min(common / len(qw), common / len(vw))     # both ways: no extra unmatched intent on either side
+            best = max(best, score)
+        if best >= 0.6 and (found is None or best > found["match"]):
+            src = re.search(r"^Source:\s*(.+)$", text, re.M)
+            found = {"answer": a.group(1).strip(), "match": round(best, 2), "hit": i, "heading": h["heading"][2:].strip(),
+                     "faq_source": src.group(1).strip() if src else None}
+    return found
+
+
+def _faq_entries(repo: str) -> list:
+    """(file, heading, variants, answer, source) for every docs/faq entry."""
+    out = []
+    for p in sorted(glob.glob(os.path.join(repo, "docs", "faq", "*.md"))):
+        rel = os.path.relpath(p, repo).replace("\\", "/")
+        for blk in ("\n" + open(p, encoding="utf-8").read()).split("\n## Q:")[1:]:   # first entry is at line 1
+            lines = blk.strip().splitlines()
+            head = lines[0].strip()
+            also = next((ln[len("Also asked:"):] for ln in lines if ln.startswith("Also asked:")), "")
+            ans = next((ln.split("**A:**", 1)[1].strip() for ln in lines if "**A:**" in ln), None)
+            src = next((ln[len("Source:"):].strip() for ln in lines if ln.startswith("Source:")), None)
+            if ans:
+                out.append((rel, head, [head] + [v.strip() for v in also.split(",") if v.strip()], ans, src))
+    return out
+
+
+def faq_semantic(cfg, q: str) -> Optional[dict]:
+    """Meaning-based FAQ match, used only when the word matcher found nothing. Same safety rules: the question word and
+    negation must agree with the matched variant; the best entry must clear FAQ_SEM_MIN and beat the next entry by
+    FAQ_SEM_MARGIN. Any embedding failure -> None (the normal routes continue)."""
+    try:
+        repo = cfg["repo"]
+        files = sorted(glob.glob(os.path.join(repo, "docs", "faq", "*.md")))
+        key = tuple((f, os.path.getmtime(f)) for f in files)
+        if _FAQ_SEM.get("key") != key:
+            import numpy as np
+            entries = _faq_entries(repo)
+            texts = [v for e in entries for v in e[2]]
+            owner = [i for i, e in enumerate(entries) for _ in e[2]]
+            # disk cache next to the index: a service restart reuses it (231 variants = ~6 s to embed)
+            cache = os.path.join(cfg["data"], "faq_semantic.npz") if cfg.get("data") else None
+            sig = json.dumps([[os.path.basename(f), m] for f, m in key] + [texts])
+            mat = None
+            if cache and os.path.isfile(cache):
+                with np.load(cache, allow_pickle=False) as z:
+                    if str(z["sig"]) == sig:
+                        mat = z["mat"]
+            if mat is None:
+                mat = kb.embed(cfg, texts, "search_query: ", timeout=60)
+                if cache:
+                    np.savez(cache, mat=mat, sig=np.array(sig))
+            _FAQ_SEM.update(key=key, entries=entries, texts=texts, owner=owner, mat=mat)
+        sims = _FAQ_SEM["mat"] @ kb.embed(cfg, [q], "search_query: ", timeout=float(cfg.get("query_embed_timeout_s", 4.0)))[0]
+    except Exception:
         return None
-    src = re.search(r"^Source:\s*(.+)$", text, re.M)
-    return {"answer": a.group(1).strip(), "match": round(best, 2), "faq_source": src.group(1).strip() if src else None}
+    q_qw, q_neg = _faq_qword(q), _faq_neg(q)
+    best: dict = {}
+    for j, s in enumerate(sims):
+        v = _FAQ_SEM["texts"][j]
+        v_qw = _faq_qword(v)
+        if (q_qw and v_qw and q_qw != v_qw) or q_neg != _faq_neg(v):
+            continue
+        i = _FAQ_SEM["owner"][j]
+        best[i] = max(best.get(i, -1.0), float(s))
+    top = sorted(best.items(), key=lambda x: -x[1])[:2]
+    if not top or top[0][1] < FAQ_SEM_MIN or (len(top) > 1 and top[0][1] - top[1][1] < FAQ_SEM_MARGIN):
+        return None
+    rel, head, _, ans, src = _FAQ_SEM["entries"][top[0][0]]
+    return {"answer": ans, "match": round(top[0][1], 3), "heading": head, "file": rel, "faq_source": src,
+            "how": "meaning"}
 
 
 def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None, llm_lock=None):
@@ -436,13 +517,41 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
     fa = None if forced else faq_answer(q, hits)
     if fa and r == "investigate" and fa["match"] < 0.8:     # "why does ..." is a debug question unless it IS the FAQ
         fa = None
+    if not fa and not forced:
+        fs = faq_semantic(cfg, q)                          # closure 23 Nov: paraphrases ("unlock" = "open")
+        if fs and r == "investigate" and fs["match"] < FAQ_SEM_INVESTIGATE:
+            fs = None                                      # a "why ..." debug question needs a near-identical FAQ
+        if fs:
+            text = fs["answer"] + " [1]"
+            cit = {"n": 1, "source": fs["file"], "heading": "Q: " + fs["heading"], "label": "DOCUMENTED (repo)",
+                   "updated": None, "snippet": fs["answer"][:300]}
+            res.update(route="faq", why=f"curated FAQ answer (meaning match {fs['match']}) - no model", faq=fs)
+            emit({"type": "sources", "sources": [{"n": 1, "source": cit["source"], "label": cit["label"]}]})
+            (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
+            out("")
+            res.update(status="completed", answer=text, citations_valid=True, citations=[cit],
+                       total_ms=round((time.perf_counter() - t0) * 1000))
+            return res
     if fa:
         text = fa["answer"] + " [1]"
         res.update(route="faq", why=f"curated FAQ answer (match {fa['match']}) - no model", faq=fa)
-        emit({"type": "sources", "sources": [{"n": 1, "source": hits[0]["source"], "label": hits[0]["label"]}]})
+        fh = hits[fa["hit"]]                                   # the FAQ entry that answered (not always hits[0])
+        emit({"type": "sources", "sources": [{"n": 1, "source": fh["source"], "label": fh["label"]}]})
         (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
         out("")
-        res.update(status="completed", answer=text, citations_valid=True, citations=res["citations"][:1],
+        res.update(status="completed", answer=text, citations_valid=True,
+                   citations=[{**res["citations"][fa["hit"]], "n": 1}],
+                   total_ms=round((time.perf_counter() - t0) * 1000))
+        return res
+    if status_guard(q):     # C-06: never answer a device's current state from documents (it said "ONLINE" offline)
+        text = GUARD_TEXT["live"]
+        cits = [{"n": i + 1, "source": src, "heading": h, "label": "VERIFIED_CURRENT (repo file)", "updated": None,
+                 "snippet": h} for i, (src, h) in enumerate(GUARD_SRC["live"])]
+        emit({"type": "sources", "sources": [{"n": c["n"], "source": c["source"], "label": c["label"]} for c in cits]})
+        (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
+        out("")
+        res.update(route="guard", why="current device state is live data - not answered from documents",
+                   status="completed", answer=text, citations_valid=True, citations=cits,
                    total_ms=round((time.perf_counter() - t0) * 1000))
         return res
     if r == "lookup":
