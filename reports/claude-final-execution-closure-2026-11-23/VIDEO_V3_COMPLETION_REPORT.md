@@ -37,4 +37,8 @@ Nothing in the video says the RFID relock fault is fixed. Door figures (card 5 m
 | Privacy | the same sheets | faces blurred or pixelated in all camera footage; recognised names covered; password masked on sign-in ("demo copy, demo account"); tiles labelled "Recorded <date>", "Demo copy" or "Preview - simulation only" |
 | Claims on screen | the same sheets | n8n slide: "24 workflow definitions" heading with the small print "27 definitions in the repo; 26 active … 00 error handler inactive": consistent with the narration |
 
+**Re-export, 23 Nov 12:22-12:27:** the video session replaced six drawn scenes with real footage and photos (door node, environment node, bins, laptop-outage and grant-screen scenes). Re-checked by this session:
+- **Format:** the same durations and resolutions (6:15 / 3:20 / 0:52 at 1080p; the share copy at 720p).
+- **Frames:** a new contact sheet (1 frame per 6 s, 63 frames) shows only hardware, portal screens, renders and blurred camera footage. No new readable faces or names.
+
 **Not done:** a frame-by-frame watch of all 11,251 master frames. The checks above are automated plus sampled contact sheets (1 frame per 1-8 s). Status: **TESTED - PASSED (automated + sampled visual review)**.
