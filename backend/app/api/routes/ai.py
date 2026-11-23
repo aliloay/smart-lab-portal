@@ -89,6 +89,14 @@ def _run(db: Session, user: User, question: str, history=None, kind="ask") -> di
 def _instant(db: Session, user: User, question: str) -> Optional[dict]:
     """The agent's exact answer from the database, if the question is one it
     knows - milliseconds, no model, and it works with no AI configured."""
+    # Gemini 23 Nov (K5/K10): control and secret requests never reach the model; opening hours answered exactly.
+    from app.services import agent_guard
+    g = agent_guard.check(question)
+    if g is not None:
+        db.add(AuditLog(actor_user_id=user.id, action="AI_INSTANT", entity_type="ai",
+                        entity_id=f"instant:{g[0]}", detail={"question": question[:500]}))
+        db.commit()
+        return {"answer": g[1], "tools_used": [f"instant:{g[0]}"], "model": "smartlab-instant", "instant": True}
     # booking actions first (2026-10-27): a PROPOSAL the page confirms - the assistant itself changes nothing
     from app.services import agent_actions
     p = agent_actions.propose(db, user, question)

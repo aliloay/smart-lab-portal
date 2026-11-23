@@ -37,6 +37,18 @@ def _staff(u: User) -> bool:
     return u.role in (Role.ADMIN, Role.LAB_STAFF)
 
 
+# Gemini audit 23 Nov (B-01 sub-issue): the occupant list is hidden from students (below), but the same people
+# reached them through the device cards: camera "named" (names, roles) and "activity" (clothes, posture, desk),
+# PC "os_user" / "foreground_app". Device IPs stay visible (owner decision 22 Nov); only these keys are dropped.
+_PERSONAL_KEYS = ("named", "activity", "os_user", "foreground_app")
+
+
+def _redact(out, viewer: User):
+    if not _staff(viewer) and isinstance(getattr(out, "component_state", None), dict):
+        out.component_state = {k: v for k, v in out.component_state.items() if k not in _PERSONAL_KEYS}
+    return out
+
+
 def _slot(db: Session, b: Booking, viewer: User) -> BookingSlot:
     mine = b.user_id == viewer.id
     name = None
@@ -272,7 +284,7 @@ def lab_detail(lab_id: int, db: Session = Depends(get_db),
         next_booking_at=next_b.start_time if next_b else None,
         current_booking=_slot(db, current, user) if current else None,
         upcoming=[_slot(db, b, user) for b in upcoming],
-        devices=[device_out(d, lab.code, now) for d in devices if not is_retired(d)],
+        devices=[_redact(device_out(d, lab.code, now), user) for d in devices if not is_retired(d)],
         open_issues=len(issues),
         high_priority_issues=sum(1 for i in issues if i.severity in _HIGH),
         recent_issues=[_brief(db, i, user) for i in issues[:5]],

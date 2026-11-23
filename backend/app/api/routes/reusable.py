@@ -165,9 +165,12 @@ def _swapped_for(db: Session, a: Asset) -> Optional[Asset]:
     of this lab is recorded as OUT, stands for that checked-out item (oldest first)."""
     if a.status != AssetStatus.AVAILABLE or not a.bin_item:
         return None
+    # Gemini 23 Nov (B-03): the row is locked so two returns cannot both close the same loan. Gemini also asked for a
+    # same-kind filter (B-05); NOT applied - any bin item may stand in by design (test_returning_the_other_identical_item:
+    # picked the Arduino, took the breadboard), and the swap already needs a measured mass increase.
     return db.scalar(select(Asset).where(
         Asset.lab_id == a.lab_id, Asset.bin_item.is_(True), Asset.id != a.id,
-        Asset.status == AssetStatus.CHECKED_OUT).order_by(Asset.checked_out_at))
+        Asset.status == AssetStatus.CHECKED_OUT).order_by(Asset.checked_out_at).limit(1).with_for_update())
 
 
 def _active_checkout(db: Session, device_id: int) -> Optional[DeviceCommand]:
@@ -185,7 +188,7 @@ class CheckoutRequest(BaseModel):
 @router.post("/checkout")
 def request_checkout(req: CheckoutRequest, db: Session = Depends(get_db),
                      user: User = Depends(get_current_user)):
-    a = db.get(Asset, req.asset_id)
+    a = db.get(Asset, req.asset_id, with_for_update=True)      # B-03: two clicks cannot both start a checkout
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     if a.status != AssetStatus.AVAILABLE:
@@ -407,7 +410,7 @@ def _scan_impl(req: ScanReport, db: Session = Depends(get_db),
     uid = norm_uid(req.nfc_uid)
     now = datetime.now(timezone.utc)
     device.last_seen_at = now
-    a = db.scalar(select(Asset).where(Asset.nfc_uid == uid))
+    a = db.scalar(select(Asset).where(Asset.nfc_uid == uid).with_for_update())   # B-03: a node retry waits
     if a is None:
         _last_unknown[device.device_uid] = {"nfc_uid": uid, "device_uid": device.device_uid,
                                             "at": now}
@@ -469,7 +472,7 @@ def _complete_impl(req: CompleteReport, db: Session = Depends(get_db),
     only if the lid opened (the item could go in) - it is never assumed."""
     device_scope(identity, req.device_uid)
     device = get_device(db, req.device_uid)
-    a = db.scalar(select(Asset).where(Asset.nfc_uid == norm_uid(req.nfc_uid)))
+    a = db.scalar(select(Asset).where(Asset.nfc_uid == norm_uid(req.nfc_uid)).with_for_update())   # B-03
     if device is None or a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown device or item")
     scanned = returned = a

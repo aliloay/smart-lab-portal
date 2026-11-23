@@ -27,7 +27,7 @@ PART_KP = {"head": (0, 1, 2, 3, 4), "shoulders": (5, 6), "elbows": (7, 8), "wris
 MIN_KP_CONF = 0.5           # below this a joint is not trusted: OCCLUDED, no xy
 MIN_PERSON = 0.35           # pose box score
 MATCH_IOU = 0.3             # pose box <-> track box
-FRESH_S = 1.5               # a pose older than this is not shown
+FRESH_S = 2.0               # a pose older than this is not shown (= Camera.STALE_S; 1.5 s flickered between 1 Hz passes)
 INPUT = 640
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "yolov8n-pose.onnx")
 
@@ -109,7 +109,7 @@ def attach(tracks, poses: list, now: Optional[float] = None) -> int:
 
 def fresh_kps(t, now: Optional[float] = None):
     kp, at = getattr(t, "kp", None), getattr(t, "kp_at", None)
-    if kp is None or at is None:
+    if kp is None or at is None or getattr(t, "crowded", False):   # V-F7: crowded since the last pass = no joints
         return None
     return kp if ((time.time() if now is None else now) - at) <= FRESH_S else None
 

@@ -47,5 +47,5 @@ Source: `tools/pc_agent/`, `backend/app/api/routes/equipment.py`
 
 ## Q: How many lab PCs are registered?
 Also asked: number of PCs, how many computers
-**A:** Live. On 21 Nov there were 14 PC rows: 9 GIU lab PCs, Hemaly's PC, the admin laptop and 3 retired TEST cards. PC-10 still ran agent 0.9; the others ran 1.0.
+**A:** Historical (21 Nov 2026, not live): there were 14 PC rows: 9 GIU lab PCs, Hemaly's PC, the admin laptop and 3 retired TEST cards. PC-10 still ran agent 0.9; the others ran 1.0.
 Source: `devices` table (live), checked 21 Nov 2026

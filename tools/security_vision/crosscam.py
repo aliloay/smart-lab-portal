@@ -237,11 +237,25 @@ class CrossCam:
             self._handoff(tracks, w, h, now, labeler)
         return self.notes
 
+    PEER_FRAME_MAX_S = 2.0          # = security_vision.Camera.STALE_S: older picture = the other camera is blind
+
+    def peer_live(self, now: float, max_age_s: float = MAX_AGE_S) -> bool:
+        """The other camera answered recently AND its picture is fresh. Gemini audit 23 Nov (V-F1): a camera whose
+        stream died still answers /peer (fresh "t", no tracks) - read as "everyone left its view", its 90 s memory
+        was handed out here, and its PCs stayed deferred to it. "frame_t" absent = an older peer build: "t" only."""
+        peer = self.peer
+        if not peer or not -1.0 <= now - float(peer.get("t", 0)) <= max_age_s:
+            return False
+        if "frame_t" not in peer:
+            return True
+        ft = peer.get("frame_t")
+        return ft is not None and now - float(ft) <= self.PEER_FRAME_MAX_S
+
     def _handoff(self, tracks, w: int, h: int, now: float, labeler) -> None:
         """Names that the floor / desk pairing cannot carry (see HANDOFF): feet hidden, or the person has
         left the other camera's view. Runs after the live pairing and only ever names an unnamed track."""
         peer = self.peer
-        if not peer or not -1.0 <= now - float(peer.get("t", 0)) <= MAX_AGE_S:
+        if not self.peer_live(now):
             self.hstreak.clear()                   # other camera silent: its memory is not used blind
             return
         live = set()
@@ -311,7 +325,7 @@ class CrossCam:
         floor_ok = self.floor is not None and bool(peer and peer.get("calibrated"))
         desk_ok = bool(self.desk_link and self.desks)
         if (not peer or not (floor_ok or desk_ok)
-                or not -1.0 <= now - float(peer.get("t", 0)) <= MAX_AGE_S):   # stale, or stamped ahead (clock step)
+                or not self.peer_live(now)):   # stale, stamped ahead (clock step), or the other camera is blind
             self.streak.clear()
             return []
         theirs = [p for p in peer["tracks"]

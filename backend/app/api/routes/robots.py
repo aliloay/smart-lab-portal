@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import device_scope, get_current_user, require_admin, require_device, require_staff
+from app.api.deps import device_lab_scope, device_scope, get_current_user, require_admin, require_device, require_staff
 from app.db.session import get_db
 from app.models import (AuditLog, Booking, BookingStatus, Device, DeviceType, RobotEvent,
                         RobotHomeCalibration, User)
@@ -83,21 +83,28 @@ def _context(db: Session, d: Device, now: datetime) -> tuple[Optional[int], dict
         Booking.lab_id == d.lab_id, Booking.status == BookingStatus.CONFIRMED,
         Booking.start_time <= now, Booking.end_time > now))
     inside = occupants(db, d.lab_id)
-    cam = db.scalar(select(Device).where(Device.lab_id == d.lab_id,
-                                         Device.device_type == DeviceType.SECURITY_CAMERA).limit(1))
+    # Gemini 23 Nov (ROB-3): LAB_01 has two cameras; .limit(1) picked either. Every camera reporting now counts.
+    cams = _lab_cameras(db, d.lab_id)
     zone, named, cam_state = None, [], "none"
-    if cam is not None:
-        from app.services.devices import is_fresh
-        cam_state = "online" if is_fresh(cam, now) else "offline"
-    # Only a camera that is reporting now is evidence - an old report is not.
-    if cam is not None and cam_state == "online" and cam.component_state:
+    from app.services.devices import is_fresh
+    if cams:
+        cam_state = "online" if any(is_fresh(c, now) for c in cams) else "offline"
+    model = ((d.component_state or {}).get("model") or "").lower()
+    seen_labels = set()
+    for cam in cams:
+        # Only a camera that is reporting now is evidence - an old report is not.
+        if not is_fresh(cam, now) or not cam.component_state:
+            continue
         cs = cam.component_state
-        model = ((d.component_state or {}).get("model") or "").lower()
         for z in cs.get("zones", []):
-            if model and (model in z.get("name", "").lower() or z.get("name", "").lower() in model):
+            if zone is None and model and (model in z.get("name", "").lower() or z.get("name", "").lower() in model):
                 zone = {"name": z.get("name"), "status": z.get("status")}     # IN_USE = a person at the robot's box
-        named = [{"label": n.get("label"), "name": n.get("name"), "state": n.get("identity_state"),
-                  "confidence": n.get("confidence")} for n in cs.get("named", [])]
+        for n in cs.get("named", []):
+            if n.get("label") in seen_labels:
+                continue
+            seen_labels.add(n.get("label"))
+            named.append({"label": n.get("label"), "name": n.get("name"), "state": n.get("identity_state"),
+                          "confidence": n.get("confidence")})
     holder = db.get(User, booking.user_id) if booking else None
     return (booking.id if booking else None), {
         "booking": {"id": booking.id, "holder": holder.full_name if holder else None} if booking else None,
@@ -124,16 +131,22 @@ def _severity(kind: str, source: str, booking_id: Optional[int], ctx: dict) -> s
 def _camera_for(db: Session, d: Device, now: datetime) -> tuple[bool, Optional[dict]]:
     """(camera reporting now, the camera's visual result for this robot's box)."""
     from app.services.devices import is_fresh
-    cam = db.scalar(select(Device).where(Device.lab_id == d.lab_id,
-                                         Device.device_type == DeviceType.SECURITY_CAMERA).limit(1))
-    if cam is None or not is_fresh(cam, now):
+    fresh = [c for c in _lab_cameras(db, d.lab_id) if is_fresh(c, now)]    # ROB-2: both cameras, not either one
+    if not fresh:
         return False, None
     model = ((d.component_state or {}).get("model") or "").lower()
-    for z in (cam.component_state or {}).get("zones", []):
-        name = (z.get("name") or "").lower()
-        if model and (model in name or name in model):
-            return True, z.get("visual")
+    for cam in fresh:
+        for z in (cam.component_state or {}).get("zones", []):
+            name = (z.get("name") or "").lower()
+            if model and (model in name or name in model):
+                return True, z.get("visual")
     return True, None
+
+
+def _lab_cameras(db: Session, lab_id) -> list:
+    return list(db.scalars(select(Device).where(Device.lab_id == lab_id,
+                                                Device.device_type == DeviceType.SECURITY_CAMERA)
+                           .order_by(Device.id)).all())
 
 
 def update_fusion(db: Session, d: Device, now: datetime) -> dict:
@@ -196,6 +209,8 @@ def telemetry(req: Telemetry, db: Session = Depends(get_db), identity: str = Dep
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown lab")
     now = datetime.now(timezone.utc)
     d = get_device(db, req.device_uid)
+    if d is not None:                   # Gemini 23 Nov (B-02/ROB-1): its own key only for its own lab, as a robot
+        device_lab_scope(identity, d, lab, (DeviceType.ROBOT,))
     if d is None:
         d = Device(device_uid=req.device_uid, name=req.name or req.device_uid, device_type=DeviceType.ROBOT,
                    lab_id=lab.id)

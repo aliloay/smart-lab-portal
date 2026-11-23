@@ -55,7 +55,13 @@ export default function LabDetails({ t, pill, badges, onClose }: {
 
   // ultracode 2026-11-22 FE-4: a reply for a lab that is no longer selected must not overwrite the current one.
   // `live` says whether the effect that started this load is still the current one (false after a lab change or unmount).
-  const load = useCallback((live: () => boolean = () => true) => {
+  // Gemini 23 Nov (FE-4): the live-message reload called load() with no guard - the check now lives in load itself,
+  // so every caller drops a reply for a lab that is no longer the one on screen.
+  const currentLab = useRef(t.lab_id)
+  currentLab.current = t.lab_id
+  const load = useCallback((alive: () => boolean = () => true) => {
+    const target = t.lab_id
+    const live = () => alive() && currentLab.current === target
     api.lab(t.lab_id).then(v => { if (live()) setStatus(v) }).catch(() => {})
     api.labActivity(t.lab_id, 12).then(v => { if (live()) setEvents(v) }).catch(() => { if (live()) setEvents([]) })
     api.alerts(true).then(a => { if (live()) setAlerts(a.filter(x => x.lab_id === t.lab_id)) })

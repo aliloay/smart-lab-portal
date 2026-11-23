@@ -187,6 +187,19 @@ class Camera:
             self.metrics.open_failures += 1
 
     def _run(self):
+        """V-F5 (Gemini 23 Nov): the capture thread was the one loop outside supervised() - an unexpected OpenCV /
+        FFmpeg exception ended it for good (stream OFFLINE until a restart). It now logs, waits and starts over."""
+        while True:
+            try:
+                self._run_loop()
+            except Exception as e:
+                self.capture_restarts = getattr(self, "capture_restarts", 0) + 1
+                print(f"[camera] capture loop crashed ({e.__class__.__name__}: {e}) - restart "
+                      f"{self.capture_restarts} in 1 s")
+                self.ok = False
+                time.sleep(1.0)
+
+    def _run_loop(self):
         still = None
         while True:
             cap = self._open()
@@ -362,7 +375,9 @@ class Service:
         # and nothing changes. At most one pose pass every SMARTLAB_POSE_EVERY_S, under the same GPU lock.
         try:
             from pose import PoseModel
-            self.pose = PoseModel.load()
+            from vision import GPU_LOCK
+            with GPU_LOCK:               # V-F9: DirectML session start-up under the lock, like the detector's
+                self.pose = PoseModel.load()
         except Exception as e:                                   # never let pose stop the camera
             print(f"[vision] pose model not loaded ({e.__class__.__name__})")
             self.pose = None
@@ -666,7 +681,9 @@ class Service:
                 looks = self.appearance.looks(frame, people, t0)
                 r1 = time.perf_counter()
                 tracks = self.tracker.update(people, t0, looks, low=low, starts=[p in sure for p in people])
-                if self.pose is not None and tracks and time.time() - self._pose_last >= self._pose_every:
+                # V-F9 (Gemini 23 Nov): a pass where every person is crowded is thrown away by attach() - skip it.
+                if (self.pose is not None and any(not getattr(t, "crowded", False) for t in tracks)
+                        and time.time() - self._pose_last >= self._pose_every):
                     self._pose_last = time.time()
                     try:
                         from pose import attach
@@ -702,15 +719,21 @@ class Service:
                     notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
                     try:
                         pv = self.crosscam.peer
-                        fresh = pv and -1.0 <= t0 - float(pv.get("t", 0)) <= 1.0
+                        fresh = pv and self.crosscam.peer_live(t0, 1.0)
                         notes_cc = notes_cc + self.labnums.assign(tracks, self.crosscam.links, t0,
                                                                   pv.get("tracks") if fresh else None)
                         # ultracode F3 (2026-11-22): a look (clothes / re-ID) alone is NOT identity. The returning
                         # name used to come back as a CONFIRMED "peer" name (shared to the other camera, kept after a
                         # door exit) at re-ID distance <= 0.55 - a visitor in similar clothes could take it. It now
                         # comes back as the marked guess "Name ? (look)"; the face or the other camera confirms it.
+                        inside_now = {o.get("auth_subject") for o in occupants}
                         for t_back, who in self.labnums.restore:
                             if t_back.label:                    # never overwrite a name this pass already gave
+                                continue
+                            # Gemini 23 Nov (V-F3): Labeler.assign keeps a look name only for someone checked in or
+                            # face-named in the last FACE_KEEP_S; anyone else lost it on the next pass (a one-frame
+                            # flash plus a misleading log line). Such a person is not named by look at all.
+                            if who["auth_subject"] not in inside_now and who["auth_subject"] not in self.labeler.face_named:
                                 continue
                             self.labeler._give(t_back, who, "look", how="came back (same look) - guess")
                             notes_cc.append({"kind": "NAME_BACK_BY_LOOK", "track_id": t_back.id, "label": who["auth_subject"],
@@ -861,6 +884,13 @@ class Service:
         if len(self.mismatch_reported) > 200:          # V-F12: track ids only grow - forget the gone ones
             live = {t.id for t in tracks}
             self.mismatch_reported = {k for k in self.mismatch_reported if k[0] in live}
+        # V-F12 (Gemini 23 Nov): the other "said once per track" sets grew the same way over a long day.
+        live_ids = {t.id for t in tracks}
+        for owner, name in ((self.labeler, "ambiguous_noted"), (self.labeler, "_guess_said"),
+                            (self.crosscam, "hsaid"), (self.crosscam, "elim_said")):
+            s = getattr(owner, name, None)
+            if isinstance(s, set) and len(s) > 200:
+                setattr(owner, name, {k for k in s if k[0] in live_ids})
         for t in tracks:
             if t.mismatch and (t.id, t.mismatch) not in self.mismatch_reported:
                 self.mismatch_reported.add((t.id, t.mismatch))
@@ -956,7 +986,8 @@ class Service:
         # them close up. While the other camera is live, a PC whose seat it sees much bigger is judged there only
         # ("in use" here could only add a wrong neighbour).
         peer_big = {}
-        if time.time() - getattr(self.crosscam, "peer_at", 0.0) < 3.0:
+        cc = self.crosscam            # V-F1 (Gemini 23 Nov): a peer that answers but has no fresh picture judges nothing
+        if time.time() - getattr(cc, "peer_at", 0.0) < 3.0 and (not hasattr(cc, "peer_live") or cc.peer_live(time.time(), 3.0)):
             other = {"SECCAM_LAB01": "SECCAM_LAB02", "SECCAM_LAB02": "SECCAM_LAB01"}.get(self.args.device)
             try:
                 if other:
@@ -1036,7 +1067,7 @@ class Service:
             t0 = time.time()
             frame, at = self.camera.latest()
             zones = self.cfg.get("zones", [])
-            if frame is None or t0 - at > 5 or not zones:
+            if frame is None or t0 - at > Camera.STALE_S or not zones:     # V-F1: same staleness rule as people
                 time.sleep(0.2)
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)

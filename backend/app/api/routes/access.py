@@ -313,6 +313,8 @@ def heartbeat(req: HeartbeatRequest, db: Session = Depends(get_db),
         return {"status": "unknown_lab"}
 
     device = get_device(db, req.device_uid)
+    if device is not None:              # Gemini 23 Nov (B-02): its own key may not heartbeat into another lab
+        device_lab_scope(identity, device, lab)
     was_online = device.is_online if device else False
 
     if device is None:

@@ -23,6 +23,9 @@ def fast_route(cfg, q):
     if g:
         return "guard:" + g.split("+")[0]
     r, _ = agent.route(q)
+    fd = agent.faq_direct(cfg, q)                       # PERF-1 (23 Nov): in-memory FAQ before the search, as agent.run
+    if fd and not (r == "investigate" and fd["match"] < 0.8):
+        return "faq:" + fd["heading"]
     hits, _ = agent.evidence(cfg, q, agent.FAST["k"] if r != "lookup" else 6)
     if not hits:
         return "model"

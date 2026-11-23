@@ -166,3 +166,6 @@ reports/gemini-*/raw/
 
 # face server: hashes of device keys it accepts (2026-11-21)
 firmware/face_server/allowed_key_hashes.txt
+
+# Showcase videos stay out of git (people on camera; 15-80 MB each) - Gemini audit 23 Nov
+reports/**/*.mp4

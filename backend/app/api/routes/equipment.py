@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import SHARED, device_scope, get_current_user, require_admin, require_device, require_staff
+from app.api.deps import SHARED, device_lab_scope, device_scope, get_current_user, require_admin, require_device, require_staff
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (Alert, AlertSeverity, Asset, AuditLog, Booking, BookingStatus,
@@ -144,6 +144,8 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     # A device's own key reports as the kind of device it is (2026-11-11): a lab PC's key cannot file a robot report.
     if identity != SHARED and d is not None and d.device_type != dtype:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Device {req.device_uid} is not a {req.kind}")
+    if d is not None:                   # Gemini 23 Nov (B-02): and only for its own lab
+        device_lab_scope(identity, d, lab)
     if d is None:
         d = Device(device_uid=req.device_uid, name=req.asset_tag or req.device_uid,
                    device_type=dtype, lab_id=lab.id)

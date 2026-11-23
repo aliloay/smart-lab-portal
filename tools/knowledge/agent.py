@@ -87,6 +87,10 @@ GUARD_SECRET = re.compile(r"(?i)\b(what(?:'s| is| are)|show|print|give|tell me|r
 GUARD_NODE = re.compile(r"(?i)^(?=.*\b(measur\w*|sens\w*|detect\w*|read\w*|count\w*)\b)"
                         r"(?=.*\b(capacitance|resistance|ohms?|farads?|ppm|co2|carbon dioxide|concentration|voltage|pressure|lux)\b)")
 GUARD_LIVE = re.compile(r"(?i)\b(yesterday|today|tonight|right now|currently|at the moment|last (hour|night|reading)|this (morning|week))\b")
+# Closure 23 Nov (route_eval follow-up): "Why is the robotics lab closed today?" reached the model, which invented a reason.
+# What is happening / open / closed / booked / stopped TODAY or NOW is live state, never in the documents.
+GUARD_NOW_STATE = re.compile(r"(?i)\b(closed|open|opened|busy|happening|cancel\w*|booked|occupied|in use|free|empty|full|"
+                             r"stop(ped|s)?|broke(n)?|fail(ed|ing)?|wrong|inside|present|who)\b")
 # Closure C-06 (23 Nov): "Is the environment node online?" was answered "ONLINE" from old documents while the node had
 # been offline for hours. A yes/no question about a device's CURRENT state, or "when was X last seen", is live data.
 # "How does the portal decide a node is offline?" still goes to the documents.
@@ -141,7 +145,7 @@ def guard(q: str):
 def status_guard(q: str) -> bool:
     """C-06: a question about a device's CURRENT state. Checked after the FAQ (curated status entries such as
     "Are the ESP32 boards online?" name the live source and the 90 s rule - they win), before the model."""
-    return bool(GUARD_STATUS.search(q))
+    return bool(GUARD_STATUS.search(q) or (GUARD_LIVE.search(q) and GUARD_NOW_STATE.search(q)))
 
 
 # --------------------------------------------------------------- evidence ---
@@ -374,7 +378,36 @@ def _faq_neg(s: str) -> bool:
     return bool(_NEG.search(s.lower().replace("’", "'")))
 
 
-def faq_answer(q: str, hits: list) -> Optional[dict]:
+_FAQ_DIRECT: dict = {"key": None, "hits": []}
+
+
+def faq_direct(cfg, q: str) -> Optional[dict]:
+    """Gemini audit 23 Nov (PERF-1): the word matcher on EVERY docs/faq entry in memory, before any search. A curated
+    answer used to wait for the full hybrid search (an Ollama /api/embed round trip, ~1.9 s when Ollama was busy) only to
+    be found by the same rules. Same rules as faq_answer (question word, negation, >= 0.8 coverage, >= 0.6 both ways);
+    the entries are re-read when a FAQ file changes. Returns faq_answer's dict plus "file"."""
+    try:
+        repo = cfg["repo"]
+        files = sorted(glob.glob(os.path.join(repo, "docs", "faq", "*.md")))
+        key = tuple((p, os.path.getmtime(p)) for p in files)
+        if _FAQ_DIRECT["key"] != key:
+            hits = []
+            for rel, head, variants, ans, src in _faq_entries(repo):
+                text = (f"Also asked: {', '.join(variants[1:])}\n" if len(variants) > 1 else "") + \
+                       f"**A:** {ans}\n" + (f"Source: {src}\n" if src else "")
+                hits.append({"source": rel, "heading": "Q: " + head, "text": text})
+            _FAQ_DIRECT.update(key=key, hits=hits)
+        hits = _FAQ_DIRECT["hits"]
+        fa = faq_answer(q, hits, topk=len(hits))
+        if fa:
+            fa["file"] = hits[fa["hit"]]["source"]
+        return fa
+    except Exception:                       # never let the shortcut break the normal routes
+        return None
+
+
+def faq_answer(q: str, hits: list, topk: int = 0) -> Optional[dict]:
+    topk = topk or FAQ_TOPK
     if not hits:
         return None
     qw = _faq_words(q)
@@ -385,7 +418,7 @@ def faq_answer(q: str, hits: list) -> Optional[dict]:
     # Closure 23 Nov (route_eval): only hits[0] was tried, so a paraphrase whose FAQ entry ranked 2nd or 3rd went to the
     # model (18 of 32 held-out paraphrases). The FAQ entries among the first FAQ_TOPK hits are scored by the SAME rules
     # (question word, negation, >= 0.8 coverage, >= 0.6 both ways); the best one wins.
-    for i, h in enumerate(hits[:FAQ_TOPK]):
+    for i, h in enumerate(hits[:topk]):
         if not h["source"].startswith(FAQ_PREFIX) or not h["heading"].lower().startswith("q:"):
             continue
         text = h.get("text") or ""
@@ -503,6 +536,22 @@ def run(cfg, q, forced=None, out=print, on_token=None, run_tests=None, emit=None
         return res
     r, why = (forced, "forced") if forced else route(q)
     res = {"question": q, "route": r, "why": why, "steps": [], "status": "started"}
+    fd = None if forced else faq_direct(cfg, q)                # PERF-1: curated answer before any search
+    if fd and r == "investigate" and fd["match"] < 0.8:
+        fd = None
+    if fd:
+        text = fd["answer"] + " [1]"
+        cit = {"n": 1, "source": fd["file"], "heading": "Q: " + fd["heading"], "label": "DOCUMENTED (repo)",
+               "updated": None, "snippet": fd["answer"][:300]}
+        res.update(route="faq", why=f"curated FAQ answer (match {fd['match']}) - no search, no model", faq=fd,
+                   retrieval_ms=0.0, citations=[cit])
+        emit({"type": "meta", "route": "faq", "why": res["why"], "retrieval_ms": 0.0, "citations": [cit]})
+        emit({"type": "sources", "sources": [{"n": 1, "source": cit["source"], "label": cit["label"]}]})
+        (on_token or (lambda t: (sys.stdout.write(t), sys.stdout.flush())))(text)
+        out("")
+        res.update(status="completed", answer=text, citations_valid=True,
+                   total_ms=round((time.perf_counter() - t0) * 1000))
+        return res
     hits, ms = evidence(cfg, q, FAST["k"] if r != "lookup" else 6)
     res["retrieval_ms"] = round(ms, 1)
     res["citations"] = [{"n": i + 1, "source": h["source"], "heading": h["heading"], "label": h["label"],

@@ -8,8 +8,12 @@ import csv
 _DANGER = ("=", "+", "-", "@", "\t", "\r")
 
 
+_TRIM = " \t\r\n"
+
+
 def safe_cell(v):
-    if isinstance(v, str) and v.startswith(_DANGER):
+    # Gemini 23 Nov: " =cmd" or a line break before "=cmd" is a formula too once the cell is trimmed.
+    if isinstance(v, str) and v.lstrip(_TRIM).startswith(_DANGER):
         return "'" + v
     return v
 

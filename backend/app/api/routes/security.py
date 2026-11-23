@@ -325,6 +325,11 @@ def report_event(meta: str = Form(..., max_length=2000),
         people_seen, people_inside = int(m.get("people_seen", 0) or 0), int(m.get("people_inside", 0) or 0)
     except (TypeError, ValueError):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "people counts must be numbers")
+    # Gemini 23 Nov (B-09): the columns are 32-bit; a huge number was a database error (500), True counted as 1.
+    if any(isinstance(m.get(k), bool) for k in ("zone_id", "people_seen", "people_inside")) or not (
+            0 <= people_seen <= 10000 and 0 <= people_inside <= 10000
+            and (zone_id is None or 0 < zone_id <= 2_147_483_647)):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "meta numbers out of range")
     device_scope(identity, str(m.get("device_uid", "")))
     d = get_device(db, str(m.get("device_uid", "")))
     kind = str(m.get("kind", ""))

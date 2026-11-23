@@ -188,6 +188,9 @@ def confirm(booking_id: int, db: Session = Depends(get_db),
         # ultracode B-10: a finished booking is history - re-confirming issued a new door token for a past window
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "Cancelled, rejected or completed bookings cannot be confirmed")
+    if _utc(b.end_time) <= datetime.now(timezone.utc):   # Gemini 23 Nov (B-10): nothing marks a past booking
+        raise HTTPException(status.HTTP_409_CONFLICT,    # COMPLETED, so the time itself decides
+                            "This booking window has already ended")
     confirm_booking(db, b, issue_token=True)
     db.commit()
     db.refresh(b)
@@ -218,6 +221,8 @@ def cancel(booking_id: int, db: Session = Depends(get_db),
                             "This booking is already cancelled")
     if b.status == BookingStatus.COMPLETED:          # B-10: history is not rewritten
         raise HTTPException(status.HTTP_409_CONFLICT, "A completed booking cannot be cancelled")
+    if _utc(b.end_time) <= datetime.now(timezone.utc):   # Gemini 23 Nov (B-10): a past window is history
+        raise HTTPException(status.HTTP_409_CONFLICT, "This booking window has already ended")
     cancel_booking(db, b, user)
     db.refresh(b)
     return _decorate(db, b)

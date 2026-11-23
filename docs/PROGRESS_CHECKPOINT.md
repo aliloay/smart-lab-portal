@@ -1,5 +1,15 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-23 afternoon - Gemini independent audit answered (reports/claude-gemini-audit-response-2026-11-23/RESPONSE_AND_FIXES.md)
+- Fixed (verified first; Gemini was wrong on B-02 lab_id rewrite, 4 "missing" CSV routes, vault RAG boost/broken links, FE-3):
+  V-F1 peer liveness by frame_t (handoff, share, seats), V-F3 look-guess logged as re-acquire / not given when the labeler would wipe it,
+  V-F5 capture loop restarts, V-F7 FRESH_S 2.0 + crowded = no joints, V-F9 DirectML load under GPU_LOCK, V-F12 prune; B-01 students
+  no longer see camera names/activity or PC os_user; B-02 lab scope on heartbeat/equipment state/robot telemetry; B-03 bin row locks;
+  B-08 CSV trim; B-09 meta ranges; B-10 past bookings not confirmable/cancellable; ROB-2/3 both cameras; portal guard
+  (services/agent_guard.py: control / secrets / opening hours) K5 K10, K2, K9, K7; PERF-1 FAQ in memory before search (1.9 s -> 3-5 ms,
+  route eval unchanged 52/60, 16/20, 0 wrong); FE-4; reports/**/*.mp4 ignored. Not applied (reasons in the report): door scope, bin kind filter.
+- Backup: tag pre-gemini-fixes-20261123, backups/predeploy_gemini_fixes_20261123.dump.
+
 ## UPDATE 2026-11-23 - showcase video V3 finished (NOT committed; videos are not for git)
 - Exports (PASS: 1080p30 H.264/AAC, -16 LUFS, <= -1.4 dBTP, SRT = burned captions): reports/final-smart-lab-closure-2026-11-18/
   SMART_RESEARCH_LAB_FINAL_SHOWCASE_V3.mp4 (6:15) + _720p_share, SMART_RESEARCH_LAB_DEFENSE_CUT_V3.mp4 (3:20), SMART_RESEARCH_LAB_SOCIAL_CUT_V3.mp4 (0:52), each with .srt. V1/V2 untouched.

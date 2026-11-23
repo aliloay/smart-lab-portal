@@ -817,6 +817,8 @@ def _ollama_stream(model: str, messages: list[dict], num_predict: Optional[int] 
                         part = json.loads(line)
                     except ValueError:
                         continue
+                    if part.get("error"):            # Gemini 23 Nov (K9): was swallowed -> "No answer was produced."
+                        raise AIUnavailable(f"The local model stopped with an error: {str(part['error'])[:200]}")
                     piece = (part.get("message") or {}).get("content") or ""
                     if piece:
                         yield piece

@@ -169,7 +169,7 @@ def answer(db: Session, question: str, staff: bool, when, answer_fn, bullets) ->
                          "health_score", {"label": "Open Labs", "to": "/labs"})
 
     # ultracode K2: "model" alone no longer counts as "about the AI" ("What model is the UR5e?" asked the robot)
-    if AI_MODEL.search(q) and re.search(r"\b(ai|assistant|chat|llm|you|language model|ollama|qwen)\b", q):
+    if AI_MODEL.search(q) and re.search(r"\b(ai|assistant|chat|llm|you|language model|ollama|qwen|portal)\b", q):
         from app.services import ai
         portal = ai.model_name() or "not configured"
         kb = _kb_model()

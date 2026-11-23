@@ -265,9 +265,9 @@ def test_faq_live_answers_hold_no_frozen_numbers():
     root = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "faq")
     for p in glob.glob(os.path.join(root, "*.md")):
         for line in open(p, encoding="utf-8"):
-            if line.startswith("**A:** Live:"):
+            if line.startswith("**A:** Live"):          # Gemini 23 Nov: "Live." slipped past "Live:"
                 live_part = line.split("Historical", 1)[0]
-                assert not re.search(r"\b\d+ (labs?|boards?|PCs?)\b", live_part), (p, line)
+                assert not re.search(r"\b\d+ (labs?|boards?|PCs?|PC rows?)\b", live_part), (p, line)
 
 
 # ---------------------------------------------------------------- closure 2026-11-23 ---
@@ -343,3 +343,26 @@ def test_faq_meaning_match_rules(monkeypatch, tmp_path):
     monkeypatch.setattr(agent.kb, "embed", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ollama down")))
     agent._FAQ_SEM.clear()
     assert agent.faq_semantic(cfg, "Which device actually unlocks the door?") is None
+
+
+def test_today_and_now_state_is_live_data():
+    """'Why is the robotics lab closed today?' reached the model, which invented a reason (23 Nov)."""
+    for q in ["Why is the robotics lab closed today?", "Who is inside the lab right now?",
+              "Why did the UR5e stop yesterday?", "Is the lab busy at the moment?"]:
+        assert agent.status_guard(q), q
+    for q in ["When is the Robotics Lab open?", "How does the door decide who is inside?",
+              "What happens when the Wi-Fi router restarts?", "Why is the AI assistant slow?"]:
+        assert not agent.status_guard(q), q
+
+
+# ---------------------------------------------------------------- Gemini audit 2026-11-23 ---
+def test_faq_direct_answers_without_any_search(monkeypatch, tmp_path):
+    """PERF-1: a curated FAQ question is answered from memory - the search (Ollama embed) is never called."""
+    faq = tmp_path / "docs" / "faq"
+    faq.mkdir(parents=True)
+    (faq / "lab.md").write_text(HOURS, encoding="utf-8")
+    monkeypatch.setattr(agent, "evidence", lambda *a, **k: (_ for _ in ()).throw(AssertionError("searched")))
+    res = agent.run({"repo": str(tmp_path)}, "When is the Robotics Lab open?", out=lambda *a: None,
+                    on_token=lambda t: None)
+    assert res["route"] == "faq" and "8:30" in res["answer"] and res["retrieval_ms"] == 0.0
+    assert agent.faq_direct({"repo": str(tmp_path)}, "Where is the Robotics Lab?") is None   # where != when

@@ -139,6 +139,8 @@ class IdentityLedger:
             if rec.label != t.label:                       # newly named (by door, face, look or place)
                 rec.label, rec.source, rec.named_at = t.label, t.source, now
                 how = getattr(t, "named_by", None) or t.source or "?"
+                if t.source == "look":                     # Gemini 23 Nov (V-F3): a look guess is a re-acquire,
+                    how = "look"                           # never a CONFIRMED event at face strength
                 strength = c.reacquire_strength if how in REACQUIRE_HOW else (
                     c.fused_strength if t.verified else
                     c.door_strength if t.source == "door" else c.face_strength)
