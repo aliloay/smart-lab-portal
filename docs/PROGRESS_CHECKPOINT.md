@@ -1,5 +1,9 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-23 evening - next-gen upgrades merged and live (reports/smart-lab-next-generation-upgrade-research-2026-11-23/FINAL_STATE_REPORT_2026-11-23.md)
+- 8d9b8d5 live as 8d9b8d5-20261123205514. Tests on it: backend 933/3 skipped, cameras 423, knowledge 86, robots 44, PC agent 44, relay 6, frontend unit 19.
+- Open: signed PC agent bundle still without frame skipping (owner OK, try one PC first); screen share on real PCs; query card in a signed-in browser.
+
 ## UPDATE 2026-11-23 afternoon - Gemini independent audit answered (reports/claude-gemini-audit-response-2026-11-23/RESPONSE_AND_FIXES.md)
 - Fixed (verified first; Gemini was wrong on B-02 lab_id rewrite, 4 "missing" CSV routes, vault RAG boost/broken links, FE-3):
   V-F1 peer liveness by frame_t (handoff, share, seats), V-F3 look-guess logged as re-acquire / not given when the labeler would wipe it,
