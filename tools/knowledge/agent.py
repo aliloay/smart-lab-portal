@@ -86,6 +86,15 @@ GUARD_SECRET = re.compile(r"(?i)\b(what(?:'s| is| are)|show|print|give|tell me|r
 GUARD_NODE = re.compile(r"(?i)^(?=.*\b(measur\w*|sens\w*|detect\w*|read\w*|count\w*)\b)"
                         r"(?=.*\b(capacitance|resistance|ohms?|farads?|ppm|co2|carbon dioxide|concentration|voltage|pressure|lux)\b)")
 GUARD_LIVE = re.compile(r"(?i)\b(yesterday|today|tonight|right now|currently|at the moment|last (hour|night|reading)|this (morning|week))\b")
+# Closure C-06 (23 Nov): "Is the environment node online?" was answered "ONLINE" from old documents while the node had
+# been offline for hours. A yes/no question about a device's CURRENT state, or "when was X last seen", is live data.
+# "How does the portal decide a node is offline?" still goes to the documents.
+_DEVICE = (r"(node|nodes|esp32s?|board|boards|camera|cameras|robot|robots|ur5e|fanuc|pc|pcs|computer|computers|"
+           r"server|bin|bins|master|controller|sensor|sensors|relay|agent|device|devices|cam_lab01|master_lab01|"
+           r"env_lab01|bin_node_1|reuse_bin_1|seccam_lab0[12])")
+GUARD_STATUS = re.compile(rf"(?i)^\s*(is|are|was|were)\b(?=.*\b{_DEVICE}\b).*\b(online|offline|connected|disconnected|up|"
+                          r"down|reachable|alive|working|running)\s*(now|right now|at the moment)?\s*[?.!]*\s*$"
+                          r"|\b(when|what time)\b.*\blast (seen|heartbeat|online|report(ed)?)\b")
 
 GUARD_TEXT = {
     "action": ("The project assistant is read-only and cannot move robots, open the door, switch relays or alarms, "
@@ -100,8 +109,9 @@ GUARD_TEXT = {
              "is an estimate (mass / unit mass); the reusable bin identifies items by NFC tag. The environment node gives "
              "temperature and humidity (DHT22); its MQ-2 gas input is an on/off alarm, not ppm, and there is no CO2 "
              "sensor; flame and motion are on/off [1]."),
-    "live": ("The project knowledge holds documents and code, not live or past sensor readings. For current values "
-             "use 'Ask the lab' (the Lab data tab) in the portal, which answers from the database [1]."),
+    "live": ("The project knowledge holds documents and code, not live or past sensor readings or device status. For "
+             "current values, or whether a device is online and when it was last seen, use 'Ask the lab' (the Lab data "
+             "tab) or the Devices page in the portal, which answer from the database [1]."),
 }
 GUARD_SRC = {
     "action": [("docs/ROBOT_CONTROL.md", "robot control stays UNAVAILABLE until commissioning"), ("CLAUDE.md", "door only from the Master ESP32")],
@@ -123,6 +133,8 @@ def guard(q: str):
     if node:
         return "node"
     if live and re.search(r"(?i)\b(read|reading|measured|temperature|humidity|weight|value|ppm|level)\b", q):
+        return "live"
+    if GUARD_STATUS.search(q):
         return "live"
     return None
 
@@ -323,16 +335,24 @@ _FAQ_STOP = set("the a an is are was were be does do did of in on at to for my m
 # "Where is the Robotics Lab?" (2 of 3 words) and got the room as a cited answer; "Why doesn't the door open?"
 # got the door speed. Now the question word (and "how many/much/long/fast") must agree, a negation on one side
 # only is a mismatch, and the asker's content words must be covered >= 0.8 (the FAQ side >= 0.6 as before).
-_QWORD = re.compile(r"(how (?:many|much|long|fast|often|old)|what|which|who|whom|whose|where|when|why|how)")
-_NEG = re.compile(r"(not|never|no|cannot|without)|n't")
+_QWORD = re.compile(r"\b(how (?:many|much|long|fast|often|old)|what|which|who|whom|whose|where|when|why|how)\b")
+_NEG = re.compile(r"\b(not|never|no|cannot|without)\b|n't\b")
+
+
+_WHAT_TIME = re.compile(r"\b(?:what|which) time\b|\bat what time\b")
+
+
+def _faq_norm(s: str) -> str:
+    """Closure 23 Nov: "what time does the lab close?" asks WHEN - it missed the hours FAQ (40 s model answer)."""
+    return _WHAT_TIME.sub("when", s.lower().replace("’", "'"))
 
 
 def _faq_words(s: str) -> set:
-    return {w for w in re.findall(r"[a-z0-9]+", s.lower().replace("-", " ")) if w not in _FAQ_STOP and len(w) > 1}
+    return {w for w in re.findall(r"[a-z0-9]+", _faq_norm(s).replace("-", " ")) if w not in _FAQ_STOP and len(w) > 1}
 
 
 def _faq_qword(s: str) -> Optional[str]:
-    m = _QWORD.search(s.lower().replace("’", "'"))
+    m = _QWORD.search(_faq_norm(s))
     return m.group(1) if m else None
 
 

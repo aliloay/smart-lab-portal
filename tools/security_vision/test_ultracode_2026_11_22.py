@@ -118,3 +118,32 @@ def test_published_tracks_are_a_copy_of_the_pass():
     snap = [copy.copy(t) for t in [live]]
     live.label, live.name = "USER2", None          # the Labeler mid-decision in the next pass
     assert snap[0].label == "USER1" and snap[0].name == "Ali"
+
+
+# ---- 23 Nov closure: regression tests for fixes that had none (V-F10, V-F12) ----
+import vision
+
+
+def test_one_name_is_never_handed_back_to_two_new_people_in_one_pass(monkeypatch):
+    """V-F10: the same name lost on two tracks at two places must come back on ONE new person only."""
+    lab = vision.Labeler()
+    monkeypatch.setattr(lab, "_distance", lambda t, label: 0.10)
+    a = vision.Track(id=1, box=(100, 100, 60, 150), first_seen=7.0, last_seen=10.0, label="USER6", name="Nour",
+                     role="Student", source="face", vel=(0.0, 0.0))
+    b = vision.Track(id=3, box=(600, 100, 60, 150), first_seen=7.0, last_seen=10.0, label="USER6", name="Nour",
+                     role="Student", source="face", vel=(0.0, 0.0))
+    lab._hand_back([a, b], {}, 10.0)
+    lab._hand_back([], {}, 12.0)                                   # both tracks end
+    n1 = vision.Track(id=4, box=(100, 100, 60, 150), first_seen=12.5, last_seen=12.5)
+    n2 = vision.Track(id=5, box=(600, 100, 60, 150), first_seen=12.5, last_seen=12.5)
+    lab._hand_back([n1, n2], {}, 12.5)
+    assert [n1.label, n2.label].count("USER6") == 1
+
+
+def test_veto_counters_of_gone_tracks_are_dropped():
+    """V-F12: `_unlike` must not keep a counter for every track id ever seen."""
+    lab = vision.Labeler()
+    lab._unlike = {tid: 1 for tid in range(500)}
+    live = vision.Track(id=7, box=(0, 0, 10, 10), first_seen=0.0, last_seen=0.0)
+    lab._veto([live])
+    assert set(lab._unlike) <= {7}

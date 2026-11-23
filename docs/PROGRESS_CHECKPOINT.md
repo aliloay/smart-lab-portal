@@ -1,5 +1,19 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-23 - showcase video V3 finished (NOT committed; videos are not for git)
+- Exports (PASS: 1080p30 H.264/AAC, -16 LUFS, <= -1.4 dBTP, SRT = burned captions): reports/final-smart-lab-closure-2026-11-18/
+  SMART_RESEARCH_LAB_FINAL_SHOWCASE_V3.mp4 (6:15) + _720p_share, SMART_RESEARCH_LAB_DEFENSE_CUT_V3.mp4 (3:20), SMART_RESEARCH_LAB_SOCIAL_CUT_V3.mp4 (0:52), each with .srt. V1/V2 untouched.
+- Fixed V2 privacy leaks (camera name labels + people list, Windows profile 'ali', 'HEMALY' PC name, Obsidian ChatGPT-count note), UR5e/ESP32 pronunciation,
+  outdated counts; added measured door timings, store-and-forward, grant photo (illustration), bin calibration, 5 ESP32 boards. n8n line: 26 active of 27 (live, read-only).
+- Reports: reports/claude-video-v3-finalization-2026-11-22/ (16 files; start with EXECUTIVE_VIDEO_REVIEW.md). Build: D:/SmartLabData/showcase_2026-11-22/build_v3/.
+- Owner: film missing shots (REMAINING_SHOTS_AND_OWNER_ACTIONS.md), fix the RFID 7/8 vs 8/10 doc mismatch, listen once on speakers.
+
+## UPDATE 2026-11-23 - final execution closure (reports/claude-final-execution-closure-2026-11-23/; worktree C:/Projects/smart-lab-claude-closure, branch claude/final-closure-2026-11-23, base d023e98; NOT committed)
+- Verified the 40 d023e98 findings; K1 and B-11 were broken and are repaired: C-02 (backspace chars in the FAQ regex), C-01 (locked re-read without populate_existing). Also C-03 ("what time" = when, 40 s -> 0.14 s), C-06 (device-status questions -> live guard; was answering "ONLINE" from old docs).
+- Tests: backend 903/3 skipped, cameras 413/2 skipped, knowledge 82, robots 43+1, PC agent 40, relay 6, face 21+1, frontend tsc 0 / unit 16 / build OK.
+- DEPLOYED 23 Nov 06:35: images via tools/deploy/build_images.ps1 (stamp d023e98-dirty-20261123063157, rollback tag pre-closure-20261123); knowledge service restarted (independent process). Backup backups/predeploy_closure_20261123_0214.dump.
+- Open: all 5 ESP32s offline (Smart_Lab Ethernet link down at home); GIU camera validation; 1N4007 + 20-relock; n8n error handler inactive; push. Upgrade research: reports/smart-lab-next-generation-upgrade-research-2026-11-23/.
+
 ## UPDATE 2026-11-22 - ultracode upgrade (worktree C:/Projects/smart-lab-claude-ultracode, branch claude/max-ultracode-system-upgrade-2026-11-22, base 9378f20; NOT committed / deployed)
 - 39 new findings (reports/claude-ultracode-full-system-upgrade-2026-11-22/PRIORITIZED_BUG_BACKLOG.csv); 30 fixed + 2 partly, B-01 kept (owner), 6 next.
 - Key: FAQ wrong-question answers (K1), guard bypass (K5), dead camera stream kept people (V-F1/F2), look-only confirmed names -> guess (V-F3),
@@ -30,8 +44,8 @@
 ## UPDATE 2026-11-20/21 (home, all 5 ESP32 nodes connected) - DEPLOYED, NOT pushed (latest 0deb0e8)
 - Laptop 32 GB RAM; .wslconfig memory=10GB processors=6; Best performance on AC; launch.bat must be started via explorer.exe
   (from a VS Code terminal it inherits backend/.venv: mDNS failed, knowledge ran twice).
-- Firmware flashed (backups in D:\SmartLabDatairmware_backup): master portal-1.2 (NFC recovery, store and forward, relock
-  guard), bin-0.6 (guided calibration LCD), ESP32-CAM idle-throttle on core 3.2.1 (D:\SmartLabDatarduino_core321). COM6 master,
+- Firmware flashed (backups in D:\SmartLabData\firmware_backup): master portal-1.2 (NFC recovery, store and forward, relock
+  guard), bin-0.6 (guided calibration LCD), ESP32-CAM idle-throttle on core 3.2.1 (D:\SmartLabData\arduino_core321). COM6 master,
   COM7 bin, COM8 CAM. Env (env-0.1.1) and reusable (reuse-mod-0.5) online, nothing to flash.
 - Portal: Users & roles 500 fixed (.local email on output) + pending sign-ups with Approve; entry camera online from the master's
   report; guided bin calibration + one scale several items (migration a7b3c9d1e240, additive); New bin = new item on a scale;
@@ -44,7 +58,7 @@
   Owner decisions: no extra wires, Nagy slot 3 as is, ahmed left pending (approval demo).
 
 ## UPDATE 2026-11-19 afternoon - prepared for the ESP32 session (owner away)
-Firmware images (4 nodes) in D:\SmartLabDatairmware_builds_20261119 (compile only); ESP32-CAM core 3.2.1 install
+Firmware images (4 nodes) in D:\SmartLabData\firmware_builds_20261119 (compile only); ESP32-CAM core 3.2.1 install
 incomplete (needs download OK). Thesis paste file, assistant recheck, V2 film QA: see
 reports/final-smart-lab-closure-2026-11-18/FINAL_SMART_LAB_REMAINING_WORK.md (last section).
 

@@ -6,7 +6,7 @@ Also asked: where is LAB_01, robotics lab location, which room is the robotics l
 Source: `labs.location` (live value; edited from the Laboratories page), 21 Nov 2026
 
 ## Q: When is the Robotics Lab open?
-Also asked: robotics lab opening hours, what time does the robotics lab open, when does the lab close, lab working hours, lab timings, lab schedule
+Also asked: robotics lab opening hours, what time does the robotics lab open, when does the robotics lab close, when does the lab close, when does the robotics lab open, lab working hours, lab timings, lab schedule
 **A:** The Robotics Lab follows the university's five teaching slots. It opens at 8:30 AM, when slot 1 starts, and closes at 5:15 PM, when slot 5 ends (slot 5 runs 3:45 to 5:15 PM). That is 8 hours 45 minutes a day. Each slot is about 1.5 hours.
 Source: owner (lab hours follow the GIU slot timetable), 23 Nov 2026
 

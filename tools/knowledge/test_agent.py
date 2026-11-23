@@ -268,3 +268,27 @@ def test_faq_live_answers_hold_no_frozen_numbers():
             if line.startswith("**A:** Live:"):
                 live_part = line.split("Historical", 1)[0]
                 assert not re.search(r"\b\d+ (labs?|boards?|PCs?)\b", live_part), (p, line)
+
+
+# ---------------------------------------------------------------- closure 2026-11-23 ---
+HOURS = ("## Q: When is the Robotics Lab open?\nAlso asked: when does the robotics lab close\n"
+         "**A:** 8:30 AM to 5:15 PM.\nSource: owner\n")
+
+
+def test_what_time_is_asked_as_when():
+    """'What time does the robotics lab close?' asks WHEN: it must reach the hours FAQ (was a 40 s model answer),
+    while 'Where ...' still does not."""
+    hits = _faq_hit("Q: When is the Robotics Lab open?", HOURS)
+    assert agent.faq_answer("What time does the robotics lab close?", hits)["answer"] == "8:30 AM to 5:15 PM."
+    assert agent.faq_answer("At what time does the Robotics Lab open?", hits) is not None
+    assert agent.faq_answer("Where is the Robotics Lab?", hits) is None
+
+
+def test_current_device_status_is_live_data_not_documents():
+    """C-06: 'Is the environment node online?' got 'ONLINE' from old documents while the node was offline."""
+    for q in ["Is the environment node online?", "Are the ESP32 boards connected?", "Is SECCAM_LAB02 running right now?",
+              "When was the consumables bin last seen?"]:
+        assert agent.guard(q) == "live", q
+    for q in ["How does the portal decide a node is offline?", "Is the system usable offline?",
+              "Why is a robot marked stale?", "Does the door work offline?"]:
+        assert agent.guard(q) is None, q
