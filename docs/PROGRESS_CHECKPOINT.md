@@ -9,6 +9,7 @@
   (services/agent_guard.py: control / secrets / opening hours) K5 K10, K2, K9, K7; PERF-1 FAQ in memory before search (1.9 s -> 3-5 ms,
   route eval unchanged 52/60, 16/20, 0 wrong); FE-4; reports/**/*.mp4 ignored. Not applied (reasons in the report): door scope, bin kind filter.
 - Backup: tag pre-gemini-fixes-20261123, backups/predeploy_gemini_fixes_20261123.dump.
+- Verified: commit 642897c (local), portal live as 642897c-20261123173505, backend 925 passed / 3 skipped, cameras 423, knowledge 86; today/now guard live-verified.
 
 ## UPDATE 2026-11-23 - showcase video V3 finished (NOT committed; videos are not for git)
 - Exports (PASS: 1080p30 H.264/AAC, -16 LUFS, <= -1.4 dBTP, SRT = burned captions): reports/final-smart-lab-closure-2026-11-18/
