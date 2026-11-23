@@ -41,7 +41,13 @@ This round builds the upgrade research's #2 item (a held-out AI evaluation set) 
 | Where is the Robotics Lab? | faq | 0.13 s | `docs/faq/lab-and-access.md` |
 | Why is the robotics lab closed today? | model (correctly not FAQ) | 15.7 s | - |
 
-**Open (model behaviour, not routing):** for "Why is the robotics lab closed today?" the model guessed a reason ("because it follows the university's slots"); no closure is recorded. This needs an "unknown" prompt rule or an evaluation case for the model route. That's next for the AI evaluation set (research S04), alongside a model-answer check.
+**Closed later the same day:** for "Why is the robotics lab closed today?" the model had guessed a reason ("because it follows the university's slots"); no closure is recorded anywhere.
+- **Fix:** `GUARD_NOW_STATE` + `status_guard()`. A question that combines a time-now word (today, now, yesterday, at the moment …) with a state word (closed, open, busy, booked, stopped, failed, who, inside …) is live state. It gets the live-data pointer, after the FAQ check and before the model.
+- **Test:** `test_today_and_now_state_is_live_data` (4 must-guard and 4 must-not-guard questions).
+- **Results:** knowledge suite 85 passed; routing sets unchanged (52/60, hold-out 16/20, 0 wrong FAQ).
+
+## Camera inference packages pinned (research item S02, 23 Nov)
+`tools/security_vision/requirements.txt`: `openvino==2026.4.1` and `onnxruntime-directml==1.24.4`. These are exactly the versions installed and running (`pip list`, 23 Nov). DirectML gets no new features, so an unpinned reinstall could break the GTX 1650 path. Nothing was installed or changed on the machine.
 
 ## Tests
 Knowledge suite: **84 passed**. New tests:

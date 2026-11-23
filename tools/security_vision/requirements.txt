@@ -4,5 +4,8 @@ flask
 waitress
 requests
 psutil
-openvino>=2026.4             # YOLO26 on the CPU, faster than plain onnxruntime
-onnxruntime-directml>=1.24  # YOLO26 on the graphics card (GTX 1650: ~30 ms/frame)
+# 23 Nov 2026: the two inference engines are PINNED to the versions running on this laptop (pip list 23 Nov). DirectML
+# receives no new features, so an unpinned reinstall could pull a build that breaks the GTX 1650 path. Change only
+# after re-running `py -m pytest -q tools/security_vision` and a live camera check.
+openvino==2026.4.1             # YOLO26 on the CPU, faster than plain onnxruntime
+onnxruntime-directml==1.24.4   # YOLO26 on the graphics card (GTX 1650: ~30 ms/frame)
