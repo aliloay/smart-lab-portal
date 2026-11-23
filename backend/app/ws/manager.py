@@ -115,6 +115,11 @@ class ConnectionManager:
             # "A lab PC changed (agent on/off, cable, user, mode, action) - refetch /equipment":
             # staff pages only (GET /equipment is staff-only).
             return client.is_staff
+        if kind == "frame_hint":
+            # 2026-11-23: "a new screen picture exists - fetch it now" (a stamp only, no image). A lab PC's screen:
+            # staff only, like GET /equipment/{id}/screen.jpg. The presented share: everyone who may watch /share
+            # (the frame route itself still applies the staff-only audience rule).
+            return client.is_staff if message.get("scope") == "pc" else True
         if kind == "share_state":
             # Screen sharing started / stopped: everyone signed in may watch /share.
             return True

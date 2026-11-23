@@ -628,6 +628,12 @@ async def pc_frame(request: Request, device_uid: str = Query(max_length=64),
     if not pc_control.is_watched(did):
         raise HTTPException(status.HTTP_409_CONFLICT, "Nobody is viewing this screen")
     body = await request.body()
+    if not body and request.headers.get("x-frame-unchanged") == "1":
+        # 2026-11-23: the screen did not change - keep the stored picture fresh instead of re-uploading it.
+        # 428 = nothing stored (backend restarted / frame expired): the agent sends a full frame next.
+        if pc_control.touch_frame(did):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Send a full frame")
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
     pc_control.put_frame(did, body)
@@ -654,15 +660,20 @@ def screen_start(device_id: int, opts: Optional[ViewOpts] = None, db: Session = 
 
 @router.get("/{device_id}/screen.jpg")
 def screen_frame(device_id: int, db: Session = Depends(get_db),
-                 staff: User = Depends(require_staff)):
-    """Latest frame, or 204 while the agent has not sent one yet."""
+                 staff: User = Depends(require_staff),
+                 if_none_match: Optional[str] = Header(None)):
+    """Latest frame, or 204 while the agent has not sent one yet. 304 when the viewer already has it
+    (2026-11-23: ETag = the picture's stamp, so an unchanged screen costs a few bytes, not the JPEG)."""
     d = _pc(db, device_id, staff)
     pc_control.touch_viewer(d.id)
-    jpeg = pc_control.latest_frame(d.id)
+    jpeg, stamp = pc_control.latest_frame_stamped(d.id)
     if jpeg is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    etag = f'"pc{stamp}"'
+    if if_none_match == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag, "Cache-Control": "no-store"})
     return Response(content=jpeg, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
+                    headers={"Cache-Control": "no-store", "ETag": etag})
 
 
 @router.post("/{device_id}/screen/stop")
@@ -1053,6 +1064,11 @@ async def broadcast_frame_from_master(request: Request, device_uid: str = Query(
     if not ok:
         raise HTTPException(status.HTTP_409_CONFLICT, "Not presenting from this PC")
     body = await request.body()
+    if not body and request.headers.get("x-frame-unchanged") == "1":
+        # 2026-11-23: presenter's screen unchanged - refresh the current picture (same ETag for the viewers).
+        if pc_control.broadcast_touch(st.get("session")):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Send a full frame")
     if not body.startswith(b"\xff\xd8") or len(body) > pc_control.MAX_FRAME_BYTES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Expected a JPEG under 1.5 MB")
     if not pc_control.broadcast_put(body, st.get("session")):
@@ -1061,14 +1077,16 @@ async def broadcast_frame_from_master(request: Request, device_uid: str = Query(
 
 
 @router.get("/broadcast/frame.jpg")
-def broadcast_frame(viewer: User = Depends(get_current_user)):
+def broadcast_frame(viewer: User = Depends(get_current_user), if_none_match: Optional[str] = Header(None)):
     """Latest presented frame for anyone signed in (students watch on /share); 204 = none yet,
     410 = sharing has ENDED (the viewer clears the picture at once instead of showing the last frame
-    until its next status check - "stop does not stop immediately", 2026-10-21)."""
+    until its next status check - "stop does not stop immediately", 2026-10-21).
+    2026-11-23: the ETag was computed but this route never read If-None-Match, so every poll re-downloaded
+    the whole JPEG; now an unchanged picture is a 304."""
     st = pc_control.broadcast_state()
     if st.get("audience") == "staff" and viewer.role not in (Role.ADMIN, Role.LAB_STAFF) and viewer.id != st.get("by_id"):
         return Response(status_code=status.HTTP_410_GONE)          # not shown to the other students
-    return _frame_response()
+    return _frame_response(if_none_match)
 
 
 def _frame_response(if_none_match: Optional[str] = None) -> Response:

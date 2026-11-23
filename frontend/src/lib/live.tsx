@@ -20,6 +20,8 @@ export type LiveMessage =
   | { type: 'security_state'; device_id: number; lab_id: number }
   | { type: 'pc_state'; device_id: number | null }            // a lab PC changed: refetch /equipment (staff)
   | { type: 'share_state' }                                    // screen sharing started / stopped
+  /** 2026-11-23: a new screen picture exists - fetch it now (a stamp only; pc = staff, broadcast = everyone). */
+  | { type: 'frame_hint'; scope: 'pc' | 'broadcast'; device_id?: number; stamp: number }
   | { type: 'staff'; kind: string; issue_id?: number; event?: string
       command_id?: number; status?: string; step?: string | null }
   /** The administrator's emergency message / alarm for one lab (everyone). */

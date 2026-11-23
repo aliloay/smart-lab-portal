@@ -8,32 +8,52 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Cast, Crown, LayoutGrid, MonitorPlay, MonitorUp, Square, X } from 'lucide-react'
-import { BroadcastState, MasterNow, ShareRequest, api, fetchBlob } from '../lib/api'
+import { BroadcastState, MasterNow, ShareRequest, api, fetchFrame } from '../lib/api'
 import { relative } from '../lib/time'
 import { cancelPreview, canCaptureHere, goLive, isCapturing, noPictureYet, onShareChange, pendingPreview, pickScreen, stopShare } from '../lib/screenShare'
 import { PcScreenViewer } from './PcControls'
+import { hintMatches, nextDelay } from '../lib/frameHint'
 import { useLiveMessages } from '../lib/live'
 import { Chip } from './ui'
 
-/** Live JPEG from an endpoint, refreshed every `ms` (object URLs revoked). */
+/** Live JPEG from an endpoint (object URLs revoked).
+ *  2026-11-23: fetched the moment the live socket says a new picture exists (frame_hint), revalidated with
+ *  ETag (an unchanged picture is a 304 of a few bytes and still counts as fresh), and polled every `ms` only
+ *  as a fallback when no hints arrive (socket down / older backend). */
 export function useLiveJpeg(path: string | null, ms: number, onGone?: () => void) {
   const [src, setSrc] = useState<string | null>(null)
   const gone = useRef(onGone)
   gone.current = onGone
   const [at, setAt] = useState<number | null>(null)
   const url = useRef<string | null>(null)
+  const kick = useRef<() => void>(() => {})
+  const lastHint = useRef(0)
+  useLiveMessages(m => {
+    if (m.type === 'frame_hint' && path && hintMatches(path, m)) {
+      lastHint.current = Date.now()
+      kick.current()
+    }
+  })
   useEffect(() => {
     if (!path) { setSrc(null); return }
     let stop = false
     let t = 0
     let got = false                       // until the first frame arrives, ask every 200 ms
+    let busy = false
+    let again = false                     // a hint arrived during a fetch: fetch once more right after
+    let etag: string | null = null
     const tick = async () => {
+      if (busy) { again = true; return }
+      busy = true
+      window.clearTimeout(t)
       try {
-        const b = await fetchBlob(path)
-        if (!stop && b.size > 0) {
-          const u = URL.createObjectURL(b)
+        const r = await fetchFrame(path, etag)
+        if (!stop && r.status === 304) setAt(Date.now())          // still the current picture
+        if (!stop && r.blob && r.blob.size > 0) {
+          const u = URL.createObjectURL(r.blob)
           if (url.current) URL.revokeObjectURL(url.current)
           url.current = u
+          etag = r.etag
           setSrc(u)
           setAt(Date.now())
           got = true
@@ -43,15 +63,21 @@ export function useLiveJpeg(path: string | null, ms: number, onGone?: () => void
         if ((e as { status?: number }).status === 410) {
           if (url.current) URL.revokeObjectURL(url.current)
           url.current = null
+          etag = null
           setSrc(null)
           gone.current?.()                          // keep asking: the next share must show up again
         }
       }
-      if (!stop) t = window.setTimeout(tick, got ? ms : Math.min(ms, 200))
+      busy = false
+      if (stop) return
+      if (again) { again = false; void tick(); return }
+      t = window.setTimeout(tick, nextDelay(got, ms, Date.now() - lastHint.current))
     }
+    kick.current = () => { void tick() }
     void tick()
     return () => {
       stop = true
+      kick.current = () => {}
       window.clearTimeout(t)
       if (url.current) URL.revokeObjectURL(url.current)
       url.current = null

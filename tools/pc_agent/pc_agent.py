@@ -56,6 +56,39 @@ import status_tray  # noqa: E402
 
 POLL_S = 1.0            # mode / screen view / messages (1 s: a viewer sees the first frame within ~1-1.5 s)
 FRAME_S = 0.5           # screen view: about two frames a second
+FRAME_KEEPALIVE_S = 2.0  # unchanged screen: a tiny "unchanged" note this often (the portal drops a picture after 5 s)
+
+
+class FrameSender:
+    """2026-11-23 (next-gen upgrade): a static screen (slide, document) is not re-uploaded twice a second.
+    An identical JPEG (the encoders are deterministic) is skipped; every FRAME_KEEPALIVE_S a body-less POST with
+    X-Frame-Unchanged: 1 keeps the portal's copy fresh. An older portal answers that with 422 -> full frames again
+    for this run; 428 (portal restarted / copy expired) -> the full frame is sent at once."""
+
+    def __init__(self) -> None:
+        self.last = None
+        self.last_at = 0.0
+        self.skip_ok = True
+
+    def send(self, http, url: str, params: dict, jpeg: bytes) -> int:
+        import hashlib
+        now = time.monotonic()
+        digest = hashlib.blake2b(jpeg, digest_size=16).digest()
+        if self.skip_ok and digest == self.last:
+            if now - self.last_at < FRAME_KEEPALIVE_S:
+                return 204                                   # nothing new and nothing due yet
+            r = http.post(url, params=params, data=b"", headers={"X-Frame-Unchanged": "1"}, timeout=5)
+            if r.status_code == 204:
+                self.last_at = now
+                return 204
+            if r.status_code == 409:
+                return 409
+            if r.status_code == 422:
+                self.skip_ok = False                          # portal without frame skipping
+        r = http.post(url, params=params, data=jpeg, headers={"Content-Type": "image/jpeg"}, timeout=5)
+        if r.status_code == 204:
+            self.last, self.last_at = digest, now
+        return r.status_code
 FRAME_WIDTH = 1280      # downscaled: enough to read a screen, small to send
 
 WINDOWS = sys.platform == "win32"
@@ -765,6 +798,7 @@ def main():
     mode, mirroring, last_report, last_lock = "NORMAL", False, 0.0, 0.0
     watching_share = False
     presenting = False
+    present_sender, view_sender = FrameSender(), FrameSender()   # 2026-11-23: skip unchanged screens
     maintenance_on = False
     cover_mode = None           # which full-screen cover is shown: None / "MAINTENANCE" / "LOCKED"
     share_viewer, down_since = False, 0.0
@@ -969,9 +1003,9 @@ def main():
                 jpeg = grab_jpeg()
                 if jpeg:
                     try:
-                        r = http.post(args.portal + "/equipment/pc/broadcast-frame", params={"device_uid": args.device},
-                                      data=jpeg, headers={"Content-Type": "image/jpeg"}, timeout=5)
-                        if r.status_code == 409:    # presentation stopped
+                        code = present_sender.send(http, args.portal + "/equipment/pc/broadcast-frame",
+                                                   {"device_uid": args.device}, jpeg)
+                        if code == 409:             # presentation stopped
                             break
                     except requests.RequestException:
                         break
@@ -999,9 +1033,8 @@ def main():
             jpeg = grab_jpeg(int(o.get("monitor", 0)), int(o.get("quality", 60)))
             if jpeg:
                 try:
-                    r = http.post(args.portal + "/equipment/pc/frame", params={"device_uid": args.device},
-                                  data=jpeg, headers={"Content-Type": "image/jpeg"}, timeout=5)
-                    if r.status_code == 409:    # viewer closed
+                    code = view_sender.send(http, args.portal + "/equipment/pc/frame", {"device_uid": args.device}, jpeg)
+                    if code == 409:             # viewer closed
                         break
                 except requests.RequestException:
                     break
