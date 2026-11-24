@@ -1,8 +1,8 @@
 {
 "version": "1.1",
-"bundle_seq": 1794009476,
-"bundle_id": "e8e7e4fc890e",
-"built": "2026-11-17 23:47",
+"bundle_seq": 1795462563,
+"bundle_id": "fdffc6cfcd71",
+"built": "2026-11-24 15:50",
 "files": {
 "Check-CurrentUser.ps1": "743b36f6674a1ada4df9f10b19d20d86c0af511fe64481ac630ef10571bde88f",
 "Install-CurrentUser.ps1": "5751fb50f6b75c14a39fee43c37a6e2fa27b9730b029bd9ae14f339066c65673",
@@ -16,9 +16,9 @@
 "pc_agent/agent_update.py": "f6564dd7b93fb6373929281a52942563c9f09a6a8c41095966a1dbd68981a687",
 "pc_agent/exam_lockdown.py": "15d60f405e7f504de0b1aa992e998f5cc2300f5ad3902f465bfeff23875d7293",
 "pc_agent/notice.py": "4be3f0a1adc633c3146a9b23f644575f641929cd489097c9adcc06d8b6e6ef7b",
-"pc_agent/pc_agent.py": "e3eb2d6f02ceea748c7dc60164b4b65e6b575aeec24a7c1b189ebed3412d05c1",
+"pc_agent/pc_agent.py": "33c58f84c37a441fc49de0910b77bba52a3134bf91cca68176550787c5b09faa",
 "pc_agent/status_tray.py": "c9f128e270ad14f9346e37f08a938a5c0bb04f0cc77ba6e256da47fa34331032",
-"pc_agent/update_state.json": "6a4b942af5622ee1637e425831797d16ffb74672a6d96816a150b16507eb201f",
+"pc_agent/update_state.json": "6439bd79ac36f4d25fffb17e1359adc752c0c70f1275ec96ace87d61663622ba",
 "python/DLLs/_asyncio.pyd": "f9594a2a4f45570dbfdf1f3471194ae7b27dc117c54b9af6bc22df9c93830f8b",
 "python/DLLs/_bz2.pyd": "b938073c85cf6b9fe80556d7899ed1901e5e60b7adea2832442376239fb36b36",
 "python/DLLs/_ctypes.pyd": "408cc4e7a22ffa418ca52f5e13fe9268a3c50a2bc9de02b0530b555ef591bc5a",
