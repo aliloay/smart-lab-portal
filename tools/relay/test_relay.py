@@ -20,7 +20,7 @@ def test_bytes_go_both_ways_through_the_relay():
             w.write(b"portal:" + await r.read(100)); await w.drain(); w.close()
         target = await asyncio.start_server(echo, "127.0.0.1", 0)
         tport = target.sockets[0].getsockname()[1]
-        srv = await asyncio.start_server(relay.handler("127.0.0.1", tport), "127.0.0.1", 0)
+        srv = await asyncio.start_server(relay.handler("127.0.0.1", tport, allow_local=True), "127.0.0.1", 0)
         rport = srv.sockets[0].getsockname()[1]
         r, w = await asyncio.open_connection("127.0.0.1", rport)
         w.write(b"GET /api/health"); await w.drain()
@@ -63,14 +63,72 @@ def test_a_refused_client_is_closed_without_touching_the_portal():
     assert asyncio.run(go()) == 1
 
 
-def test_serve_falls_back_to_all_interfaces_when_specific_ip_is_unavailable():
-    """2026-11-17 S2PC136 relay fix: if --listen specifies a static GIU IP that is not bound on any
-    local adapter (WinError 10049), serve() falls back to 0.0.0.0 so the relay still starts."""
+def test_a_failed_bind_never_opens_another_address():
+    """RELAY-1: it used to fall back to 0.0.0.0."""
     async def go():
-        srvs = await relay.serve("198.51.100.254", [(0, "127.0.0.1", 8000)])
-        ok = len(srvs) == 1
-        for s in srvs:
-            s.close()
-        return ok
-    assert asyncio.run(go()) is True
+        return await relay.serve("198.51.100.254", [(0, "192.0.2.1", 8000)], tries=2, wait_s=0.01)
+    assert asyncio.run(go()) == []
 
+
+def test_the_relay_never_connects_to_this_pc():
+    async def go():
+        me = sorted(relay.local_addresses())
+        hosts = ["127.0.0.1", "localhost", "::1", "0.0.0.0", *[a for a in me if ":" not in a][:2]]
+        got = [await relay.resolve_remote(h, 8000) for h in hosts]
+        return got, await relay.resolve_remote("192.0.2.1", 8000)
+    got, remote = asyncio.run(go())
+    assert set(got) == {None} and remote == "192.0.2.1"
+
+
+async def _chain(**kw):
+    held = []
+
+    async def portal(r, w):
+        held.append(w)
+        try:
+            while (d := await r.read(100)):
+                w.write(d)
+                await w.drain()
+        except ConnectionError:
+            pass
+    t = await asyncio.start_server(portal, "127.0.0.1", 0)
+    srv = await asyncio.start_server(relay.handler("127.0.0.1", t.sockets[0].getsockname()[1], allow_local=True, **kw), "127.0.0.1", 0)
+    return t, srv, srv.sockets[0].getsockname()[1]
+
+
+def test_idle_is_closed_and_busy_is_not():
+    async def go():
+        t, srv, port = await _chain(idle_s=0.6)
+        quiet = await asyncio.open_connection("127.0.0.1", port)
+        busy = await asyncio.open_connection("127.0.0.1", port)
+        for _ in range(8):                                   # 1.2 s of traffic every 0.15 s: longer than the idle limit
+            busy[1].write(b"x")
+            assert await asyncio.wait_for(busy[0].read(1), 2) == b"x"
+            await asyncio.sleep(0.15)
+        closed = await asyncio.wait_for(quiet[0].read(1), 2)
+        busy[1].close()
+        await asyncio.sleep(0.3)
+        srv.close(); t.close()
+        return closed, relay.stats["open"], dict(relay.per_client)
+    assert asyncio.run(go()) == (b"", 0, {})
+
+
+def test_connection_limits_and_no_leak():
+    async def go():
+        t, srv, port = await _chain(max_per_client=3)
+        conns = [await asyncio.open_connection("127.0.0.1", port) for _ in range(6)]
+        await asyncio.sleep(0.3)
+        open_now = relay.stats["open"]
+        refused = 0
+        for r, _ in conns:
+            try:
+                refused += await asyncio.wait_for(r.read(1), 0.2) == b""
+            except asyncio.TimeoutError:
+                pass
+        for _, w in conns:
+            w.close()
+        await asyncio.sleep(0.4)
+        srv.close(); t.close()
+        return open_now, refused, relay.stats["open"], dict(relay.per_client), len(asyncio.all_tasks())
+    open_now, refused, left, clients, tasks = asyncio.run(go())
+    assert (open_now, refused, left, clients) == (3, 3, 0, {}) and tasks <= 4

@@ -118,7 +118,8 @@ def band_colour(color: Optional[np.ndarray], i: int) -> Optional[str]:
     return VAL_NAMES[int(np.argmax(val))]
 
 
-def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False, at_pc: bool = False) -> str:
+def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False, at_pc: bool = False,
+            seated: bool = False) -> str:
     """From the box shape (height / width), as tools/security_vision already reads postures.
     When the box is cut off at the bottom of the frame (legs out of view), reports 'upper body in view'
     rather than mistaking the cropped aspect ratio for 'bending or crouching' or 'lying down'.
@@ -129,9 +130,9 @@ def posture(box, vel=(0.0, 0.0), fh: int = 0, partial: bool = False, at_pc: bool
     clipped = is_bottom_clipped(box, fh=fh, partial=partial)
     if clipped:
         p = "upper body in view"
-    elif r >= 2.2:
+    elif r >= 2.2 and not seated:
         p = "standing"
-    elif r >= 1.4 or at_pc:
+    elif r >= 1.4 or at_pc or seated:
         p = "seated or leaning"
     elif r >= 0.8:
         p = "bending or crouching"
@@ -205,6 +206,25 @@ def place_of(box, zones: list, fw: int, fh: int) -> Optional[tuple[str, bool]]:
     return nearest_zone(box, zones, fw, fh)
 
 
+SEAT_BOX_IOU = 0.4     # the box really is the recorded seated box (someone standing there is clearly taller)
+SEAT_STILL = 0.15      # box heights per second
+
+
+def on_recorded_seat(t, zones: list, fw: int, fh: int) -> bool:
+    """A still person whose box matches a seat recorded at a PC (seat_capture.py: a person SITTING there). Their legs are
+    behind the desk whatever the box shape says. Somebody walking past or standing taller does not match."""
+    if fw <= 0 or fh <= 0 or math.hypot(*getattr(t, "vel", (0.0, 0.0))) / max(t.box[3], 1e-6) > SEAT_STILL:
+        return False
+    p = (t.box[0] / fw, t.box[1] / fh, t.box[2] / fw, t.box[3] / fh)
+    for z in zones:
+        if not (z.get("name") or "").upper().startswith("PC-"):
+            continue
+        for s in (z.get("spots") or ([z["seat"]] if z.get("seat") else [])):
+            if _iou(p, s) >= SEAT_BOX_IOU and p[3] <= 1.25 * s[3]:
+                return True
+    return False
+
+
 def place_words(name: str, at: bool, zones: list, owners: Optional[dict] = None) -> str:
     """"at the UR5e" / "near PC-04 (Eng. Hemaly's desk)" / "most likely at PC-07"."""
     z = next((z for z in zones if z.get("name") == name), {})
@@ -235,8 +255,9 @@ def describe(tracks, zones: list, fw: int, fh: int, max_lines: int = 12,
         crowded = bool(getattr(t, "crowded", False))
         nz = place_of(t.box, zones, fw, fh)
         at_pc = bool(nz and nz[1] and nz[0].upper().startswith("PC-"))
-        desk_occluded = at_pc and t.box[3] < 1.4 * max(t.box[2], 1e-6)
-        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part, at_pc=at_pc)
+        seated = on_recorded_seat(t, zones, fw, fh)
+        desk_occluded = (at_pc and t.box[3] < 1.4 * max(t.box[2], 1e-6)) or seated
+        pose = posture(t.box, getattr(t, "vel", (0.0, 0.0)), fh=fh, partial=is_part, at_pc=at_pc, seated=seated)
         # 2026-11-21 (audit F-16): MEASURED joints from the keypoint model when a fresh pose matched this track
         # (pose.py); otherwise the box-proportion estimate as before (basis tells which one the portal shows).
         from pose import fresh_kps, measured_visibility

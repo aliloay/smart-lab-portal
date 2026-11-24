@@ -228,7 +228,7 @@ def test_handoff_feet_hidden_in_both_views():
     run(cc, [t], lab, pf, HANDOFF_PASSES - 1)
     assert t.label is None                                      # the look must hold first
     run(cc, [t], lab, pf, 1, t0=1000.0 + (HANDOFF_PASSES - 1) * 0.2)
-    assert t.label == "USER1" and t.source == "peer"
+    assert t.label == "USER1" and t.source == "look"             # 2026-11-25: a look alone is a guess, never confirmed
     assert cc.notes[-1]["kind"] == "CROSSCAM_HANDOFF"
 
 

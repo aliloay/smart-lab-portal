@@ -39,6 +39,12 @@ MIN_CELLS = 2                # this many moving cells = the robot moves
 SHAKE_SHARE = 0.3            # coherent flow over at least this share of the box ...
 SHAKE_COHERENCE = 0.9        # ... with nearly identical vectors = camera shake
 OCCLUDED_AT = 0.35
+# Lab 24 Nov 2026: people walking in front of a still robot gave 5.7 % / 3.1 % VISUAL_ANOMALY. Flow cells under a person's
+# box (grown by PERSON_MARGIN: the box is up to one analysis pass old; kept PERSON_HOLD_S after they moved on) are not robot
+# evidence. The other cells still decide, so a moving arm beside a person is seen. Not yet run on live cameras.
+PERSON_MARGIN = 0.25
+PERSON_HOLD_S = 0.8
+PARTLY_HIDDEN = 0.15         # this much masked and no motion seen: OCCLUDED ("cannot say"), not STILL
 PERSIST = 2
 LINGER_S = 3.0
 
@@ -48,6 +54,7 @@ class _State:
     prev: Optional[np.ndarray] = None
     run: int = 0
     last_motion_at: Optional[float] = None
+    masked: dict = field(default_factory=dict)         # (gy, gx) -> last time a person was there
     out: dict = field(default_factory=lambda: {"state": "UNKNOWN"})
 
 
@@ -98,15 +105,25 @@ class RobotVisualMotion:
             flow = cv2.calcOpticalFlowFarneback(prev_n, roi, None, 0.5, 2, 9, 2, 5, 1.1, 0)
             mag = np.linalg.norm(flow, axis=2)
             h, w = mag.shape
-            moving, vecs = 0, []
+            moving, vecs, hidden = 0, [], 0
+            grown = [(p[0] - p[2] * PERSON_MARGIN, p[1] - p[3] * PERSON_MARGIN / 2,
+                      p[2] * (1 + 2 * PERSON_MARGIN), p[3] * (1 + PERSON_MARGIN)) for p in people_norm]
             for gy in range(GRID):
                 for gx in range(GRID):
+                    cx0, cy0 = z["x"] + z["w"] * gx / GRID, z["y"] + z["h"] * gy / GRID
+                    if any(cx0 < b[0] + b[2] and cx0 + z["w"] / GRID > b[0] and cy0 < b[1] + b[3] and cy0 + z["h"] / GRID > b[1]
+                           for b in grown):
+                        st.masked[(gy, gx)] = now
+                    if now - st.masked.get((gy, gx), -1e9) <= PERSON_HOLD_S:
+                        hidden += 1
+                        continue
                     cell = (slice(gy * h // GRID, (gy + 1) * h // GRID), slice(gx * w // GRID, (gx + 1) * w // GRID))
                     m = float(np.median(mag[cell]))
                     if m >= MIN_FLOW_PX:
                         moving += 1
                         vecs.append(np.median(flow[cell].reshape(-1, 2), axis=0))
             share = moving / (GRID * GRID)
+            hid = hidden / (GRID * GRID)
             shake = False
             if vecs and share >= SHAKE_SHARE:
                 v = np.array(vecs)
@@ -119,7 +136,7 @@ class RobotVisualMotion:
                 st.last_motion_at = now
             active = st.last_motion_at is not None and now - st.last_motion_at <= LINGER_S
             d = np.array(vecs).mean(axis=0) / k if vecs else np.zeros(2)
-            st.out = {"state": "MOVING" if active else "STILL", "moving_share": round(share, 2),
+            st.out = {"state": "MOVING" if active else "OCCLUDED" if hid >= PARTLY_HIDDEN else "STILL", "person_masked": round(hid, 2), "moving_share": round(share, 2),
                       "flow_dx": round(float(d[0]), 2), "flow_dy": round(float(d[1]), 2),
                       "magnitude": round(float(np.linalg.norm(d)), 2), "camera_shake": shake,
                       "occlusion": round(occ, 2), "last_motion_at": st.last_motion_at}

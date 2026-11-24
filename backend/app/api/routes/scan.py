@@ -254,11 +254,13 @@ def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_
     else:
         out = live_target.answer(db, user, req.question, card, person)
     if out is None:
-        from app.api.routes.ai import _knowledge_lookup, _run
+        from app.api.routes.ai import _instant, _knowledge_lookup, _run
         hist = [{"role": "user", "content": live_target.context_text(card, person)},
                 {"role": "assistant", "content": "Understood - I will answer from that live data only."}]
         hist += [h for h in req.history if h.get("role") in ("user", "assistant") and isinstance(h.get("content"), str)][-4:]
-        out = _knowledge_lookup(db, user, req.question) or _run(db, user, req.question, hist)
+        # S-2c: with nothing selected, the exact database answers come before the model, as in the portal's own assistant
+        out = (_instant(db, user, req.question) if no_target else None) \
+            or _knowledge_lookup(db, user, req.question) or _run(db, user, req.question, hist)
         out = {**out, "deterministic": False, "intent": "model",
                "target": {"code": card["code"], "name": card["name"]} if card else None}
     else:

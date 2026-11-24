@@ -29,7 +29,8 @@ def p(label="USER10", seat="PC-08", source="operator", state="OPERATOR_CONFIRMED
 def test_one_person_per_seat_and_spots_share_the_pc_name():
     assert seats_of([px("PC-08"), px("PC-09")], W, H, SEATS) == ["PC-08", "PC-09"]
     assert seats_of([px("PC-08"), px("PC-08")], W, H, SEATS).count("PC-08") == 1
-    assert seats_of([px("PC-09@B")], W, H, SEATS) == ["PC-09"]
+    assert seats_of([px("PC-09@B")], W, H, SEATS) == ["PC-09@B"]
+    assert seats_of([px("PC-09"), px("PC-09@B")], W, H, SEATS) == ["PC-09", "PC-09@B"]
     assert seats_of([(100, 100, 40, 200)], W, H, SEATS) == [None]
 
 

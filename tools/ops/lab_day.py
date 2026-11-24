@@ -9,6 +9,8 @@ anywhere except logs/lab_day-<time>.json (no names, keys or pictures).
 """
 import json
 import os
+import re
+import subprocess
 import sys
 import threading
 import time
@@ -76,9 +78,27 @@ def status():
     save("status", out)
 
 
+RECOVERY_S, RECOVERY_MIN_FRAMES = 5.0, 5
+
+
+def recovery_run(run, row, frame_t):
+    """The run of rows with a picture, a frame younger than 1 s and a NEWER frame time each time it changes; [] = broken."""
+    if not row["cam2_picture"] or row["frame_age"] is None or not -0.5 <= row["frame_age"] < 1.0:
+        return []
+    if run and frame_t <= run[-1][1]:
+        return run if frame_t == run[-1][1] else []
+    return run + [(row["t"], frame_t)]
+
+
+def recovered(run) -> bool:
+    """Back = RECOVERY_S of new frames in a row. Buffered frames come in short bursts with old times."""
+    return len(run) >= RECOVERY_MIN_FRAMES and run[-1][0] - run[0][0] >= RECOVERY_S
+
+
 def unplug(seconds=60.0):
     print("Running. Note camera 2 LIVE, unplug it for 10 s, plug it back.")
     t0, rows, last, lost, gone, back = time.time(), [], None, None, None, None
+    fresh = []                                             # frame times of the present run of fresh, advancing pictures
     while time.time() - t0 < seconds:
         h, p2, s1 = cam("cam2", "/health"), cam("cam2", "/peer"), cam("cam1", "/state")
         now = time.time()
@@ -94,8 +114,10 @@ def unplug(seconds=60.0):
         if lost and gone is None and row["cam2_people"] == 0:
             gone = now - lost
             print(f"{row['t']:6.1f}s camera 2 reports no people ({gone:.1f} s after its last picture)")
-        if lost and gone is not None and back is None and row["frame_age"] is not None and row["frame_age"] < 1.0:
-            back = now - lost
+        # 24 Nov: one buffered frame counted as "back after 5.5 s" while the cable stayed out for 300 s.
+        fresh = recovery_run(fresh, row, ft) if lost else []
+        if lost and gone is not None and back is None and recovered(fresh):
+            back = fresh[0][0] + t0 - lost
             print(f"{row['t']:6.1f}s camera 2 is back ({back:.1f} s after the loss)")
         key = json.dumps(row["cam1"])
         if key != last:
@@ -190,8 +212,20 @@ def fanuc():
     save("fanuc", {"joints": j, "tcp": tcp})
 
 
+def valid_network_text(text):
+    """Real adapter output: addresses, and not the help text (24 Nov: Git Bash turned /all into a path)."""
+    return bool(re.search(r"IPv4", text) and re.search(r"\d{1,3}(\.\d{1,3}){3}", text)) and "USAGE" not in text.upper()
+
+
+def network():
+    out = {"ipconfig": subprocess.run(["ipconfig.exe", "/all"], capture_output=True, text=True, errors="replace", timeout=20).stdout,
+           "routes": subprocess.run(["route.exe", "print", "-4"], capture_output=True, text=True, errors="replace", timeout=20).stdout}
+    print("PASS" if valid_network_text(out["ipconfig"]) else "FAIL  not a real ipconfig capture")
+    save("network", out)
+
+
 if __name__ == "__main__":
-    cmds = {"status": status, "unplug": unplug, "watch": watch, "ask": ask, "fanuc": fanuc}
+    cmds = {"network": network, "status": status, "unplug": unplug, "watch": watch, "ask": ask, "fanuc": fanuc}
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     arg = [float(sys.argv[2])] if len(sys.argv) > 2 and sys.argv[1] in ("unplug", "watch") else []

@@ -41,6 +41,7 @@ STABLE_PASSES = 4       # the pairing holds this many passes in a row before a n
 SHARE_STATES = {"DOOR_CONFIRMED", "FACE_CONFIRMED", "FUSED_CONFIRMED", "REID_CONFIRMED", "CONFIRMED", "VERIFIED",
                 "OPERATOR_CONFIRMED"}       # 2026-11-17: confirmed by staff in the portal (audited)
 SHARE_SOURCES = {"door", "face", "peer", "operator"}      # ...given by door or face (or carried over already)
+OWN_EVIDENCE = {"door", "face", "operator"}               # ...that camera's own evidence, not a copy of ours
 
 # 2026-10-19 (lab, both cameras live):
 # * A person whose box touches the bottom of the picture (feet cut off - right in front of camera 1)
@@ -142,7 +143,8 @@ SEAT_PASSES = 10
 
 
 def seats_of(boxes, w: int, h: int, seats: Optional[dict]) -> list:
-    """PC name per person box (None = no recorded seat), one person per seat. seats: name or name@spot -> 0-1 box."""
+    """Seat per person box (None = no recorded seat), one person per seat. seats: name or name@spot -> 0-1 box. The spot is
+    kept (bug 2A, Gemini 24 Nov): PC-09 and PC-09@B are two places, so two people at one PC both show up."""
     out: list = [None] * len(boxes)
     if not seats or not w or not h:
         return out
@@ -152,7 +154,7 @@ def seats_of(boxes, w: int, h: int, seats: Optional[dict]) -> list:
         if b[2] <= 0 or b[3] / b[2] > SEAT_STANDING:
             continue
         p = (b[0] / w, b[1] / h, b[2] / w, b[3] / h)
-        cand += [(iou(tuple(r), p), i, n.split("@")[0]) for n, r in seats.items()]
+        cand += [(iou(tuple(r), p), i, n) for n, r in seats.items()]
     used = set()
     for s, i, n in sorted(cand, reverse=True):
         if s < SEAT_IOU:
@@ -217,6 +219,7 @@ def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float, des
     for t, seat in zip(tracks, at):
         d = deep_of(t)
         out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h), "desk": desk_of(t.box, w, h, desks), "seat": seat,
+                    "doubt": getattr(t, "doubted", None),
                     "label": t.label, "name": t.name, "role": t.role, "source": t.source,
                     "state": t.identity_state, "crowded": bool(t.crowded), "lab_no": getattr(t, "lab_no", None),
                     "deep": [round(float(v), 4) for v in d] if d is not None else None})
@@ -314,7 +317,7 @@ class CrossCam:
                 continue
             name = min(d, key=d.get)
             a, c = d[name], self.seen[name]
-            if a > APPEAR_MAX or name in held:
+            if a > APPEAR_MAX or name in held or t.vetoed(name):
                 continue
             if any(x - a < APPEAR_MARGIN for k, x in d.items() if k != name):
                 continue                           # another remembered person looks about as close
@@ -346,13 +349,16 @@ class CrossCam:
                 continue
             if t.label or name in {x.label for x in tracks if x.label}:
                 continue
-            labeler._give(t, {"auth_subject": name, "name": c.get("name"), "role": c.get("role")},
-                          "peer", how="other camera")
-            self._note("CROSSCAM_HANDOFF", tid, name, detail)
+            # 2026-11-25 (Gemini audit: a look alone must never become a confirmed name): shown as "Name ? (look)"; a floor
+            # pairing with a door / face / staff name there, or this camera's own face, confirms it.
+            labeler.look_back(t, {"auth_subject": name, "name": c.get("name"), "role": c.get("role")}, now)
+            self._note("CROSSCAM_HANDOFF", tid, name, detail + " - shown as a guess")
 
     def seat_hints(self, tracks, w: int, h: int, now: float) -> None:
         """An unnamed person here on the same recorded seat as a CONFIRMED person of the other camera: the guess only."""
         for t in tracks:
+            if getattr(t, "hint_kind", None) == "seat":
+                t.hint = None                          # 2B: never outlives the pass that found it
             t.hint_kind = None
         seats, peer = getattr(self, "all_seats", None), self.peer
         keep: dict = {}
@@ -361,15 +367,17 @@ class CrossCam:
             there: dict = {}
             for p in peer.get("tracks", []):
                 if p.get("seat"):
-                    there.setdefault(self.desk_link.get(p["seat"], p["seat"]), []).append(p)
+                    pc = p["seat"].split("@")[0]
+                    there.setdefault(self.desk_link.get(pc, pc), []).append(p)
             names = [p["label"] for p in peer.get("tracks", []) if p.get("label")]
-            for t, seat in zip(tracks, seats_of([t.box for t in tracks], w, h, seats)):
+            here = [s.split("@")[0] if s else None for s in seats_of([t.box for t in tracks], w, h, seats)]
+            for t, seat in zip(tracks, here):
                 ps = there.get(seat) or []
-                if t.label or seat is None or len(ps) != 1:
-                    continue
+                if t.label or seat is None or len(ps) != 1 or here.count(seat) != 1:
+                    continue                           # 2A: two people at one PC, here or there: no guess
                 p = ps[0]
-                if (not p.get("label") or p.get("state") in ("IDENTITY_UNCERTAIN", "UNKNOWN", None)
-                        or p.get("source") not in SHARE_SOURCES or p["label"] in held or names.count(p["label"]) != 1):
+                if (not p.get("label") or p.get("state") not in SHARE_STATES or p.get("source") not in SHARE_SOURCES
+                        or p.get("crowded") or t.vetoed(p["label"]) or p["label"] in held or names.count(p["label"]) != 1):
                     continue
                 k = (t.id, p["label"])
                 keep[k] = getattr(self, "seat_streak", {}).get(k, 0) + 1
@@ -446,7 +454,7 @@ class CrossCam:
         # 2026-11-17: every stable pairing (named or not) - labmap.py gives both sides one lab number,
         # except when the two tracks carry conflicting confirmed identities.
         self.links = {mine[i].id: {**theirs[j], "_passes": self.streak[(mine[i].id, theirs[j]["id"])],
-                                   "_look": ad[i][j], "_crowded": bool(mine[i].crowded or theirs[j].get("crowded"))}
+                                   "_look": ad[i][j], "_desk": (mine[i].id, theirs[j]["id"]) in self.by_desk, "_crowded": bool(mine[i].crowded or theirs[j].get("crowded"))}
                       for i, j in pairs if self.streak[(mine[i].id, theirs[j]["id"])] >= STABLE_PASSES
                       and not (mine[i].label and theirs[j].get("label") and mine[i].label != theirs[j]["label"]
                                and mine[i].source not in ("desk", "look"))}
@@ -455,11 +463,21 @@ class CrossCam:
             t, p = mine[i], theirs[j]
             if self.streak[(t.id, p["id"])] < STABLE_PASSES:
                 continue
+            # 1A: the other camera doubts this name on the same person, and mine was only copied from it: doubted here too.
+            if t.label and t.source == "peer" and p.get("doubt") == t.label and (t.id, p["id"]) not in self.by_desk:
+                who = {"auth_subject": t.label, "name": t.name, "role": t.role}
+                labeler.look_back(t, who, now)
+                t.doubted = who["auth_subject"]
+                held.discard(t.doubted)
+                self._note("CROSSCAM_DOUBT", t.id, t.doubted, "the other camera doubts this name on this person - shown as a guess")
+                continue
+            by_desk = (t.id, p["id"]) in self.by_desk      # 2C: a seat says where someone is, never who they are
             if t.label and p.get("label") and t.label != p["label"]:
                 # A desk GUESS here, a CONFIRMED name there (lab 2026-10-19: Ali sitting at Eng. Hemaly's
                 # desk was "Eng. Hemaly ? (desk)" on camera 1 while camera 2's face said Ali, verified 97 %):
                 # the confirmed name wins. Every other disagreement stays a logged conflict.
                 if (t.source in ("desk", "look") and p.get("state") in SHARE_STATES and p.get("source") in SHARE_SOURCES
+                        and not by_desk and not t.vetoed(p["label"]) and p.get("source") in OWN_EVIDENCE
                         and not t.crowded and not p.get("crowded") and p["label"] not in held - {t.label}
                         and labeler._agreed(t) in (None, p["label"])):
                     old = t.label
@@ -473,8 +491,9 @@ class CrossCam:
                 self._note("CROSSCAM_CONFLICT", t.id, t.label,
                            f"other camera calls this person {p['label']} - nothing changed")
                 continue
+            # 1A: never by a copied ("peer") name - it may be the copy of the very name that was just doubted here.
             if (t.label and t.label == p.get("label") and t.source == "look" and p.get("state") in SHARE_STATES
-                    and p.get("source") in SHARE_SOURCES and not t.crowded and not p.get("crowded")
+                    and p.get("source") in OWN_EVIDENCE and not by_desk and not t.vetoed(t.label) and not t.crowded and not p.get("crowded")
                     and labeler._agreed(t) in (None, t.label)):
                 # my guess from the stored look, and the other camera CONFIRMED the same name on the same spot
                 labeler._give(t, {"auth_subject": p["label"], "name": p.get("name"), "role": p.get("role")},
@@ -492,14 +511,15 @@ class CrossCam:
                 continue                           # several people here: the floor alone does not name anyone
             if p["label"] in held:
                 continue                           # that name is on someone else here
+            if by_desk or t.vetoed(p["label"]):
+                continue
             said = labeler._agreed(t)
             if said is not None and said != p["label"]:
                 continue                           # this person's own face says someone else
             labeler._give(t, {"auth_subject": p["label"], "name": p.get("name"), "role": p.get("role")},
                           "peer", how="other camera")
             held.add(p["label"])
-            how = (f"seated alone at {desk_of(t.box, w, h, self.desks)} on both cameras (other camera's track"
-                   if (t.id, p["id"]) in self.by_desk else "same floor spot as the other camera's track (")
+            how = "same floor spot as the other camera's track ("
             self._note("CROSSCAM_NAME", t.id, p["label"], f"{how} {p['id']}) for {STABLE_PASSES}+ passes")
         self._by_elimination(mine, peer["tracks"], held, labeler, theirs, dist, ad, now)   # everyone there
         return self.notes
@@ -519,6 +539,9 @@ class CrossCam:
             self.elim_streak = {}
             return
         t, name = free[0], next(iter(names))
+        if t.vetoed(name):
+            self.elim_streak = {}
+            return
         said = labeler._agreed(t)
         if said is not None and said != name:
             self.elim_streak = {}

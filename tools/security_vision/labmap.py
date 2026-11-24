@@ -162,11 +162,31 @@ class LabNumbers:
         if not hasattr(self, "not_them"):
             self.not_them: dict[int, set] = {}
         self.not_them = {k: v for k, v in self.not_them.items() if k in alive}
+        # bug 4 (Gemini 24 Nov): seen in one picture with the person a face / the door / staff named = somebody else for
+        # good (hard); with a name that was carried over, until a floor pairing says otherwise. Every naming path reads it
+        # (Track.vetoed). A doubted holder proves nothing: the others may be the real one.
+        if not hasattr(self, "hard"):
+            self.hard: dict[int, set] = {}
+            self.doubt_seen: set = set()
+        self.hard = {k: v for k, v in self.hard.items() if k in alive}
+        self.doubt_seen = {x for x in self.doubt_seen if x[0] in alive}
         for c in tracks:
-            if c.label and getattr(c, "source", None) in KEEP_NAME_SOURCES:
+            q = getattr(c, "doubted", None)
+            if q and (c.id, q) not in self.doubt_seen:
+                self.doubt_seen.add((c.id, q))
+                for store in (self.not_them, self.hard):
+                    for k in store:
+                        if k != c.id:
+                            store[k].discard(q)
+            if c.label and getattr(c, "source", None) in KEEP_NAME_SOURCES and not getattr(c, "quarantine", False):
                 for o in tracks:
                     if o is not c:
                         self.not_them.setdefault(o.id, set()).add(c.label)
+                        if c.source in ("door", "face", "operator"):
+                            self.hard.setdefault(o.id, set()).add(c.label)
+                if c.source in ("door", "face", "operator"):    # this one IS them
+                    self.not_them.get(c.id, set()).discard(c.label)
+                    self.hard.get(c.id, set()).discard(c.label)
         # The same across the cameras (24 Nov: camera 2 named USER6, camera 1 gave the name to a man seated in its own view
         # all along): while the other camera shows a confirmed person, my tracks that are not paired with that track and
         # do not share its number are not them. Kept only after NOT_THEM_PEER_PASSES passes (pairing needs a moment).
@@ -177,15 +197,17 @@ class LabNumbers:
         for t in tracks:
             p_mine = links.get(t.id)
             for p in conf:
-                paired = p_mine is not None and p_mine.get("id") == p.get("id")
+                paired = p_mine is not None and p_mine.get("id") == p.get("id") and not p_mine.get("_desk")
                 if not paired and t.lab_no is not None and p.get("lab_no") is not None and t.lab_no != p["lab_no"]:
                     k = (t.id, p["label"])
                     apart[k] = self.peer_apart.get(k, 0) + 1
                     if apart[k] >= NOT_THEM_PEER_PASSES:
                         self.not_them.setdefault(t.id, set()).add(p["label"])
-                elif paired:                             # paired after all: it may be them
+                elif paired and p["label"] not in self.hard.get(t.id, ()):      # paired after all: it may be them
                     self.not_them.get(t.id, set()).discard(p["label"])
         self.peer_apart = apart
+        for t in tracks:
+            t.not_names = frozenset(self.not_them.get(t.id, ()))
         self.looks = {k: v for k, v in self.looks.items() if k in alive}
         self.born = {k: v for k, v in self.born.items() if k in alive}
         if not hasattr(self, "restored_once"):
@@ -211,7 +233,7 @@ class LabNumbers:
             same_or_unnamed = not (t.label and p and p.get("label") and t.label != p.get("label"))
             solid = (bool(p) and same_or_unnamed and p.get("_passes", LINK_PASSES) >= LINK_PASSES
                      and not p.get("_crowded") and not getattr(t, "crowded", False)
-                     and (p.get("_look") is None or p["_look"] <= LINK_LOOK_MAX))
+                     and (p["_look"] <= LINK_LOOK_MAX if p.get("_look") is not None else not p.get("_desk")))
             held = {o.lab_no for o in tracks if o is not t and o.lab_no is not None}
             if solid and theirs and theirs not in held and (t.lab_no is None or theirs < t.lab_no):
                 if t.lab_no is not None:
@@ -379,6 +401,8 @@ class LabNumbers:
                     # its look (and stays "seen") only from that same named person.
                     continue
                 lk = looks[t.id]
+                if who and (getattr(t, "quarantine", False) or getattr(t, "crowded", False)):
+                    lk = None                                # 1C: this view may be somebody else: seen, but nothing learnt
                 if lk is not None:
                     old = e.get("deep")
                     e["deep"] = [round(float(x), 4) for x in

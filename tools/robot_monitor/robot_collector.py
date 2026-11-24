@@ -232,7 +232,10 @@ class Collector:
         self.rejected = 0                           # samples that failed valid()
         self._opening = None                        # (thread, result) while a UR connection is being opened
         self.retry_at = 0.0
+        self._open_lock = threading.Lock()
+        self._stale_tries, self._stale_next = 0, 0.0
 
+    RATE_MIN_N = 10                # fewer samples than this in the present connection: no rate yet (0.0)
     QUIET_S = 1.0                  # no new sample this long: the old pose is not posted again as a fresh report
 
     def _open_step(self) -> bool:
@@ -245,12 +248,22 @@ class Collector:
             return True
         if self._opening is None:
             box: dict = {}
+            lock = self._open_lock
 
             def work():
                 try:
-                    box["source"] = self.open_source()
+                    src = self.open_source()
                 except BaseException as e:             # SystemExit (no ur_rtde / no --robot) is re-raised in the loop
                     box["error"] = e
+                    return
+                with lock:                             # ROB-3B: a connection that completes after the stop is closed here
+                    if not box.get("cancelled"):
+                        box["source"] = src
+                        return
+                try:
+                    src.close()
+                except Exception as e:
+                    print(f"[robot] late connection close: {e.__class__.__name__}")
             th = threading.Thread(target=work, daemon=True)
             self._opening = (th, box)
             th.start()
@@ -263,6 +276,21 @@ class Collector:
             raise box["error"]
         self.source = box["source"]
         return True
+
+    def close(self) -> None:
+        """Stop: the open connection is closed, and one still being opened is closed by its own thread when it completes (the
+        blocking C++ connect cannot be interrupted; when the process ends first, the socket ends with it)."""
+        if self._opening is not None:
+            _, box = self._opening
+            with self._open_lock:
+                box["cancelled"] = True
+                late = box.pop("source", None)
+            if late is not None:
+                late.close()
+            self._opening = None
+        if self.source is not None:
+            self.source.close()
+            self.source = None
 
     def open_source(self):
         a = self.args
@@ -308,7 +336,7 @@ class Collector:
     def report(self, now: float):
         a = self.args
         rate = 0.0
-        if len(self.rate_t) >= 2:
+        if len(self.rate_t) >= self.RATE_MIN_N:
             rate = (len(self.rate_t) - 1) / max(1e-6, self.rate_t[-1] - self.rate_t[0])
         snap = self.motion.snapshot(now)
         snap["q"] = self.twin_q(snap["q"])
@@ -322,13 +350,25 @@ class Collector:
         if snap["state"] == "TELEMETRY_STALE":
             if getattr(self, "_stale_reported", False):
                 return
-            self._stale_reported = True
+            if now < self._stale_next:
+                return
+            self.rate_t.clear()                           # ROB-3C: a silent link is an outage too
+            rate = 0.0
         else:
             self._stale_reported = False
-        self.post("/robots/telemetry", {
+            self._stale_tries, self._stale_next = 0, 0.0
+        sent = self.post("/robots/telemetry", {
             "device_uid": a.device, "lab_id": a.lab, "model": a.model, "source": self.source.name if self.source else
             {"sim": "SIMULATION", "fanuc": FanucWebSource.name}.get(a.source, "RTDE"), "name": a.name or a.device,
             "rate_hz": round(rate, 1), "sent_at": now, **snap})
+        if snap["state"] == "TELEMETRY_STALE":
+            # ROB-3A: reported only when the portal took it; else again after 2, 4, 8 ... 30 s, until it does or data is back.
+            self._stale_reported = sent
+            if not sent:
+                self._stale_tries += 1
+                self._stale_next = now + min(30.0, 2.0 ** self._stale_tries)
+                print(f"[portal] the outage report was not delivered (try {self._stale_tries}) - again in "
+                      f"{self._stale_next - now:.0f} s")
         if now - self.last_equipment >= 5.0:              # the older RUNNING/IDLE/FAULT report (n8n)
             ex = snap.get("extra") or {}
             fault = isinstance(ex.get("safety_mode"), int) and ex["safety_mode"] not in SAFETY_OK
@@ -342,6 +382,12 @@ class Collector:
             self.last_equipment = now
 
     def run(self):
+        try:
+            self._run()
+        finally:
+            self.close()
+
+    def _run(self):
         a = self.args
         # Who drives the UR5e (control_source.py): read-only Dashboard queries, off with --no-dashboard.
         self.dash = None
@@ -368,6 +414,7 @@ class Collector:
                         time.sleep(min(period, 0.1) if period > 0 else 0.1)
                         continue
                     # RTDE connects when the source is created; the FANUC web source only when a read works
+                    self.rate_t.clear()                   # ROB-3C: the rate belongs to this connection only
                     print("[robot] connected" if a.source != "fanuc" else f"[robot] polling {FanucWebSource.PAGE}")
                 except SystemExit:
                     raise
@@ -405,6 +452,7 @@ class Collector:
                 print(f"[robot] read failed: {e.__class__.__name__}: {str(e)[:160]} - reconnecting")
                 self.source.close()
                 self.source = None
+                self.rate_t.clear()
                 now = time.time()              # a timed-out read took time too
                 if a.source == "fanuc":
                     self.retry_at = now + 2.0  # back off: a controller that is off / unreachable is not hammered

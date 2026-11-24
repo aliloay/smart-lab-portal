@@ -636,6 +636,14 @@ class Track:
     identity_confidence: float = 0.0
     posture_changed_at: float = -1e9   # last joined across a posture change (Tracker._posture_pairs)
     lab_no: Optional[int] = None       # one number per unnamed person in the LAB, shared by both cameras (labmap.py)
+    # Gemini audit 24 Nov (bugs 1A / 1C / 4): names this track must not get except by face, door or staff.
+    doubted: Optional[str] = None      # a confirmed name that stopped fitting (_doubt_confirmed)
+    not_names: frozenset = frozenset() # seen together with the confirmed holder (labmap.not_them)
+    quarantine: bool = False           # touched since staff confirmed and not yet re-checked: nothing is learnt from it
+
+    def vetoed(self, name: Optional[str]) -> bool:
+        """True = only a face, the door or staff may give this name to this track (one check for every other path)."""
+        return name is not None and (name == self.doubted or name in self.not_names)
 
     def center(self):
         return (self.box[0] + self.box[2] / 2, self.box[1] + self.box[3] / 2)
@@ -1391,10 +1399,21 @@ class Labeler:
             ref = self.confirmed_ref.get(t.id)
             if ref is None or ref["label"] != t.label or ref["at"] != getattr(t, "confirmed_at", None):
                 ref = self.confirmed_ref[t.id] = {"label": t.label, "at": getattr(t, "confirmed_at", None), "looks": {},
-                                                  "n": {}, "touched": False, "unlike": 0}
+                                                  "n": {}, "touched": False, "unlike": 0, "like": 0}
+            # quarantine (1C): from a touch until the look has fitted the reference again, nothing is learnt from this track
             if t.crowded:
-                ref["touched"] = True
+                # 1B: touched before there was a reference. With some samples they stay the reference (a later look must
+                # fit them); with none the reference starts after the touch - and the touch itself cannot be checked.
+                if max(ref["n"].values(), default=0) > 0:
+                    ref["touched"], ref["like"] = True, 0
+                elif not ref.get("early"):
+                    ref["early"] = True
+                    self._note("CONFIRMED_NAME_TOUCHED_EARLY", t.id, t.label,
+                               "touched someone before this camera saw the confirmed person alone - a swap in this moment cannot be checked")
+                t.quarantine = True
                 continue
+            t.quarantine = ref["unlike"] > 0 or (ref["touched"] and ref["like"] < self.DOUBT_REF_MIN) \
+                or (bool(ref.get("early")) and max(ref["n"].values(), default=0) < self.DOUBT_REF_MIN)
             if t.look is None or t.look.deep is None or t.box[3] < self.MIN_LOOK_H:
                 continue
             kind = bool(t.look.partial)                    # a seated view is compared with seated views, a whole one with whole
@@ -1402,16 +1421,21 @@ class Labeler:
                 ref["looks"][kind] = blend(ref["looks"].get(kind), t.look, 0.1) if kind in ref["looks"] else t.look
                 ref["n"][kind] = ref["n"].get(kind, 0) + 1
                 continue
-            base = kind if ref["n"].get(kind, 0) >= self.DOUBT_REF_MIN else (not kind)
-            if ref["n"].get(base, 0) < self.DOUBT_REF_MIN:
-                continue                                   # never seen alone since the confirmation: nothing to compare with
+            base = kind if ref["n"].get(kind, 0) >= self.DOUBT_REF_MIN else max(ref["n"], key=lambda k: ref["n"][k])
             d = look_distance(ref["looks"][base], t.look)
             if d is None:
                 continue
             if d <= self.DOUBT_AT:
                 ref["unlike"] = 0
+                ref["like"] += 1
+                if ref["n"].get(kind, 0) < self.DOUBT_REF_MIN:      # a thin reference grows only from looks that fit it
+                    ref["looks"][kind] = blend(ref["looks"].get(kind), t.look, 0.1) if kind in ref["looks"] else t.look
+                    ref["n"][kind] = ref["n"].get(kind, 0) + 1
+                t.quarantine = ref["like"] < self.DOUBT_REF_MIN
                 continue
             ref["unlike"] += 1
+            ref["like"] = 0
+            t.quarantine = True
             if ref["unlike"] >= self.DOUBT_CHECKS:
                 who = {"auth_subject": t.label, "name": t.name, "role": t.role}
                 detail = (f"does not look like the person staff confirmed (distance {d:.2f}, {self.DOUBT_CHECKS} checks) "
@@ -1419,6 +1443,7 @@ class Labeler:
                 self._note("CONFIRMED_NAME_DOUBTED", t.id, t.label, detail)
                 self._flag(t.id, t.label, detail)
                 self.look_back(t, who, now)
+                t.doubted, t.quarantine = who["auth_subject"], True      # 1A: only a face, the door or staff bring it back
                 self.confirmed_ref.pop(t.id, None)
 
     def _in_use(self, tracks: list[Track]) -> set:
@@ -1493,7 +1518,7 @@ class Labeler:
                     lo, hi = 0.33, 3.0                 # walking towards / away from the camera
                 return (math.hypot(t.center()[0] - cx, t.center()[1] - cy) <= reach
                         and lo <= (t.box[2] * t.box[3]) / max(box[2] * box[3], 1.0) <= hi)
-            placed = [t for t in tracks if not t.label and t.first_seen >= at - 1.0 and fits(t)]
+            placed = [t for t in tracks if not t.label and not t.vetoed(label) and t.first_seen >= at - 1.0 and fits(t)]
             near = apart = [t for t in placed if not t.crowded]
             # Big enough to judge the look: the look must agree too (someone
             # else walking through that place is not them).
@@ -1708,6 +1733,8 @@ class Labeler:
                 said = self._agreed(t)
                 if said is not None and said != label:
                     return None                  # their own face says someone else
+                if t.vetoed(label) and t.label != label:
+                    return None
                 if not upright(t.box):
                     return None                  # crouching / lying: the look is not comparable
                 d = look_distance(t.look, self.identities[label].look)
@@ -1807,8 +1834,8 @@ class Labeler:
         for t in tracks:
             if not t.label or t.crowded or t.look is None or t.box[3] < self.MIN_LOOK_H or not upright(t.box):
                 continue                   # a tiny / half-hidden / crouching view would blur the locked look
-            if t.source == "look":
-                continue                   # a guess from the stored look must not teach that look (it would drift)
+            if t.source in self.GUESS_SOURCES or t.quarantine:
+                continue                   # a guess must not teach the look (it would drift); nor a track that may have swapped (1C)
             if t.look.partial:
                 continue                   # a waist-up view must not overwrite the whole-person look (PARTIAL_LOOK)
             # Clearly alone (2026-10-12 root cause #7): nobody within a body width,
@@ -1822,7 +1849,8 @@ class Labeler:
                 self.identities[t.label] = Identity(t.look)
                 continue
             d = look_distance(t.look, ident.look)
-            if d is not None and d > self.LEARN_MAX and ident.samples >= self.LOCK_SAMPLES:
+            if d is not None and d > self.LEARN_MAX and (ident.samples >= self.LOCK_SAMPLES
+                                                         or getattr(t, "crowded_at", -1e9) > -1e9):
                 continue               # not like them at all: a mix-up, do not learn it
             ident.look = blend(ident.look, t.look, max(0.1, 1.0 / (ident.samples + 1)))
             ident.samples += 1
@@ -1849,6 +1877,8 @@ class Labeler:
                 continue
             name = min(d, key=d.get)
             a = d[name]
+            if t.vetoed(name):
+                continue                           # bug 4: seen together with the confirmed person, or a doubted name
             if a > self.LOOK_GUESS_MAX or any(x - a < self.LOOK_GUESS_MARGIN for k, x in d.items() if k != name):
                 continue                           # not clear, or another stored person fits about as well
             rivals = [self._distance(o, name) for o in free if o is not t]
@@ -1882,6 +1912,8 @@ class Labeler:
         t.label, t.name, t.role = o["auth_subject"], o.get("name") or o["auth_subject"], o.get("role")
         t.source = source
         t.named_by = how or source
+        if source == "operator" or (source in ("face", "door") and (how or source) in ("face", "door")):
+            t.doubted, t.quarantine = None, False          # real evidence for this person now
         t.verified, t.mismatch = False, None
 
 

@@ -33,15 +33,14 @@ def run(cc, tracks, lab, pf, passes, t0=1000.0):
         cc.share(tracks, W, H, now, lab)
 
 
-def test_confirmed_name_crosses_to_the_person_seated_at_the_same_desk():
+def test_the_same_desk_pairs_but_never_names():      # 2026-11-25 (bug 2C): a seat says where, not who
     cc, lab = cam(), Labeler()
     t = Track(1, SEATED, 0, 0, hits=10)
     pf = lambda now: peer(now, (7, "PC-08", "USER1", "face", "FACE_CONFIRMED", False))
     run(cc, [t], lab, pf, STABLE_PASSES - 1)
     assert t.label is None                          # the pairing must hold first
     run(cc, [t], lab, pf, 1, t0=2000.0)
-    assert t.label == "USER1" and t.source == "peer"
-    assert any("seated alone at PC-08" in n["detail"] for n in cc.notes)
+    assert t.label is None and cc.links[1]["_desk"] is True
 
 
 def test_other_desk_standing_or_unlinked_is_not_paired():
