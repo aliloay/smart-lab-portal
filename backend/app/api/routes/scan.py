@@ -240,7 +240,16 @@ def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_
         if t is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "The face match expired - point the camera at the face again")
         person = live_target.person_card(db, t["u"], t["s"], t["t"])
-    out = live_target.answer(db, user, req.question, card, person)
+    # S-2 (24 Nov): the same guard as every other assistant route, BEFORE the target intents (their "door" / "state"
+    # words answered "what is the status and password of this door?") and before the model. Refusals are final. Opening
+    # hours only when no target is selected: with a target, "is this lab open?" is about its live state.
+    from app.services import agent_guard
+    g = agent_guard.check(req.question)
+    no_target = card is None and person is None
+    if g is not None and (g[0] != "opening_hours" or no_target):
+        out = live_target._done(g[0], [g[1]], card, person, [])
+    else:
+        out = live_target.answer(db, user, req.question, card, person)
     if out is None:
         from app.api.routes.ai import _knowledge_lookup, _run
         hist = [{"role": "user", "content": live_target.context_text(card, person)},

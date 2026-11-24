@@ -374,6 +374,16 @@ def _faq_qword(s: str) -> Optional[str]:
     return "what" if w == "which" else w        # "which photo" = "what photo" (hold-out set, 23 Nov)
 
 
+def _qw_ok(q_qw: Optional[str], v: str, heading: str) -> bool:
+    """S-1 (24 Nov): does the asker's question word fit this FAQ variant? A variant without one ("door camera") takes
+    its heading's: "Where is the door camera?" got the "What does the ESP32-CAM do?" answer. "what" stays allowed for
+    a noun phrase ("what are the opening hours"); a yes/no heading answers no where / who / why / when / how."""
+    v_qw = _faq_qword(v)
+    if not q_qw:
+        return True
+    return q_qw == v_qw if v_qw else q_qw in (_faq_qword(heading), "what")
+
+
 def _faq_neg(s: str) -> bool:
     return bool(_NEG.search(s.lower().replace("’", "'")))
 
@@ -432,8 +442,7 @@ def faq_answer(q: str, hits: list, topk: int = 0) -> Optional[dict]:
             vw = _faq_words(v)
             if not vw:
                 continue
-            v_qw = _faq_qword(v)
-            if q_qw and v_qw and q_qw != v_qw:                  # "when" is not "where", "how many" is not "how"
+            if not _qw_ok(q_qw, v, variants[0]):                # "when" is not "where", "how many" is not "how"
                 continue
             if q_neg != _faq_neg(v):                            # "why doesn't X" is not "how does X"
                 continue
@@ -498,10 +507,9 @@ def faq_semantic(cfg, q: str) -> Optional[dict]:
     best: dict = {}
     for j, s in enumerate(sims):
         v = _FAQ_SEM["texts"][j]
-        v_qw = _faq_qword(v)
-        if (q_qw and v_qw and q_qw != v_qw) or q_neg != _faq_neg(v):
-            continue
         i = _FAQ_SEM["owner"][j]
+        if not _qw_ok(q_qw, v, _FAQ_SEM["entries"][i][1]) or q_neg != _faq_neg(v):
+            continue
         best[i] = max(best.get(i, -1.0), float(s))
     top = sorted(best.items(), key=lambda x: -x[1])[:2]
     if not top or top[0][1] < FAQ_SEM_MIN or (len(top) > 1 and top[0][1] - top[1][1] < FAQ_SEM_MARGIN):

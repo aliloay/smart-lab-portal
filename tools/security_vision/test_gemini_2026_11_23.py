@@ -57,7 +57,7 @@ def test_look_guess_is_a_reacquire_not_a_confirmation():      # V-F3
 def test_look_guess_only_for_people_the_labeler_keeps():      # V-F3
     import security_vision as sv
     src = inspect.getsource(sv.Service.analyse)
-    assert "inside_now" in src and "face_named" in src
+    assert "labeler.look_back(" in src            # S-3: the only way a returning look becomes a name
 
 
 def test_crowded_track_shows_no_old_joints():                 # V-F7

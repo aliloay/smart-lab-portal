@@ -24,7 +24,11 @@ _stats: dict[str, dict] = {}
 
 _STR = re.compile(r"'(?:[^']|'')*'")
 _NUM = re.compile(r"(?<![\w$])\d+(?:\.\d+)?\b")
-_PARAM = re.compile(r"%\([^)]*\)s(?:::[\w ]+)?")
+# S-6 (24 Nov): sized / array casts were left behind ("?(64)", "?[]"), and the greedy "[\w ]+" swallowed the SQL after
+# an unsized cast ("a = %(x)s::VARCHAR AND b = ..." became "a = ?= ..."), merging different statements.
+_PARAM = re.compile(
+    r"%\([^)]*\)s(?:::[A-Za-z_][\w.]*(?:\s+(?:VARYING|PRECISION)\b)?(?:\(\d+(?:\s*,\s*\d+)?\))?"
+    r"(?:\s+(?:WITH|WITHOUT)\s+(?:LOCAL\s+)?TIME\s+ZONE\b)?(?:\[\d*\])*)*", re.I)
 _LIST = re.compile(r"\(\s*\?(?:\s*,\s*\?)+\s*\)")
 _WS = re.compile(r"\s+")
 

@@ -96,7 +96,8 @@ def test_look_only_return_is_a_guess_not_a_confirmed_name():
     import inspect
     src = inspect.getsource(sv.Service.analyse)
     block = src[src.index("self.labnums.restore"):src.index("NAME_BACK_BY_LOOK")]
-    assert '"look"' in block and '"peer"' not in block
+    give = inspect.getsource(sv.vision.Labeler.look_back) if hasattr(sv, "vision") else inspect.getsource(sv.Labeler.look_back)
+    assert "labeler.look_back(" in block and '"look"' in give and '"peer"' not in block + give
 
 
 def test_pose_joint_outside_the_frame_is_out_of_frame_not_observed():

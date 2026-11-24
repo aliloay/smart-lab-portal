@@ -726,16 +726,12 @@ class Service:
                         # name used to come back as a CONFIRMED "peer" name (shared to the other camera, kept after a
                         # door exit) at re-ID distance <= 0.55 - a visitor in similar clothes could take it. It now
                         # comes back as the marked guess "Name ? (look)"; the face or the other camera confirms it.
-                        inside_now = {o.get("auth_subject") for o in occupants}
                         for t_back, who in self.labnums.restore:
                             if t_back.label:                    # never overwrite a name this pass already gave
                                 continue
-                            # Gemini 23 Nov (V-F3): Labeler.assign keeps a look name only for someone checked in or
-                            # face-named in the last FACE_KEEP_S; anyone else lost it on the next pass (a one-frame
-                            # flash plus a misleading log line). Such a person is not named by look at all.
-                            if who["auth_subject"] not in inside_now and who["auth_subject"] not in self.labeler.face_named:
-                                continue
-                            self.labeler._give(t_back, who, "look", how="came back (same look) - guess")
+                            # S-3 (24 Nov): also for someone who left at the door or was named by the other camera /
+                            # staff; look_back keeps the guess for LOOK_BACK_KEEP_S and never as confirmed.
+                            self.labeler.look_back(t_back, who, t0)
                             notes_cc.append({"kind": "NAME_BACK_BY_LOOK", "track_id": t_back.id, "label": who["auth_subject"],
                                              "detail": f"same look as Person {t_back.lab_no} - name shown as a guess until the face confirms"})
                     except Exception as e:             # a register problem never stops tracking
@@ -1647,16 +1643,22 @@ def make_app(svc: Service) -> Flask:
             svc.cfg.setdefault("known", []).append(k)
         if k is None:
             return jsonify({"ok": False, "error": "unknown person"}), 404
-        with svc.label_lock:
+        with svc.label_lock, svc.lock:
             t = next((x for x in svc.tracker.tracks if x.id == tid), None)
             if t is None:
                 return jsonify({"ok": False, "error": "that person is no longer in view"}), 409
-            for o in svc.tracker.tracks:
-                if o is not t and o.label == label:
+            # S-5 (24 Nov): svc.tracks are copies (V-F6); without them /state and /peer showed the old name until
+            # the next analysis pass.
+            for o in list(svc.tracker.tracks) + list(svc.tracks):
+                if o.id != tid and o.label == label:
                     o.label = o.name = o.role = o.source = None
                     o.verified = False
             svc.labeler._give(t, k, "operator", how="staff confirmed")
             t.hint = None
+            for s in svc.tracks:
+                if s.id == tid and s is not t:
+                    for a in ("label", "name", "role", "source", "named_by", "verified", "mismatch", "hint"):
+                        setattr(s, a, getattr(t, a, None))
         by = str(body.get("by", ""))[:80]
         note = {"t": round(time.time(), 2), "kind": "OPERATOR_CONFIRMED", "track_id": tid, "label": label,
                 "detail": f"confirmed by staff ({by or '?'}) in the portal"}

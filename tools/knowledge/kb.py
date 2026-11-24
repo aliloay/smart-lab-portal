@@ -532,6 +532,7 @@ def load_index(cfg: dict) -> dict:
 # keyed by chunk content so an unchanged chunk is never embedded twice. If numpy, Ollama or
 # the model is missing, search is keyword-only - it never fails because of this.
 EMBED_MODEL = "nomic-embed-text"
+EMB_MIN_COVERAGE = 0.9
 _EMB_CACHE: dict = {}
 
 
@@ -587,7 +588,9 @@ def build_embeddings(cfg: dict, batch: int = 32, log=print) -> dict:
 
 
 def load_embeddings(cfg: dict, idx: dict):
-    """Matrix aligned with idx["docs"], or None when not built or out of date."""
+    """Matrix aligned with idx["docs"], or None when not built, unreadable or mostly out of date.
+    S-4 (24 Nov): one edited chunk used to switch meaning search off for all 13,398. A chunk without its own vector is
+    now a NaN row ("unknown", never a zero vector); below EMB_MIN_COVERAGE the search is keyword-only as before."""
     try:
         import numpy as np
     except ImportError:
@@ -595,13 +598,24 @@ def load_embeddings(cfg: dict, idx: dict):
     kp, vp = os.path.join(cfg["data"], "embeddings_keys.json"), os.path.join(cfg["data"], "embeddings.npy")
     if not (os.path.isfile(kp) and os.path.isfile(vp)):
         return None
-    key = (vp, os.stat(vp).st_mtime_ns, idx.get("built"))
+    # both files: the vectors are written before the keys, so a read between the two must not stay cached
+    key = (vp, os.stat(vp).st_mtime_ns, os.stat(kp).st_mtime_ns, idx.get("built"))
     if _EMB_CACHE.get("key") != key:
-        keys = json.load(open(kp, encoding="utf-8"))
-        mat = np.load(vp)
-        pos = {k: i for i, k in enumerate(keys)}
-        want = [chunk_key(d) for d in idx["docs"]]
-        _EMB_CACHE.update(key=key, mat=mat[[pos[k] for k in want]] if all(k in pos for k in want) else None)
+        aligned, cover = None, 0.0
+        try:
+            keys = json.load(open(kp, encoding="utf-8"))
+            mat = np.load(vp)
+            if mat.ndim == 2 and len(keys) == len(mat):
+                pos = {k: i for i, k in enumerate(keys)}
+                want = [chunk_key(d) for d in idx["docs"]]
+                rows = [pos.get(k, -1) for k in want]
+                cover = sum(r >= 0 for r in rows) / max(len(rows), 1)
+                if cover >= EMB_MIN_COVERAGE:
+                    aligned = mat[rows]
+                    aligned[[i for i, r in enumerate(rows) if r < 0]] = np.nan
+        except (OSError, ValueError, EOFError):
+            aligned = None
+        _EMB_CACHE.update(key=key, mat=aligned, coverage=cover)
     return _EMB_CACHE.get("mat")
 
 
@@ -635,14 +649,22 @@ def search(cfg: dict, query: str, k: int = 6, idx: dict | None = None, semantic:
         bm[i] = s
     cand = set(bm)
     if sem is not None:
-        cand |= {int(i) for i in sem.argsort()[-60:]}
+        import numpy as np
+        known = np.flatnonzero(~np.isnan(sem))
+        cand |= {int(i) for i in known[sem[known].argsort()[-60:]]}
     top_bm = max(bm.values(), default=0.0) or 1.0
+    meaning, neutral = {}, 0.0
+    if sem is not None:
+        meaning = {i: max(0.0, (float(sem[i]) - 0.35) / 0.65) for i in cand if not math.isnan(float(sem[i]))}
+        # a chunk with no vector yet gets the average meaning of the keyword candidates: not buried, not promoted
+        known_bm = [meaning[i] for i in bm if i in meaning]
+        neutral = sum(known_bm) / len(known_bm) if known_bm else 0.0
     scored = []
     for i in cand:
         d = idx["docs"][i]
         s = bm.get(i, 0.0) / top_bm                       # keyword score 0..1
         if sem is not None:
-            s = 0.5 * s + 0.5 * max(0.0, (float(sem[i]) - 0.35) / 0.65)   # + meaning (cosine), 0..1
+            s = 0.5 * s + 0.5 * meaning.get(i, neutral)   # + meaning (cosine), 0..1
         if s <= 0:
             continue
         if wants_workflows and d["kind"] == "n8n-workflow":

@@ -1069,6 +1069,20 @@ class Labeler:
         # Named by face (not entered at the door): who, and when last seen -
         # so they get their name back by their look after the track was lost.
         self.face_named: dict[str, tuple[dict, float]] = {}
+        # S-3 (24 Nov): people named ONLY as a returning-look guess who are neither checked in nor face-named. Kept apart
+        # from face_named (never saved, never read by home_desk / crossings) and gone after LOOK_BACK_KEEP_S.
+        self.look_guessed: dict[str, float] = {}
+
+    LOOK_BACK_KEEP_S = 120.0
+
+    def look_back(self, t: Track, who: dict, now: float) -> None:
+        """The marked guess "Name ? (look)" for someone who came back (labmap.restore)."""
+        label = who["auth_subject"]
+        self.look_guessed[label] = now
+        if not hasattr(self, "guess_named_at"):
+            self.guess_named_at: dict[str, float] = {}
+        self.guess_named_at[label] = now               # a later door entry of this person takes the name
+        self._give(t, who, "look", how="came back (same look) - guess")
 
     def save(self, path: str) -> None:
         """Locked looks and face names to disk, so a restart does not forget who is who."""
@@ -1119,9 +1133,13 @@ class Labeler:
         inside = {o["auth_subject"]: o for o in occupants}
         # A door name whose person left the lab is dropped from its track (a
         # face name stays: the face, not the door, said who it is).
+        for label in list(self.look_guessed):
+            if label in inside or now - self.look_guessed[label] > self.LOOK_BACK_KEEP_S:
+                del self.look_guessed[label]
         for t in tracks:
             if t.label and t.label not in inside and t.source not in ("face", "peer", "operator") \
-                    and not (t.source in ("look", "desk") and t.label in self.face_named):
+                    and not (t.source in ("look", "desk") and t.label in self.face_named) \
+                    and not (t.source == "look" and t.label in self.look_guessed):
                 t.label = t.name = t.role = t.source = t.mismatch = None
                 t.verified = False
         held = self._in_use(tracks)

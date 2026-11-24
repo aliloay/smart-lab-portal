@@ -92,7 +92,7 @@ class FrameSender:
 FRAME_WIDTH = 1280      # downscaled: enough to read a screen, small to send
 
 WINDOWS = sys.platform == "win32"
-AGENT_VERSION = "1.0"
+AGENT_VERSION = "1.1"
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_STARTED = round(time.time(), 3)   # this run; a new value without a reboot = the agent was stopped
 
