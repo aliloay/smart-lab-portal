@@ -1,6 +1,6 @@
 # Progress checkpoint - Smart Lab master completion mission
 
-## UPDATE 2026-11-24 - affordable expansion (worktree C:/Projects/smart-lab-expansion, branch upgrade/affordable-expansion-2026-11-23; NOT committed, NOT deployed)
+## UPDATE 2026-11-24 - affordable expansion (worktree C:/Projects/smart-lab-expansion, branch upgrade/affordable-expansion-2026-11-23; merged 136a668, LIVE 24 Nov 08:40; not pushed)
 - Built: /api/metrics, /admin/health, /admin/sensors, /exhibit, grouped sidebar, 153 record-based questions, env firmware 0.2.0 source (compiled, not flashed). 21 reports: reports/affordable-smart-lab-expansion-2026-11-23/.
 - Tests: backend 1004 passed, 3 skipped, 1 failed (503 no AI model in the test container; same on the unchanged code); tsc 0; unit 26; browser 30 + 104. Docker disk is on C: (43 GB), the older D: note is out of date.
 - Open: owner review/merge, flash + lab test, purchases (540 / 2,089 EGP), occupancy retention decision.

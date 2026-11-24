@@ -36,7 +36,7 @@ export default function SensorAnalytics() {
     return () => window.clearInterval(t)
   }, [])
   const list = useMemo(() => (rows ?? []).filter(r => group === 'all' || r.group === group), [rows, group])
-  const cur = list.find(r => r.sensor_id === sel) ?? list.find(r => r.metric_name === 'temperature' && !r.metadata.simulated) ?? list.find(r => r.metric_name === 'temperature') ?? list[0] ?? null
+  const cur = list.find(r => r.sensor_id === sel) ?? [...list].sort((a, b) => a.freshness - b.freshness).find(r => r.metric_name === 'temperature') ?? list[0] ?? null
   const registered = cur ? cur.quality !== 'UNREGISTERED' : false
   const devId = cur?.device_id, metric = cur?.metric_name
   useEffect(() => {
