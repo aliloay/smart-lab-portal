@@ -13,7 +13,7 @@
 
 // --- identity --------------------------------------------------------------
 #define NODE_NAME        "ENVIRONMENT_NODE"
-#define FIRMWARE_VERSION "0.1.1"
+#define FIRMWARE_VERSION "0.2.0"   // 2026-11-24: node health + optional I2C. Source only, not flashed
 // The portal knows this node as ENV_LAB01 and issued its device key for that
 // name (secrets.h). Another id would be refused by the portal.
 static const char *DEVICE_ID = "ENV_LAB01";
@@ -45,6 +45,11 @@ constexpr bool DEFAULT_FIT_FLAME = false;   // all five channels of the round bo
 // 1, 3 the USB serial; 14 drives a PWM signal at boot (a sensor output must
 // not fight it). 34-39 are inputs only and have no internal pull resistors.
 // Analog inputs use ADC1 (GPIO 32-39): ADC2 cannot be read while Wi-Fi is on.
+// --- optional I2C sensors (env_i2c.h): OFF until bought, wired and bench-tested
+constexpr bool    FIT_SCD41   = false;   // CO2
+constexpr bool    FIT_BH1750  = false;   // light level
+constexpr uint8_t PIN_I2C_SDA = 21;      // VERIFY free on the board
+constexpr uint8_t PIN_I2C_SCL = 22;      // VERIFY free on the board
 constexpr uint8_t PIN_DHT   = 4;    // DHT22 "out" (digital, bidirectional)
 constexpr uint8_t PIN_PIR1  = 27;   // PIR 1 OUT  - zone 1
 constexpr uint8_t PIN_PIR2  = 26;   // PIR 2 OUT  - zone 2
@@ -120,6 +125,7 @@ constexpr uint32_t MQ_DO_DEBOUNCE_MS     = 200;
 constexpr uint32_t DIAG_INTERVAL_MS           = 10000;  // one-line status on Serial
 constexpr uint32_t SNAPSHOT_INTERVAL_MS       = 10000;  // readings to the portal (changes go at once)
 constexpr uint32_t SEND_RETRY_MS              = 5000;   // after a failed send, wait this long
+constexpr uint32_t HEALTH_INTERVAL_MS         = 60000;  // Wi-Fi signal, uptime, free memory, I2C sensors
 constexpr uint32_t HEARTBEAT_INTERVAL_MS      = 30000;  // backend mode only
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000;
 constexpr uint32_t HTTP_TIMEOUT_MS            = 2500;   // network task only

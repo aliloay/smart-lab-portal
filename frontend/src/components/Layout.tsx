@@ -1,16 +1,9 @@
 import { ReactNode, useEffect, useRef, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useNewVersion } from '../lib/freshness'
 import { startJankProbe } from '../lib/jankProbe'
 import { AnimatePresence, m as motion } from 'framer-motion'
-import {
-  Activity, Bell, Boxes, Building2, CalendarPlus, CalendarRange, ChevronDown, Cpu,
-  ExternalLink, Gauge, LayoutDashboard, LogOut, Menu, MonitorPlay, Radar, Settings,
-  ShieldCheck, TriangleAlert,
-  Sparkles, UserRound, Users, Wrench, X,
-  Cctv, Siren,
-  FlaskConical,
-  Bot, Search, Cast } from 'lucide-react'
+import { ChevronDown, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, Sparkles, UserRound, Wrench, X } from 'lucide-react'
 import DoorStatus from './DoorStatus'
 import { ChatBubble, openChat, useChatAvailable } from './ai'
 import CommandPalette, { openPalette } from './CommandPalette'
@@ -26,122 +19,12 @@ import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
 import { Summary, api } from '../lib/api'
-import { warmRoute } from '../lib/warm'
+import { BadgeKey, navFor } from '../lib/nav'
+import SideNav, { WIDE } from './SideNav'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useDebounced, useLive, useLiveMessages } from '../lib/live'
 import { isCapturing, syncShare } from '../lib/screenShare'
 import { visibleInterval } from '../lib/visibleInterval'
-
-type BadgeKey = 'issues' | 'alerts' | 'pending' | 'unread'
-interface Item {
-  to: string; label: string; icon: ReactNode; badge?: BadgeKey; end?: boolean
-  /** Opens in its own window (the wall screen), not in the portal frame. */
-  window?: boolean
-}
-interface Section { title: string; items: Item[] }
-
-/**
- * Navigation is composed per ROLE, not filtered per permission.
- *
- * A student reserves laboratories and reports problems. Staff run the
- * laboratories day to day. An administrator oversees the whole platform. An
- * administrator seeing "New booking" and "My bookings" as primary navigation
- * would be a student workflow wearing an admin's badge - so each role gets a
- * sidebar for what that person actually does. The server enforces the real
- * permissions either way.
- */
-const STUDENT_NAV: Section[] = [
-  { title: 'Laboratory', items: [
-    { to: '/', label: 'Dashboard', icon: <LayoutDashboard size={17} />, end: true },
-    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-    { to: '/book', label: 'New booking', icon: <CalendarPlus size={17} /> },
-    { to: '/bookings', label: 'My bookings', icon: <CalendarRange size={17} /> },
-    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
-  ]},
-  { title: 'Support', items: [
-    { to: '/robots', label: 'Robots', icon: <Bot size={17} /> },
-    { to: '/issues', label: 'My reports', icon: <Wrench size={17} /> },
-    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
-    { to: '/profile', label: 'Profile', icon: <UserRound size={17} /> },
-  ]},
-]
-
-const STAFF_NAV: Section[] = [
-  { title: 'Overview', items: [
-    { to: '/', label: 'Operations', icon: <Gauge size={17} />, end: true },
-    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-  ]},
-  { title: 'Live lab', items: [
-    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
-    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
-    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
-    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
-  ]},
-  { title: 'Safety & access', items: [
-    { to: '/admin/access', label: 'Access monitor', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/bookings', label: 'Reservations', icon: <CalendarRange size={17} />, badge: 'pending' },
-  ]},
-  { title: 'Equipment', items: [
-    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
-    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
-    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-  ]},
-  { title: 'Incidents & alerts', items: [
-    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
-    { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
-    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
-  ]},
-  { title: 'Insight', items: [
-    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
-    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/users', label: 'Users', icon: <Users size={17} /> },
-  ]},
-]
-
-const ADMIN_NAV: Section[] = [
-  { title: 'Overview', items: [
-    { to: '/', label: 'System overview', icon: <Gauge size={17} />, end: true },
-    { to: '/labs', label: 'Laboratories', icon: <Building2 size={17} /> },
-  ]},
-  { title: 'Live lab', items: [
-    { to: '/command', label: 'IoT Dashboard', icon: <Radar size={17} /> },
-    { to: '/monitor', label: 'Live monitor', icon: <MonitorPlay size={17} />, window: true },
-    { to: '/admin/security', label: 'Security camera', icon: <Cctv size={17} /> },
-    { to: '/share', label: 'Share screen', icon: <Cast size={17} /> },
-    { to: '/admin/operations', label: 'Operations Center', icon: <Gauge size={17} /> },
-  ]},
-  { title: 'Safety & access', items: [
-    { to: '/admin/access', label: 'Access & audit', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/bookings', label: 'Bookings', icon: <CalendarRange size={17} />, badge: 'pending' },
-    { to: '/admin/emergency', label: 'Emergency', icon: <Siren size={17} /> },
-  ]},
-  { title: 'Equipment', items: [
-    { to: '/admin/equipment', label: 'Lab Equipment', icon: <Boxes size={17} /> },
-    { to: '/admin/devices', label: 'System Devices', icon: <Cpu size={17} /> },
-    { to: '/issues', label: 'Maintenance', icon: <Wrench size={17} />, badge: 'issues' },
-  ]},
-  { title: 'Incidents & alerts', items: [
-    { to: '/admin/incidents', label: 'Incidents', icon: <Siren size={17} /> },
-    { to: '/admin/alerts', label: 'Alerts', icon: <TriangleAlert size={17} />, badge: 'alerts' },
-    { to: '/notifications', label: 'Notifications', icon: <Bell size={17} />, badge: 'unread' },
-  ]},
-  { title: 'Insight & reports', items: [
-    { to: '/admin/system', label: 'System analytics', icon: <Activity size={17} /> },
-    { to: '/admin/reliability', label: 'Reliability', icon: <ShieldCheck size={17} /> },
-    { to: '/admin/reports', label: 'Reports', icon: <Activity size={17} /> },
-  ]},
-  { title: 'Administration', items: [
-    { to: '/admin/users', label: 'Users & roles', icon: <Users size={17} /> },
-    { to: '/admin/settings', label: 'Settings', icon: <Settings size={17} /> },
-  ]},
-]
-
-function navFor(role: string | undefined): Section[] {
-  if (role === 'ADMIN') return ADMIN_NAV
-  if (role === 'LAB_STAFF') return STAFF_NAV
-  return STUDENT_NAV
-}
 
 /** Sidebar entry for the AI chat: opens the same panel as the round button. */
 function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
@@ -149,69 +32,18 @@ function AssistantNav({ onNavigate }: { onNavigate: () => void }) {
   if (!useChatAvailable()) return null
   return (
     <div>
-      <div className="label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5 pt-5">Assistant</div>
-      <button type="button" onClick={() => { openChat(); onNavigate() }}
-        className="group w-full flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
+      <div className={`label !text-[10.5px] !text-slate-400 px-3.5 pb-1.5 pt-4 ${WIDE}`}>Assistant</div>
+      <button type="button" title="Ask the assistant" aria-label="Ask the assistant" onClick={() => { openChat(); onNavigate() }}
+        className="lg:group-data-[compact=true]/side:justify-center group w-full flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
                    text-slate-300 hover:text-white hover:bg-white/[0.04] transition-colors">
         <span className="text-violet-300 group-hover:text-violet-200"><Sparkles size={17} /></span>
-        <span className="flex-1 text-left">{isStaff(user) ? 'Ask the lab' : 'Ask Smart Lab'}</span>
-        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-200">AI</span>
+        <span className={`flex-1 text-left ${WIDE}`}>{isStaff(user) ? 'Ask the lab' : 'Ask Smart Lab'}</span>
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-200 ${WIDE}`}>AI</span>
       </button>
     </div>
   )
 }
 
-
-function NavItem({ item, badge, onNavigate }: {
-  item: Item; badge?: number; onNavigate: () => void
-}) {
-  const { user: me } = useAuth()          // before any return (rules of hooks)
-  if (item.window) {
-    // Its own window, so it can go on a second screen and full screen.
-    return (
-      <a href={item.to} onClick={e => {
-           e.preventDefault(); onNavigate()
-           window.open(item.to, 'smartlab-monitor', 'popup,width=1600,height=900')
-         }}
-         className="group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 rounded-xl text-[13.5px]
-                    transition-colors text-slate-300 hover:text-white hover:bg-white/[0.04]">
-        <span className="text-slate-400 group-hover:text-slate-200">{item.icon}</span>
-        <span className="flex-1">{item.label}</span>
-        <ExternalLink size={13} className="text-slate-500" />
-      </a>
-    )
-  }
-  const warm = () => warmRoute(me?.role, item.to)
-  return (
-    <NavLink to={item.to} end={item.end} onClick={onNavigate}
-      onPointerEnter={warm} onFocus={warm} onTouchStart={warm}
-      className={({ isActive }) =>
-        `group relative flex items-center gap-3 pl-3.5 pr-2.5 py-2 min-h-[40px] rounded-xl text-[13.5px]
-         transition-colors ${isActive
-          ? 'text-white bg-gradient-to-r from-accent-400/[0.14] to-transparent'
-          : 'text-slate-300 hover:text-white hover:bg-white/[0.04]'}`}>
-      {({ isActive }) => (
-        <>
-          {isActive && (
-            // plain span (was a framer-motion shared layout "slide"): that re-measured the page's scroll
-            // containers on every route change - up to ~200 ms of main thread per click (2026-10-20)
-            <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400
-                             shadow-[0_0_8px_rgba(56,189,248,.55)]" />
-          )}
-          <span className={isActive ? 'text-accent-300'
-            : 'text-slate-400 group-hover:text-slate-200'}>{item.icon}</span>
-          <span className="flex-1">{item.label}</span>
-          {!!badge && (
-            <span className="min-w-[20px] h-5 px-1.5 rounded-md grid place-items-center
-                             text-[11px] font-semibold tnum bg-ink-600 text-slate-100">
-              {badge > 99 ? '99+' : badge}
-            </span>
-          )}
-        </>
-      )}
-    </NavLink>
-  )
-}
 
 function UserMenu() {
   const { user, logout } = useAuth()
@@ -278,6 +110,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   useEffect(() => { setOpen(false) }, [loc.pathname])
 
+  // Desktop only: icons without words, remembered per browser.
+  const [compact, setCompact] = useState(() => { try { return localStorage.getItem('smartlab.nav.compact') === '1' } catch { return false } })
+  const flip = () => setCompact(c => {
+    try { localStorage.setItem('smartlab.nav.compact', c ? '0' : '1') } catch { /* not remembered */ }
+    return !c
+  })
+
   // Workload badges for staff, recounted from the database, refreshed live.
   const [summary, setSummary] = useState<Summary | null>(null)
   useEffect(() => {
@@ -309,7 +148,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <div className="relative mx-3 px-2 pt-5 pb-4 mb-2 border-b border-ink-600/60">
         <Link to="/" className="flex items-center gap-3 min-w-0" aria-label="Smart Lab - dashboard" title="Dashboard">
           <SmartLabMark size={38} animated />
-          <Wordmark tight />
+          <span className={WIDE}><Wordmark tight /></span>
         </Link>
         {/* Pinned inside the drawer: in the brand row it overflowed the
             264px column and showed through while the drawer was closed. */}
@@ -323,29 +162,17 @@ export default function Layout({ children }: { children: ReactNode }) {
           room, and simply follows the menu on short screens - it never takes
           space from a navigation item. */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-        <button type="button" onClick={openPalette}
-          className="mx-3 mb-2 flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 hover:border-ink-500">
-          <Search size={14} /> Search <kbd className="ml-auto text-[10px] border border-ink-600 rounded px-1">Ctrl K</kbd></button>
+        <button type="button" onClick={openPalette} aria-label="Search (Ctrl K)" title="Search (Ctrl K)"
+          className="lg:group-data-[compact=true]/side:justify-center mx-3 mb-2 flex items-center gap-2 rounded-xl border border-ink-600 px-3 py-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 hover:border-ink-500">
+          <Search size={14} /> <span className={WIDE}>Search</span> <kbd className={`ml-auto text-[10px] border border-ink-600 rounded px-1 ${WIDE}`}>Ctrl K</kbd></button>
         <nav className="px-3 pb-3" aria-label="Main">
-          {navFor(user?.role).map((section, i) => (
-            <div key={section.title}>
-              <div className={`label !text-[10.5px] !text-slate-500 px-3.5 pb-1.5
-                               ${i === 0 ? 'pt-2' : 'pt-5'}`}>{section.title}</div>
-              <div className="space-y-0.5">
-                {section.items.map(item => (
-                  <NavItem key={item.to} item={item}
-                           badge={item.badge ? badges[item.badge] : undefined}
-                           onNavigate={() => setOpen(false)} />
-                ))}
-              </div>
-            </div>
-          ))}
+          <SideNav badges={badges} onNavigate={() => setOpen(false)} />
           <AssistantNav onNavigate={() => setOpen(false)} />
         </nav>
 
         <div className="mt-auto pt-2">
           {/* The spare space under the navigation: the door, at a glance. */}
-          <DoorStatus onNavigate={() => setOpen(false)} />
+          <div className={WIDE}><DoorStatus onNavigate={() => setOpen(false)} /></div>
 
           {/* Phones have no desktop top bar, so the university mark sits here. */}
           <div className="lg:hidden px-5 pb-3">
@@ -355,9 +182,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       </div>
 
       <div className="p-3 border-t border-ink-600/60">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <Avatar name={user?.full_name} size={34} />
-          <div className="min-w-0 flex-1">
+        <button type="button" onClick={flip} aria-pressed={compact} aria-label={compact ? 'Show menu names' : 'Compact menu'}
+          title={compact ? 'Show menu names' : 'Compact menu'}
+          className="hidden lg:flex w-full items-center justify-center gap-2 h-8 rounded-lg text-[12px] text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]">
+          {compact ? <PanelLeftOpen size={16} /> : <><PanelLeftClose size={16} /> Compact menu</>}</button>
+        <div className="flex items-center gap-3 px-2 py-2 lg:group-data-[compact=true]/side:px-0 lg:group-data-[compact=true]/side:justify-center">
+          <span className={WIDE}><Avatar name={user?.full_name} size={34} /></span>
+          <div className={`min-w-0 flex-1 ${WIDE}`}>
             <div className="text-[13px] text-white truncate">{user?.full_name}</div>
             <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
               {roleLabel(user?.role)}
@@ -400,7 +231,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         )}
       </AnimatePresence>
 
-      <aside className={`fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[264px]
+      <aside data-compact={compact} className={`group/side lg:data-[compact=true]:w-[76px] fixed lg:sticky top-0 lg:h-screen inset-y-0 left-0 z-50 w-[264px]
                          shrink-0 flex flex-col border-r border-white/[0.07] overflow-hidden
                          bg-ink-900/95 lg:bg-ink-900/85
                          transition-transform duration-200 ease-out
