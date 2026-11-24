@@ -840,7 +840,7 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
         labs = db.scalars(select(LabRow).order_by(LabRow.code)).all()
         names = {"temperature": "Temperature", "humidity": "Humidity", "smoke": "Smoke / gas",
                  "flame": "Flame", "motion": "Motion", "water_leak": "Water leak", "emergency": "Emergency button"}
-        lines = []
+        lines, old_nodes = [], []
         for lab in labs:
             v = env_svc.latest(db, lab, now)
             if v["node"] is None:
@@ -855,10 +855,19 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
                 q = "" if r["quality"] == "VALID" else f" ({r['quality'].lower().replace('_', ' ')})"
                 parts.append(f"{label}: **{val}**{q}")
             age = _when(v["node"]["last_seen_at"]) if v["node"]["last_seen_at"] else "never"
+            seen = v["node"]["last_seen_at"]
+            if seen is None or (now - _utc(seen)).total_seconds() > 300:      # lab 24 Nov: 2-day-old values read as "now"
+                old_nodes.append(lab.code)
+                parts = [p for p in parts if not p.startswith("Motion")]
+                lines.append(f"{lab.code} ({v['node']['device_uid']}): **no current reading** - the node is offline. "
+                             f"Last known ({age}): " + " · ".join(parts))
+                continue
             lines.append(f"{lab.code} ({v['node']['device_uid']}, last report {age}): " + " · ".join(parts))
         if not lines:
             return _answer("No environment node has reported yet.", intent)
-        return _answer("**Environment now** (the node's latest readings):\n" + _bullets(lines), intent,
+        head = ("**Environment: no live reading**" if len(old_nodes) == len(lines)
+                else "**Environment now** (the node's latest readings)")
+        return _answer(head + ":\n" + _bullets(lines), intent,
                        {"label": "Open Lab Equipment", "to": "/admin/equipment?tab=environment"})
 
     if intent == "bins_stock":

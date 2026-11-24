@@ -52,6 +52,14 @@ LAB_COUNT = re.compile(r"\bhow many (labs?|laborator(y|ies))\b|\b(list|show)( me
 ESP32_ALL = re.compile(r"\b(esp32s?|esp 32|esp boards?|nodes|boards)\b.*\b(online|status|state|working|how many|list|which)\b|"
                        r"\b(how many|are the|are all|list|status of the)\b.*\b(esp32s?|esp 32|esp boards?|nodes)\b")
 AI_MODEL = re.compile(r"\b(which|what)\b.*\b(model|llm)\b|\bmodel\b.*\b(assistant|ai|using|running|use)\b")
+# Lab 24 Nov 2026: these went to the language model, which answered from an old simulation ("running for 2.8 hours"),
+# "62 people" and "the lab is empty" while five people were in view.
+ROBOT_DOING = re.compile(r"\bwhat('s| is)\b.*\b(doing|up to)\b|\bis\b.*\bmoving\b")
+CAM_COUNT = re.compile(r"\bhow many (people|persons|humans)\b.*\b(cameras?|see|seen|visible|in view)\b|"
+                       r"\b(cameras?)\b.*\bhow many (people|persons|humans)\b")
+LAB_NOW = re.compile(r"\b(summar\w*|overview|status|situation)\b.*\brobotics lab\b|"
+                     r"\brobotics lab\b.*\b(summar\w*|overview|status|situation)\b")
+LAB_PERIOD = re.compile(r"\b(week|month|yesterday|daily|report|last|year)\b")
 HEALTH = re.compile(r"\bhealth score\b|\blab health\b|\bhealth of the lab")
 
 
@@ -128,6 +136,44 @@ def _line(d: Device, now: datetime, when) -> str:
     return f"{label}: " + " - ".join(bits)
 
 
+def _robot_line(d: Device, now: datetime) -> str:
+    from app.services.live_target import robot_live
+    r = robot_live(d, now)
+    age = r["telemetry_age_s"]
+    if r["connection"] != "LIVE" or r["state"] not in ("MOVING", "STATIONARY"):
+        return (f"{d.name}: **not reporting live** - last telemetry "
+                + ("never" if age is None else f"{age:.0f} s ago" if age < 90 else f"{age / 60:.0f} min ago"))
+    n = sum(1 for m in (r["joints_moving"] or []) if m)
+    doing = (f"**moving** ({n} joint{'s' if n != 1 else ''})" if r["state"] == "MOVING" else "**standing still**")
+    mode = f", robot mode {r['robot_mode']}" if r.get("robot_mode") not in (None, "FANUC_WEB") else ""
+    return f"{d.name}: {doing} - telemetry {age:.1f} s old{mode}"
+
+
+def _camera_lines(devs: list[Device], now: datetime) -> list[str]:
+    from app.services.devices import is_fresh
+    out = []
+    for d in devs:
+        if d.device_type != DeviceType.SECURITY_CAMERA:
+            continue
+        cs = d.component_state or {}
+        if not is_fresh(d, now):
+            out.append(f"{d.name} ({d.device_uid}): not reporting")
+            continue
+        n = cs.get("people")
+        if not isinstance(n, int) or isinstance(n, bool):
+            n = len(cs["activity"]) if isinstance(cs.get("activity"), list) else None
+        out.append(f"{d.name} ({d.device_uid}): " + ("no people count reported" if n is None else f"**{n}** in view"))
+    return out
+
+
+def _camera_count(devs: list[Device], now: datetime, bullets) -> str:
+    lines = _camera_lines(devs, now)
+    if not lines:
+        return "No security camera is registered."
+    return ("**People the cameras see now:**\n" + bullets(lines)
+            + "\nThe two views overlap, so the numbers must not be added up.")
+
+
 def _kb_model() -> Optional[str]:
     """The knowledge assistant's model from its own /status (1.5 s budget; None when not reachable)."""
     try:
@@ -184,6 +230,31 @@ def answer(db: Session, question: str, staff: bool, when, answer_fn, bullets) ->
         return None                                   # device details (IPs, firmware) are staff-only, as on /devices
 
     devs = [d for d in refresh_liveness(db) if not is_retired(d)]
+
+    if CAM_COUNT.search(q):
+        return answer_fn(_camera_count(devs, now, bullets), "camera_people",
+                         {"label": "Open Security camera", "to": "/admin/security"})
+
+    if LAB_NOW.search(q) and not LAB_PERIOD.search(q):
+        from sqlalchemy import func
+        from app.models import AccessSession, Alert
+        lab = db.scalar(select(Lab).where(Lab.name.ilike("%robotics%")).order_by(Lab.code))
+        if lab is not None:
+            mine = [d for d in devs if d.lab_id == lab.id]
+            inside = db.scalar(select(func.count(AccessSession.id)).where(AccessSession.lab_id == lab.id,
+                                                                          AccessSession.ended_at.is_(None))) or 0
+            alerts = db.scalar(select(func.count(Alert.id)).where(Alert.lab_id == lab.id,
+                                                                  Alert.is_resolved.is_(False))) or 0
+            lines = [f"Checked in at the door: {inside}", *_camera_lines(mine, now),
+                     *[_robot_line(d, now) for d in mine if d.device_type == DeviceType.ROBOT and not _is_sim(d)],
+                     f"Open alerts: {alerts}"]
+            return answer_fn(f"**{lab.name} now** (from the live records):\n" + bullets(lines), "lab_now",
+                             {"label": "Open Laboratories", "to": f"/labs/{lab.id}"})
+
+    if ROBOT_DOING.search(q):
+        d, _several = find_device([x for x in devs if x.device_type == DeviceType.ROBOT], question)
+        if d is not None:
+            return answer_fn(_robot_line(d, now), "robot_now", {"label": "Open Robots", "to": f"/robots/{d.id}"})
 
     if ESP32_ALL.search(q) and not _WHICH_BOARD.search(q):
         esp = sorted((d for d in devs if d.device_type in ESP32_TYPES), key=lambda d: d.device_uid)
