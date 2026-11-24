@@ -214,7 +214,7 @@ def fanuc():
 
 def valid_network_text(text):
     """Real adapter output: addresses, and not the help text (24 Nov: Git Bash turned /all into a path)."""
-    return bool(re.search(r"IPv4", text) and re.search(r"\d{1,3}(\.\d{1,3}){3}", text)) and "USAGE" not in text.upper()
+    return bool(re.search(r"IPv4.*?(\d{1,3}\.){3}\d{1,3}", text)) and "USAGE" not in text.upper()
 
 
 def network():

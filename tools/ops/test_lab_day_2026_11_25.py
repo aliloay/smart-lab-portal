@@ -33,9 +33,5 @@ def test_five_seconds_of_new_frames_is_recovery_from_the_first_one():
 
 
 def test_network_capture():
-    assert ld.valid_network_text("Ethernet adapter Ethernet:
-   IPv4 Address. . . : 192.168.1.200(Preferred)")
-    assert not ld.valid_network_text("Error: unrecognized or incomplete command line.
-
-USAGE:
-    ipconfig [/all] IPv4 127.0.0.1")
+    assert ld.valid_network_text("Ethernet adapter Ethernet:\n   IPv4 Address. . . : 192.168.1.200(Preferred)")
+    assert not ld.valid_network_text("Error: unrecognized or incomplete command line.\n\nUSAGE:\n    ipconfig [/all] IPv4 127.0.0.1")
