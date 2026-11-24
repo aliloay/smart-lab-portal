@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:unit": "esbuild tests/workcell.test.ts tests/arshift.test.ts tests/kbstream.test.ts tests/frameHint.test.ts --bundle --platform=node --format=esm --outdir=tests/.out --out-extension:.js=.mjs --log-level=warning && node --test tests/.out/workcell.test.mjs tests/.out/arshift.test.mjs tests/.out/kbstream.test.mjs tests/.out/frameHint.test.mjs",
+    "test:unit": "esbuild tests/workcell.test.ts tests/arshift.test.ts tests/kbstream.test.ts tests/frameHint.test.ts tests/nav.test.ts --bundle --platform=node --format=esm --outdir=tests/.out --out-extension:.js=.mjs --log-level=warning && node --test tests/.out/workcell.test.mjs tests/.out/arshift.test.mjs tests/.out/kbstream.test.mjs tests/.out/frameHint.test.mjs tests/.out/nav.test.mjs",
     "test:e2e": "node e2e/navigation.mjs",
     "test:e2e:workflows": "node e2e/workflows.mjs"
   },

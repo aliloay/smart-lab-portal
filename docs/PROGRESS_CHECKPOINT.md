@@ -1,5 +1,10 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-24 - affordable expansion (worktree C:/Projects/smart-lab-expansion, branch upgrade/affordable-expansion-2026-11-23; NOT committed, NOT deployed)
+- Built: /api/metrics, /admin/health, /admin/sensors, /exhibit, grouped sidebar, 153 record-based questions, env firmware 0.2.0 source (compiled, not flashed). 21 reports: reports/affordable-smart-lab-expansion-2026-11-23/.
+- Tests: backend 1004 passed, 3 skipped, 1 failed (503 no AI model in the test container; same on the unchanged code); tsc 0; unit 26; browser 30 + 104. Docker disk is on C: (43 GB), the older D: note is out of date.
+- Open: owner review/merge, flash + lab test, purchases (540 / 2,089 EGP), occupancy retention decision.
+
 ## UPDATE 2026-11-23 evening - next-gen upgrades merged and live (reports/smart-lab-next-generation-upgrade-research-2026-11-23/FINAL_STATE_REPORT_2026-11-23.md)
 - 8d9b8d5 live as 8d9b8d5-20261123205514. Tests on it: backend 933/3 skipped, cameras 423, knowledge 86, robots 44, PC agent 44, relay 6, frontend unit 19.
 - Open: signed PC agent bundle still without frame skipping (owner OK, try one PC first); screen share on real PCs; query card in a signed-in browser.

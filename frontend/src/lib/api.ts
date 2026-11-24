@@ -199,6 +199,39 @@ export interface ServiceHealth {
   device_uid?: string; last_seen?: string | null; last_ok?: string | null; last_check?: string | null
   failing_since?: string | null; consecutive_failures?: number; guidance?: string | null; open_alerts?: number
 }
+// --- measurements (/api/metrics, read only, staff) ---
+export type MetricQuality = 'VALID' | 'STALE' | 'DEVICE_OFFLINE' | 'OUT_OF_RANGE' | 'UNREGISTERED'
+export interface MetricDef {
+  name: string; label: string; unit: string; min: number; max: number; interval_s: number; calibration: string
+  kind: 'gauge' | 'state'; group: string; status: 'IMPLEMENTED' | 'PLANNED'; source: string; note: string
+}
+export interface MetricLatest {
+  device_id: number; device_uid: string; device_name: string; sensor_id: string; metric_name: string; label: string
+  unit: string; group: string; kind: string; value: number; timestamp: string; freshness: number; quality: MetricQuality
+  source: string; calibration_status: string; sampling_interval: number | null
+  metadata: { provenance: string | null; simulated: boolean }
+}
+export interface MetricStats { n: number; avg: number | null; min: number | null; max: number | null; rejected: number }
+export interface MetricHistory {
+  metric: MetricDef; device_id: number; period: string; bucket_s: number; from: string; to: string
+  series: { t: string; avg: number | null; min: number | null; max: number | null; n: number; rejected: number }[]
+  stats: MetricStats; previous: MetricStats; coverage_pct: number; gaps: { from: string; to: string }[]; gap_count: number
+  change_per_hour: number | null; generated_at: string
+}
+export interface MetricCoverage {
+  device_id: number; device_uid: string; device_name: string; hours_with_data: number; window_hours: number
+  coverage_pct: number; readings: number; last: string
+}
+export interface Diagnosis {
+  device_id: number; device_uid: string; name: string; state: string; what_happened: string; statement: string
+  evidence: string[]; causes: { cause: string; confidence: 'high' | 'medium' | 'low'; evidence: string[] }[]
+  missing_evidence: string[]; checks: string[]; human_action: boolean; generated_at: string
+  similar_incidents: { title: string; at: string; resolved: boolean; occurrences: number }[]
+}
+export interface MetricTimeline {
+  items: { kind: string; id: number; at: string; text: string; level: string; device_uid: string | null }[]
+  truncated: boolean; unavailable: string[]; privacy: string
+}
 export interface IdentityEvidence {
   people: { track_id: number; label: string | null; name: string | null
             explain: { state: string; confidence: number; source: string | null; conflict_with: string | null
@@ -1592,6 +1625,13 @@ export const api = {
   calibrateHome: (id: number, body: { tolerance_deg?: number; note?: string }) =>
     post<{ version: number; home_q: number[] }>(`/robots/${id}/home`, body),
   systemServices: () => request<{ checked_at: string; services: ServiceHealth[] }>('/system/services'),
+  metricRegistry: () => request<MetricDef[]>('/metrics/registry'),
+  metricLatest: () => request<MetricLatest[]>('/metrics/latest'),
+  metricHistory: (device: number, metric: string, period: string) =>
+    request<MetricHistory>(`/metrics/history?device_id=${device}&metric=${encodeURIComponent(metric)}&period=${period}`),
+  metricCoverage: (days: number) => request<MetricCoverage[]>(`/metrics/coverage?days=${days}`),
+  metricDiagnose: (device: number) => request<Diagnosis>(`/metrics/diagnose/${device}`),
+  metricTimeline: (hours: number, kinds: string) => request<MetricTimeline>(`/metrics/timeline?hours=${hours}&kinds=${kinds}`),
   systemHealth: () => request<{ checked_at: string; services: ServiceHealth[]; summary: Record<string, number>
     data_sources: Record<string, { source: string; last: string | null; state: string; records: number }>
     backup: Record<string, unknown> | null }>('/system/health'),
