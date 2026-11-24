@@ -77,3 +77,20 @@ The benchmark ran before the six fact entries of 24 Nov were added, so it must n
 
 ## 7. Not measured at GIU on 24 Nov
 ESP32 boards, door, RFID and sensors (use the earlier measurements of 21 Nov with their own date and place); camera, twin and screen-share delay; FANUC pendant numbers; face recognition after re-enrolment; no-internet test; pose accuracy; ground truth for tracking.
+
+## 8. Overlapping people: what was done, and wording for the paper
+1. Before 24 Nov: separate tracks for touching people, a re-check of names after a crossing, no name handed over while two people could fit.
+2. At the lab, running from 15:35: a person seen together with the named one never inherits that name by appearance, on one camera or across both.
+3. Enhanced version, after the lab (offline): a staff-confirmed name that clearly no longer fits after people touched becomes "Name ? (look)" and is flagged. It never moves to somebody else.
+
+Evidence for step 3, replayed on the two-camera recording of 16:36-16:41: 6 of 6 tracks kept their name with no swap; 4 of 8 simulated swaps were detected (median 21 s). The 4 others had no clean view before the first touch. The limit (0.46, 10 checks) was chosen on this same recording, so this is calibration, not an independent test. Identity scenarios (simulated): 17, with 0 false names and 0 name switches.
+Appearance distance in that recording (re-ID plus colour): same track more than 5 s apart p95 0.42 and 0.49 (n = 164, 214); two people at once p5 0.48 and 0.45 (n = 34, 165). The same-track values assume no identity change within a track: checked by eye on camera 2 sample frames only.
+
+Suggested sentence: "Overlap between people is handled in three stages: separate tracking, withheld name transfer while identities are ambiguous, and a post-contact appearance check that downgrades an inconsistent name to an explicit guess. In simulated scenarios no false name occurred. In the laboratory, two identity swaps were observed with people meeting closely; the final check was added after that session and evaluated on recorded data."
+
+## 9. Robot and twin videos
+- UR5e with the twin on a laptop in one shot: `D:/SmartLabData/colab/robot_pack_tmp/Ur5e robot.mov` (10.9 s). FANUC with the twin: `owner_robot_and_twin_older_video.mov` (19.0 s, date not in the file). Both are in or beside the evidence folder; no faces were seen in the sampled frames.
+- A delay was tried on the UR5e video by matching motion in the two regions. The moving hand-held camera gives a best correlation of only 0.37, so **no delay is claimed**; the videos show that the twin follows.
+
+## 10. Place of these numbers in the thesis
+The contribution is the integration: door, ESP32 nodes, cameras, robots, lab PCs, automation, assistant and portal as one local system. The numbers justify it and show its limits. ESP32 and door figures are the existing ones of 21 Nov (`docs/reports/MEASUREMENTS_2026-11-21.md`, home bench), used with that date and place.
