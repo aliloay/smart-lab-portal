@@ -88,6 +88,11 @@ Appearance distance in that recording (re-ID plus colour): same track more than 
 
 Suggested sentence: "Overlap between people is handled in three stages: separate tracking, withheld name transfer while identities are ambiguous, and a post-contact appearance check that downgrades an inconsistent name to an explicit guess. In simulated scenarios no false name occurred. In the laboratory, two identity swaps were observed with people meeting closely; the final check was added after that session and evaluated on recorded data."
 
+### Seated people and the older version
+- Recorded seats (21 Oct and 18 Nov) now also join seated people between the cameras, shown as "Name? (seat)": a guess that is never shared or counted. Two missing seats were added from the staff-confirmed labels of 15:52 and 16:04.
+- Replay against confirmed labels (seat rule alone, matched samples): 15:20 recording 51 right, 2 wrong (before 1 and 0); 16:28 recording 245 right, 6 wrong (before 0 and 0). The two recordings used to add the seats: 104 / 0 and 67 / 59; the 59 come from a track whose label had probably swapped, not proven. This is why it stays a guess. Same people and same day, so no general accuracy is claimed. Not yet run on live cameras.
+- Version of 22 Nov (d023e98) against the final one in the 17 simulated scenarios: identical, 0 false names in both. No reason to go back.
+
 ## 9. Robot and twin videos
 - UR5e with the twin on a laptop in one shot: `D:/SmartLabData/colab/robot_pack_tmp/Ur5e robot.mov` (10.9 s). FANUC with the twin: `owner_robot_and_twin_older_video.mov` (19.0 s, date not in the file). Both are in or beside the evidence folder; no faces were seen in the sampled frames.
 - A delay was tried on the UR5e video by matching motion in the two regions. The moving hand-held camera gives a best correlation of only 0.37, so **no delay is claimed**; the videos show that the twin follows.
