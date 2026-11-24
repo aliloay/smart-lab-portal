@@ -22,14 +22,13 @@ try {
   await p.goto(`${BASE}/login`)
   await p.fill('#email', EMAIL); await p.fill('#password', PASSWORD)
   await p.click('button[type=submit]'); await p.waitForURL(u => !u.pathname.startsWith('/login'))
-  // every page that was in the admin menu before the regrouping is still there (a normal page: the
+  // 2026-11-24: cameras, reports, reliability, system are tabs, notifications the bell (tests/nav.test.ts). (A normal page: the
   // welcome screen after login has no sidebar)
   await p.goto(`${BASE}/admin/system`)
   await p.waitForSelector('nav[aria-label=Main] a')
   const nav = await p.locator('nav[aria-label=Main] a').evaluateAll(as => as.map(a => a.getAttribute('href')))
-  for (const r of ['/', '/labs', '/admin/bookings', '/admin/access', '/command', '/admin/operations', '/admin/system', '/monitor',
-    '/admin/security', '/admin/reports', '/issues', '/admin/devices', '/admin/equipment', '/admin/alerts', '/admin/incidents',
-    '/notifications', '/admin/users', '/admin/settings', '/admin/emergency', '/admin/reliability'])
+  for (const r of ['/', '/labs', '/admin/bookings', '/admin/access', '/command', '/admin/operations', '/admin/health', '/issues', '/admin/devices',
+    '/admin/equipment', '/admin/alerts', '/admin/incidents', '/admin/users', '/admin/settings', '/admin/emergency'])
     check(nav.includes(r), `menu still has ${r}`)
   check(!nav.includes('/robots'), 'Robots only under Lab Equipment (owner, 2026-10-18)')
   for (const t of ['briefing', 'graph', 'drift', 'performance', 'quality', 'backups', 'policy']) {

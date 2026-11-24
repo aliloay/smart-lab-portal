@@ -1,7 +1,7 @@
 // 2026-11-24: grouped navigation keeps every old address, roles stay separate; exhibition source labels; CSV safety.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { isHere, navFor } from '../src/lib/nav'
+import { isHere, navFor, pagesFor, tabsFor } from '../src/lib/nav'
 import { SIMULATED, choose, snapshot } from '../src/lib/exhibit'
 import { csv } from '../src/lib/metricCsv'
 
@@ -11,18 +11,40 @@ const OLD_STAFF = ['/', '/labs', '/command', '/monitor', '/admin/security', '/sh
   '/admin/system', '/admin/reliability', '/admin/users']
 const OLD_ADMIN = [...OLD_STAFF, '/admin/emergency', '/admin/reports', '/admin/settings']
 
-test('no address of the old menu is lost, none appears twice', () => {
-  for (const p of OLD_STAFF) assert.ok(at('LAB_STAFF').includes(p), p)
-  for (const p of OLD_ADMIN) assert.ok(at('ADMIN').includes(p), p)
-  for (const r of ['ADMIN', 'LAB_STAFF', 'STUDENT']) assert.equal(new Set(at(r)).size, at(r).length)
+const pages = (role?: string) => pagesFor(role).map(p => p.to)
+// /share is the Screen sharing tab for staff, /notifications is the bell; both stay addresses and palette entries
+const moved = (p: string) => p === '/share' ? '/admin/equipment?tab=share' : p
+test('no page of the old menu is lost (menu, tabs or Ctrl+K), none appears twice', () => {
+  for (const p of OLD_STAFF) assert.ok(pages('LAB_STAFF').includes(moved(p)), p)
+  for (const p of OLD_ADMIN) assert.ok(pages('ADMIN').includes(moved(p)), p)
+  for (const p of ['/', '/labs', '/book', '/bookings', '/share', '/robots', '/issues', '/notifications', '/profile']) assert.ok(pages('STUDENT').includes(p), p)
+  for (const r of ['ADMIN', 'LAB_STAFF', 'STUDENT']) {
+    assert.equal(new Set(at(r)).size, at(r).length)
+    assert.equal(new Set(pages(r)).size, pages(r).length)
+  }
 })
 test('roles: students and unknown roles get no staff page, staff no administrator page', () => {
-  for (const r of ['STUDENT', undefined, 'SOMETHING'])
-    assert.ok(at(r).every(p => !p.startsWith('/admin') && !['/command', '/monitor', '/exhibit'].includes(p)))
-  for (const p of ['/admin/emergency', '/admin/settings', '/admin/reports']) assert.ok(!at('LAB_STAFF').includes(p), p)
+  for (const r of ['STUDENT', undefined, 'SOMETHING']) {
+    assert.ok(pages(r).every(p => !p.startsWith('/admin') && !['/command', '/monitor', '/exhibit', '/wall', '/scan', '/demo'].includes(p)))
+    assert.equal(tabsFor(r, '/command'), null)
+  }
+  for (const p of ['/admin/emergency', '/admin/settings', '/admin/reports']) assert.ok(!pages('LAB_STAFF').includes(p), p)
+  assert.ok(!tabsFor('LAB_STAFF', '/admin/health')!.tabs.some(t => t.to === '/admin/reports'))
+  assert.ok(tabsFor('ADMIN', '/admin/health')!.tabs.some(t => t.to === '/admin/reports'))
 })
-test('safety is never behind a closed group', () => {
-  assert.ok(navFor('ADMIN').find(g => g.items.some(i => i.to === '/admin/emergency'))!.pinned)
+test('the menu: no Notifications and no Share screen for staff; safety is one group, open at the start', () => {
+  for (const r of ['ADMIN', 'LAB_STAFF']) {
+    assert.ok(!at(r).includes('/notifications') && !at(r).includes('/share') && !at(r).includes('/admin/security'))
+    const g = navFor(r).find(x => x.id === 'safety')!
+    assert.ok(!g.pinned && !g.closed)
+    assert.deepEqual(g.items.map(x => x.to), ['/admin/access', '/admin/alerts', '/admin/incidents', ...(r === 'ADMIN' ? ['/admin/emergency'] : [])])
+  }
+})
+test('one entry is active on each page that has tabs', () => {
+  for (const [p, to] of [['/admin/security', '/command'], ['/admin/reliability', '/admin/health'], ['/admin/reports', '/admin/health'],
+                         ['/bookings/4', '/admin/bookings'], ['/equipment/7', '/admin/equipment'], ['/admin/equipment', '/admin/equipment']])
+    assert.deepEqual(navFor('ADMIN').flatMap(g => g.items).filter(e => isHere(e, p)).map(e => e.to), [to], p)
+  assert.deepEqual(tabsFor('LAB_STAFF', '/admin/security')!.tabs.map(t => t.to), ['/command', '/admin/security'])
 })
 test('active page: the dashboard only on its own address', () => {
   const home = navFor('ADMIN')[0].items[0]

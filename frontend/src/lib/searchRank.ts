@@ -122,7 +122,7 @@ export function rank(prepared: Prepared[], query: string, limit = 20): SearchIte
 export const PAGE_WORDS: Record<string, string> = {
   '/': 'home dashboard overview summary',
   '/labs': 'labs laboratories rooms',
-  '/command': 'command center operations live control room',
+  '/command': 'command center operations live monitoring iot dashboard sensors control room',
   '/monitor': 'live monitor wall screen',
   '/admin/security': 'security camera cameras cctv video people person tracking identity unknown lost names',
   '/admin/operations': 'operations analytics usage trends',
@@ -144,4 +144,8 @@ export const PAGE_WORDS: Record<string, string> = {
   '/admin/settings': 'settings configuration',
   '/profile': 'profile account me face photos',
   '/robots': 'robots arms ur5e fanuc twin',
+  '/admin/health': 'health center services status', '/admin/sensors': 'sensor analytics temperature humidity history',
+  '/share': 'share screen shared watch', '/wall': 'wall display screen command', '/exhibit': 'exhibition screen open day',
+  '/scan': 'ar scanner augmented camera phone', '/scan/markers': 'ar markers print', '/phone-setup': 'phone setup certificate ar',
+  '/demo': 'simulation demo', '/issues/new': 'report issue problem fault',
 }

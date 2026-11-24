@@ -88,10 +88,10 @@ export default function Operations() {
     <div>
       <PageHeader eyebrow="Command view" title="Operations Center"
         sub="Utilisation, access, sessions, devices, maintenance and automation - counted from recorded rows only."
-        actions={<div className="flex flex-wrap items-center gap-2">
+        actions={<div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
           <select aria-label="Laboratory" value={labId ?? ''}
             onChange={e => setLabId(e.target.value ? Number(e.target.value) : undefined)}
-            className="input !py-1.5 !w-auto text-[13px]">
+            className="input !py-1.5 !w-auto max-w-[calc(100vw-2rem)] text-[13px]">
             <option value="">All laboratories</option>
             {labs.map(l => <option key={l.id} value={l.id}>{l.code} · {l.name}</option>)}
           </select>
@@ -143,20 +143,6 @@ export default function Operations() {
               tone={kpi.reporting && kpi.online < kpi.reporting ? 'bad' : 'ok'} to="/admin/devices"
               hint={`${d.devices.length - kpi.reporting} never reported`} />
           </div>
-
-          {/* ------------------------------------------------ AI + priorities */}
-          <section className="grid xl:grid-cols-2 gap-4 print:hidden">
-            <div className="card p-5">
-              <SectionTitle icon={<Bot size={15} />} sub="Answers from the portal's records, through read-only tools.">
-                Ask the lab</SectionTitle>
-              <AskTheLab />
-            </div>
-            <div className="card p-5">
-              <SectionTitle icon={<ListOrdered size={15} />}
-                sub="Official order: severity, SLA, safety, assignment, upcoming bookings.">What to fix first</SectionTitle>
-              <PriorityList limit={5} />
-            </div>
-          </section>
 
           {/* ------------------------------------------------ utilisation */}
           <section>
@@ -296,37 +282,6 @@ export default function Operations() {
             </div>
           </section>
 
-          {/* ------------------------------------------------ devices */}
-          <section>
-            <SectionTitle icon={<Cpu size={15} />}
-              sub="Observed outages: from a recorded offline transition to the next heartbeat.">Device health</SectionTitle>
-            <div className="card p-5">
-              {!d.devices.length ? <EmptyState compact title="No devices registered" /> : (
-                <div className="space-y-3.5">
-                  {d.devices.map(x => (
-                    <div key={x.device_id} className="grid sm:grid-cols-[220px_1fr_150px] gap-2 sm:gap-4 items-center">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 text-[13px] text-slate-100 truncate">
-                          <Dot tone={x.state === 'ONLINE' ? 'ok' : x.state === 'OFFLINE' ? 'bad' : x.state === 'DEGRADED' ? 'warn' : 'idle'}
-                               live={x.state === 'ONLINE'} />{x.name}
-                        </div>
-                        <div className="text-[11.5px] text-slate-500">{x.lab_code} · {x.type.replace('_', ' ').toLowerCase()}
-                          {x.components && Object.entries(x.components).filter(([k, v]) => v === false && k !== 'relay_locked')
-                            .map(([k]) => <span key={k} className="ml-1.5 text-bad-soft">{k} fault</span>)}
-                        </div>
-                      </div>
-                      <OutageStrip outages={x.outages} days={days} state={x.state} />
-                      <div className="text-[12px] text-slate-400 sm:text-right">
-                        {x.state === 'NO_DATA' ? 'Never reported'
-                          : `${x.offline_events} outage${x.offline_events === 1 ? '' : 's'} · ${fmtDuration(x.offline_minutes ?? 0)}`}
-                        <div className="text-[11px] text-slate-500">
-                          {x.last_seen_at ? `seen ${relative(x.last_seen_at)}` : 'Not reported'}</div>
-                      </div>
-                    </div>))}
-                </div>)}
-            </div>
-          </section>
-
           {/* ------------------------------------------------ maintenance */}
           <section>
             <SectionTitle icon={<Wrench size={15} />}
@@ -383,6 +338,37 @@ export default function Operations() {
             </div>
           </section>
 
+          {/* ------------------------------------------------ devices */}
+          <section>
+            <SectionTitle icon={<Cpu size={15} />}
+              sub="Observed outages: from a recorded offline transition to the next heartbeat.">Device health</SectionTitle>
+            <div className="card p-5">
+              {!d.devices.length ? <EmptyState compact title="No devices registered" /> : (
+                <div className="space-y-3.5">
+                  {d.devices.map(x => (
+                    <div key={x.device_id} className="grid sm:grid-cols-[220px_1fr_150px] gap-2 sm:gap-4 items-center">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-[13px] text-slate-100 truncate">
+                          <Dot tone={x.state === 'ONLINE' ? 'ok' : x.state === 'OFFLINE' ? 'bad' : x.state === 'DEGRADED' ? 'warn' : 'idle'}
+                               live={x.state === 'ONLINE'} />{x.name}
+                        </div>
+                        <div className="text-[11.5px] text-slate-500">{x.lab_code} · {x.type.replace('_', ' ').toLowerCase()}
+                          {x.components && Object.entries(x.components).filter(([k, v]) => v === false && k !== 'relay_locked')
+                            .map(([k]) => <span key={k} className="ml-1.5 text-bad-soft">{k} fault</span>)}
+                        </div>
+                      </div>
+                      <OutageStrip outages={x.outages} days={days} state={x.state} />
+                      <div className="text-[12px] text-slate-400 sm:text-right">
+                        {x.state === 'NO_DATA' ? 'Never reported'
+                          : `${x.offline_events} outage${x.offline_events === 1 ? '' : 's'} · ${fmtDuration(x.offline_minutes ?? 0)}`}
+                        <div className="text-[11px] text-slate-500">
+                          {x.last_seen_at ? `seen ${relative(x.last_seen_at)}` : 'Not reported'}</div>
+                      </div>
+                    </div>))}
+                </div>)}
+            </div>
+          </section>
+
           {/* ------------------------------------------------ environment */}
           <section>
             <SectionTitle icon={<Thermometer size={15} />} sub="Last 24 hours, against configured thresholds.">
@@ -392,6 +378,23 @@ export default function Operations() {
 
           {/* ------------------------------------------------ automation */}
           <AutomationPanel a={d.automation} />
+
+          {/* ------------------------------------------------ priorities + questions */}
+          <section className="grid xl:grid-cols-2 gap-4 print:hidden">
+            <div className="card p-5">
+              <SectionTitle icon={<Bot size={15} />} sub="Answers from the portal's records, through read-only tools.">
+                Ask the lab</SectionTitle>
+              <AskTheLab />
+            </div>
+            <div className="card p-5">
+              <SectionTitle icon={<ListOrdered size={15} />}
+                sub="Official order: severity, SLA, safety, assignment, upcoming bookings.">What to fix first</SectionTitle>
+              <PriorityList limit={5} />
+            </div>
+          </section>
+
+          {/* ------------------------------------------------ detailed table */}
+          <LabTable t={trend} />
 
           <p className="text-[12px] text-slate-500">
             Generated {fmtDateTime(d.generated_at)}. Past device availability is shown only as the outages the
@@ -538,8 +541,17 @@ function TrendsSection({ t }: { t: Trends | null }) {
           </ResponsiveContainer>
         </ChartCard>
       </div>
-      {t.by_lab.length > 0 && (
-        <div className="card p-4 mt-4 overflow-x-auto">
+    </section>
+  )
+}
+
+/** Attendance per laboratory (the numbers behind the trends). */
+function LabTable({ t }: { t: Trends | null }) {
+  if (!t || !t.by_lab.length) return null
+  return (
+    <section>
+      <SectionTitle icon={<ListOrdered size={15} />} sub="No-shows and late arrivals per laboratory.">Attendance by laboratory</SectionTitle>
+        <div className="card p-4 overflow-x-auto">
           <table className="w-full text-[12.5px]">
             <thead><tr className="text-slate-500 text-left">
               <th className="py-1.5 font-normal">Lab</th><th className="font-normal">Finished</th>
@@ -554,7 +566,7 @@ function TrendsSection({ t }: { t: Trends | null }) {
                 </tr>))}
             </tbody>
           </table>
-        </div>)}
+        </div>
     </section>
   )
 }

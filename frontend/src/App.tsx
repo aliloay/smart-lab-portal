@@ -98,6 +98,7 @@ registerChunks({
   '/admin/incidents': () => import('./pages/Incidents'), '/admin/reliability': () => import('./pages/Reliability'),
   '/admin/health': () => import('./pages/HealthCenter'), '/admin/sensors': () => import('./pages/SensorAnalytics'),
   '/admin/system': () => import('./pages/SystemAnalytics'), '/monitor': () => import('./pages/Monitor'),
+  '/admin/experiments': loadExperiments, '/scan': () => import('./pages/Scan'),
 })
 
 // Charts pull in Recharts; load them only when a chart page is opened.
@@ -199,7 +200,9 @@ export default function App() {
           <Route path="/issues/new" element={<ReportIssue />} />
           <Route path="/issues/:id" element={<IssueDetail />} />
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/share" element={<Share />} />
+          {/* staff: one place for screens (Lab equipment). A ?t= watch link and the students keep this address. */}
+          <Route path="/share" element={staff && !watchToken ? <Navigate to="/admin/equipment?tab=share" replace /> : <Share />} />
+          <Route path="/live" element={<Navigate to={staff ? '/command' : '/'} replace />} />
           <Route path="/profile" element={<Profile />} />
 
           <Route path="/admin/bookings" element={staffOnly(<Reservations />)} />

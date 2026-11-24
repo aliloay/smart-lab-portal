@@ -32,9 +32,9 @@ const ROLES = [
     } },
   { name: 'admin', email: 'admin@giu-uni.de', password: (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()),
     journey: async page => {
-      for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/reports',
+      for (const p of ['/labs', '/admin/bookings', '/admin/access', '/admin/health',
                        '/admin/users', '/admin/devices', '/admin/equipment', '/admin/alerts',
-                       '/admin/settings', '/admin/emergency', '/admin/security', '/']) await clickNav(page, p)
+                       '/admin/settings', '/admin/emergency', '/command', '/']) await clickNav(page, p)
     } },
 ]
 
