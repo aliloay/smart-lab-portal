@@ -1,0 +1,35 @@
+old_place,address,roles,new_place,address_note
+Laboratory > Dashboard,/,STUDENT,Laboratory > Dashboard,address unchanged
+Overview > Operations,/,LAB_STAFF,Overview > Lab overview,address unchanged
+Overview > System overview,/,ADMIN,Overview > System overview,address unchanged
+Access & safety > Access & audit,/admin/access,ADMIN,Access & safety > Access & audit,address unchanged
+Access & safety > Access monitor,/admin/access,LAB_STAFF,Access & safety > Access monitor,address unchanged
+Access & safety > Alerts,/admin/alerts,ADMIN LAB_STAFF,Access & safety > Alerts,address unchanged
+Lab management > Bookings,/admin/bookings,ADMIN,Lab management > Bookings,address unchanged
+Lab management > Reservations,/admin/bookings,LAB_STAFF,Lab management > Reservations,address unchanged
+Lab management > System Devices,/admin/devices,ADMIN LAB_STAFF,Lab equipment > System devices,address unchanged
+Access & safety > Emergency,/admin/emergency,ADMIN,Access & safety > Emergency,address unchanged
+Lab management > Lab Equipment,/admin/equipment,ADMIN LAB_STAFF,"Lab equipment > Equipment, robots & PCs",address unchanged
+Intelligence > Health Center,/admin/health,ADMIN LAB_STAFF,Intelligence > Analytics & health,address unchanged
+Access & safety > Incidents,/admin/incidents,ADMIN LAB_STAFF,Access & safety > Incidents,address unchanged
+Live operations > Operations Center,/admin/operations,ADMIN LAB_STAFF,Live operations > Operations Center,address unchanged
+Intelligence > Reliability,/admin/reliability,ADMIN LAB_STAFF,Analytics & health > Reliability tab,address unchanged
+Intelligence > Reports,/admin/reports,ADMIN,Analytics & health > Reports tab (administrator),address unchanged
+Live operations > Security camera,/admin/security,ADMIN LAB_STAFF,Live Monitoring > Security cameras tab,address unchanged
+Intelligence > Sensor analytics,/admin/sensors,ADMIN LAB_STAFF,Analytics & health > Sensors tab,address unchanged
+Automation & admin > Settings,/admin/settings,ADMIN,Administration > Settings,address unchanged
+Intelligence > System analytics,/admin/system,ADMIN LAB_STAFF,Analytics & health > System tab,address unchanged
+Automation & admin > Users,/admin/users,LAB_STAFF,Administration > Users,address unchanged
+Automation & admin > Users & roles,/admin/users,ADMIN,Administration > Users & roles,address unchanged
+Laboratory > New booking,/book,STUDENT,Laboratory > New booking,address unchanged
+Laboratory > My bookings,/bookings,STUDENT,Laboratory > My bookings,address unchanged
+Live operations > IoT Dashboard,/command,ADMIN LAB_STAFF,Live operations > Live Monitoring,address unchanged
+Automation & admin > Exhibition screen,/exhibit,ADMIN LAB_STAFF,Live Monitoring > Screens,address unchanged
+Lab management > Maintenance,/issues,ADMIN LAB_STAFF,Lab equipment > Maintenance,address unchanged
+Support > My reports,/issues,STUDENT,Support > My reports,address unchanged
+Lab management > Laboratories,/labs,ADMIN LAB_STAFF STUDENT,Lab management > Laboratories,address unchanged
+Live operations > Live monitor,/monitor,ADMIN LAB_STAFF,Live Monitoring > Screens,address unchanged
+Overview > Notifications,/notifications,ADMIN LAB_STAFF STUDENT,Header bell > Notifications Center,address unchanged
+Support > Profile,/profile,STUDENT,Support > Profile,address unchanged
+Support > Robots,/robots,STUDENT,Support > Robots,address unchanged
+Live operations > Share screen,/share,ADMIN LAB_STAFF STUDENT,Lab equipment > Equipment > Screen sharing tab,staff: redirect to ?tab=share; ?t= watch links unchanged

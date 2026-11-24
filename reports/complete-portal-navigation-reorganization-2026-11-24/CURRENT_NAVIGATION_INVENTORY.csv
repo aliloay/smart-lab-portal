@@ -1,0 +1,47 @@
+id,visible_label,icon,parent_group,route,component,role_visibility,features,actions,data_sources,other_entry_points,duplicate_or_overlap,recommended_action,reason
+1,Dashboard,lib/nav.ts,Laboratory,/,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Laboratory > Dashboard
+2,Operations,lib/nav.ts,Overview,/,App.tsx,LAB_STAFF,,opens the page,,Ctrl+K,,RENAME,Overview > Lab overview
+3,System overview,lib/nav.ts,Overview,/,App.tsx,ADMIN,,opens the page,,Ctrl+K,,KEEP,Overview > System overview
+4,Access & audit,lib/nav.ts,Access & safety,/admin/access,App.tsx,ADMIN,,opens the page,,Ctrl+K,,KEEP,Access & safety > Access & audit
+5,Access monitor,lib/nav.ts,Access & safety,/admin/access,App.tsx,LAB_STAFF,,opens the page,,Ctrl+K,,KEEP,Access & safety > Access monitor
+6,Alerts,lib/nav.ts,Access & safety,/admin/alerts,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,KEEP,Access & safety > Alerts
+7,Bookings,lib/nav.ts,Lab management,/admin/bookings,App.tsx,ADMIN,,opens the page,,Ctrl+K,,KEEP,Lab management > Bookings
+8,Reservations,lib/nav.ts,Lab management,/admin/bookings,App.tsx,LAB_STAFF,,opens the page,,Ctrl+K,,KEEP,Lab management > Reservations
+9,System Devices,lib/nav.ts,Lab management,/admin/devices,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,RENAME,Lab equipment > System devices
+10,Emergency,lib/nav.ts,Access & safety,/admin/emergency,App.tsx,ADMIN,,opens the page,,Ctrl+K,,KEEP,Access & safety > Emergency
+11,Lab Equipment,lib/nav.ts,Lab management,/admin/equipment,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,RENAME,"Lab equipment > Equipment, robots & PCs"
+12,Health Center,lib/nav.ts,Intelligence,/admin/health,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,RENAME,Intelligence > Analytics & health
+13,Incidents,lib/nav.ts,Access & safety,/admin/incidents,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,KEEP,Access & safety > Incidents
+14,Operations Center,lib/nav.ts,Live operations,/admin/operations,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,KEEP,Live operations > Operations Center
+15,Reliability,lib/nav.ts,Intelligence,/admin/reliability,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Analytics & health > Reliability tab
+16,Reports,lib/nav.ts,Intelligence,/admin/reports,App.tsx,ADMIN,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Analytics & health > Reports tab (administrator)
+17,Security camera,lib/nav.ts,Live operations,/admin/security,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Live Monitoring > Security cameras tab
+18,Sensor analytics,lib/nav.ts,Intelligence,/admin/sensors,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Analytics & health > Sensors tab
+19,Settings,lib/nav.ts,Automation & admin,/admin/settings,App.tsx,ADMIN,,opens the page,,Ctrl+K,,MOVE,Administration > Settings
+20,System analytics,lib/nav.ts,Intelligence,/admin/system,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Analytics & health > System tab
+21,Users,lib/nav.ts,Automation & admin,/admin/users,App.tsx,LAB_STAFF,,opens the page,,Ctrl+K,,MOVE,Administration > Users
+22,Users & roles,lib/nav.ts,Automation & admin,/admin/users,App.tsx,ADMIN,,opens the page,,Ctrl+K,,MOVE,Administration > Users & roles
+23,New booking,lib/nav.ts,Laboratory,/book,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Laboratory > New booking
+24,My bookings,lib/nav.ts,Laboratory,/bookings,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Laboratory > My bookings
+25,IoT Dashboard,lib/nav.ts,Live operations,/command,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,RENAME,Live operations > Live Monitoring
+26,Exhibition screen,lib/nav.ts,Automation & admin,/exhibit,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MOVE TO CONTEXTUAL ACTION,Live Monitoring > Screens
+27,Maintenance,lib/nav.ts,Lab management,/issues,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MOVE,Lab equipment > Maintenance
+28,My reports,lib/nav.ts,Support,/issues,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Support > My reports
+29,Laboratories,lib/nav.ts,Lab management,/labs,App.tsx,ADMIN LAB_STAFF STUDENT,,opens the page,,Ctrl+K,,KEEP,Lab management > Laboratories
+30,Live monitor,lib/nav.ts,Live operations,/monitor,App.tsx,ADMIN LAB_STAFF,,opens the page,,Ctrl+K,,MOVE TO CONTEXTUAL ACTION,Live Monitoring > Screens
+31,Notifications,lib/nav.ts,Overview,/notifications,App.tsx,ADMIN LAB_STAFF STUDENT,,opens the page,,Ctrl+K,,MOVE TO HEADER,Header bell > Notifications Center
+32,Profile,lib/nav.ts,Support,/profile,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Support > Profile
+33,Robots,lib/nav.ts,Support,/robots,App.tsx,STUDENT,,opens the page,,Ctrl+K,,KEEP,Support > Robots
+34,Share screen,lib/nav.ts,Live operations,/share,App.tsx,ADMIN LAB_STAFF STUDENT,,opens the page,,Ctrl+K,,MERGE INTO EXISTING PAGE,Lab equipment > Equipment > Screen sharing tab
+35,AR scanner,,(no menu entry before),/scan,App.tsx,see App.tsx,,,,links on pages,,MOVE,Intelligence > AR scanner
+36,AR markers,,(no menu entry before),/scan/markers,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+37,Phone setup,,(no menu entry before),/phone-setup,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+38,Experiments,,(no menu entry before),/admin/experiments,App.tsx,see App.tsx,,,,links on pages,,MOVE,Intelligence > Experiments
+39,Simulation,,(no menu entry before),/demo,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+40,Wall display,,(no menu entry before),/wall,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+41,Printable report,,(no menu entry before),/report,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+42,Welcome,,(no menu entry before),/welcome,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+43,Robots (staff),,(no menu entry before),/robots,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+44,New booking (staff),,(no menu entry before),/book,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+45,Report an issue,,(no menu entry before),/issues/new,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"
+46,Profile,,(no menu entry before),/profile,App.tsx,see App.tsx,,,,links on pages,,KEEP AS DIRECT-LINK ROUTE,"Ctrl+K (except /report, /welcome)"

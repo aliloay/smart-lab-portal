@@ -1,0 +1,32 @@
+{
+ "release": "11003b0-20261125014121",
+ "commit": "11003b0",
+ "deployed": "2026-11-25T01:42+02:00",
+ "target": "owner laptop, docker compose",
+ "pushed": false,
+ "migration_head": "a7b3c9d1e240",
+ "rollback_images": "pre-20261125",
+ "db_backup": "predeploy_smartlab_20261125_0132.dump",
+ "tests": {
+  "backend": [
+   1052,
+   3
+  ],
+  "cameras": [
+   458,
+   1
+  ],
+  "knowledge": 114,
+  "robots": [
+   50,
+   1
+  ],
+  "pc_agent": 44,
+  "ops": 32,
+  "relay": 9,
+  "voice": 6,
+  "opcua": 3,
+  "frontend_unit": 27,
+  "browser": 33
+ }
+}

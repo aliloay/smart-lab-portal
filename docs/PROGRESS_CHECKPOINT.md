@@ -1,5 +1,10 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-25 - navigation redesign + Gemini audit fixes LIVE as 11003b0-20261125014121 (not pushed)
+- Reports: reports/final-completion-release-2026-11-25/00_RELEASE_REPORT.md (tests, rollback), reports/claude-gemini-independent-audit-remediation-2026-11-24/, reports/complete-portal-navigation-reorganization-2026-11-24/.
+- Tests: backend 1052/3 skipped, cameras 458/1, knowledge 114, robots 50/1, pc_agent 44, ops 32, relay 9, frontend 27, browser 33/33.
+- Not live yet: camera and collector fixes (next launch.bat), relay (new USB kit on the engineer PC). Learning phase: docs/thesis/complete-technical-understanding/START_HERE.md.
+
 ## UPDATE 2026-11-24 evening - GIU lab day measured, fixes LIVE as 19d5772 (not pushed)
 - Results and limits: reports/final-giu-lab-evidence-2026-11-24/RESULTS_FOR_THE_PAPER.md; raw data D:/SmartLabData/FINAL_GIU_LAB_EVIDENCE_2026-11-24 (faces: private).
 - Fixed: 5-s report erased robot joints; UR5e blocking reconnect (47 s stale); stalled FFmpeg frames; look guess never to someone seen with the named person (both cameras); live answers (robot doing, people count, lab now, offline sensors); live values never from documents; 5 fact FAQ entries; USB kit manifest.

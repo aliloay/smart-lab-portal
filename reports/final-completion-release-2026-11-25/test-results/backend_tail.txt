@@ -1,0 +1,5 @@
+    changes["username"] = _username_or_422(db, changes["username"], u.id)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1052 passed, 3 skipped, 29 warnings in 601.57s (0:10:01)
+exit 0
