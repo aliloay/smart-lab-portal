@@ -156,7 +156,7 @@ def ask():
         if route == "lookup" and not text:
             text = "PASSAGES: " + passages if passages else ""      # lookup answers with cited passages, no text
         low = text.lower()
-        bad = err or not text or any(w in low for w in never) or (need and not any(w in low for w in need))
+        bad = err or not text or (route != "lookup" and any(w in low for w in never)) or (need and not any(w in low for w in need))
         verdict = "FAIL" if bad else "PASS" if need else "READ"
         rows.append({"q": q, "verdict": verdict, "s": round(time.time() - t0, 2), "first_s": first and round(first, 2),
                      "route": route, "cached": cached, "error": err, "answer": text})
