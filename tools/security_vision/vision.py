@@ -2419,7 +2419,7 @@ def draw(frame, tracks: list[Track], zones: list[dict], states: dict, door_rect_
 
 def _person_label(t) -> str:
     if not t.label:
-        return f"{t.hint} (desk)" if getattr(t, "hint", None) else "Unknown"
+        return f"{t.hint} ({getattr(t, 'hint_kind', None) or 'desk'})" if getattr(t, "hint", None) else "Unknown"
     role = ROLE_NAMES.get(t.role, "")
     label = f"{t.name or t.label}{f' ({role})' if role else ''} {t.label}"
     if t.source == "desk":

@@ -721,7 +721,9 @@ class Service:
                         hints.update({f"{role}?": desks for role, desks in ROLE_DESKS.items()})
                         self.labeler.desk_hints(tracks, hints, zpx)
                     self.crosscam.desks = self.linked_desks()
+                    self.crosscam.all_seats = self.seats()
                     notes_cc = self.crosscam.share(tracks, w, h, t0, self.labeler)
+                    self.crosscam.seat_hints(tracks, w, h, t0)
                     try:
                         pv = self.crosscam.peer
                         fresh = pv and self.crosscam.peer_live(t0, 1.0)
@@ -1523,7 +1525,7 @@ def make_app(svc: Service) -> Flask:
         if t_at is None or time.time() - t_at > Camera.STALE_S:
             tracks = []
         view = peer_view(tracks, svc.crosscam.floor if w else None, w or 1, h or 1, time.time(),
-                         svc.linked_desks() if w else None)
+                         svc.linked_desks() if w else None, svc.seats() if w else None)
         view["frame_t"] = t_at
         return jsonify(view)
 

@@ -131,6 +131,38 @@ def desk_of(box, w: int, h: int, desks: Optional[dict]) -> Optional[str]:
     return name
 
 
+# Lab 24 Nov 2026: seated people's feet are hidden (one seated person was 3.3 m apart in the two floor maps), so the floor
+# cannot join them. The owner recorded where a person SITTING at each PC appears in each camera (seat_capture.py). One
+# person per seat, best overlap first. Replayed on the labels confirmed that day, on recordings not used to add the two
+# missing seats: 51 right / 2 wrong and 245 / 6; on one tuning recording 67 / 59 (a label there had probably swapped). Too
+# weak to NAME anyone: it only shows the marked guess "Name? (seat)" - not shared, not counted, gone with any real name.
+SEAT_IOU = 0.2
+SEAT_STANDING = 2.4
+SEAT_PASSES = 10
+
+
+def seats_of(boxes, w: int, h: int, seats: Optional[dict]) -> list:
+    """PC name per person box (None = no recorded seat), one person per seat. seats: name or name@spot -> 0-1 box."""
+    out: list = [None] * len(boxes)
+    if not seats or not w or not h:
+        return out
+    from vision import iou
+    cand = []
+    for i, b in enumerate(boxes):
+        if b[2] <= 0 or b[3] / b[2] > SEAT_STANDING:
+            continue
+        p = (b[0] / w, b[1] / h, b[2] / w, b[3] / h)
+        cand += [(iou(tuple(r), p), i, n.split("@")[0]) for n, r in seats.items()]
+    used = set()
+    for s, i, n in sorted(cand, reverse=True):
+        if s < SEAT_IOU:
+            break
+        if out[i] is None and n not in used:
+            out[i] = n
+            used.add(n)
+    return out
+
+
 def deep_of(t):
     look = getattr(t, "look", None)
     return getattr(look, "deep", None) if look is not None else None
@@ -177,12 +209,14 @@ class FloorMap:
             return cls(json.load(f)["points"])
 
 
-def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float, desks: Optional[dict] = None) -> dict:
+def peer_view(tracks, floor: Optional[FloorMap], w: int, h: int, now: float, desks: Optional[dict] = None,
+              seats: Optional[dict] = None) -> dict:
     """What this camera tells the other one (served at /peer). desk = this camera's PC name."""
     out = []
-    for t in tracks:
+    at = seats_of([t.box for t in tracks], w, h, seats)
+    for t, seat in zip(tracks, at):
         d = deep_of(t)
-        out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h), "desk": desk_of(t.box, w, h, desks),
+        out.append({"id": t.id, "floor": feet_floor(floor, t.box, w, h), "desk": desk_of(t.box, w, h, desks), "seat": seat,
                     "label": t.label, "name": t.name, "role": t.role, "source": t.source,
                     "state": t.identity_state, "crowded": bool(t.crowded), "lab_no": getattr(t, "lab_no", None),
                     "deep": [round(float(v), 4) for v in d] if d is not None else None})
@@ -315,6 +349,33 @@ class CrossCam:
             labeler._give(t, {"auth_subject": name, "name": c.get("name"), "role": c.get("role")},
                           "peer", how="other camera")
             self._note("CROSSCAM_HANDOFF", tid, name, detail)
+
+    def seat_hints(self, tracks, w: int, h: int, now: float) -> None:
+        """An unnamed person here on the same recorded seat as a CONFIRMED person of the other camera: the guess only."""
+        for t in tracks:
+            t.hint_kind = None
+        seats, peer = getattr(self, "all_seats", None), self.peer
+        keep: dict = {}
+        if seats and peer and self.peer_live(now):
+            held = {t.label for t in tracks if t.label}
+            there: dict = {}
+            for p in peer.get("tracks", []):
+                if p.get("seat"):
+                    there.setdefault(self.desk_link.get(p["seat"], p["seat"]), []).append(p)
+            names = [p["label"] for p in peer.get("tracks", []) if p.get("label")]
+            for t, seat in zip(tracks, seats_of([t.box for t in tracks], w, h, seats)):
+                ps = there.get(seat) or []
+                if t.label or seat is None or len(ps) != 1:
+                    continue
+                p = ps[0]
+                if (not p.get("label") or p.get("state") in ("IDENTITY_UNCERTAIN", "UNKNOWN", None)
+                        or p.get("source") not in SHARE_SOURCES or p["label"] in held or names.count(p["label"]) != 1):
+                    continue
+                k = (t.id, p["label"])
+                keep[k] = getattr(self, "seat_streak", {}).get(k, 0) + 1
+                if keep[k] >= SEAT_PASSES:
+                    t.hint, t.hint_kind = f"{p.get('name') or p['label']}?", "seat"
+        self.seat_streak = keep
 
     def _share_live(self, tracks, w: int, h: int, now: float, labeler) -> list[dict]:
         """Live pairing: the other camera sees the person now, on the same floor spot or at the same desk."""
