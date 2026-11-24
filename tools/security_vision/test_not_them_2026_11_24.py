@@ -42,3 +42,29 @@ def test_person_seen_together_with_the_confirmed_one_is_not_them(tmp_path):
 
 def test_a_new_track_still_gets_the_guess(tmp_path):
     assert run(tmp_path, together=False) == [35]
+
+
+def peer_run(tmp_path, passes, paired=False):
+    cam = LabNumbers(str(tmp_path / "p.json"), "SECCAM_LAB01")
+    look = vec(1)
+    ali = named(unnamed(5, look))
+    cam.assign([ali], {}, now=100.0)
+    cam.assign([ali], {}, now=100.5)
+    seated = unnamed(52, near(look, 0.05))
+    far = vec(7)
+    seated.look = Look(far)                                  # numbered as somebody else first
+    for i in range(8):
+        cam.assign([seated], {}, now=101.0 + i)
+    p = {"id": 93, "label": "USER1", "source": "face", "lab_no": 1, "crowded": True, "deep": None}
+    for i in range(passes):
+        cam.assign([seated], {52: p} if paired else {}, now=110.0 + i * 0.2, peer_tracks=[p])
+    return cam.not_them.get(52, set())
+
+
+def test_someone_here_while_the_other_camera_shows_the_person_is_not_them(tmp_path):
+    assert "USER1" in peer_run(tmp_path, 15)
+
+
+def test_short_or_paired_views_do_not_exclude(tmp_path):
+    assert "USER1" not in peer_run(tmp_path, 3)
+    assert "USER1" not in peer_run(tmp_path, 15, paired=True)

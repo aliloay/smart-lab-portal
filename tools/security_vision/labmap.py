@@ -43,6 +43,7 @@ LOCK_STALE_S = 5.0           # a lock file older than this was left by a crashed
 LINK_PASSES = 12             # paired this many passes in a row (~2 s; crosscam names need STABLE_PASSES = 4)
 LINK_LOOK_MAX = 0.55
 # Names that survive a track break (bending down, passing behind someone): door, face, staff-confirmed, carried over
+NOT_THEM_PEER_PASSES = 10     # ~2 s
 KEEP_NAME_SOURCES = {"door", "face", "operator", "peer"}
 # Second tier for a CONFIRMED name only (lab 17 Nov: Ali and Nour came back turned / from another angle and the
 # strict MATCH_MAX refused): when exactly ONE confirmed person left in the last NAME_BACK_S, a new person whose look
@@ -166,6 +167,25 @@ class LabNumbers:
                 for o in tracks:
                     if o is not c:
                         self.not_them.setdefault(o.id, set()).add(c.label)
+        # The same across the cameras (24 Nov: camera 2 named USER6, camera 1 gave the name to a man seated in its own view
+        # all along): while the other camera shows a confirmed person, my tracks that are not paired with that track and
+        # do not share its number are not them. Kept only after NOT_THEM_PEER_PASSES passes (pairing needs a moment).
+        if not hasattr(self, "peer_apart"):
+            self.peer_apart: dict[tuple[int, str], int] = {}
+        conf = [p for p in (peer_tracks or []) if p.get("label") and p.get("source") in KEEP_NAME_SOURCES]
+        apart = {}
+        for t in tracks:
+            p_mine = links.get(t.id)
+            for p in conf:
+                paired = p_mine is not None and p_mine.get("id") == p.get("id")
+                if not paired and t.lab_no is not None and p.get("lab_no") is not None and t.lab_no != p["lab_no"]:
+                    k = (t.id, p["label"])
+                    apart[k] = self.peer_apart.get(k, 0) + 1
+                    if apart[k] >= NOT_THEM_PEER_PASSES:
+                        self.not_them.setdefault(t.id, set()).add(p["label"])
+                elif paired:                             # paired after all: it may be them
+                    self.not_them.get(t.id, set()).discard(p["label"])
+        self.peer_apart = apart
         self.looks = {k: v for k, v in self.looks.items() if k in alive}
         self.born = {k: v for k, v in self.born.items() if k in alive}
         if not hasattr(self, "restored_once"):
