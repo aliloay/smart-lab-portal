@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, CheckCheck, Search, Workflow } from 'lucide-react'
+import { Bell, Check, CheckCheck, Search, Workflow } from 'lucide-react'
 import { Inbox, InboxTab, Notification, api } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { fmtTime, relative } from '../lib/time'
@@ -33,6 +33,7 @@ export default function Notifications() {
   const [data, setData] = useState<Inbox | null>(null)
   const [rows, setRows] = useState<Notification[]>([])
   const [more, setMore] = useState(false)
+  const [sure, setSure] = useState(false)
   const seq = useRef(0)
 
   const load = useCallback((append = false) => {
@@ -69,22 +70,40 @@ export default function Notifications() {
     return [...m.entries()]
   }, [rows])
 
+  async function read(n: Notification) {
+    if (n.is_read) return
+    try { await api.markRead(n.id) } catch { return }            // refused: it stays unread on the screen too
+    setRows(r => r.map(x => x.id === n.id ? { ...x, is_read: true } : x))
+    setData(d => d && { ...d, counts: { ...d.counts, unread: Math.max(0, d.counts.unread - 1) } })
+    refreshUnread()
+  }
   async function open(n: Notification) {
-    if (!n.is_read) {
-      await api.markRead(n.id).catch(() => {})
-      setRows(r => r.map(x => x.id === n.id ? { ...x, is_read: true } : x))
-      refreshUnread()
-    }
+    await read(n)
     if (n.link) nav(n.link)
   }
 
   const c = data?.counts
   return (
-    <div className="max-w-4xl">
-      <PageHeader eyebrow="Inbox" title="Notifications"
-        sub="Everything sent to you: from the portal itself and from the n8n automations (device offline, hazards, emergencies, reminders)."
-        actions={(c?.unread ?? 0) > 0 ? <button className="btn-ghost" onClick={async () => {
-          await api.markAllRead(); refreshUnread(); load(false) }}><CheckCheck size={16} />Mark all read</button> : undefined} />
+    <div className="max-w-[1320px] mx-auto">
+      <PageHeader eyebrow="Inbox" title="Notifications Center"
+        sub="Everything sent to you, from the portal and from the n8n automations."
+        actions={(c?.unread ?? 0) > 0 ? (sure
+          ? <div className="flex items-center gap-2" role="group" aria-label="Confirm">
+              <span className="text-[13px] text-slate-300">Mark all {c!.unread} as read?</span>
+              <button className="btn-primary btn-sm" autoFocus onClick={async () => {
+                await api.markAllRead().catch(() => {}); setSure(false); refreshUnread(); load(false) }}><CheckCheck size={15} />Yes, mark all</button>
+              <button className="btn-ghost btn-sm" onClick={() => setSure(false)}>Cancel</button></div>
+          : <button className="btn-ghost" onClick={() => setSure(true)}><CheckCheck size={16} />Mark all read</button>) : undefined} />
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-5" data-testid="notification-summary">
+        {([['all', 'Total', 'text-white'], ['unread', 'Unread', c?.unread ? 'text-accent-300' : 'text-white'],
+           ['critical', 'Critical', c?.critical ? 'text-bad-soft' : 'text-white'], ['n8n', 'From n8n', 'text-white'],
+           ['portal', 'From the portal', 'text-white']] as const).map(([k, label, tone]) => (
+          <button key={k} type="button" onClick={() => setTab(k)} aria-pressed={tab === k}
+            className={`card p-4 text-left transition-colors ${tab === k ? '!border-accent-400/70' : 'hover:!border-ink-400'}`}>
+            <span className="block text-[12px] text-slate-400">{label}</span>
+            <span className={`block mt-1 font-display text-2xl tnum ${tone}`}>{c ? c[k] : '–'}</span>
+          </button>))}
+      </div>
       <Tabs id="notes" value={tab} onChange={setTab} tabs={[
         { key: 'all', label: 'All', count: c?.all ?? 0 },
         { key: 'unread', label: 'Unread', count: c?.unread ?? 0 },
@@ -116,11 +135,12 @@ export default function Notifications() {
             <div className="label mb-2">{day}</div>
             <div className="card divide-y divide-ink-700/60 overflow-hidden">
               {items.map(n => (
-                <button key={n.id} onClick={() => open(n)}
-                  className={`w-full text-left px-5 py-4 flex gap-4 hover:bg-ink-700/35 ${n.is_read ? '' : 'bg-accent-500/[0.05]'}`}>
+                <div key={n.id} className={`flex items-center hover:bg-ink-700/35 ${n.is_read ? '' : 'bg-accent-500/[0.06]'}
+                  ${n.severity === 'critical' ? 'shadow-[inset_3px_0_0_#ef4444]' : n.severity === 'warning' ? 'shadow-[inset_3px_0_0_#f59e0b]' : ''}`}>
+                <button onClick={() => open(n)} className="flex-1 min-w-0 text-left px-4 sm:px-5 py-4 flex gap-4">
                   <Dot tone={noteTone(n)} className="mt-1.5" live={!n.is_read} />
                   <div className="min-w-0 flex-1">
-                    <div className={`text-[14px] ${n.is_read ? 'text-slate-300' : 'text-white font-medium'}`}>{n.title}</div>
+                    <div className={`text-[14px] ${n.is_read ? 'text-slate-300' : 'text-white font-semibold'}`}>{n.title}</div>
                     {n.body && <div className="text-[13px] text-slate-400 mt-0.5 break-words">{n.body}</div>}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                       <SourceTag source={n.source} /><span>{kindLabel(n.kind)}</span>
@@ -130,6 +150,9 @@ export default function Notifications() {
                     <div>{fmtTime(n.created_at)}</div><div className="text-slate-500">{relative(n.created_at)}</div>
                   </div>
                 </button>
+                {!n.is_read && <button type="button" className="btn-quiet !p-2.5 mr-2" onClick={() => read(n)} title="Mark read" aria-label={`Mark read: ${n.title}`}>
+                  <Check size={16} /></button>}
+                </div>
               ))}
             </div>
           </section>

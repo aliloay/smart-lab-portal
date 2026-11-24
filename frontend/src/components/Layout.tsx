@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useNewVersion } from '../lib/freshness'
 import { startJankProbe } from '../lib/jankProbe'
@@ -19,7 +19,8 @@ import SystemHealth from './SystemHealth'
 import { Avatar } from './ui'
 import { GridBackdrop } from './visual'
 import { Summary, api } from '../lib/api'
-import { BadgeKey, navFor } from '../lib/nav'
+import { BadgeKey, pagesFor } from '../lib/nav'
+import PageTabs from './PageTabs'
 import SideNav, { WIDE } from './SideNav'
 import { isStaff, roleLabel, useAuth } from '../lib/auth'
 import { useDebounced, useLive, useLiveMessages } from '../lib/live'
@@ -101,6 +102,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { unread } = useLive()
   const loc = useLocation()
   const staff = isStaff(user)
+  const pages = useMemo(() => pagesFor(user?.role), [user?.role])
   const outdated = useNewVersion(loc.pathname)
   useEffect(() => { if (staff) startJankProbe() }, [staff])
 
@@ -267,6 +269,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               floating Report button. */}
           <div className="max-w-[1480px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-24 lg:py-8">
             <AccessSetupBanner />
+            <PageTabs />
             {/*
               The page is keyed on the path and fades in with a CSS keyframe.
 
@@ -287,7 +290,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         </main>
         <ChatBubble />
       </div>
-      <CommandPalette staff={staff} pages={navFor(user?.role).flatMap(s => s.items.map(i => ({ to: i.to, label: i.label, section: s.title })))} />
+      <CommandPalette staff={staff} pages={pages} />
       <HazardAlarm />
       <EmergencyMessage />
       <NotificationToasts />

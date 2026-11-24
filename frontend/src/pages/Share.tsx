@@ -6,7 +6,8 @@ import { useLiveJpeg } from '../components/ScreenShare'
 import { useLiveMessages } from '../lib/live'
 import { agentProof } from '../lib/master'
 
-export default function Share() {
+export default function Share({ embedded = false }: { embedded?: boolean }) {
+  const H = embedded ? 'h2' : 'h1'
   const [st, setSt] = useState<BroadcastState | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const load = useCallback(() => { api.broadcastStatus().then(setSt).catch(() => {}) }, [])
@@ -37,8 +38,8 @@ export default function Share() {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Cast size={18} className="text-accent-300" />
-        <h1 className="text-white text-xl font-semibold">
-          {st?.active ? `${st.by} is sharing their screen${st.title ? ` - ${st.title}` : ''}` : 'Shared screen'}</h1>
+        <H className="text-white text-xl font-semibold">
+          {st?.active ? `${st.by} is sharing their screen${st.title ? ` - ${st.title}` : ''}` : 'Shared screen'}</H>
         {st?.active && <button className="btn-ghost btn-sm ml-auto" onClick={() => box.current?.requestFullscreen?.()}>
           <Maximize2 size={14} /> Full screen</button>}
       </div>

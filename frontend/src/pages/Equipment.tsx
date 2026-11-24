@@ -1,12 +1,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
+import { Boxes, CalendarClock, Cast, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import NetworkedEquipment from '../components/NetworkedEquipment'
 import AddEquipment from '../components/AddEquipment'
 import RobotTwinPanels from '../components/robot/RobotTwinPanel'
 import EnvironmentOverview from '../components/EnvironmentOverview'
+import Share from './Share'
 import { ConsumableBins, ReusableItems } from './Inventory'
 import { assetStatusLabel, assetTone } from '../lib/labels'
 import { fmtDate } from '../lib/time'
@@ -188,10 +189,11 @@ function AddAsset({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => void
 // ---------------------------------------------------------------------------
 // The Robotics Lab's four systems, one tab each, plus the full register.
 // ---------------------------------------------------------------------------
-type Tab = 'environment' | 'noncons' | 'consumables' | 'reusables' | 'register'
+type Tab = 'environment' | 'noncons' | 'share' | 'consumables' | 'reusables' | 'register'
 const TABS: { key: Tab; label: string }[] = [
   { key: 'environment', label: '1 · Physical environment' },
   { key: 'noncons', label: '2 · Robots & PCs' },
+  { key: 'share', label: 'Screen sharing' },
   { key: 'consumables', label: '3 · Consumables' },
   { key: 'reusables', label: '4 · Reusables' },
   { key: 'register', label: 'Equipment register' },
@@ -217,7 +219,14 @@ export default function Equipment() {
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
       <div key={version} className="contents">
       {tab === 'environment' && <EnvironmentOverview />}
-      {robotsOpened && <div className={tab === 'noncons' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /><NetworkedEquipment /></div>}
+      {robotsOpened && <div className={tab === 'noncons' ? 'space-y-5' : 'hidden'}>
+        <div className="flex justify-end"><button type="button" className="btn-ghost btn-sm" onClick={() => setParams({ tab: 'share' })}>
+          <Cast size={14} /> Watch the shared screen</button></div>
+        <RobotTwinPanels /><NetworkedEquipment /></div>}
+      {tab === 'share' && <div className="space-y-3">
+        <p className="text-[12.5px] text-slate-400">What the lab sees. To start or stop a share, and to see each PC, use{' '}
+          <button type="button" className="link" onClick={() => setParams({ tab: 'noncons' })}>Robots &amp; PCs</button>.</p>
+        <Share embedded /></div>}
       {tab === 'consumables' && <ConsumableBins />}
       {tab === 'reusables' && <ReusableItems />}
       {tab === 'register' && <EquipmentRegister />}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, m as motion } from 'framer-motion'
-import { Bell, BellOff, CheckCheck } from 'lucide-react'
+import { Bell, BellOff } from 'lucide-react'
 import { Notification, api } from '../lib/api'
 import { useLive, useLiveMessages } from '../lib/live'
 import { relative } from '../lib/time'
@@ -17,7 +17,7 @@ export default function NotificationBell() {
   const ref = useRef<HTMLDivElement>(null)
   const nav = useNavigate()
 
-  const load = () => api.notifications(false, 8).then(setItems).catch(() => setItems([]))
+  const load = () => api.notifications(false, 5).then(setItems).catch(() => setItems([]))
 
   useEffect(() => { if (open) load() }, [open])
   useLiveMessages(m => { if (m.type === 'notification' && open) load() })
@@ -38,15 +38,18 @@ export default function NotificationBell() {
     if (n.link) nav(n.link)
   }
 
-  async function readAll() {
-    await api.markAllRead().catch(() => {})
-    refreshUnread()
-    load()
+  // A mouse resting on the bell previews the newest five; a click, Enter or a tap opens the Notifications Center.
+  const timer = useRef<number>()
+  const hover = (on: boolean) => {
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setOpen(on), on ? 300 : 250)
   }
+  useEffect(() => () => window.clearTimeout(timer.current), [])
 
   return (
-    <div className="relative" ref={ref}>
-      <button onClick={() => setOpen(o => !o)} aria-expanded={open}
+    <div className="relative" ref={ref} onPointerEnter={e => e.pointerType === 'mouse' && hover(true)}
+         onPointerLeave={e => e.pointerType === 'mouse' && hover(false)}>
+      <Link to="/notifications" onClick={() => { window.clearTimeout(timer.current); setOpen(false) }} title="Notifications"
         aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
         className="glass-control relative grid place-items-center w-9">
         <Bell size={16} />
@@ -57,21 +60,17 @@ export default function NotificationBell() {
             {unread > 99 ? '99+' : unread}
           </span>
         )}
-      </button>
+      </Link>
       <AnimatePresence>
         {open && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }} transition={{ duration: .14 }}
-            className="absolute right-0 mt-2 w-[min(92vw,380px)] card p-0 z-40
+            className="absolute right-0 top-full pt-0 mt-2 w-[min(92vw,380px)] card p-0 z-40
                        overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b
                             border-ink-600">
               <div className="text-sm font-semibold text-white">Notifications</div>
-              {unread > 0 && (
-                <button onClick={readAll} className="text-xs link inline-flex items-center gap-1">
-                  <CheckCheck size={13} /> Mark all read
-                </button>
-              )}
+              {unread > 0 && <span className="text-xs text-slate-400 tnum">{unread} unread</span>}
             </div>
             <div className="max-h-[420px] overflow-y-auto">
               {items === null ? (
@@ -107,7 +106,7 @@ export default function NotificationBell() {
             <Link to="/notifications" onClick={() => setOpen(false)}
                   className="block px-4 py-2.5 text-center text-xs link border-t
                              border-ink-600 bg-ink-900/40">
-              View all notifications
+              Open the Notifications Center
             </Link>
           </motion.div>
         )}

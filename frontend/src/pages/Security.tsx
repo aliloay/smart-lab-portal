@@ -40,7 +40,7 @@ const ROLE = { ADMIN: 'Admin', LAB_STAFF: 'Staff', STUDENT: 'Student' } as Recor
  *  described by the camera that sees them bigger (nearer: more reliable posture and PC). */
 function mergeLab(cams: SecurityCamera[], label: (c: SecurityCamera) => string) {
   const live = cams.filter(c => c.online === true && c.source_ok !== false)
-  const lines = (c: SecurityCamera) => (c.activity ?? []).map(a => ({ ...a, cam: label(c), key: `${c.device_id}-${a.track_id}` }))
+  const lines = (c: SecurityCamera) => (c.activity ?? []).map(a => ({ ...a, doubt: doubted(c, a.track_id), cam: label(c), key: `${c.device_id}-${a.track_id}` }))
   const count = Math.max(0, ...live.map(c => c.people ?? 0))
   const order = [...live].sort((a, b) => ((b.people ?? 0) - (a.people ?? 0)) || ((b.activity?.length ?? 0) - (a.activity?.length ?? 0)))
   if (!order.length) return { items: [], count }
@@ -61,6 +61,26 @@ function mergeLab(cams: SecurityCamera[], label: (c: SecurityCamera) => string) 
   return { items, count }
 }
 
+type Seen = NonNullable<SecurityCamera['activity']>[number] & { doubt?: boolean }
+/** The camera's own doubt about a name (identity state, or the face says somebody else). */
+const doubted = (c: SecurityCamera, track: number) => (c.named ?? []).some(n => n.track_id === track
+  && (n.identity_state === 'IDENTITY_UNCERTAIN' || n.identity_state === 'UNKNOWN' || n.source === 'look' || n.source === 'desk' || !!n.face))
+/** 2026-11-24: how sure the NAME is, at a glance. Only a name the camera service gave (no "?") is drawn as confirmed. */
+const nameState = (a: Seen) => a.who.includes('?') || (a.named && a.doubt) ? 'tentative' : a.named ? 'confirmed' : 'unknown'
+const NAME_STYLE = {
+  confirmed: 'text-[17px] font-extrabold text-accent-200 bg-accent-500/20 border-accent-400/60',
+  tentative: 'text-[14px] font-bold text-warn-soft bg-warn/10 border-warn/50 border-dashed',
+  unknown: 'text-[14px] font-semibold text-slate-300 bg-ink-700/60 border-ink-500/60',
+}
+function PersonName({ a }: { a: Seen }) {
+  const k = nameState(a)
+  return <span data-name-state={k} className={`inline-flex items-center rounded-md border px-2 py-0.5 mr-2 leading-tight ${NAME_STYLE[k]}`}
+    title={k === 'confirmed' ? 'Confirmed name' : k === 'tentative' ? 'Possible match, not confirmed' : 'Not identified'}>{a.who}
+    {k === 'tentative' && <span className="ml-1.5 text-[10.5px] font-semibold uppercase tracking-wide">possible</span>}</span>
+}
+/** The rest of the line, exactly as the camera sent it: only the name in front is taken off. */
+const restOf = (a: Seen) => a.text.startsWith(a.who) ? a.text.slice(a.who.length).replace(/^\s*[-,]?\s*/, '') : a.text
+
 function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: SecurityCamera) => string }) {
   const { items, count: inView } = mergeLab(cams, label)
   // 2026-11-17 (lab, owner: "bolder and much clearer"): one line per person, wrapped (no scrolling ticker), larger text.
@@ -75,8 +95,8 @@ function LiveActivity({ cams, label }: { cams: SecurityCamera[]; label: (c: Secu
       </div>
       {items.length > 0 && <ul className="grid gap-1 md:grid-cols-2">
         {items.map(a => (
-          <li key={a.key} className={`text-[14px] leading-snug font-semibold ${a.named ? 'text-white' : 'text-slate-100'}`}>
-            <span className="text-[12px] font-bold text-accent-300 mr-1.5">{a.cam}</span>{a.text}</li>))}
+          <li key={a.key} className={`text-[14px] leading-snug font-semibold border-l-2 pl-2 py-0.5 ${nameState(a) === 'confirmed' ? 'border-accent-400 text-white' : 'border-ink-500 text-slate-200'}`}>
+            <PersonName a={a} /><span className="text-[12px] font-bold text-slate-400 mr-1.5 whitespace-nowrap">{a.cam}</span>{restOf(a)}</li>))}
       </ul>}
     </div>
   )
@@ -90,14 +110,14 @@ function CamActivity({ c }: { c: SecurityCamera }) {
     <div className="px-2.5 py-2 bg-ink-950/90 border-t border-ink-600/70">
       <div className="text-[12.5px] font-bold text-white mb-0.5">{(c.people ?? 0)} {c.people === 1 ? 'person' : 'people'} in this view</div>
       {lines.length === 0 ? <div className="text-[12.5px] text-slate-400">Nobody in view.</div>
-        : lines.map((a, i) => <ConfirmLine key={`${a.track_id}-${i}`} c={c} a={a} />)}
+        : lines.map((a, i) => <ConfirmLine key={`${a.track_id}-${i}`} c={c} a={{ ...a, doubt: doubted(c, a.track_id) }} />)}
     </div>
   )
 }
 
 /** 2026-11-17 (owner: "Hemaly is at his desk - I press confirm and the label stays"): staff confirm who a person is.
  *  The camera then keeps that name on the person (shared with the other camera); admin only, audited. */
-function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamera['activity']>[number] }) {
+function ConfirmLine({ c, a }: { c: SecurityCamera; a: Seen }) {
   const [open, setOpen] = useState(false)
   const [known, setKnown] = useState<{ label: string; name: string }[] | null>(null)
   const [pick, setPick] = useState('')
@@ -124,7 +144,7 @@ function ConfirmLine({ c, a }: { c: SecurityCamera; a: NonNullable<SecurityCamer
   }
   return (
     <div className="text-[13px] font-semibold text-slate-100 leading-snug flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5">
-      <span className="flex-1 min-w-0">{a.text}{a.hint && !a.named ? <span className="text-warn-soft"> - guess: {a.hint}</span> : null}
+      <span className="flex-1 min-w-[180px]"><PersonName a={a} />{restOf(a)}{a.hint && !a.named ? <span className="text-warn-soft"> - guess: {a.hint}</span> : null}
         {(() => {   // 2026-11-18: body parts the camera does NOT see (desk, picture edge) - never shown as seen
           const hidden = Object.entries(a.pose_visibility ?? {}).filter(([, v]) => v.state === 'OCCLUDED' || v.state === 'OUT_OF_FRAME')
                                                               .map(([k]) => k)

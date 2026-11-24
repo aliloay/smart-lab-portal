@@ -34,7 +34,7 @@ try {
   await open(p, '/admin/health', 'Health Center')
   await p.getByText('Need attention').waitFor()
   await shot(p, 'health_center')
-  ok(await p.locator('aside [data-group]').count() === 6, 'six groups')
+  ok(await p.locator('aside [data-group]').count() === 7, 'seven groups')
   ok(await p.locator('aside nav a[href="/admin/emergency"]').isVisible(), 'emergency always visible')
   ok(await p.locator('aside nav a[href="/admin/health"]').isVisible(), 'the group of the open page is open')
   ok(!await p.locator('aside nav a[href="/admin/settings"]').isVisible(), 'administration starts closed')

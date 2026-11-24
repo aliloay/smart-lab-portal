@@ -1,8 +1,8 @@
 /** The grouped sidebar menu. Groups open and close (remembered per browser), a closed group shows the sum of its
  *  badges, and the compact mode keeps only the icons. Data and roles: lib/nav.ts. */
 import { useEffect, useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
-import { ChevronRight, ExternalLink } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { ChevronRight } from 'lucide-react'
 import { BadgeKey, NavEntry, isHere, navFor } from '../lib/nav'
 import { useAuth } from '../lib/auth'
 import { warmRoute } from '../lib/warm'
@@ -63,33 +63,19 @@ const BADGE = `min-w-[20px] h-5 px-1.5 rounded-md grid place-items-center text-[
 
 function Entry({ item, badge, onNavigate }: { item: NavEntry; badge?: number; onNavigate: () => void }) {
   const { user } = useAuth()
+  const isActive = isHere(item, useLocation().pathname)
   const Icon = item.icon
-  if (item.window) {
-    // Its own window, so it can go on a second screen and full screen.
-    return (
-      <a href={item.to} title={item.label} aria-label={item.label} className={`${ROW} ${REST}`} onClick={e => {
-        e.preventDefault(); onNavigate()
-        window.open(item.to, `smartlab${item.to.replace(/\//g, '-')}`, 'popup,width=1600,height=900')
-      }}>
-        <span className="text-slate-400 group-hover:text-slate-200"><Icon size={17} /></span>
-        <span className={`flex-1 ${WIDE}`}>{item.label}</span>
-        <ExternalLink size={13} className={`text-slate-500 ${WIDE}`} />
-      </a>)
-  }
   const warm = () => warmRoute(user?.role, item.to)
   return (
-    <NavLink to={item.to} end={item.end} onClick={onNavigate} title={item.label}
+    <Link to={item.to} aria-current={isActive ? 'page' : undefined} onClick={onNavigate} title={item.label}
       aria-label={badge ? `${item.label}, ${badge}` : item.label}
       onPointerEnter={warm} onFocus={warm} onTouchStart={warm}
-      className={({ isActive }) => `${ROW} ${isActive ? 'text-white bg-gradient-to-r from-accent-400/[0.14] to-transparent' : REST}`}>
-      {({ isActive }) => (
-        <>
+      className={`${ROW} ${isActive ? 'text-white font-medium bg-accent-400/[0.12]' : REST}`}>
           {/* plain span: a shared layout animation cost up to 200 ms of main thread per click (2026-10-20) */}
-          {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400 shadow-[0_0_8px_rgba(56,189,248,.55)]" />}
+          {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-400" />}
           <span className={isActive ? 'text-accent-300' : 'text-slate-400 group-hover:text-slate-200'}><Icon size={17} /></span>
           <span className={`flex-1 ${WIDE}`}>{item.label}</span>
           {!!badge && <span className={BADGE}>{badge > 99 ? '99+' : badge}</span>}
-        </>)}
-    </NavLink>
+    </Link>
   )
 }
