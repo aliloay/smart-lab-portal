@@ -1153,6 +1153,7 @@ class Labeler:
             if label not in inside and label not in held and label not in self.face_named:
                 del self.identities[label]
         self._drop_contradicted(tracks)
+        self._doubt_confirmed(tracks, now)
         self._face(tracks, inside, {k["auth_subject"]: k for k in (known or [])}, now)
 
         if not hasattr(self, "label_seen"):
@@ -1368,6 +1369,57 @@ class Labeler:
                            f"name carried over ({t.source}); this camera's face matches say {face}")
                 t.label = t.name = t.role = t.source = None
                 t.named_by, t.verified, t.entered = None, False, False
+
+    # Lab 24 Nov 2026: a staff-confirmed name stayed on the wrong person after two people met (USER1 -> USER12, 13 min).
+    # The re-deal after a crossing skips staff names (owner, 18 Nov) and _veto's 0.65 was above what different people
+    # measure. On the 16:36 recording (the tracks seen >= 20 times alone): same track > 5 s apart p95 0.42 / 0.49, p99 0.46 /
+    # 0.55; two people at once p5 0.48 / 0.45, median 0.54. So: the look of the confirmed person is kept until somebody
+    # touches them; after a touch a clearly different look, DOUBT_CHECKS times in a row, turns the name into the marked
+    # guess "Name ? (look)" (gone after LOOK_BACK_KEEP_S unless a face or staff confirms). The name never moves to anyone.
+    DOUBT_AT = 0.46                    # replay: 0 of 6 right names doubted, 4 of 8 simulated swaps caught (median 21 s)
+    DOUBT_CHECKS = 10                  # looks in a row, alone and big enough (~2 s)
+    DOUBT_REF_MIN = 3
+
+    def _doubt_confirmed(self, tracks: list[Track], now: float):
+        if not hasattr(self, "confirmed_ref"):
+            self.confirmed_ref: dict[int, dict] = {}
+        live = {t.id for t in tracks if t.source == "operator" and t.label} | {t.id for t in getattr(self, "coasting", [])}
+        self.confirmed_ref = {k: v for k, v in self.confirmed_ref.items() if k in live}
+        for t in tracks:
+            if t.source != "operator" or not t.label:
+                continue
+            ref = self.confirmed_ref.get(t.id)
+            if ref is None or ref["label"] != t.label or ref["at"] != getattr(t, "confirmed_at", None):
+                ref = self.confirmed_ref[t.id] = {"label": t.label, "at": getattr(t, "confirmed_at", None), "looks": {},
+                                                  "n": {}, "touched": False, "unlike": 0}
+            if t.crowded:
+                ref["touched"] = True
+                continue
+            if t.look is None or t.look.deep is None or t.box[3] < self.MIN_LOOK_H:
+                continue
+            kind = bool(t.look.partial)                    # a seated view is compared with seated views, a whole one with whole
+            if not ref["touched"]:
+                ref["looks"][kind] = blend(ref["looks"].get(kind), t.look, 0.1) if kind in ref["looks"] else t.look
+                ref["n"][kind] = ref["n"].get(kind, 0) + 1
+                continue
+            base = kind if ref["n"].get(kind, 0) >= self.DOUBT_REF_MIN else (not kind)
+            if ref["n"].get(base, 0) < self.DOUBT_REF_MIN:
+                continue                                   # never seen alone since the confirmation: nothing to compare with
+            d = look_distance(ref["looks"][base], t.look)
+            if d is None:
+                continue
+            if d <= self.DOUBT_AT:
+                ref["unlike"] = 0
+                continue
+            ref["unlike"] += 1
+            if ref["unlike"] >= self.DOUBT_CHECKS:
+                who = {"auth_subject": t.label, "name": t.name, "role": t.role}
+                detail = (f"does not look like the person staff confirmed (distance {d:.2f}, {self.DOUBT_CHECKS} checks) "
+                          "since people touched - shown as a guess, please check")
+                self._note("CONFIRMED_NAME_DOUBTED", t.id, t.label, detail)
+                self._flag(t.id, t.label, detail)
+                self.look_back(t, who, now)
+                self.confirmed_ref.pop(t.id, None)
 
     def _in_use(self, tracks: list[Track]) -> set:
         """Names on a track in view, or on one the tracker still keeps for a moment (coasting)."""

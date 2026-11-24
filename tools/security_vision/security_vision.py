@@ -1659,6 +1659,7 @@ def make_app(svc: Service) -> Flask:
                     o.label = o.name = o.role = o.source = None
                     o.verified = False
             svc.labeler._give(t, k, "operator", how="staff confirmed")
+            t.confirmed_at = time.time()           # a new confirmation starts a new reference look (_doubt_confirmed)
             t.hint = None
             for s in svc.tracks:
                 if s.id == tid and s is not t:
