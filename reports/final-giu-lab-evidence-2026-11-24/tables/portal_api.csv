@@ -1,0 +1,2 @@
+endpoint,unit,n,mean,median,sd,min,p95,max,failures
+/api/health,ms,3144,57.987,29.7,90.449,6.8,186.5,2532.9,0

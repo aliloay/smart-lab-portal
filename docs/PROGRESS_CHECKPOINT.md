@@ -1,5 +1,11 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-24 evening - GIU lab day measured, fixes LIVE as 19d5772 (not pushed)
+- Results and limits: reports/final-giu-lab-evidence-2026-11-24/RESULTS_FOR_THE_PAPER.md; raw data D:/SmartLabData/FINAL_GIU_LAB_EVIDENCE_2026-11-24 (faces: private).
+- Fixed: 5-s report erased robot joints; UR5e blocking reconnect (47 s stale); stalled FFmpeg frames; look guess never to someone seen with the named person (both cameras); live answers (robot doing, people count, lab now, offline sensors); live values never from documents; 5 fact FAQ entries; USB kit manifest.
+- Tests: backend 1029 passed / 3 skipped, cameras 433, robots 46, knowledge 114, routing 52/60 and 16/20 with 0 wrong FAQ. Collector and camera fixes tested offline only.
+- Open: name swap when people meet, seated pairing between cameras, face enrolment, PC-08/09/Hemaly agent (run without supervisor, cannot self-update), relay 0.0.0.0 fallback review.
+
 ## UPDATE 2026-11-24 morning - S-1..S-6 and D-1 closed, LIVE as 5f13116-20261124090016 (not pushed)
 - S-1 FAQ question words on aliases; S-2 guard on /api/scan/ask; S-3 returning-look guess (look_guessed, 120 s, never confirmed); S-4 partial embeddings (NaN rows, neutral score); S-5 /confirm updates published copies; S-6 query casts. PC agent 1.1 committed; signed bundle fdffc6cfcd71 unchanged.
 - Tests on the merge: backend 1022 passed / 3 skipped, cameras 428, knowledge 101, robots 44, relay 6, frontend 26 + tsc 0; route eval 52/60, 16/20, 0 wrong.

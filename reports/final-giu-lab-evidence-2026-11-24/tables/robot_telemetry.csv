@@ -1,0 +1,9 @@
+robot,metric,unit,n,mean,median,sd,min,p95,max
+UR5E_01,data_age,s,1891,0.133,0.119,0.113,-0.007,0.292,1.408
+UR5E_01,collector_rate,1/s,1891,32.433,35.6,9.259,3.5,42.4,45.0
+UR5E_01,collector_to_portal,ms,1891,50.991,29.0,109.967,8.5,143.2,2910.9
+UR5E_01,samples_with_joints,count,1891,1891,,,,,
+FANUC_01,data_age,s,1763,0.167,0.143,0.169,-0.004,0.363,2.725
+FANUC_01,collector_rate,1/s,1763,3.656,3.8,0.427,1.7,4.0,4.0
+FANUC_01,collector_to_portal,ms,1763,154.342,128.0,136.131,94.6,279.4,3071.7
+FANUC_01,samples_with_joints,count,1763,1763,,,,,

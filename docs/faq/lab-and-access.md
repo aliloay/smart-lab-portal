@@ -36,7 +36,7 @@ Also asked: QR expired, booking QR not working, QR before booking
 Source: `backend/app/services/access.py` (`validate_qr`), `backend/app/core/config.py`
 
 ## Q: Does the door work without the laptop?
-Also asked: offline door, laptop down door, network down access
+Also asked: offline door, laptop down door, network down access, what happens to the door when the laptop is off
 **A:** Partly. RFID card plus fingerprint keep working, because both are checked inside the master. QR and face need the laptop and are refused while it is unreachable. Door events are stored on the master and sent later with their real time.
 Source: `docs/reports/MEASUREMENTS_2026-11-21.md` (test D), `firmware/SmartLab_Master_Portal` (store and forward, portal-1.2)
 
