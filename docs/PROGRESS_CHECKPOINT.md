@@ -1,5 +1,10 @@
 # Progress checkpoint - Smart Lab master completion mission
 
+## UPDATE 2026-11-24 morning - S-1..S-6 and D-1 closed, LIVE as 5f13116-20261124090016 (not pushed)
+- S-1 FAQ question words on aliases; S-2 guard on /api/scan/ask; S-3 returning-look guess (look_guessed, 120 s, never confirmed); S-4 partial embeddings (NaN rows, neutral score); S-5 /confirm updates published copies; S-6 query casts. PC agent 1.1 committed; signed bundle fdffc6cfcd71 unchanged.
+- Tests on the merge: backend 1022 passed / 3 skipped, cameras 428, knowledge 101, robots 44, relay 6, frontend 26 + tsc 0; route eval 52/60, 16/20, 0 wrong.
+- Rollback: tag pre-s1s6-20261124, images :pre-s1s6-20261124, backups/pre_s1s6_20261124.dump. S-3/S-5 need GIU. Lab list: reports/status-2026-11-23/LAB_DAY_2026-11-24.md.
+
 ## UPDATE 2026-11-24 - affordable expansion (worktree C:/Projects/smart-lab-expansion, branch upgrade/affordable-expansion-2026-11-23; merged 136a668, LIVE 24 Nov 08:40; not pushed)
 - Built: /api/metrics, /admin/health, /admin/sensors, /exhibit, grouped sidebar, 153 record-based questions, env firmware 0.2.0 source (compiled, not flashed). 21 reports: reports/affordable-smart-lab-expansion-2026-11-23/.
 - Tests: backend 1004 passed, 3 skipped, 1 failed (503 no AI model in the test container; same on the unchanged code); tsc 0; unit 26; browser 30 + 104. Docker disk is on C: (43 GB), the older D: note is out of date.
