@@ -588,6 +588,11 @@ def quick_answer(db: Session, user: User, question: str) -> Optional[dict]:
     """An exact answer from the database, or None to let the language model answer."""
     staff = user.role in (Role.ADMIN, Role.LAB_STAFF)
     # the whole-lab answers added 2026-10-27 come before the door-only history (it read "today's summary" as a door report)
+    if staff:                                   # 2026-11-23: whole-question matches about measurements and node health
+        from app.services import metrics
+        m = metrics.fast_answer(db, question)
+        if m is not None:
+            return _answer(m, "metrics", {"label": "Open sensor analytics", "to": "/admin/sensors"})
     first = detect(question, staff)
     # 2026-11-21: live one-liners (lab count, one named device, which ESP32 does X, ESP32 boards, model in use, health
     # score) that used to reach the model and come back wrong. Only when no specific intent claimed the question.

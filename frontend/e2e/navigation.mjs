@@ -85,6 +85,8 @@ async function check(page, label) {
 async function clickNav(page, href) {
   const link = await page.$(`aside nav a[href="${href}"]`)
   if (!link) { problems.push(`${current}: no sidebar link ${href}`); return }
+  // open its group first when that group is closed
+  await link.evaluate(a => a.closest('[data-group]')?.querySelector('button[aria-expanded="false"]')?.click())
   await link.click()
   await check(page, `nav ${href}`)
 }
@@ -125,6 +127,7 @@ try {
     await role.journey(page)
 
     const hrefs = await page.$$eval('aside nav a', as => as.map(a => a.getAttribute('href')))
+    await page.$$eval('aside [data-group] button[aria-expanded="false"]', bs => bs.forEach(b => b.click()))   // open every group
     for (const h of hrefs) {           // rapid clicking, no waiting
       await page.click(`aside nav a[href="${h}"]`)
       await page.waitForTimeout(40)

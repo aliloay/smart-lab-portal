@@ -15,6 +15,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <stdarg.h>
+#include "env_i2c.h"
 
 // --- what the network task may read, copied from loop() under a lock -------
 struct Published {
@@ -85,7 +86,7 @@ int postJson(const char *path, const char *body) {
 bool sendHeartbeat() {
   Published p;
   portENTER_CRITICAL(&pubMux); p = pub; portEXIT_CRITICAL(&pubMux);
-  char body[400];
+  char body[512];
   JsonBuf j(body, sizeof(body));
   j.add("{\"device_uid\":\"%s\",\"lab_id\":\"%s\",\"device_type\":\"SENSOR_NODE\","
         "\"firmware_version\":\"env-%s\",\"ip_address\":\"%s\",\"components\":{",
@@ -95,16 +96,19 @@ bool sendHeartbeat() {
   j.add(",\"mq_1\":%s", p.mqFitted ? (p.mqFault ? "false" : "true") : "null");
   j.add(",\"pir_1\":%s", p.pirFitted[0] ? "true" : "null");
   j.add(",\"pir_2\":%s", p.pirFitted[1] ? "true" : "null");
-  j.add(",\"flame\":%s}}", p.flameFitted ? "true" : "null");
+  j.add(",\"flame\":%s", p.flameFitted ? "true" : "null");
+  if (FIT_SCD41)  j.add(",\"scd41\":%s", i2c.scdOk ? "true" : "false");
+  if (FIT_BH1750) j.add(",\"bh1750\":%s", i2c.luxOk ? "true" : "false");
+  j.add("}}");
   return !j.overflow && postJson("/access/heartbeat", body) == 200;
 }
 
 // Readings in the portal's existing format. Only sensors that are fitted
 // AND trustworthy right now are sent - never a placeholder value.
-bool sendEnvironmentSnapshot() {
+bool sendEnvironmentSnapshot(bool health) {
   Published p;
   portENTER_CRITICAL(&pubMux); p = pub; portEXIT_CRITICAL(&pubMux);
-  char body[512];
+  char body[1024];                         // 10 readings of at most ~65 characters
   JsonBuf j(body, sizeof(body));
   j.add("{\"device_uid\":\"%s\",\"lab_id\":\"%s\",\"readings\":[", DEVICE_ID, LAB_ID);
   int n = 0;
@@ -116,6 +120,14 @@ bool sendEnvironmentSnapshot() {
   if (p.flameFitted) reading("flame", p.flameAny ? 1 : 0, "state");
   if (p.pirOnline[0] || p.pirOnline[1])
     reading("motion", ((p.pirOnline[0] && p.motion[0]) || (p.pirOnline[1] && p.motion[1])) ? 1 : 0, "state");
+  if (health) {                            // once a minute, with the normal snapshot
+    int rssi = WiFi.RSSI();
+    if (rssi < 0) reading("wifi_rssi_dbm", rssi, "dBm");        // 0 = no link, not a signal
+    reading("device_uptime_s", millis() / 1000, "s");
+    reading("free_heap_b", ESP.getFreeHeap(), "B");
+    if (co2Valid()) reading("co2_ppm", i2c.co2, "ppm");
+    if (luxValid()) reading("illuminance_lux", i2c.lux, "lux");
+  }
   j.add("]}");
   if (n == 0) return true;                 // nothing trustworthy to send yet
   return !j.overflow && postJson("/access/telemetry", body) == 200;
@@ -124,12 +136,13 @@ bool sendEnvironmentSnapshot() {
 // An event in backend mode = send the current states now (the portal raises
 // and clears its alerts on the state change). In local mode the event has
 // already been printed by emitEvent().
-bool sendEnvironmentEvent(const EnvEvent &) { return sendEnvironmentSnapshot(); }
+bool sendEnvironmentEvent(const EnvEvent &) { return sendEnvironmentSnapshot(false); }
 
 // --- the task -------------------------------------------------------------------
 void netTask(void *) {
-  uint32_t lastTry = 0, lastBeat = 0, lastSnap = 0, lastFail = 0;
+  uint32_t lastTry = 0, lastBeat = 0, lastSnap = 0, lastFail = 0, lastHealth = 0;
   bool firstTry = true, urgent = false;
+  bool i2cUp = false;
   for (;;) {
     uint32_t now = millis();
     if (WIFI_ENABLED && WiFi.status() != WL_CONNECTED &&
@@ -151,10 +164,18 @@ void netTask(void *) {
       // hammering the portal every loop.
       bool retryOk = lastFail == 0 || now - lastFail >= SEND_RETRY_MS;
       if (retryOk && (urgent || lastSnap == 0 || now - lastSnap >= SNAPSHOT_INTERVAL_MS)) {
-        if (sendEnvironmentSnapshot()) { urgent = false; lastSnap = millis(); lastFail = 0; }
+        // A safety change goes first and alone; health values wait for the next normal snapshot.
+        bool health = !urgent && (lastHealth == 0 || now - lastHealth >= HEALTH_INTERVAL_MS);
+        if (sendEnvironmentSnapshot(health)) {
+          urgent = false; lastSnap = millis(); lastFail = 0;
+          if (health) lastHealth = lastSnap;
+        }
         else lastFail = millis();
       }
     }
+    // After the send: a slow bus never delays a safety message that is already waiting.
+    if (!i2cUp) { i2cBegin(); i2cUp = true; }
+    i2cPoll(millis());
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }

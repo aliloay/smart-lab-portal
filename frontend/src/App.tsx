@@ -75,7 +75,8 @@ const PREFETCH = [loadLabs, loadLabDetail, loadBook, loadMyBookings, loadReserva
   () => import('./pages/Robots'),
   // 2026-10-19: these were missing, so their first click waited ~1 s for the download.
   () => import('./pages/Incidents'), () => import('./pages/Reliability'), () => import('./pages/SystemAnalytics'),
-  () => import('./pages/Monitor'), () => import('./pages/RobotDetail')]
+  () => import('./pages/Monitor'), () => import('./pages/RobotDetail'),
+  () => import('./pages/HealthCenter'), () => import('./pages/SensorAnalytics')]
 let prefetched = false
 function prefetchPages() {
   if (prefetched) return
@@ -95,6 +96,7 @@ registerChunks({
   '/admin/reports': () => import('./pages/Reports'), '/admin/operations': () => import('./pages/Operations'),
   '/command': () => import('./pages/CommandCenter'), '/robots': () => import('./pages/Robots'),
   '/admin/incidents': () => import('./pages/Incidents'), '/admin/reliability': () => import('./pages/Reliability'),
+  '/admin/health': () => import('./pages/HealthCenter'), '/admin/sensors': () => import('./pages/SensorAnalytics'),
   '/admin/system': () => import('./pages/SystemAnalytics'), '/monitor': () => import('./pages/Monitor'),
 })
 
@@ -106,6 +108,9 @@ const SystemAnalytics = lazy(() => import('./pages/SystemAnalytics'))
 const CommandCenter = lazy(() => import('./pages/CommandCenter'))
 const Robots = lazy(() => import('./pages/Robots'))
 const RobotDetail = lazy(() => import('./pages/RobotDetail'))
+const HealthCenter = lazy(() => import('./pages/HealthCenter'))
+const SensorAnalytics = lazy(() => import('./pages/SensorAnalytics'))
+const Exhibition = lazy(() => import('./pages/Exhibition'))
 const Monitor = lazy(() => import('./pages/Monitor'))
 const ReportPrint = lazy(() => import('./pages/ReportPrint'))
 const Scan = lazy(() => import('./pages/Scan'))
@@ -159,6 +164,10 @@ export default function App() {
   if (staff && loc.pathname === '/wall') {
     return <LiveProvider><Chunk><CommandCenter wall /></Chunk><SafetyLayer /></LiveProvider>
   }
+  // The exhibition screen: read only, aggregate, full screen.
+  if (staff && loc.pathname === '/exhibit') {
+    return <LiveProvider><Chunk><Exhibition /></Chunk><SafetyLayer /></LiveProvider>
+  }
   // The printable weekly / monthly report: its own page, white, for "Save as PDF".
   if (staff && loc.pathname === '/report') {
     // ultracode FE-3: inside LiveProvider too, so the hazard alarm arrives at once (not only on the 10 s poll)
@@ -208,6 +217,8 @@ export default function App() {
           <Route path="/admin/reports" element={staffOnly(<Chunk><Reports /></Chunk>)} />
           <Route path="/admin/operations" element={staffOnly(<Chunk><Operations /></Chunk>)} />
           <Route path="/admin/system" element={staffOnly(<Chunk><SystemAnalytics /></Chunk>)} />
+          <Route path="/admin/health" element={staffOnly(<Chunk><HealthCenter /></Chunk>)} />
+          <Route path="/admin/sensors" element={staffOnly(<Chunk><SensorAnalytics /></Chunk>)} />
           <Route path="/demo" element={staffOnly(<Simulation />)} />
           <Route path="/scan" element={staffOnly(<Chunk><Scan /></Chunk>)} />
           <Route path="/scan/markers" element={staffOnly(<Chunk><ScanMarkers /></Chunk>)} />

@@ -1,0 +1,16 @@
+﻿level,item,model,qty,purpose,compatibility,interface,unit_EGP,total_EGP,source,availability,effort,benefit,existing_alternative,decision
+0,nothing,-,0,software only,-,-,0,0,-,-,-,high,-,DO
+1,Light sensor,BH1750 GY-302,1,lamps on,ESP32 3.3 V,I2C,250,250,https://microohm-eg.com/gy-302-bh1750-light-intensity-module/,"search snapshot 23-24 Nov 2026, recheck",1 h,medium,none,recommended
+1,DC meter,INA219,1,one node branch,26 V 3.2 A max,I2C,175,175,https://ekostra.com/product/ina219-i2c-bi-directional-dc-current-power-sensor-module-3-5v/,"search snapshot 23-24 Nov 2026, recheck",3 h + code,high,multimeter,recommended
+1,Probe,DS18B20 1 m,1,supply heat,3.3 V,1-Wire,65,65,https://makerselectronics.com/product/ds18b20-waterproof-temperature-senso/,"listed in stock, recheck",2 h + code,medium,none,recommended
+1,Leak plate,raindrop module,1,water hint,3.3 V,digital,50,50,https://makerselectronics.com/ (Raindrop Sensor Module; open the product page before buying),"listed in stock, recheck",2 h + code,medium,none,recommended
+2,CO2,SCD41,1,ventilation,3.3 V,I2C,1549,1549,https://eg.pricena.com/en/product/scd41-gas-sensor-module-co2-carbon-dioxide-temperature-humidity-i2c-communication-price-in-Egypt-36580279,"search snapshot 23-24 Nov 2026, recheck; +21 shipping",2 h,high,none,if budget
+2+,Vibration trial,GY-521,1,baseline,3.3 V,I2C,145,145,https://ekostra.com/,"search snapshot 23-24 Nov 2026, recheck",1 day,low now,none,later
+2+,Noise trial,INMP441,1,level only,3.3 V,I2S,250,250,https://ekostra.com/product/omnidirectional-microphone-module-i2s-interface/,"search snapshot 23-24 Nov 2026, recheck",1 day,low now,none,later
+not now,PM2.5,PMS5003,1,dust,5 V,UART,1825-1893,,https://www.ubuy.com.eg/en/product/7OTW0838A-risingsaplings-pms5003-pm2-5-pm10-air-quality-sensor,"import, customs extra",3 h,low,none,no
+not now,Data SSD,BX500 1 TB,1,replace D:,SATA 2.5; not explicitly confirmed by Dell,SATA,5999,5999,https://eg.pricena.com/en/product/crucial-bx500-1tb-3d-nand-sata-2-5-inch-internal-ssd-up-to-540mb-s-ct1000bx500ssd1z-1-tb-price-in-Egypt-29152039,"search snapshot 23-24 Nov 2026, recheck",technician,low now,NVMe has space,no
+not now,RAM,-,0,-,32 GB max reached,-,,,-,-,-,none,-,no
+not now,Mains meter,PZEM-004T or certified,1,energy,electrician,UART,no verified price,,,unknown,high,medium,none,no
+TOTAL level 1,,,,,,,,540,,parts only,,,,
+TOTAL level 2,,,,,,,,2089,,parts only,,,,
+TOTAL level 2+,,,,,,,,2484,,parts only,,,,

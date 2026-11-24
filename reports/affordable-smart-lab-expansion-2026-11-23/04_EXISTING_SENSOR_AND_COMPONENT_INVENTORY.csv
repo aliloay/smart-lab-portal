@@ -1,0 +1,24 @@
+﻿component,owned_qty,evidence,where_used,spare_or_reusable,reuse_idea,check_before_use
+ESP32 dev board,4,BILL_OF_MATERIALS.md,"MASTER, ENV, BIN, REUSE",no,use free pins of ENV_LAB01,pins free on the board
+ESP32-CAM,1,BILL_OF_MATERIALS.md,CAM_LAB01,no,none,core 3.2.1 only
+DHT22,1,inventory 2026-10-03,ENV_LAB01,no,compare once with a reference thermometer,reference needed
+MQ-2,1,inventory,ENV_LAB01,no,indicator only,not certified
+MH / MQ gas carrier board (spare),1,firmware README,none,yes,unidentified element: do not deploy,identify part first
+5-channel flame board,1,inventory,ENV_LAB01,no,per-channel display needs a portal change,
+HC-SR501 PIR,2,inventory,ENV_LAB01,no,zone activity (aggregate),
+Load cell + HX711,2,inventory,bins,no,tool utilisation through the reusable bin,calibration with masses open
+PN532 NFC,2 (one per device),BOM,"door, reusable bin",no,tool passport by existing tag,
+MFRC522,retired,inventory,none,do not reintroduce,,
+AS608/R307 fingerprint,1,BOM,door,no,,
+MC-38 reed,1,BOM,door,no,door state history,
+Reed switch 2x14 mm,1,inventory,consumable bin lid (check),maybe,cabinet open/closed,is it used now?
+16x2 I2C LCD,2,inventory,bins,no,,pull-up voltage
+ST7735 TFT,1,BOM,door,no,,
+MG90S servo,1,inventory,reusable bin,no,,
+XL4016 buck,3,inventory,node supplies,no,INA219 can measure one output,5.00 V first
+"12 V 10 A supply, WAGO, fuses",1 set,inventory,all nodes,no,,
+PAM8403 + speaker,1,inventory,door audio (planned),maybe,none now,
+NTAG213 stickers,several,inventory,reusable items,yes,equipment passport tag,count them
+IP cameras,2,portal,security,no,aggregate count only,no picture on 23 Nov
+Laptop / lab PC sensors,software,PC agent,portal,yes,"CPU, memory, disk, network history",counter reset bug
+"DS18B20, SCD4x, PMS5003, BH1750, INA219, INMP441, MPU6050, PZEM-004T, ACS712, leak probe",not evidenced,no repository record,,unknown,ask the owner before buying,look in the parts box
