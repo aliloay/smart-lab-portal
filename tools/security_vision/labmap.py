@@ -155,6 +155,17 @@ class LabNumbers:
         self.notes = []
         self.restore = []                                    # (track, confirmed name) to give back - applied by the caller
         alive = {t.id for t in tracks}
+        # 2026-11-24 lab: camera 2 recognised the owner's face on track 93; when that track ended his name came back as a
+        # guess on track 35, a man who had been sitting in view the whole time. Someone seen in the same picture as a
+        # confirmed person is somebody else: that track never gets the name by look (a face still can name it).
+        if not hasattr(self, "not_them"):
+            self.not_them: dict[int, set] = {}
+        self.not_them = {k: v for k, v in self.not_them.items() if k in alive}
+        for c in tracks:
+            if c.label and getattr(c, "source", None) in KEEP_NAME_SOURCES:
+                for o in tracks:
+                    if o is not c:
+                        self.not_them.setdefault(o.id, set()).add(c.label)
         self.looks = {k: v for k, v in self.looks.items() if k in alive}
         self.born = {k: v for k, v in self.born.items() if k in alive}
         if not hasattr(self, "restored_once"):
@@ -274,7 +285,7 @@ class LabNumbers:
                 if (people.get(str(t.lab_no)) or {}).get("who"):
                     continue                                 # its own number carries a name: handled below
                 k = self._confirmed_back(people, busy - {t.lab_no}, lk, now, held_labels)
-                if k is None:
+                if k is None or people[str(k)]["who"]["auth_subject"] in self.not_them.get(t.id, ()):
                     continue
                 late[t.id] = (k, self.late.get(t.id, (None, 0))[1] + 1 if self.late.get(t.id, (None,))[0] == k else 1)
                 if late[t.id][1] >= LATE_PASSES and int(k) not in mine_now:
@@ -375,6 +386,7 @@ class LabNumbers:
 
         self.reg.update(work)
         self.last_write = now
+        self.restore = [(t, w) for t, w in self.restore if w["auth_subject"] not in self.not_them.get(t.id, ())]
         return self.notes
 
     @staticmethod
