@@ -1,7 +1,7 @@
 /**
  * Robots, live: one fetch, then the WebSocket keeps joints and states current
  * (robot_state for staff, up to 5 a second; robot_status for everyone). A slow
- * poll (15 s) only re-checks staleness - "no new data" turns into
+ * poll (5 s) only re-checks staleness - "no new data" turns into
  * TELEMETRY_STALE / OFFLINE from the server, never into "stationary".
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -37,7 +37,7 @@ export function useRobots({ includeStoppedDemos = false } = {}) {
   }, [])
   useEffect(() => {
     load()
-    const t = visibleInterval(load, 15000)
+    const t = visibleInterval(load, 5000)
     return () => window.clearInterval(t)
   }, [load])
   useLiveMessages(m => {
@@ -50,7 +50,9 @@ export function useRobots({ includeStoppedDemos = false } = {}) {
       setRobots(list => {
         if (!list || !list.some(r => r.device_id === m.device_id)) { load(); return list }
         return list.map(r => r.device_id !== m.device_id ? r
-          : { ...r, state: m.state as RobotState, home: m.home as HomeState })
+          // live again: do not wait for the next poll (students get no robot_state)
+          : { ...r, state: m.state as RobotState, home: m.home as HomeState,
+              ...(m.state === 'MOVING' || m.state === 'STATIONARY' ? { last_seen_at: new Date().toISOString() } : {}) })
       })
     }
   })

@@ -159,7 +159,12 @@ def report_state(req: StateReport, db: Session = Depends(get_db),
     was_fresh = is_fresh(d, now)
     d.last_seen_at, d.is_online = now, True
     d.firmware_version = req.firmware_version or d.firmware_version
-    d.component_state = {"state": req.state, **req.detail}
+    if req.kind == "ROBOT" and prev.get("q") is not None and prev.get("state") in ("MOVING", "STATIONARY"):
+        # Lab 24 Nov: this 5-second RUNNING / IDLE report replaced the live telemetry (joints, home, source, fusion) until
+        # the next sample - pages loaded in between showed no joints. Telemetry owns the record; this only adds to it.
+        d.component_state = {**prev, "equipment_state": req.state}
+    else:
+        d.component_state = {"state": req.state, **req.detail}
     _agent_stopped_check(db, d, lab, prev, req.detail)
     # The agent's own clock vs this server's at arrival (2026-10-18 clock check): the difference
     # includes the network delay (milliseconds here), so only seconds matter.
