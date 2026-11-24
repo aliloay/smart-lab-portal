@@ -56,7 +56,7 @@ def test_confirm_updates_the_published_copies():
     svc = types.SimpleNamespace(label_lock=threading.Lock(), lock=threading.Lock(), labeler=Labeler(),
                                 tracker=types.SimpleNamespace(tracks=[a, b]), tracks=[copy.copy(a), copy.copy(b)])
     block = body[body.index("        with svc.label_lock, svc.lock:"):body.index("        by = str(")]
-    ns = {"svc": svc, "tid": 1, "label": "USER1", "k": ALI, "jsonify": lambda x: x}
+    ns = {"svc": svc, "tid": 1, "label": "USER1", "k": ALI, "jsonify": lambda x: x, "time": sv.time}
     exec("def go():\n" + block + "\ngo()", ns)
     assert a.label == svc.tracks[0].label == "USER1" and svc.tracks[0].source == "operator"
     assert b.label is None and svc.tracks[1].label is None
