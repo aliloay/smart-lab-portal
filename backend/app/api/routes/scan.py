@@ -246,6 +246,9 @@ def ask(req: AskIn, db: Session = Depends(get_db), user: User = Depends(require_
     from app.services import agent_guard
     g = agent_guard.check(req.question)
     no_target = card is None and person is None
+    it = live_target.intent_of(req.question)
+    if g is not None and g[0] == "guard_action" and it and it[0] == "control":
+        g = None                                       # the scanner's own control refusal says the same, in its words
     if g is not None and (g[0] != "opening_hours" or no_target):
         out = live_target._done(g[0], [g[1]], card, person, [])
     else:
