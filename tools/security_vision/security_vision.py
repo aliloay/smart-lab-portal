@@ -244,6 +244,11 @@ class Camera:
                 if video:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)   # loop a test video
                 continue
+            if read_ms > self.STALE_S * 1000 and not video:
+                # Lab 24 Nov (camera 2's cable pulled): FFmpeg's read timeout (5 s) hands back an OLD buffered frame;
+                # stamped "now" it showed three people again, twice. Not a live picture: dropped, and not proof of life.
+                print(f"[camera] frame after a {read_ms / 1000:.1f} s stall dropped (old buffer)")
+                continue
             last_ok = time.monotonic()
             self._store(frame, read_ms)
             if video:

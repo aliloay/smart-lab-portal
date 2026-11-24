@@ -100,6 +100,14 @@ _DEVICE = (r"(node|nodes|esp32s?|board|boards|camera|cameras|robot|robots|ur5e|f
 GUARD_STATUS = re.compile(rf"(?i)^\s*(is|are|was|were)\b(?=.*\b{_DEVICE}\b).*\b(online|offline|connected|disconnected|up|"
                           r"down|reachable|alive|working|running)\s*(now|right now|at the moment)?\s*[?.!]*\s*$"
                           r"|\b(when|what time)\b.*\blast (seen|heartbeat|online|report(ed)?)\b")
+# Lab 24 Nov (AI benchmark): "What is the status of BIN_NODE_1?" was answered "operational" from documents while the
+# board was 40 km away, and "What is the latest temperature?" with the name of a function. Live values, not documents.
+GUARD_VALUE = re.compile(
+    rf"(?i)^\s*what(?:'s| is)\s+the\s+(?:current\s+|live\s+)?(?:status|state)\s+of\s+(?:the\s+)?[\w\s-]*\b{_DEVICE}\b[\w\s-]*\??\s*$"
+    r"|^\s*what(?:'s| is)\s+the\s+(?:latest|current|live)\s+(?:temperature|humidity|gas|smoke|fps|camera fps|reading)\b"
+    r"|^\s*what(?:'s| is)\s+the\s+(?:temperature|humidity)(?:\s+(?:in the lab|now|right now))?\s*\??\s*$"
+    r"|^\s*(?:which|what)\s+(?:esp32 |pc |lab |security )?(?:nodes?|boards?|cameras?|robots?|pcs?|agents?|devices?|esp32s?)\s+are\s+"
+    r"(?:online|offline|connected|disconnected|outdated|working)\s*(?:now)?\s*\??\s*$")
 
 GUARD_TEXT = {
     "action": ("The project assistant is read-only and cannot move robots, open the door, switch relays or alarms, "
@@ -145,7 +153,7 @@ def guard(q: str):
 def status_guard(q: str) -> bool:
     """C-06: a question about a device's CURRENT state. Checked after the FAQ (curated status entries such as
     "Are the ESP32 boards online?" name the live source and the 90 s rule - they win), before the model."""
-    return bool(GUARD_STATUS.search(q) or (GUARD_LIVE.search(q) and GUARD_NOW_STATE.search(q)))
+    return bool(GUARD_STATUS.search(q) or GUARD_VALUE.search(q) or (GUARD_LIVE.search(q) and GUARD_NOW_STATE.search(q)))
 
 
 # --------------------------------------------------------------- evidence ---

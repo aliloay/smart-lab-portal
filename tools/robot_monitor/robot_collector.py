@@ -37,6 +37,7 @@ import math
 import os
 import re
 import sys
+import threading
 import time
 from collections import deque
 
@@ -229,6 +230,39 @@ class Collector:
         self.source = None
         self.last_ctrl_t = None                     # last controller timestamp seen (dedupe)
         self.rejected = 0                           # samples that failed valid()
+        self._opening = None                        # (thread, result) while a UR connection is being opened
+        self.retry_at = 0.0
+
+    QUIET_S = 1.0                  # no new sample this long: the old pose is not posted again as a fresh report
+
+    def _open_step(self) -> bool:
+        """Open the source; True when self.source is ready. Lab 24 Nov (router restart): opening RTDE to an unreachable
+        UR5e blocks ~21 s, and the loop stood still with it: the outage was detected 47 s late and a STATIONARY report
+        with the time from before the block made the robot look fresh. UR connections open in a thread now, so the
+        outage clock keeps running."""
+        if self.args.source != "ur":
+            self.source = self.open_source()
+            return True
+        if self._opening is None:
+            box: dict = {}
+
+            def work():
+                try:
+                    box["source"] = self.open_source()
+                except BaseException as e:             # SystemExit (no ur_rtde / no --robot) is re-raised in the loop
+                    box["error"] = e
+            th = threading.Thread(target=work, daemon=True)
+            self._opening = (th, box)
+            th.start()
+            th.join(0.05)
+        th, box = self._opening
+        if th.is_alive():
+            return False
+        self._opening = None
+        if "error" in box:
+            raise box["error"]
+        self.source = box["source"]
+        return True
 
     def open_source(self):
         a = self.args
@@ -282,6 +316,9 @@ class Collector:
         # send TELEMETRY_STALE once on transition so the portal records the drop, then let last_seen_at expire.
         if snap["state"] == "UNKNOWN":
             return
+        arrived = self.motion.last_arrival
+        if snap["state"] != "TELEMETRY_STALE" and arrived is not None and now - arrived > self.QUIET_S:
+            return                                        # waiting for the outage clock: nothing new to report
         if snap["state"] == "TELEMETRY_STALE":
             if getattr(self, "_stale_reported", False):
                 return
@@ -323,17 +360,25 @@ class Collector:
                 return
             if self.source is None:
                 try:
-                    self.source = self.open_source()
+                    if now < self.retry_at or not self._open_step():
+                        self._events(self.motion.tick(now))
+                        if now - self.last_post >= a.report_s:
+                            self.report(now)
+                            self.last_post = now
+                        time.sleep(min(period, 0.1) if period > 0 else 0.1)
+                        continue
                     # RTDE connects when the source is created; the FANUC web source only when a read works
                     print("[robot] connected" if a.source != "fanuc" else f"[robot] polling {FanucWebSource.PAGE}")
                 except SystemExit:
                     raise
                 except Exception as e:
                     print(f"[robot] cannot connect: {e.__class__.__name__}: {e} - retrying in 3 s")
+                    now = time.time()                     # the failed attempt may have taken seconds
                     self._events(self.motion.tick(now))
-                    self.report(now) if now - self.last_post >= 1.0 else None
-                    self.last_post = now
-                    time.sleep(3)
+                    if now - self.last_post >= a.report_s:
+                        self.report(now)
+                        self.last_post = now
+                    self.retry_at = now + 3.0
                     continue
             try:
                 s = self.source.read()
@@ -360,8 +405,9 @@ class Collector:
                 print(f"[robot] read failed: {e.__class__.__name__}: {str(e)[:160]} - reconnecting")
                 self.source.close()
                 self.source = None
+                now = time.time()              # a timed-out read took time too
                 if a.source == "fanuc":
-                    time.sleep(2.0)            # back off: a controller that is off / unreachable is not hammered
+                    self.retry_at = now + 2.0  # back off: a controller that is off / unreachable is not hammered
             self._events(self.motion.tick(now))
             if now - self.last_post >= a.report_s:
                 self.report(now)
