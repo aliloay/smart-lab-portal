@@ -441,12 +441,12 @@ export function ChatBubble() {
         <div className="fixed inset-0 z-[60] bg-ink-950/60 backdrop-blur-[2px]" onClick={() => setOpen(false)} />)}
       {/* Pops out of the bubble (bottom-right). Stays mounted when closed so
           the conversation survives navigation. */}
-      <div className={`fixed z-[61] card p-5 shadow-2xl flex flex-col origin-bottom-right
-                       transition-[opacity,transform] duration-200 ease-out
+      <div className={`fixed z-[61] card pop p-5 shadow-2xl flex flex-col origin-bottom-right
+                       transition-[opacity,transform,visibility] duration-200 ease-out
                        ${size === 'full'
                          ? 'top-4 bottom-24 left-4 right-4 sm:top-8 sm:left-[max(2rem,calc(50vw-36rem))] sm:right-[max(2rem,calc(50vw-36rem))]'
                          : 'top-20 bottom-24 right-4 sm:right-6 w-[calc(100vw-2rem)] sm:w-[min(760px,calc(100vw-3rem))]'}
-                       ${open ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none'}`}
+                       ${open ? 'opacity-100 scale-100' : 'invisible opacity-0 scale-90 pointer-events-none'}`}
            role="dialog" aria-label="AI assistant" aria-hidden={!open}>
         <div className="flex items-center gap-2.5 mb-4 pb-3 border-b border-ink-600/70">
           <span className="grid place-items-center w-9 h-9 rounded-xl bg-violet-500/15 text-violet-300">
@@ -483,7 +483,7 @@ export function ChatBubble() {
       </div>
       {launcher && !open && <>
         <div className="fixed inset-0 z-[60]" onClick={() => setLauncher(false)} />
-        <div className="fixed z-[61] bottom-24 right-4 sm:right-6 w-[min(320px,calc(100vw-2rem))] card p-2 shadow-2xl"
+        <div className="fixed z-[61] bottom-24 right-4 sm:right-6 w-[min(320px,calc(100vw-2rem))] card pop p-2 shadow-2xl"
              role="menu" aria-label="AI assistant">
           <div className="flex items-center gap-2 px-3 pt-1.5 pb-2 mb-1 border-b border-ink-600/70">
             <span className="text-[12px] text-slate-400 flex-1">Opens {size === 'full' ? 'full screen' : 'as a side panel'}</span>

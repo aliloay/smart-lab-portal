@@ -83,7 +83,7 @@ export default function SystemHealth() {
         {open && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }} transition={{ duration: .14 }}
-            className="absolute right-0 mt-2 w-72 card p-4 z-40">
+            className="absolute right-0 mt-2 w-72 card pop p-4 z-40">
             <div className="label mb-2">System health</div>
             <ul className="space-y-2.5">
               {rows.map(r => (

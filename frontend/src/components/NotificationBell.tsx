@@ -65,7 +65,7 @@ export default function NotificationBell() {
         {open && (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }} transition={{ duration: .14 }}
-            className="absolute right-0 top-full pt-0 mt-2 w-[min(92vw,380px)] card p-0 z-40
+            className="absolute right-0 top-full pt-0 mt-2 w-[min(92vw,380px)] card pop p-0 z-40
                        overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b
                             border-ink-600">

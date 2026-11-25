@@ -101,6 +101,8 @@ body {
        behind a card is the smooth page gradient, so a slightly denser glass colour looks the same. */
     background: linear-gradient(180deg, rgba(36,58,92,.86) 0%, rgba(27,46,75,.84) 100%);
   }
+  /* Menus and panels that float over a page: opaque, or the page shows through the text (2026-11-25). */
+  .card.pop { background: linear-gradient(180deg, #20365a 0%, #1b2e4b 100%); }
   .card-pad { @apply card p-5; }
   .card-hover {
     @apply transition-[transform,box-shadow,border-color] duration-200

@@ -49,7 +49,7 @@ function Screens() {
     <div className="relative" ref={ref}>
       <button type="button" aria-expanded={open} className="btn-ghost btn-sm" onClick={() => setOpen(o => !o)}>
         <MonitorPlay size={14} /> Screens</button>
-      {open && <div className="absolute right-0 mt-1.5 w-52 card p-1.5 z-40">
+      {open && <div className="absolute right-0 mt-1.5 w-52 card pop p-1.5 z-40">
         {SCREENS.map(s => (
           <a key={s.to} href={s.to} className="block px-3 py-2 rounded-lg text-[13px] text-slate-200 hover:bg-ink-700/60" onClick={e => {
             e.preventDefault(); setOpen(false)
