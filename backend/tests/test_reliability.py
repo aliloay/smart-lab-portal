@@ -210,4 +210,4 @@ def test_search_lists_the_device_before_its_old_incidents(client, db, lab, staff
     inc = [x for x in r if x["type"] == "incident"]
     assert inc[0]["subtitle"] != "resolved" and inc[-1]["subtitle"] == "resolved"
     pc = client.get("/api/search?q=PC-12", headers=h).json()["results"][0]
-    assert pc["to"] == "/admin/equipment?tab=noncons"
+    assert pc["to"] == "/admin/equipment?tab=pcs"

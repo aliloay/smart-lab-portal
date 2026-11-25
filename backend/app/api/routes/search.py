@@ -26,7 +26,7 @@ def _device_link(d: Device) -> str:
     if d.device_type == DeviceType.SECURITY_CAMERA:
         return "/admin/security"
     if d.device_type == DeviceType.PC:
-        return "/admin/equipment?tab=noncons"     # the Robots & PCs tab (was tab=robots: no such tab)
+        return "/admin/equipment?tab=pcs"
     return "/admin/devices"
 
 

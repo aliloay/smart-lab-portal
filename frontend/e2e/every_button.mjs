@@ -8,8 +8,8 @@ const BASE = 'http://127.0.0.1:5176', API = 'http://127.0.0.1:8100/api'
 const WHO = { ADMIN: 'nav-admin@test.local', LAB_STAFF: 'nav-staff@test.local', STUDENT: 'nav-student@test.local' }
 const ST = ['/', '/labs', '/labs/1', '/book', '/bookings', '/share', '/robots', '/issues', '/issues/new', '/notifications', '/profile']
 const OP = ['/', '/labs', '/labs/1', '/book', '/robots', '/issues', '/issues/new', '/notifications', '/profile', '/command', '/admin/security', '/admin/operations',
-  '/admin/access', '/admin/alerts', '/admin/incidents', '/admin/bookings', '/admin/equipment?tab=environment', '/admin/equipment?tab=noncons',
-  '/admin/equipment?tab=share', '/admin/equipment?tab=consumables', '/admin/equipment?tab=reusables', '/admin/equipment?tab=register',
+  '/admin/access', '/admin/alerts', '/admin/incidents', '/admin/bookings', '/admin/equipment?tab=environment', '/admin/equipment?tab=robots',
+  '/admin/equipment?tab=pcs', '/admin/equipment?tab=consumables', '/admin/equipment?tab=reusables', '/admin/equipment?tab=register',
   '/admin/devices', '/admin/health', '/admin/sensors', '/admin/system', '/admin/reliability', '/admin/users', '/admin/experiments', '/demo',
   '/scan', '/scan/markers', '/phone-setup', '/monitor', '/wall', '/exhibit', '/report']
 const PAGES = { ADMIN: [...OP, '/admin/reports', '/admin/settings', '/admin/emergency'], LAB_STAFF: OP, STUDENT: ST }

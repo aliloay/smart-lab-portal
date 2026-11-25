@@ -12,7 +12,7 @@ const PAGES = [
   ['04_iot_dashboard', '/command'], ['05_live_monitor', '/monitor'],
   ['06_security_cameras', '/admin/security'], ['07_operations_center', '/admin/operations'],
   ['08_access_audit', '/admin/access'], ['09_bookings', '/admin/bookings'], ['10_emergency', '/admin/emergency'],
-  ['11_equipment_environment', '/admin/equipment?tab=environment'], ['12_equipment_robots_pcs', '/admin/equipment?tab=noncons'],
+  ['11_equipment_environment', '/admin/equipment?tab=environment'], ['12_equipment_robots_pcs', '/admin/equipment?tab=robots'],
   ['13_equipment_consumables', '/admin/equipment?tab=consumables'], ['14_equipment_reusables', '/admin/equipment?tab=reusables'],
   ['15_equipment_register', '/admin/equipment?tab=register'], ['16_system_devices', '/admin/devices'],
   ['17_robot_ur5e_detail', '/robots/10'], ['18_maintenance', '/issues'], ['19_incidents', '/admin/incidents'],
@@ -40,7 +40,7 @@ for (const [name, path] of PAGES) {
   try {
     await p.goto(BASE + path, { waitUntil: 'domcontentloaded' })
     await p.waitForFunction(() => !document.querySelector('[data-loading], .animate-spin'), null, { timeout: 15000 }).catch(() => {})
-    await p.waitForTimeout(path.includes('equipment?tab=noncons') || path.startsWith('/robots') ? 7000 : 3500)
+    await p.waitForTimeout(path.includes('equipment?tab=robots') || path.startsWith('/robots') ? 7000 : 3500)
     await shot(name)
   } catch (e) { console.log('FAILED', name, String(e).slice(0, 120)) }
 }

@@ -84,7 +84,7 @@ export default function LabFloor({ tile, cam, cams = [], robots, compact = false
     const gone = REMOVED.has(n)
     const lightFill = st === 'IN_USE' || st === 'MOTION'
     return (
-      <Link to="/admin/equipment?tab=noncons" aria-label={`${n} details`}><g className="cursor-pointer">
+      <Link to="/admin/equipment?tab=pcs" aria-label={`${n} details`}><g className="cursor-pointer">
         <title>{`${n}${st ? ' · ' + st.toLowerCase().replace('_', ' ') : ''} - open the PC details`}</title>
         <rect x={x} y={y} width={w} height={h} rx={0.6} fill={gone ? '#0b1220' : st ? PC_FILL[st] : '#1e293b'}
               stroke={gone ? '#f87171' : '#475569'} strokeWidth={0.2} strokeDasharray={gone ? '0.6 0.4' : undefined}>

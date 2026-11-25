@@ -75,7 +75,7 @@ const cdp = await ctx.newCDPSession(p)
 await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 500 })
 
 const t0 = Date.now()
-await p.goto(BASE + '/admin/equipment?tab=noncons', { waitUntil: 'domcontentloaded' })
+await p.goto(BASE + '/admin/equipment?tab=robots', { waitUntil: 'domcontentloaded' })
 await p.waitForSelector('text=Robots', { timeout: 30000 })
 const loadMs = Date.now() - t0
 // CYCLES=n: leave the tab and come back n times first (in-app, as a long session does), pointing at both

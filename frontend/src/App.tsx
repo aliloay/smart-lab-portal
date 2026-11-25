@@ -201,7 +201,7 @@ export default function App() {
           <Route path="/issues/:id" element={<IssueDetail />} />
           <Route path="/notifications" element={<Notifications />} />
           {/* staff: one place for screens (Lab equipment). A ?t= watch link and the students keep this address. */}
-          <Route path="/share" element={staff && !watchToken ? <Navigate to="/admin/equipment?tab=share" replace /> : <Share />} />
+          <Route path="/share" element={staff && !watchToken ? <Navigate to="/admin/equipment?tab=pcs" replace /> : <Share />} />
           <Route path="/live" element={<Navigate to={staff ? '/command' : '/'} replace />} />
           <Route path="/profile" element={<Profile />} />
 

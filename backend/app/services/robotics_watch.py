@@ -127,12 +127,12 @@ def assets_overdue(db: Session, now: datetime) -> list[dict]:
 
 
 def robots(db: Session, now: datetime) -> list[dict]:
-    out = _offline(db, now, (DeviceType.ROBOT,), "Robot", "/admin/equipment?tab=noncons")
+    out = _offline(db, now, (DeviceType.ROBOT,), "Robot", "/admin/equipment?tab=robots")
     for s in db.scalars(select(EquipmentSession).where(EquipmentSession.state == "FAULT",
                                                        EquipmentSession.ended_at.is_(None))).all():
         d = db.get(Device, s.device_id)
         out.append(_item(f"Robot fault: {d.name}", f"Reported {_utc(s.started_at):%H:%M} UTC: "
-                         f"{s.detail or ''}", "critical", "/admin/equipment?tab=noncons",
+                         f"{s.detail or ''}", "critical", "/admin/equipment?tab=robots",
                          f"robotics:fault:{s.id}", s.lab_id))
     return out
 
@@ -146,13 +146,13 @@ def robot_unbooked(db: Session, now: datetime) -> list[dict]:
         if d is not None and d.device_type == DeviceType.ROBOT:
             out.append(_item(f"Robot running without a booking: {d.name}",
                              f"Running since {_utc(s.started_at):%H:%M} UTC with no booking in force.",
-                             "warning", "/admin/equipment?tab=noncons",
+                             "warning", "/admin/equipment?tab=robots",
                              f"robotics:unbooked:{s.id}", s.lab_id))
     return out
 
 
 def pcs_offline(db: Session, now: datetime) -> list[dict]:
-    return _offline(db, now, (DeviceType.PC,), "PC", "/admin/equipment?tab=noncons")
+    return _offline(db, now, (DeviceType.PC,), "PC", "/admin/equipment?tab=pcs")
 
 
 def exam_violations(db: Session, now: datetime) -> list[dict]:
@@ -163,7 +163,7 @@ def exam_violations(db: Session, now: datetime) -> list[dict]:
         d = db.get(Device, v.device_id)
         out.append(_item(f"Exam report: {d.device_uid}",
                          f"{v.detail}" + (f" (account {v.os_user})" if v.os_user else "") +
-                         ". Staff decide what it means.", "warning", "/admin/equipment?tab=noncons",
+                         ". Staff decide what it means.", "warning", "/admin/equipment?tab=pcs",
                          f"robotics:exam:{v.id}", v.lab_id))
     return out
 

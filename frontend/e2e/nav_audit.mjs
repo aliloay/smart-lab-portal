@@ -9,7 +9,7 @@ mkdirSync(OUT, { recursive: true })
 const WHO = { ADMIN: 'admin@giu-uni.de', LAB_STAFF: 'ramy@giu-uni.de', STUDENT: 'ali@giu-uni.de' }
 const STUDENT = ['/', '/labs', '/labs/1', '/book', '/bookings', '/share', '/robots', '/issues', '/issues/new', '/notifications', '/profile']
 const STAFF = [...STUDENT, '/command', '/admin/security', '/admin/operations', '/admin/access', '/admin/alerts', '/admin/incidents',
-  '/admin/bookings', '/admin/equipment', '/admin/equipment?tab=noncons', '/admin/equipment?tab=share', '/admin/equipment?tab=consumables',
+  '/admin/bookings', '/admin/equipment', '/admin/equipment?tab=robots', '/admin/equipment?tab=pcs', '/admin/equipment?tab=consumables',
   '/admin/equipment?tab=reusables', '/admin/equipment?tab=register', '/admin/devices', '/admin/health', '/admin/sensors', '/admin/system',
   '/admin/reliability', '/admin/reports', '/admin/users', '/admin/experiments', '/demo', '/scan', '/scan/markers', '/phone-setup',
   '/monitor', '/wall', '/exhibit', '/report', '/welcome', '/live', '/inventory', '/admin', '/me', '/admin/access-events', '/admin/assets',
@@ -71,7 +71,7 @@ for (const role of Object.keys(WHO)) for (const vp of Object.keys(VIEW)) {
     rows.push({ role, vp, route: r, ...m, errors: errors.length - n, blank: m.text < 20 })
   }
   const pics = role === 'STUDENT' ? ['/', '/notifications'] : role === 'LAB_STAFF' ? ['/', '/command']
-    : ['/', '/notifications', '/command', '/admin/security', '/admin/operations', '/admin/equipment?tab=noncons', '/admin/equipment?tab=share', '/admin/health', '/admin/access']
+    : ['/', '/notifications', '/command', '/admin/security', '/admin/operations', '/admin/equipment?tab=robots', '/admin/equipment?tab=pcs', '/admin/health', '/admin/access']
   if (ONLY !== 'routes') for (const r of pics) {
     await p.goto(BASE + r)
     await settle(p)

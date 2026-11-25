@@ -130,7 +130,7 @@ export const PAGE_WORDS: Record<string, string> = {
   '/admin/bookings': 'bookings booking reservations schedule calendar denied approved',
   '/book': 'book booking reserve',
   '/admin/emergency': 'emergency evacuation fire alarm hazard',
-  '/admin/equipment': 'equipment robots pcs environment consumables reusables inventory temperature humidity gas bins',
+  '/admin/equipment': 'equipment robots pcs computers screens share screen sharing environment consumables reusables inventory temperature humidity gas bins',
   '/admin/devices': 'devices esp32 nodes sensors firmware online offline',
   '/issues': 'maintenance issues repairs faults tickets',
   '/admin/incidents': 'incidents problems outages',

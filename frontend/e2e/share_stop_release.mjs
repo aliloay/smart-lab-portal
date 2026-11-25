@@ -24,7 +24,7 @@ try {
   await a.goto(`${BASE}/login`)
   await a.fill('#email', EMAIL); await a.fill('#password', PASSWORD)
   await a.click('button[type=submit]'); await a.waitForURL(u => !u.pathname.startsWith('/login'))
-  await a.goto(`${BASE}/admin/equipment?tab=noncons`, { waitUntil: 'networkidle' })
+  await a.goto(`${BASE}/admin/equipment?tab=pcs`, { waitUntil: 'networkidle' })
   await a.click('button:has-text("Choose screen or window")')
   await a.waitForSelector('text=Preview - only you can see this', { timeout: 15000 })
   await a.click('button:has-text("Go live")')

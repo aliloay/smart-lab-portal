@@ -13,7 +13,7 @@ const OLD_ADMIN = [...OLD_STAFF, '/admin/emergency', '/admin/reports', '/admin/s
 
 const pages = (role?: string) => pagesFor(role).map(p => p.to)
 // /share is the Screen sharing tab for staff, /notifications is the bell; both stay addresses and palette entries
-const moved = (p: string) => p === '/share' ? '/admin/equipment?tab=share' : p
+const moved = (p: string) => p === '/share' ? '/admin/equipment?tab=pcs' : p
 test('no page of the old menu is lost (menu, tabs or Ctrl+K), none appears twice', () => {
   for (const p of OLD_STAFF) assert.ok(pages('LAB_STAFF').includes(moved(p)), p)
   for (const p of OLD_ADMIN) assert.ok(pages('ADMIN').includes(moved(p)), p)

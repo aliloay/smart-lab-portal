@@ -92,17 +92,22 @@ await shot(p, 'screens_menu')
 await p.keyboard.press('Escape')
 // equipment / share
 await p.goto(BASE + '/share')
-await p.waitForURL('**/admin/equipment?tab=share')
-await p.getByText('To start or stop a share').waitFor()
+await p.waitForURL('**/admin/equipment?tab=pcs')
+const sel = () => p.locator('main [role=tab][aria-selected=true]').last().innerText()
+await p.getByRole('heading', { name: /Shared screen|is sharing/ }).waitFor()
 ok(await p.getByRole('heading', { level: 1 }).count() === 1, 'one page heading')
-await p.goto(BASE + '/admin/equipment?tab=noncons')
-await p.getByRole('button', { name: 'Watch the shared screen' }).click()
-ok(at(p) === '/admin/equipment?tab=share', 'Robots & PCs leads to the shared screen')
+ok(await p.locator('main canvas').count() === 0, 'PCs & screens loads no 3D view')
+for (const [t, want] of [['noncons', '2 · Robots'], ['share', '3 · PCs & screens'], ['robots', '2 · Robots'], ['pcs', '3 · PCs & screens'],
+                         ['consumables', '4 · Consumables'], ['reusables', '5 · Reusables'], ['register', 'Equipment register'], ['nonsense', '1 · Physical environment']]) {
+  await p.goto(BASE + '/admin/equipment?tab=' + t)
+  await p.locator('main [role=tab]').first().waitFor()
+  ok((await sel()).trim() === want, `tab=${t} opens ${want}`)
+}
 await p.goto(BASE + '/share?t=x')
 await p.waitForTimeout(1200)
 ok(at(p) === '/share?t=x', 'a watch link keeps its address')
 // palette
-for (const [word, title] of [['wall', 'Wall display'], ['notifications', 'Notifications'], ['screen sharing', 'Screen sharing'], ['simulation', 'Simulation'], ['sensors', 'Sensors']]) {
+for (const [word, title] of [['wall', 'Wall display'], ['notifications', 'Notifications'], ['screen sharing', 'PCs & screen sharing'], ['simulation', 'Simulation'], ['sensors', 'Sensors']]) {
   await p.goto(BASE + '/')
   await p.locator('aside nav a').first().waitFor()
   await p.waitForTimeout(500)

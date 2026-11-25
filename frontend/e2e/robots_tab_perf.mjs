@@ -9,7 +9,7 @@ import { chromium } from 'playwright-core'
 const BASE = process.argv[2] || 'https://localhost'
 const RUNS = Number(process.argv[3] || 3)
 // [name, path, canvases the page shows when complete]
-const PAGES = [['Robots & PCs tab', '/admin/equipment?tab=noncons', 2], ['UR5e page', '/robots/10', 1], ['FANUC page', '/robots/11', 1]]
+const PAGES = [['Robots & PCs tab', '/admin/equipment?tab=robots', 2], ['UR5e page', '/robots/10', 1], ['FANUC page', '/robots/11', 1]]
 const isModel = u => u.includes('/models/')
 
 async function session() {

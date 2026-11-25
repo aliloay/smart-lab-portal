@@ -974,7 +974,7 @@ def share_ask(req: ShareAsk, db: Session = Depends(get_db), user: User = Depends
     db.add(AuditLog(actor_user_id=user.id, action="SHARE_REQUESTED", entity_type="device", entity_id=str(d.id),
                     detail={"device": d.device_uid, "request": r["id"]}))
     notify(db, _admin_ids(db), "SHARE_REQUEST", f"{user.full_name} asks to share {d.name}'s screen",
-           body="Accept or reject on Lab equipment - Robots & PCs.", link="/admin/equipment?tab=noncons",
+           body="Accept or reject on Lab equipment - PCs & screens.", link="/admin/equipment?tab=pcs",
            severity="warning")
     db.commit()
     _share_changed()

@@ -169,7 +169,7 @@ def asset_card(db: Session, code: str, staff: bool, now: Optional[datetime] = No
                 "seconds_since_seen": o.seconds_since_seen, "facts": _facts_for_device(db, d, now, staff),
                 "readings": _readings(db, d.id, now) if d.device_type == DeviceType.SENSOR_NODE else [],
                 **_open_counts(db, d.id, d.lab_id),
-                "link": {DeviceType.ROBOT: "/admin/equipment?tab=noncons", DeviceType.PC: "/admin/equipment?tab=noncons",
+                "link": {DeviceType.ROBOT: "/admin/equipment?tab=robots", DeviceType.PC: "/admin/equipment?tab=pcs",
                          DeviceType.SECURITY_CAMERA: "/admin/security"}.get(d.device_type, "/admin/devices"),
                 "ask": f"What is the current state of {d.name} ({d.device_uid}), and has anything gone wrong with it recently?"}
         return card
@@ -216,5 +216,5 @@ def asset_card(db: Session, code: str, staff: bool, now: Optional[datetime] = No
             "type": "Reusable-bin item" if a.bin_item else (a.category or "Equipment"),
             "lab_code": lab.code if lab else None, "status": a.status.value, "last_seen_at": None,
             "seconds_since_seen": None, "facts": facts, "readings": [], **_open_counts(db, None, a.lab_id),
-            "link": "/admin/equipment?tab=noncons" if not a.bin_item else "/admin/equipment",
+            "link": "/admin/equipment?tab=register" if not a.bin_item else "/admin/equipment",
             "ask": f"Tell me about {a.name} ({a.asset_tag}): status, history and maintenance."}

@@ -479,7 +479,7 @@ function RobotPanel({ robots, labId, compact = false }: {
     <section className="rounded-2xl border border-white/[.09] bg-[#121922] p-4" aria-labelledby="robots-heading">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2"><Bot size={15} className="text-cyan-300" /><h2 id="robots-heading" className="text-sm font-semibold text-white">Robot fleet</h2></div>
-        <Link to="/admin/equipment?tab=noncons" className="text-xs text-cyan-300 hover:text-cyan-200">Fleet details <ArrowRight size={12} className="inline" /></Link>
+        <Link to="/admin/equipment?tab=robots" className="text-xs text-cyan-300 hover:text-cyan-200">Fleet details <ArrowRight size={12} className="inline" /></Link>
       </div>
       {robots === null ? <div className="mt-3 space-y-2"><Skeleton className="h-16" /><Skeleton className="h-16" /></div>
         : scoped.length === 0 ? <div className="mt-4 rounded-lg border border-white/[.06] bg-black/15 p-4 text-xs text-slate-500">No robot telemetry is reporting in this scope. Movement state is unknown.</div>

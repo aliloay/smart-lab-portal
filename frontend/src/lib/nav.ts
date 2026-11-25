@@ -95,8 +95,8 @@ export function pagesFor(role: string | undefined): { to: string; label: string;
   if (operator(role)) {
     for (const s of [LIVE, INSIGHT]) for (const t of s.tabs) if (!t.admin || role === 'ADMIN') add(t.to, t.label, s.title)
     const eq = (tab: string, label: string) => add(`/admin/equipment?tab=${tab}`, label, 'Lab equipment')
-    eq('noncons', 'Robots & PCs')
-    eq('share', 'Screen sharing')
+    eq('robots', 'Robots & digital twins')
+    eq('pcs', 'PCs & screen sharing')
     eq('environment', 'Physical environment')
     eq('consumables', 'Consumables')
     eq('reusables', 'Reusables')

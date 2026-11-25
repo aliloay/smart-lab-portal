@@ -15,7 +15,7 @@ async function login(base, email, pw) {
 }
 const admin = await login('https://192.168.1.200', 'admin@giu-uni.de', (process.env.SEED_ADMIN_PASSWORD ?? (() => { throw new Error('Set SEED_ADMIN_PASSWORD in the environment') })()))
 const student = await login('http://192.168.1.200', process.env.VIEWER || 'ramy@giu-uni.de', process.env.VIEWER_PW || (process.env.SEED_STAFF_PASSWORD ?? (() => { throw new Error('Set SEED_STAFF_PASSWORD in the environment') })()))
-await admin.goto('https://192.168.1.200/admin/equipment?tab=noncons', { waitUntil: 'networkidle' })
+await admin.goto('https://192.168.1.200/admin/equipment?tab=pcs', { waitUntil: 'networkidle' })
 const btn = admin.locator('button:has-text("Choose screen or window")')
 console.log('share button enabled (https):', await btn.isEnabled())
 await admin.fill('input[placeholder^="Title"]', 'E2E test')

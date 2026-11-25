@@ -22,7 +22,7 @@ const pc = eq.find(e => e.device_uid === UID)
 console.log('PC listed:', !!pc, pc && { online: pc.online, monitors: pc.detail?.monitors?.length, using: pc.detail?.foreground_app })
 
 // 1. Live preview through the UI, first frame latency
-await page.goto(`${BASE}/admin/equipment?tab=noncons`, { waitUntil: 'networkidle' })
+await page.goto(`${BASE}/admin/equipment?tab=pcs`, { waitUntil: 'networkidle' })
 const card = page.locator('div.card', { hasText: pc.name }).first()
 let t0 = Date.now()
 await card.locator('button:has-text("View screen")').click()
@@ -59,7 +59,7 @@ await page.keyboard.press('Escape'); await page.waitForTimeout(1000)
 
 // 4. Share to the selected PC only (browser source over https). The master PC presents, it never receives.
 if (pc.is_master_pc) { console.log('share-to-selected skipped: this PC is the master PC'); await browser.close(); process.exit(0) }
-await page.goto(`${BASE}/admin/equipment?tab=noncons`, { waitUntil: 'networkidle' })
+await page.goto(`${BASE}/admin/equipment?tab=pcs`, { waitUntil: 'networkidle' })
 await page.click('text=selected PCs')
 await page.locator('label', { hasText: pc.name }).locator('input[type=checkbox]').check()
 await page.click('button:has-text("Choose screen or window")')

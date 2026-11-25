@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Boxes, CalendarClock, Cast, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
+import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucide-react'
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import NetworkedEquipment from '../components/NetworkedEquipment'
@@ -187,46 +187,46 @@ function AddAsset({ labs, onClose, onSaved }: { labs: Lab[]; onClose: () => void
 }
 
 // ---------------------------------------------------------------------------
-// The Robotics Lab's four systems, one tab each, plus the full register.
+// The Robotics Lab's five systems, one tab each, plus the full register.
 // ---------------------------------------------------------------------------
-type Tab = 'environment' | 'noncons' | 'share' | 'consumables' | 'reusables' | 'register'
+type Tab = 'environment' | 'robots' | 'pcs' | 'consumables' | 'reusables' | 'register'
 const TABS: { key: Tab; label: string }[] = [
   { key: 'environment', label: '1 · Physical environment' },
-  { key: 'noncons', label: '2 · Robots & PCs' },
-  { key: 'share', label: 'Screen sharing' },
-  { key: 'consumables', label: '3 · Consumables' },
-  { key: 'reusables', label: '4 · Reusables' },
+  { key: 'robots', label: '2 · Robots' },
+  { key: 'pcs', label: '3 · PCs & screens' },
+  { key: 'consumables', label: '4 · Consumables' },
+  { key: 'reusables', label: '5 · Reusables' },
   { key: 'register', label: 'Equipment register' },
 ]
+// Addresses from before 2026-11-25 (bookmarks, stored notifications).
+const OLD: Record<string, Tab> = { noncons: 'robots', share: 'pcs' }
 
 export default function Equipment() {
   const [params, setParams] = useSearchParams()
-  const tab = (TABS.some(t => t.key === params.get('tab')) ? params.get('tab') : 'environment') as Tab
+  const asked = OLD[params.get('tab') ?? ''] ?? params.get('tab')
+  const tab = (TABS.some(t => t.key === asked) ? asked : 'environment') as Tab
   const [adding, setAdding] = useState(false)
   const [version, setVersion] = useState(0)        // remounts the shown system after an addition
-  // Robots & PCs stays mounted (hidden) once opened (2026-10-21, owner: "very slow, freezes"): starting a
+  // Robots stays mounted (hidden) once opened (2026-10-21, owner: "very slow, freezes"): starting a
   // robot's 3D view costs ~1 s of the main thread (WebGL context, model, shaders - profiled), and leaving the
   // tab threw both views away, so every return paid it again. Hidden, the views draw nothing (off screen).
-  const [robotsOpened, setRobotsOpened] = useState(tab === 'noncons')
-  useEffect(() => { if (tab === 'noncons') setRobotsOpened(true) }, [tab])
+  // PCs stays mounted too, as before the two were separate tabs; only its shared picture stops when hidden.
+  const [opened, setOpened] = useState<Partial<Record<Tab, boolean>>>({ [tab]: true })
+  useEffect(() => { setOpened(o => o[tab] ? o : { ...o, [tab]: true }) }, [tab])
   return (
     <div className="space-y-5">
       <PageHeader eyebrow="Robotics Lab" title="Equipment"
-        sub="The lab's four systems: environment, robots & PCs, consumables and reusables."
+        sub="The lab's five systems: environment, robots, PCs, consumables and reusables."
         actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} />Add equipment</button>} />
       {adding && <AddEquipment onClose={() => setAdding(false)}
         onSaved={t => { setAdding(false); setParams({ tab: t }, { replace: true }); setVersion(v => v + 1) }} />}
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
       <div key={version} className="contents">
       {tab === 'environment' && <EnvironmentOverview />}
-      {robotsOpened && <div className={tab === 'noncons' ? 'space-y-5' : 'hidden'}>
-        <div className="flex justify-end"><button type="button" className="btn-ghost btn-sm" onClick={() => setParams({ tab: 'share' })}>
-          <Cast size={14} /> Watch the shared screen</button></div>
-        <RobotTwinPanels /><NetworkedEquipment /></div>}
-      {tab === 'share' && <div className="space-y-3">
-        <p className="text-[12.5px] text-slate-400">What the lab sees. To start or stop a share, and to see each PC, use{' '}
-          <button type="button" className="link" onClick={() => setParams({ tab: 'noncons' })}>Robots &amp; PCs</button>.</p>
-        <Share embedded /></div>}
+      {opened.robots && <div className={tab === 'robots' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /></div>}
+      {opened.pcs && <div className={tab === 'pcs' ? 'space-y-5' : 'hidden'}>
+        <NetworkedEquipment />
+        {tab === 'pcs' && <Share embedded />}</div>}
       {tab === 'consumables' && <ConsumableBins />}
       {tab === 'reusables' && <ReusableItems />}
       {tab === 'register' && <EquipmentRegister />}

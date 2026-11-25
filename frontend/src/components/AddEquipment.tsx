@@ -16,9 +16,9 @@ import { InventoryBin, Lab, api } from '../lib/api'
 import { ErrorBanner, Field, Modal } from './ui'
 
 type Kind = 'environment' | 'pc' | 'robot' | 'consumable' | 'reusable' | 'other'
-export type EquipmentTab = 'environment' | 'noncons' | 'consumables' | 'reusables' | 'register'
+export type EquipmentTab = 'environment' | 'robots' | 'pcs' | 'consumables' | 'reusables' | 'register'
 const TAB_OF: Record<Kind, EquipmentTab> = {
-  environment: 'environment', pc: 'noncons', robot: 'noncons', consumable: 'consumables',
+  environment: 'environment', pc: 'pcs', robot: 'robots', consumable: 'consumables',
   reusable: 'reusables', other: 'register',
 }
 const KINDS: { kind: Kind; title: string; sub: string; icon: ReactNode }[] = [
