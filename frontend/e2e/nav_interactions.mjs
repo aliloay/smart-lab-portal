@@ -93,7 +93,7 @@ await p.keyboard.press('Escape')
 // equipment / share
 await p.goto(BASE + '/share')
 await p.waitForURL('**/admin/equipment?tab=pcs')
-const sel = () => p.locator('main [role=tab][aria-selected=true]').last().innerText()
+const sel = () => p.locator('main [role=tab][aria-selected=true]').first().innerText()
 await p.getByRole('heading', { name: /Shared screen|is sharing/ }).waitFor()
 ok(await p.getByRole('heading', { level: 1 }).count() === 1, 'one page heading')
 ok(await p.locator('main canvas').count() === 0, 'PCs & screens loads no 3D view')

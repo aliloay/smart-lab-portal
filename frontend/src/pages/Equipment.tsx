@@ -221,7 +221,7 @@ export default function Equipment() {
       {adding && <AddEquipment onClose={() => setAdding(false)}
         onSaved={t => { setAdding(false); setParams({ tab: t }, { replace: true }); setVersion(v => v + 1) }} />}
       <Tabs id="equipment" tabs={TABS} value={tab} onChange={k => setParams({ tab: k }, { replace: true })} />
-      <div key={version} className="contents">
+      <div key={version} className="space-y-5 pt-5">
       {tab === 'environment' && <EnvironmentOverview />}
       {opened.robots && <div className={tab === 'robots' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /></div>}
       {opened.pcs && <div className={tab === 'pcs' ? 'space-y-5' : 'hidden'}>
