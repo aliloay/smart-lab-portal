@@ -20,7 +20,7 @@ import { relative } from '../../lib/time'
 import { Skeleton } from '../ui'
 import { MODELS, RobotModel } from './kinematics'
 import { effective, useRobots } from './robotLive'
-import { FANUC_CELL, tipPosition, urdfFor } from './robotModels'
+import { tipPosition, urdfFor } from './robotModels'
 import { visibleInterval } from '../../lib/visibleInterval'
 
 const loadTwin = () => import('./RobotTwin')
@@ -305,10 +305,6 @@ function PanelInner({ model, robot, onFull, big }: {
       {twinView}
         {robot && <div className="px-4 pt-3 text-[13px]">
           <ActivityLine robot={robot} code={robot.stale ? null : String(robot.extra?.control_source ?? '') || null} /></div>}
-        {model.key === 'FANUC' && <div className="px-4 pt-3 text-[12px] text-slate-400">
-          <span className="text-slate-200 font-medium">{FANUC_CELL.name}</span> · {FANUC_CELL.width_m * 1000} × {FANUC_CELL.depth_m * 1000} × {FANUC_CELL.height_m * 1000} mm (W × D × H) · {FANUC_CELL.weight_kg} kg
-          · robot {FANUC_CELL.robot} · controller {FANUC_CELL.controller}
-          <div className="text-slate-500">Dimensions: <a className="link" href={FANUC_CELL.sourceUrl} target="_blank" rel="noreferrer">{FANUC_CELL.source}</a>. The 3D arm is an LR Mate 200iD stand-in; the cell's inner layout is approximate.</div></div>}
         <div className="p-4 pb-2">{jointBars}</div>
         {control && <div className="px-4 pb-2">{control}</div>}
       </>}
