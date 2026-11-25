@@ -4,6 +4,7 @@ import { Boxes, CalendarClock, Plus, Search, TriangleAlert, Wrench } from 'lucid
 import { Asset, Lab, api } from '../lib/api'
 import { useLiveMessages } from '../lib/live'
 import NetworkedEquipment from '../components/NetworkedEquipment'
+import LabPcs from '../components/LabPcs'
 import AddEquipment from '../components/AddEquipment'
 import RobotTwinPanels from '../components/robot/RobotTwinPanel'
 import EnvironmentOverview from '../components/EnvironmentOverview'
@@ -225,6 +226,7 @@ export default function Equipment() {
       {tab === 'environment' && <EnvironmentOverview />}
       {opened.robots && <div className={tab === 'robots' ? 'space-y-5' : 'hidden'}><RobotTwinPanels /></div>}
       {opened.pcs && <div className={tab === 'pcs' ? 'space-y-5' : 'hidden'}>
+        <LabPcs />
         <NetworkedEquipment />
         {tab === 'pcs' && <Share embedded />}</div>}
       {tab === 'consumables' && <ConsumableBins />}

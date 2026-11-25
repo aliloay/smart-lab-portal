@@ -212,7 +212,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* phone header */}
       <header className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 h-14
-                         bg-ink-900/95 border-b border-white/[0.07]">
+                         bg-ink-900 border-b border-white/[0.07]">
         <button onClick={() => setOpen(v => !v)} aria-label="Open navigation"
                 className="p-2 -ml-2 text-slate-300 hover:text-white">
           <Menu size={20} />
@@ -245,7 +245,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* desktop top bar */}
         {/* Left: the university. Right: system and account actions. */}
         <div className="hidden lg:flex sticky top-0 z-30 items-center gap-2.5
-                        h-16 px-8 bg-ink-900/90 border-b border-white/[0.07]">
+                        h-16 px-8 bg-ink-900 border-b border-white/[0.07]">
           <div className="mr-auto flex items-center min-w-0">
             <InstitutionLogo strong className="!h-10"
                              textClass="!text-[11px] !tracking-[0.14em] !text-slate-200 whitespace-nowrap" />

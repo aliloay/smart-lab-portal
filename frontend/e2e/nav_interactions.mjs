@@ -103,6 +103,11 @@ for (const [t, want] of [['noncons', '2 · Robots'], ['share', '3 · PCs & scree
   await p.locator('main [role=tab]').first().waitFor()
   ok((await sel()).trim() === want, `tab=${t} opens ${want}`)
 }
+for (const [t, there] of [['robots', 0], ['pcs', 1]]) {
+  await p.goto(BASE + '/admin/equipment?tab=' + t)
+  await p.waitForTimeout(2500)
+  ok(await p.getByText('Lab PCs', { exact: true }).count() === there, `Lab PCs card ${there ? 'on' : 'not on'} ${t}`)
+}
 await p.goto(BASE + '/share?t=x')
 await p.waitForTimeout(1200)
 ok(at(p) === '/share?t=x', 'a watch link keeps its address')
